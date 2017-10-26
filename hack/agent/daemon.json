@@ -1,0 +1,5 @@
+{
+    "debug": true,
+    "log-driver": "journald",
+    "init-path": "/apps/titus-executor/bin/tini-static"
+}

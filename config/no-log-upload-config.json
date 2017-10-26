@@ -1,0 +1,14 @@
+{
+  "stack": "laptop",
+  "docker": {
+    "host": "unix:///var/run/docker.sock",
+    "registry": "docker.io"
+  },
+  "uploaders": {
+    "log": [{
+      "type": "copy",
+      "directory": "/tmp"
+    }]
+  },
+  "statusCheckFrequency": "10s"
+}

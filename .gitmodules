@@ -1,0 +1,3 @@
+[submodule "tini"]
+	path = tini
+	url = git@github.com:Netflix-Skunkworks/tini.git

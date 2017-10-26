@@ -1,0 +1,38 @@
+{
+  "stack": "laptop",
+  "docker": {
+    "host": "unix:///var/run/docker.sock",
+    "registry": "docker.io"
+  },
+  "uploaders": {
+    "log": [
+      {
+        "type": "copy",
+        "directory": "/var/tmp/titus-executor/tests"
+      }
+    ]
+  },
+  "env": {
+    "copiedFromHost": [
+      "NETFLIX_ENVIRONMENT",
+      "EC2_INSTANCE_ID",
+      "EC2_REGION",
+      "EC2_AVAILABILITY_ZONE",
+      "EC2_OWNER_ID",
+      "EC2_RESERVATION_ID"
+    ],
+    "hardCoded": {
+      "NETFLIX_APPUSER": "appuser",
+      "EC2_DOMAIN": "amazonaws.com"
+    }
+  },
+  "statusCheckFrequency": "10s",
+  "logUpload": {
+    "logUploadThresholdTime": "10s",
+    "logUploadCheckInterval": "5s",
+    "keepLocalFileAfterUpload": true
+  },
+  "dev": {
+    "disableMetrics": true
+  }
+}

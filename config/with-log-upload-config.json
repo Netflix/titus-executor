@@ -1,0 +1,19 @@
+{
+  "stack": "laptop",
+  "docker": {
+    "host": "unix:///var/run/docker.sock",
+    "registry": "docker.io"
+  },
+  "uploaders": {
+    "log": [{
+      "type": "copy",
+      "directory": "/tmp"
+    }]
+  },
+  "statusCheckFrequency": "10s",
+  "logUpload" : {
+    "logUploadThresholdTime" : "1ms",
+    "logUploadCheckInterval" : "10s",
+    "keepLocalFileAfterUpload" : true
+  }
+}
