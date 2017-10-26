@@ -15,4 +15,4 @@ before_install:
   - go get -u github.com/kardianos/govendor
 
 script:
-  - make --output-sync -j2 builder all
+  - make -j2 builder all
