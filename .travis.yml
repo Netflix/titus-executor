@@ -6,3 +6,9 @@ services:
 
 go:
   - 1.9
+
+before_install:
+  - go get -u github.com/alecthomas/gometalinter
+  - gometalinter --install
+  - go get -u github.com/kardianos/govendor
+
