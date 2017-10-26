@@ -8,9 +8,11 @@ go:
   - 1.9
 
 before_install:
+  - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+  - docker pull titusoss/titus-executor-builder:latest
   - go get -u github.com/alecthomas/gometalinter
   - gometalinter --install
   - go get -u github.com/kardianos/govendor
 
 script:
-  - make --output-sync -j builder all
+  - make --output-sync -j2 builder all
