@@ -12,3 +12,5 @@ before_install:
   - gometalinter --install
   - go get -u github.com/kardianos/govendor
 
+script:
+  - make --output-sync -j builder all
