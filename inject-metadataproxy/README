@@ -1,0 +1,13 @@
+This adds the metadata proxy injector.
+The metadata proxy injector operates on having a TITUS_PID_1_DIR environment variable set
+
+1. It saves the current namespace
+2. It opens the container's network namespace at TITUS_PID_1_DIR/ns/net
+3. It calls unshare, and creates an entirely new network namespace.
+4. It creates a veth pair on this namespace
+5. It adds the IP address 169.254.169.254 to the veth pair
+6. It binds to port 80 in the new netns created
+7. It moves a side of the veth into the container's network namespace
+8. It sets up a route in the container's netns
+9. It changes to the PID ns of the container
+10. It calls the metadata proxy code

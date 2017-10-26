@@ -1,0 +1,81 @@
+buildscript {
+    repositories {
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+    }
+    dependencies {
+        classpath 'com.netflix.nebula:gradle-netflixoss-project-plugin:4.0.0'
+    }
+}
+
+apply plugin: 'nebula.netflixoss'
+apply plugin: 'nebula.dependency-lock'
+
+ext {
+    titusApiDefinitionsVersion = '0.+'
+}
+
+repositories {
+    if (project.hasProperty('useMavenLocal')) {
+        repositories {
+            mavenLocal()
+        }
+    }
+    maven { url 'https://dl.bintray.com/netflixoss/oss-candidate/' }
+    maven {
+        url 'https://titusoss.bintray.com/maven'
+        credentials {
+            username resolveTitusOssUserName()
+            password resolveTitusOssUserPassword()
+        }
+    }
+}
+
+configurations {
+    protoDefs
+}
+
+dependencies {
+    protoDefs "com.netflix:titus-api-definitions:${titusApiDefinitionsVersion}"
+}
+
+dependencyLock {
+    updateDependencies = ["com.netflix:titus-api-definitions"]
+}
+
+task extract(type: Copy) {
+    dependsOn configurations.protoDefs
+    from {
+        configurations.protoDefs.collect {
+            zipTree(it).matching {
+                include '**/*.proto'
+            }
+        }
+    }
+    includeEmptyDirs false
+    into './build/lib'
+}
+
+def resolveTitusOssUserName() {
+    if (project.hasProperty('titusUsername')) {
+        return project.property('titusUsername')
+    }
+    def secret = file('root/metatron/decrypted/Bintray-TitusOSS')
+    if (secret.exists()) {
+        return 'titusbintrayprivate'
+    }
+    throw new GradleException("TitusOSS Bintray credentials missing")
+}
+
+def resolveTitusOssUserPassword() {
+    if (project.hasProperty('titusUsername')) {
+        return project.hasProperty('titusPassword') ? project.property('titusPassword') : 'passwordnotset'
+    }
+    def secret = file('root/metatron/decrypted/Bintray-TitusOSS')
+    if (secret.exists()) {
+        return secret.text.trim()
+    }
+    throw new GradleException("TitusOSS Bintray credentials missing")
+}
+

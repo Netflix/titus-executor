@@ -1,0 +1,11 @@
+[Unit]
+Description=Metrics Pod for %i
+ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
+
+[Service]
+Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
+ExecStart=/usr/local/bin/atlas-titus-agent
+LimitNOFILE=65535
+PrivateTmp=yes
+
+Restart=on-failure

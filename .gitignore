@@ -1,0 +1,90 @@
+/ Compiled source #
+###################
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Packages #
+############
+# it's better to unpack these files and commit the raw source
+# git has its own built in compression methods
+*.7z
+*.dmg
+*.gz
+*.iso
+*.rar
+*.tar
+*.zip
+
+# Logs and databases #
+######################
+*.log
+
+# OS generated files #
+######################
+.DS_Store*
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# Editor Files #
+################
+*~
+*.swp
+
+# Gradle Files #
+################
+.gradle
+.m2
+
+# Build output directies
+target/
+build/
+classes/
+
+# IntelliJ specific files/directories
+out
+.idea
+*.ipr
+*.iws
+*.iml
+atlassian-ide-plugin.xml
+
+# Eclipse specific files/directories
+.classpath
+.project
+.settings
+.metadata
+/bin/
+
+# NetBeans specific files/directories
+.nbattrs
+
+# Scala build
+*.cache
+
+# Go
+test.out
+test.xml
+tests.xml
+test-standalone.out
+test-standalone.xml
+test-standalone-docker.out
+test-standalone-docker.xml
+checkstyle-result.xml
+/titus-executor
+/root/apps/titus-executor/bin/titus-executor
+/root/apps/titus-executor/bin/titus-reaper
+/root/apps/titus-executor/bin/titus-darion
+/root/apps/titus-executor/bin/titus-metadata-service
+/root/apps/titus-executor/bin/titus-mount
+/root/apps/titus-executor/bin/tini-static
+/mount/titus-mount
+
+# unignore directories named titus-executor
+!*/titus-executor/
+
+test-standalone.log
+test-local.log

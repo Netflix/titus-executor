@@ -1,0 +1,23 @@
+# IntelliJ specific files/directories
+.idea
+*.ipr
+*.iws
+*.iml
+
+# Eclipse specific files/directories
+.classpath
+.project
+.settings
+.metadata
+
+# NetBeans specific files/directories
+.nbattrs
+
+test.out
+test.xml
+tests.xml
+test-standalone.out
+test-standalone-docker.out
+test-standalone-docker.xml
+test-standalone.xml
+checkstyle-result.xml

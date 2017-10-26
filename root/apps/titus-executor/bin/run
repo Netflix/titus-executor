@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -e -o pipefail
+
+source /etc/profile.d/netflix_environment.sh
+
+if [ -z "${NETFLIX_ENVIRONMENT}" ] || [ -z "${EC2_REGION}" ] || [ -z "${NETFLIX_STACK}" ] ; then
+  echo "fatal error:  environment, region, or stack are unspecified"
+  exit 1
+fi
+
+# Check if the legacy userinfo (the new one sets correctly NETFLIX_ACCOUNT/NETFLIX_ENVIRONMENT)
+if [ -z "$NETFLIX_ACCOUNT" ]; then
+    # NETFLIX_ENVIRONMENT must be always test or prod, as this is what platform supports.
+    # We carry over information about account name in NETFLIX_ACCOUNT
+    export NETFLIX_ACCOUNT=${NETFLIX_ENVIRONMENT}
+    if [[ ${NETFLIX_ENVIRONMENT} == *"test"* ]]; then
+        NETFLIX_ENVIRONMENT="test"
+    elif [[ ${NETFLIX_ENVIRONMENT} == *"prod"* ]]; then
+        NETFLIX_ENVIRONMENT="prod"
+    else
+        echo "ERROR: not a test or prod account, and the account name pattern does not include 'prod' or 'test' substring"
+        exit -1
+    fi
+    export NETFLIX_ENVIRONMENT
+fi
+
+###############################################################################
+# Resolve Titus environment
+###############################################################################
+
+# Only override for dev stack, we do not want to support other registries
+if [ "${NETFLIX_STACK}" = "dev" ]; then
+  BOOT_OPTS="--test-registry"
+fi
+
+source /apps/titus-python-tools/bin/activate
+titus-bootstrap resolve ${BOOT_OPTS} | sudo tee /etc/profile.d/titus_environment.sh
+
+source /etc/profile.d/titus_environment.sh
+
+export ZKHOSTS=${TITUS_ZK}
+
+log_bucket=${TITUS_LOG_BUCKET}
+
+cp /etc/titus-executor/config.template.json /etc/titus-executor/config.json
+
+sed -i "s/__STACK__/${NETFLIX_STACK}/g" /etc/titus-executor/config.json
+sed -i "s/__REGION__/${EC2_REGION}/g" /etc/titus-executor/config.json
+sed -i "s/__ZONE__/${EC2_AVAILABILITY_ZONE}/g" /etc/titus-executor/config.json
+sed -i "s/__DOCKER_REGISTRY__/${TITUS_REGISTRY}/g" /etc/titus-executor/config.json
+sed -i "s/__S3_LOG_BUCKET__/$log_bucket/g" /etc/titus-executor/config.json
+
+# If this is an MCE account then enable privileged containers.
+if [[ "${NETFLIX_ACCOUNT}" == "mce"* ]]; then
+  sed -i "s/__PRIVILEGED_TOGGLE__/true/g" /etc/titus-executor/config.json
+else
+  sed -i "s/__PRIVILEGED_TOGGLE__/false/g" /etc/titus-executor/config.json
+fi
+
+if [ -z "${LIBPROCESS_IP}" ]; then
+  export LIBPROCESS_IP="${EC2_LOCAL_IPV4}"
+fi
+
+/apps/titus-executor/bin/titus-executor
