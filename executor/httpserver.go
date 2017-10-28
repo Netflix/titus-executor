@@ -25,6 +25,8 @@ func buildCurrentState(e *Executor) *models.CurrentState {
 	// We have concurrent map access and modification without holding a lock
 	// This state management needs to be refactored
 	tasks := map[string]string{}
+	e.Lock()
+	defer e.Unlock()
 	for tid, state := range e.taskStates {
 		tasks[tid] = state.String()
 	}
