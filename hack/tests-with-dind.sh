@@ -47,6 +47,6 @@ docker run --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:/sys
 log "Running integration tests against the $titus_agent_name daemon"
 # --privileged is needed here since we are reading FDs from a unix socket
 docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true "$titus_agent_name" \
-  go test ${TEST_FLAGS:-} ./executor/mock/standalone/... -standalone=true | \
+  go test ${TEST_FLAGS:-} ./executor/mock/standalone/... -standalone=true 2>&1 | \
   tee >(go-junit-report > "${TEST_DOCKER_OUTPUT:-test-standalone-docker.xml}") | tee > test-standalone.log
 
