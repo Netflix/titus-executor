@@ -186,6 +186,7 @@ func testHTTPServerEndpoint(t *testing.T) { // nolint: gocyclo
 		}
 		log.Printf("HTTP Server URL obtained %v\n", jobRunner.HTTPServer.URL)
 		checkURL := jobRunner.HTTPServer.URL + "/get-current-state"
+		http.DefaultClient.Timeout = 5 * time.Second
 		currentStateResponse, err := http.DefaultClient.Get(checkURL)
 		if err != nil {
 			t.Fatalf("Unable to fetch current executor state from http endpoint %s", err)
