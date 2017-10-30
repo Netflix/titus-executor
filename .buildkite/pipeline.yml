@@ -1,0 +1,33 @@
+steps:
+  - command: |
+              #!/bin/bash
+
+              set -uex -o pipefail
+
+              export GOPATH="${HOME}/go"
+              export PATH="/usr/local/go/bin:$$GOPATH/bin:$$PATH"
+
+              echo "Cleaning gopath"
+
+              rm -rf $$GOPATH
+              mkdir -p $$GOPATH/src/github.com/Netflix/
+              ln -s $$BUILDKITE_BUILD_CHECKOUT_PATH $$GOPATH/src/github.com/Netflix/titus-executor
+
+              pushd $$GOPATH/src/github.com/Netflix/titus-executor
+
+              go get -u github.com/alecthomas/gometalinter
+              gometalinter --install
+              go get -u github.com/kardianos/govendor
+
+              make clean
+              make -j16 builder build | tee build.log
+    artifact_paths: "*.log;build/distributions/*.deb"
+  - wait
+  - trigger: titus-upload-debs
+    async: false
+    build:
+      env:
+        CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"
+        CALLER_JOB_ID: "${BUILDKITE_JOB_ID}"
+        CALLER_UPLOAD_DEB: "build/distributions/titus-executor_latest.deb"
+        CALLER_PACKAGE_NAME: "titus-executor"
