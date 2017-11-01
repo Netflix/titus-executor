@@ -25,8 +25,8 @@ steps:
   - wait
   - trigger: titus-upload-debs
     async: false
+    branches: "master"
     build:
-      branch: "master"
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"
         CALLER_JOB_ID: "${BUILDKITE_JOB_ID}"
