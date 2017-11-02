@@ -82,6 +82,8 @@ func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInsta
 
 	router.HandleFunc("/info", proxy.info)
 	router.HandleFunc("/security-credentials/", proxy.securityCredentials)
+	router.HandleFunc("/security-credentials", redirectSecurityCredentials)
+
 	/* TODO: We should verify that people are actually hitting the right iamProfile, rather
 	   than just blindly returning
 	*/
@@ -307,4 +309,11 @@ func (proxy *iamProxy) doAssumeRole() {
 func generateSessionName(containerID string) string {
 	sessionName := fmt.Sprintf("titus-%s", containerID)
 	return invalidSessionNameRegexp.ReplaceAllString(sessionName, "_")[0:maxSessionNameLen]
+}
+
+func redirectSecurityCredentials(w http.ResponseWriter, r *http.Request) {
+	// This is called if someone hits /latest/meta-data/iam/security-credentials
+	// We need to 301 them to /latest/meta-data/iam/security-credentials/
+	newURI := r.RequestURI + "/"
+	http.Redirect(w, r, newURI, http.StatusMovedPermanently)
 }
