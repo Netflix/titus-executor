@@ -41,7 +41,7 @@ tini/src:
 build: tini/src | $(clean) $(builder)
 	mkdir -p $(PWD)/build/distributions
 	$(DOCKER_RUN) -v $(PWD):/src -v $(PWD)/build/distributions:/dist -u $(UID):$(GID) \
-	-e "BUILD_HOST=$(JENKINS_URL)" -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e devBuild \
+	-e "BUILD_HOST=$(JENKINS_URL)" -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e BUILDKITE_BRANCH \
 	titusoss/titus-executor-builder
 
 .PHONY: test

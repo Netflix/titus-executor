@@ -20,7 +20,7 @@ steps:
               go get -u github.com/kardianos/govendor
 
               make clean
-              make -j16 builder build | tee build.log
+              make -j16 builder all | tee build.log
     artifact_paths: "*.log;build/distributions/*.deb"
   - wait
   - trigger: titus-upload-debs

@@ -58,8 +58,7 @@ if [[ -n "${BUILD_NUMBER:-}" ]]; then
     unset iteration
 fi
 
-# TODO: use all caps for env vars (it isn't for backwards compatibility)
-if [[ -n "${devBuild:-}" ]]; then
+if [[ $BUILDKITE_BRANCH != "master" ]]; then
     provides="--provides titus-executor-dev"
 fi
 
