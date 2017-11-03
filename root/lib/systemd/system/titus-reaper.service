@@ -1,13 +1,8 @@
 [Unit]
 Description=Titus Reaper: Reaps Titus Containers
 Conflicts=halt.target shutdown.target sigpwr.target
-Requires=nflx-run-user-data.service
-After=nflx-run-user-data.service
-Requires=titus-environment-generator.service
-After=titus-environment-generator.service
 
 [Service]
-EnvironmentFile=/run/titus.env
 Environment=CONTAINER_HOME=/var/lib/titus-container-logs
 ExecStart=/apps/titus-executor/bin/titus-reaper
 Restart=always
