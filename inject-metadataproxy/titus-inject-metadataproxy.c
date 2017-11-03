@@ -110,7 +110,7 @@ static void interface_up(int ns_fd, char *interface_name) {
 	nl_socket_free(nls);
 }
 
-void setup_veth(int private_ns_fd, int container_ns_fd) {
+static void setup_veth(int private_ns_fd, int container_ns_fd) {
 	struct rtnl_link *veth, *peer;
 	struct nl_sock *nls;
 	int err;
@@ -140,7 +140,7 @@ void setup_veth(int private_ns_fd, int container_ns_fd) {
 	nl_socket_free(nls);
 }
 
-void add_addr(int ns_fd, int af, char *interface_name, char *addrstr) {
+static void add_addr(int ns_fd, int af, char *interface_name, char *addrstr) {
 	struct rtnl_addr *rtnladdr;
 	struct rtnl_link *link;
 	struct nl_addr *addr;
@@ -176,8 +176,71 @@ void add_addr(int ns_fd, int af, char *interface_name, char *addrstr) {
 	nl_addr_put(addr);
 }
 
-void add_route(int ns_fd, int af, char *dst, char *gateway, char *interface_name) {
-	struct nl_addr *gateway_addr, *dst_addr;
+struct route_cb_arg {
+	struct nl_addr *pref_src;
+	int af;
+};
+
+static int get_route_cb(struct nl_msg *msg, void *arg) {
+	struct route_cb_arg *cb_arg = arg;
+	struct nlmsghdr *msg_hdr;
+	struct nlattr *src;
+
+	msg_hdr = nlmsg_hdr(msg);
+	src = nlmsg_find_attr(msg_hdr, sizeof(struct rtmsg), RTA_PREFSRC);
+	if (src)
+		cb_arg->pref_src = nl_addr_alloc_attr(src, cb_arg->af);
+
+	return 0;
+}
+
+static struct nl_addr* get_route_prefsrc(int ns_fd, int af, char *dst) {
+	struct route_cb_arg cb_arg;
+	struct nl_addr *dst_addr;
+	struct nl_sock *nls;
+	struct rtmsg rmsg;
+	struct nl_msg *m;
+	int err;
+
+	memset(&cb_arg, 0, sizeof(cb_arg));
+	cb_arg.af = af;
+
+	err = nl_addr_parse(dst, af, &dst_addr);
+	BUG_ON(err < 0, "%s: unable to parse ip: %s", nl_geterror(err), dst);
+
+	rmsg.rtm_family = nl_addr_get_family(dst_addr);
+	rmsg.rtm_dst_len = nl_addr_get_prefixlen(dst_addr);
+
+	m = nlmsg_alloc_simple(RTM_GETROUTE, 0);
+	BUG_ON(!m, "Unable to allocate nlmsg");
+
+	BUG_ON(nlmsg_append(m, &rmsg, sizeof(rmsg), NLMSG_ALIGNTO) < 0, "Unable to create message");
+	BUG_ON(nla_put_addr(m, RTA_DST, dst_addr) < 0, "Unable to create message");
+
+	nls = nl_socket_alloc();
+	BUG_ON(!nls, "Could not allocate netlink socket");
+	nl_socket_modify_cb(nls, NL_CB_VALID, NL_CB_CUSTOM, get_route_cb, &cb_arg);
+
+        BUG_ON_PERROR(setns(ns_fd, CLONE_NEWNET), "Unable to switch to Namespace");
+
+	err = nl_connect(nls, NETLINK_ROUTE);
+	BUG_ON(err < 0, "%s: unable to connect netlink route socket", nl_geterror(err));
+
+	err = nl_send_sync(nls, m);
+	BUG_ON(err < 0, "%s: unable to send message to retrieve routes", nl_geterror(err));
+
+	err = nl_recvmsgs_default(nls);
+	BUG_ON(err < 0, "%s: Unable to receive messages", nl_geterror(err));
+
+	nl_close(nls);
+	nl_socket_free(nls);
+
+	nl_addr_put(dst_addr);
+
+	return cb_arg.pref_src;
+}
+
+static void add_route(int ns_fd, int af, struct nl_addr *src, struct nl_addr *dst, struct nl_addr *gateway, char *interface_name) {
 	struct rtnl_link *interface;
 	struct rtnl_route *route;
 	struct rtnl_nexthop *nh;
@@ -194,13 +257,13 @@ void add_route(int ns_fd, int af, char *dst, char *gateway, char *interface_name
 
 	BUG_ON_PERROR(setns(ns_fd, CLONE_NEWNET), "Unable to switch to Namespace");
 
-	err = nl_addr_parse(dst, af, &dst_addr);
-	BUG_ON(err < 0, "%s: unable to parse ip: %s", nl_geterror(err), dst);
-	err = nl_addr_parse(gateway, af, &gateway_addr);
-	BUG_ON(err < 0, "%s: unable to parse ip: %s", nl_geterror(err), gateway);
-	err = rtnl_route_set_dst(route, dst_addr);
+	err = rtnl_route_set_dst(route, dst);
 	BUG_ON(err < 0, "%s: unable to set route destination", nl_geterror(err));
-	rtnl_route_nh_set_gateway(nh, gateway_addr);
+
+	if (src) {
+		err = rtnl_route_set_pref_src(route, src);
+		BUG_ON(err < 0, "%s: unable to set route source", nl_geterror(err));
+	}
 
 	err = nl_connect(nls, NETLINK_ROUTE);
 	BUG_ON(err < 0, "%s: unable to connect netlink route socket", nl_geterror(err));
@@ -208,10 +271,15 @@ void add_route(int ns_fd, int af, char *dst, char *gateway, char *interface_name
 	err = rtnl_link_get_kernel(nls, 0, interface_name, &interface);
 	BUG_ON(err < 0, "%s: unable to get interface: %s", nl_geterror(err), interface_name);
 	rtnl_route_nh_set_ifindex(nh, rtnl_link_get_ifindex(interface));
+	if (gateway) {
+		rtnl_route_nh_set_gateway(nh, gateway);
+		rtnl_route_add_nexthop(route, nh);
+	} else {
+		rtnl_route_set_oif(route, rtnl_link_get_ifindex(interface));
+	}
 	rtnl_link_put(interface);
 
 	/* The route now owns the next hop object */
-	rtnl_route_add_nexthop(route, nh);
 	err = rtnl_route_add(nls, route, RTM_NEWROUTE | NLM_F_EXCL);
 	BUG_ON(err < 0, "%s: unable to add route", nl_geterror(err));
 
@@ -219,8 +287,6 @@ void add_route(int ns_fd, int af, char *dst, char *gateway, char *interface_name
 	nl_socket_free(nls);
 
 	rtnl_route_put(route);
-	nl_addr_put(dst_addr);
-	nl_addr_put(gateway_addr);
 }
 
 void do_reexec(char *argv[], int container_pid_ns, int new_ns, int host_ns, struct stat *container_stat) {
@@ -263,12 +329,53 @@ void do_reexec(char *argv[], int container_pid_ns, int new_ns, int host_ns, stru
 	exit(WEXITSTATUS(status));
 }
 
+void setup_container_route(int container_ns) {
+	struct nl_addr *pref_src, *metadataip;
+	char *container_ip;
+	char ip[256];
+	int i;
+
+	BUG_ON(nl_addr_parse("169.254.169.254/32", AF_INET, &metadataip) < 0, "Error parsing IP");
+
+	/* We use 77.77.77.77/32 as a stand-in for "the internet" */
+
+	for (i = 0; i < 5; i++) {
+		pref_src = get_route_prefsrc(container_ns, AF_INET, "77.77.77.77/32");
+		if (pref_src) {
+			memset(ip, 0, sizeof(ip));
+			nl_addr2str(pref_src, ip, sizeof(ip));
+			fprintf(stderr, "Using %s as pref src\n", ip);
+			goto add_route;
+		}
+		if (getenv("ENABLE_EC2_LOCAL_IPV4_FALLBACK")) {
+			fprintf(stderr, "Could not resolve route based on pref_src, falling back\n");
+			container_ip = getenv("EC2_LOCAL_IPV4");
+			BUG_ON(!container_ip, "EC2_LOCAL_IPV4 unset, and unable to get default route");
+			BUG_ON(nl_addr_parse(container_ip, AF_INET, &pref_src) < 0, "Error parsing IP: %s", container_ip);
+			goto add_route;
+		}
+		sleep(1);
+	}
+
+	fprintf(stderr, "Could not resolv pref src, and ENABLE_EC2_LOCAL_IPV4_FALLBACK not set, exiting\n");
+	exit(1);
+
+add_route:
+	add_route(container_ns, AF_INET, pref_src, metadataip, NULL, IN_CONTAINER_INTERFACE_NAME);
+
+	nl_addr_put(pref_src);
+}
+
 int main(int argc, char *argv[]) {
 	int original_ns, container_ns, new_ns, container_pid_ns;
+	struct nl_addr *defaultroute;
 	char environ_path[PATH_MAX];
 	struct stat container_stat;
 
+	BUG_ON(nl_addr_parse("0.0.0.0/0", AF_INET, &defaultroute) < 0, "Error parsing IP");
+
 	BUG_ON(argc < 2, "Usage %s child-binary [args]", argv[0]);
+
 	setup_namespaces(&original_ns, &container_ns, &new_ns, &container_pid_ns);
 
 	/* Cheating a bit, but setup_namespace has ensured getenv(TITUS_PID_1_DIR) will resolve */
@@ -279,10 +386,11 @@ int main(int argc, char *argv[]) {
 	setup_veth(new_ns, container_ns);
 	interface_up(new_ns, IN_PRIVATE_NS_INTERFACE_NAME);
 	interface_up(container_ns, IN_CONTAINER_INTERFACE_NAME);
-	add_addr(new_ns, AF_INET, IN_PRIVATE_NS_INTERFACE_NAME, "169.254.169.254/31");
-	add_addr(container_ns, AF_INET, IN_CONTAINER_INTERFACE_NAME, "169.254.169.255/31");
-	add_route(new_ns, AF_INET, "0.0.0.0/0", "169.254.169.255", IN_PRIVATE_NS_INTERFACE_NAME);
+	add_addr(new_ns, AF_INET, IN_PRIVATE_NS_INTERFACE_NAME, "169.254.169.254/32");
+	setup_container_route(container_ns);
+	add_route(new_ns, AF_INET, NULL, defaultroute, NULL, IN_PRIVATE_NS_INTERFACE_NAME);
 
+	nl_addr_put(defaultroute);
 	/* re exec dance */
 	do_reexec(argv, container_pid_ns, new_ns, original_ns, &container_stat);
 
