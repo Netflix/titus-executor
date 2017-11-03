@@ -31,6 +31,8 @@ titus_agent_name="titus-agent-${run_id}"
 
 terminate_titus_docker() {
     log "## Titus Integration tests ended, terminating the docker container"
+    docker exec "$titus_agent_name" journalctl > journald-standalone.log || true
+    docker exec "$titus_agent_name" journalctl -ojson > journald-standalone.json || true
     docker stop "$titus_agent_name" 2>/dev/null || true
 }
 
@@ -49,4 +51,3 @@ log "Running integration tests against the $titus_agent_name daemon"
 docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true "$titus_agent_name" \
   go test ${TEST_FLAGS:-} ./executor/mock/standalone/... -standalone=true 2>&1 | \
   tee >(go-junit-report > "${TEST_DOCKER_OUTPUT:-test-standalone-docker.xml}") | tee > test-standalone.log
-
