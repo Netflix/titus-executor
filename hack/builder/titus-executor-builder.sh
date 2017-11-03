@@ -58,7 +58,9 @@ if [[ -n "${BUILD_NUMBER:-}" ]]; then
     unset iteration
 fi
 
-if [[ $BUILDKITE_BRANCH != "master" ]]; then
+MAYBE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [[ ${BUILDKITE_BRANCH:-$MAYBE_BRANCH} != "master" ]]; then
     provides="--provides titus-executor-dev"
 fi
 
