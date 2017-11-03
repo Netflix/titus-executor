@@ -43,7 +43,6 @@ func NewS3Uploader(log logrus.FieldLogger, config map[string]string) (Uploader, 
 
 	session, err := session.NewSession(&aws.Config{
 		Logger: &logAdapter{log},
-		Region: aws.String(os.Getenv("EC2_REGION")),
 	})
 	if err != nil {
 		return nil, err
