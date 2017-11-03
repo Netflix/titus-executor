@@ -12,6 +12,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/volume"
 	docker "github.com/docker/docker/client"
@@ -73,8 +75,16 @@ func (n *PluginInfo) filterGpuInfo() {
 // InitHostGpuInfo populates in-mem state about GPU devices and mount info.
 func (n *PluginInfo) InitHostGpuInfo() error {
 	// Only check if we're on a GPU instance type
+
+	sess := session.Must(session.NewSession())
+	metadatasvc := ec2metadata.New(sess)
+	instanceType, err := metadatasvc.GetMetadata("instance-type")
+	if err != nil {
+		return err
+	}
+
 	r := regexp.MustCompile(AwsGpuInstanceRegex)
-	if !r.MatchString(os.Getenv("EC2_INSTANCE_TYPE")) {
+	if !r.MatchString(instanceType) {
 		log.Info("Not on a GPU instance type. No GPU info available.")
 		return nil
 	}
