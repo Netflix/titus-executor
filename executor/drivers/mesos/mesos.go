@@ -1,7 +1,6 @@
 package titusmesosdriver
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -28,23 +27,32 @@ const (
 // and an allocated Mesos driver.
 func New(m metrics.Reporter, executor titusdriver.TitusExecutor) (*TitusMesosDriver, error) {
 	// Get required ENV vars that the Mesos slave should have set
-	addr := os.Getenv(mesosLibProcessIPKey)
-	port := os.Getenv(mesosLibProcessPortKey)
-	if addr == "" || port == "" {
-		return nil, fmt.Errorf("Cannot start Mesos driver with %s=%s %s=%s", mesosLibProcessIPKey, addr, mesosLibProcessPortKey, port)
-	}
-	portNum, _ := strconv.ParseUint(port, 10, 16) // nolint: gas
-	log.Printf("Starting Mesos driver with %s=%s %s=%d", mesosLibProcessIPKey, addr, mesosLibProcessPortKey, portNum)
 
 	mExecutor := &titusMesosExecutor{
 		metrics:       m,
 		titusExecutor: executor,
 	}
 	driverCfg := mesosExecutor.DriverConfig{
-		Executor:       mExecutor,
-		BindingAddress: net.ParseIP(addr),
-		BindingPort:    uint16(portNum),
+		Executor: mExecutor,
 	}
+
+	addr := os.Getenv(mesosLibProcessIPKey)
+	if addr != "" {
+		driverCfg.BindingAddress = net.ParseIP(addr)
+	}
+
+	port := os.Getenv(mesosLibProcessPortKey)
+	if port != "" {
+		portNum, err := strconv.ParseUint(port, 10, 16) // nolint: gas
+		if err != nil {
+			log.Fatalf("Cannot parse variable %s with value %s", mesosLibProcessPortKey, port)
+		}
+		driverCfg.BindingPort = uint16(portNum)
+	}
+
+	log.Printf("Starting Mesos driver with Driverconfig: %+v", driverCfg)
+	//mesosLibProcessIPKey, addr, mesosLibProcessPortKey, portNum)
+
 	mesosDriver, err := mesosExecutor.NewMesosExecutorDriver(driverCfg)
 	if err != nil {
 		log.Printf("Unable to create ExecutorDriver : %s", err)
