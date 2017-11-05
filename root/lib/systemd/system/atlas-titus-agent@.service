@@ -1,6 +1,7 @@
 [Unit]
 Description=Metrics Pod for %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
+ConditionPathExists=!/etc/disable-atlas-titus-agent
 
 [Service]
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i

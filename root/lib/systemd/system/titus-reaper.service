@@ -3,6 +3,7 @@ Description=Titus Reaper: Reaps Titus Containers
 Conflicts=halt.target shutdown.target sigpwr.target
 
 [Service]
+EnvironmentFile=-/etc/titus-shared.env
 Environment=CONTAINER_HOME=/var/lib/titus-container-logs
 ExecStart=/apps/titus-executor/bin/titus-reaper
 Restart=always
