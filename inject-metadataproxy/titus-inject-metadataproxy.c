@@ -273,10 +273,10 @@ static void add_route(int ns_fd, int af, struct nl_addr *src, struct nl_addr *ds
 	rtnl_route_nh_set_ifindex(nh, rtnl_link_get_ifindex(interface));
 	if (gateway) {
 		rtnl_route_nh_set_gateway(nh, gateway);
-		rtnl_route_add_nexthop(route, nh);
 	} else {
-		rtnl_route_set_oif(route, rtnl_link_get_ifindex(interface));
+		rtnl_route_nh_set_ifindex(nh, rtnl_link_get_ifindex(interface));
 	}
+	rtnl_route_add_nexthop(route, nh);
 	rtnl_link_put(interface);
 
 	/* The route now owns the next hop object */
