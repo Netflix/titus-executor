@@ -49,6 +49,11 @@ The metadata proxy injector operates on having a TITUS_PID_1_DIR environment var
 #define BUG_ON(expr, message, ...)	do { if(expr) { fprintf(stderr, "%s:%s:%d: " message "\n", "BUG", __func__, __LINE__, ##__VA_ARGS__); exit(1); } } while(0)
 #define BUG_ON_PERROR(expr, message, ...) do { if(expr) { fprintf(stderr, "%s:%s:%d:%s " message "\n", "BUG", __func__, __LINE__, strerror(errno), ##__VA_ARGS__); exit(1); } } while(0)
 
+#define WARN(message, ...)	do { fprintf(stderr, "%s:%s:%d: " message "\n", "BUG", __func__, __LINE__, ##__VA_ARGS__); } while(0)
+#define WARN_ON(expr, message, ...)	do { if(expr) { fprintf(stderr, "%s:%s:%d: " message "\n", "BUG", __func__, __LINE__, ##__VA_ARGS__); } } while(0)
+#define WARN_ON_PERROR(expr, message, ...) do { if(expr) { fprintf(stderr, "%s:%s:%d:%s " message "\n", "BUG", __func__, __LINE__, strerror(errno), ##__VA_ARGS__); } } while(0)
+
+
 #define PASSED_FD	169
 #define TITUS_PID_1_DIR	"TITUS_PID_1_DIR"
 
@@ -227,11 +232,16 @@ static struct nl_addr* get_route_prefsrc(int ns_fd, int af, char *dst) {
 	BUG_ON(err < 0, "%s: unable to connect netlink route socket", nl_geterror(err));
 
 	err = nl_send_sync(nls, m);
-	BUG_ON(err < 0, "%s: unable to send message to retrieve routes", nl_geterror(err));
+	WARN_ON(err < 0, "%s: unable to send message to retrieve routes", nl_geterror(err));
+	if (err < 0)
+		goto err;
 
 	err = nl_recvmsgs_default(nls);
-	BUG_ON(err < 0, "%s: Unable to receive messages", nl_geterror(err));
+	WARN_ON(err < 0, "%s: Unable to receive messages", nl_geterror(err));
+	if (err < 0)
+		cb_arg.pref_src = NULL;
 
+err:
 	nl_close(nls);
 	nl_socket_free(nls);
 
