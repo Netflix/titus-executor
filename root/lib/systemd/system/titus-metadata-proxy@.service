@@ -15,4 +15,4 @@ LimitNOFILE=65535
 PrivateTmp=yes
 
 Restart=on-failure
-
+KillMode=mixed
