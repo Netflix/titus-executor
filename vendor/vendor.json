@@ -19,10 +19,10 @@
 			"revisionTime": "2017-10-19T17:38:21Z"
 		},
 		{
-			"checksumSHA1": "NmwbU+kF0luKwK7bwbb18yoPMrY=",
+			"checksumSHA1": "rbvnVcK2rRUFEBuxy79PXZQV5kY=",
 			"path": "github.com/Netflix/quitelite-client-go/properties",
-			"revision": "aac6172e1134a272f3cf516226784c29c6249b60",
-			"revisionTime": "2017-10-20T03:10:28Z",
+			"revision": "cbde4db9160f389781f29e14519fd62118b76f61",
+			"revisionTime": "2017-11-07T22:16:09Z",
 			"version": "master",
 			"versionExact": "master"
 		},

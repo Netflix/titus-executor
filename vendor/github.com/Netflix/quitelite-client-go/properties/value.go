@@ -49,7 +49,7 @@ func (dpv DynamicPropertyValue) AsString() (string, error) {
 	case float64:
 		return strconv.FormatFloat(v, 'f', -1, 64), nil
 	default:
-		return "", fmt.Errorf("Cannot cast %v to string", v)
+		return "", fmt.Errorf("Cannot cast %v to string, instead is type: %s, with value: %v", v, reflect.TypeOf(dpv.value).String(), dpv.value)
 	}
 }
 
@@ -72,7 +72,7 @@ func (dpv DynamicPropertyValue) AsBool() (bool, error) {
 	case float64:
 		return v != 0, nil
 	default:
-		return false, fmt.Errorf("Cannot cast %v to bool", v)
+		return false, fmt.Errorf("Cannot cast %v to bool, instead is type: %s", v, reflect.TypeOf(dpv.value).String())
 	}
 }
 
@@ -93,7 +93,7 @@ func (dpv DynamicPropertyValue) AsDuration() (time.Duration, error) {
 	case float64:
 		return time.Duration(int64(math.Floor(v))) * time.Millisecond, nil
 	default:
-		return 0, fmt.Errorf("Cannot cast %v to duration", v)
+		return 0, fmt.Errorf("Cannot cast %v to duration, instead is type: %s, with value: %v", v, reflect.TypeOf(dpv.value).String(), dpv.value)
 	}
 }
 
@@ -121,7 +121,7 @@ func (dpv DynamicPropertyValue) AsInteger() (int, error) {
 		if floatVal, err := strconv.ParseFloat(v, 64); err == nil {
 			return int(math.Floor(floatVal)), nil
 		}
-		return 0, fmt.Errorf("Cannot cast %s to integer", v)
+		return 0, fmt.Errorf("Cannot cast %v to integer, instead is type: %s, with value: %v", v, reflect.TypeOf(dpv.value).String(), dpv.value)
 	case float64:
 		return int(math.Floor(v)), nil
 	case bool:
@@ -130,7 +130,7 @@ func (dpv DynamicPropertyValue) AsInteger() (int, error) {
 		}
 		return 0, nil
 	default:
-		return 0, fmt.Errorf("Cannot cast %v to integer", v)
+		return 0, fmt.Errorf("Cannot cast %v to integer, instead is type: %s, with value: %v", v, reflect.TypeOf(dpv.value).String(), dpv.value)
 	}
 }
 
