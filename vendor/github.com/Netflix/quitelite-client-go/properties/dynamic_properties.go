@@ -245,7 +245,7 @@ func (dp *DynamicProperty) handleConnected() state {
 	}
 
 	if !newPayload.DefaultValue && newPayload.Value != nil {
-		dp.value.Store(newDynamicPropertyValue(newPayload.Value))
+		dp.value.Store(newDynamicPropertyValue(*newPayload.Value))
 	} else {
 		dp.value.Store(dp.defaultValue)
 	}
