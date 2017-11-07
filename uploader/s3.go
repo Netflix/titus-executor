@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -35,6 +36,10 @@ func NewS3Uploader(log logrus.FieldLogger, config map[string]string) (Uploader, 
 	if config["bucket"] == "" {
 		return nil, errors.New("no bucket specified")
 	}
+	region, err := getEC2Region()
+	if err != nil {
+		return nil, err
+	}
 
 	u := &S3Uploader{
 		log:        log,
@@ -43,6 +48,7 @@ func NewS3Uploader(log logrus.FieldLogger, config map[string]string) (Uploader, 
 
 	session, err := session.NewSession(&aws.Config{
 		Logger: &logAdapter{log},
+		Region: &region,
 	})
 	if err != nil {
 		return nil, err
@@ -52,6 +58,19 @@ func NewS3Uploader(log logrus.FieldLogger, config map[string]string) (Uploader, 
 	})
 
 	return u, nil
+}
+
+func getEC2Region() (string, error) {
+	if region := os.Getenv("EC2_REGION"); region != "" {
+		return region, nil
+	}
+
+	sess := session.Must(session.NewSession())
+	ec2metadatasvc := ec2metadata.New(sess)
+	if !ec2metadatasvc.Available() {
+		return "", errors.New("Unable to determine EC2 Region, and EC2 metadata service unavailable")
+	}
+	return ec2metadatasvc.Region()
 }
 
 // Upload writes a single file only to S3!
