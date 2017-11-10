@@ -97,6 +97,9 @@ var (
 // and it's a temporary measure during protocol evolution.
 var ErrMissingIAMRole = errors.New("IAM Role Missing")
 
+// NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
+var NoEntrypointError = &BadEntryPointError{reason: errors.New("Image, and job have no entrypoint, or command")}
+
 // I'm sorry for using regex, it's a simple rule though
 // 1. The string must start with a-z, A-Z, or _
 // 2. The string MAY contain more characters, in the set a-z, A-Z, 0-9, or _
@@ -629,6 +632,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *Container, binds [
 	var dockerCfg *container.Config
 	var hostCfg *container.HostConfig
 	var size int64
+	var imageInfo types.ImageInspect
 
 	err := r.validateEFSMounts(c)
 	if err != nil {
@@ -640,7 +644,18 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *Container, binds [
 		goto error
 	}
 
-	size = r.reportDockerImageSizeMetric(c, c.QualifiedImageName())
+	imageInfo, _, err = r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
+	if err != nil {
+		log.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
+		return err
+	}
+	size = r.reportDockerImageSizeMetric(c, imageInfo, c.QualifiedImageName())
+
+	// Check if this image (container) has a an entrypoint, or if we
+	// were passed one
+	if !r.hasEntrypoint(imageInfo, c) {
+		return NoEntrypointError
+	}
 
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size)
 	if err != nil {
@@ -1471,15 +1486,24 @@ func (r *DockerRuntime) Cleanup(c *Container) error {
 }
 
 // reportDockerImageSizeMetric reports a metric that represents the container image's size
-func (r *DockerRuntime) reportDockerImageSizeMetric(c *Container, image string) int64 {
-	imageInfo, _, err := r.client.ImageInspectWithRaw(context.TODO(), image)
-	if err != nil {
-		log.Errorf("Error in inspecting docker image %s : %v\n", image, err)
-		return 0
-	}
+func (r *DockerRuntime) reportDockerImageSizeMetric(c *Container, imageInfo types.ImageInspect, image string) int64 {
 	// reporting image size in KB
 	r.metrics.Gauge("titus.executor.dockerImageSize", int(imageInfo.Size/KB), c.ImageTagForMetrics())
 	return imageInfo.Size
+}
+
+func (r *DockerRuntime) hasEntrypoint(imageInfo types.ImageInspect, c *Container) bool {
+	if entrypoint, err := GetEntrypointFromProto(c.TitusInfo); err != nil {
+		// If this happens, we return true, because this error will be bubbled up elsewhere
+		return true
+	} else if entrypoint != nil {
+		return true
+	}
+
+	if imageInfo.Config.Entrypoint != nil || imageInfo.Config.Cmd != nil {
+		return true
+	}
+	return false
 }
 
 func shouldClose(c io.Closer) {

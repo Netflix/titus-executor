@@ -56,6 +56,10 @@ var (
 		name: "titusoss/big-image",
 		tag:  "20171025-1508900976",
 	}
+	noEntrypoint = testImage{
+		name: "titusoss/no-entrypoint-test",
+		tag:  "20171109-1510275133",
+	}
 )
 
 // This file still uses log as opposed to using the testing library's built-in logging framework.
@@ -79,6 +83,7 @@ func TestStandalone(t *testing.T) {
 		testImageNonExistingDigestFails,
 		testImagePullError,
 		testBadEntrypoint,
+		testNoEntrypoint,
 		testCanWriteInLogsAndSubDirs,
 		testShutdown,
 		testCancelPullBigImage,
@@ -471,6 +476,17 @@ func testBadEntrypoint(t *testing.T) {
 		ImageName:  alpine.name,
 		Version:    alpine.tag,
 		Entrypoint: "bad",
+	}
+	// We expect this to fail
+	if mock.RunJobExpectingSuccess(ji, false) {
+		t.Fail()
+	}
+}
+
+func testNoEntrypoint(t *testing.T) {
+	ji := &mock.JobInput{
+		ImageName: noEntrypoint.name,
+		Version:   noEntrypoint.tag,
 	}
 	// We expect this to fail
 	if mock.RunJobExpectingSuccess(ji, false) {
