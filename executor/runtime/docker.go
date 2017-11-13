@@ -649,7 +649,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *Container, binds [
 		log.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
 		return err
 	}
-	size = r.reportDockerImageSizeMetric(c, imageInfo, c.QualifiedImageName())
+	size = r.reportDockerImageSizeMetric(c, imageInfo)
 
 	// Check if this image (container) has a an entrypoint, or if we
 	// were passed one
@@ -1486,7 +1486,7 @@ func (r *DockerRuntime) Cleanup(c *Container) error {
 }
 
 // reportDockerImageSizeMetric reports a metric that represents the container image's size
-func (r *DockerRuntime) reportDockerImageSizeMetric(c *Container, imageInfo types.ImageInspect, image string) int64 {
+func (r *DockerRuntime) reportDockerImageSizeMetric(c *Container, imageInfo types.ImageInspect) int64 {
 	// reporting image size in KB
 	r.metrics.Gauge("titus.executor.dockerImageSize", int(imageInfo.Size/KB), c.ImageTagForMetrics())
 	return imageInfo.Size
@@ -1500,10 +1500,7 @@ func (r *DockerRuntime) hasEntrypoint(imageInfo types.ImageInspect, c *Container
 		return true
 	}
 
-	if imageInfo.Config.Entrypoint != nil || imageInfo.Config.Cmd != nil {
-		return true
-	}
-	return false
+	return imageInfo.Config.Entrypoint != nil || imageInfo.Config.Cmd != nil
 }
 
 func shouldClose(c io.Closer) {
