@@ -1,4 +1,4 @@
-package launchguard
+package core
 
 import (
 	"context"
@@ -37,6 +37,7 @@ func TestContext(t *testing.T) {
 	cancel()
 	<-le1.Launch()
 }
+
 func TestBasicOrdering(t *testing.T) {
 	timer := time.AfterFunc(10*time.Second, func() {
 		t.Fatal("Event timed out")
@@ -83,7 +84,7 @@ func TestEmptyLaunchGuard(t *testing.T) {
 }
 
 var (
-	_ LaunchEvent = (*testLaunchEvent)(nil)
+	_ launchEvent = (*testLaunchEvent)(nil)
 )
 
 type testLaunchEvent struct {
@@ -120,7 +121,7 @@ func TestLaunchGuard(t *testing.T) {
 	lg := NewLaunchGuard(metrics.Discard)
 
 	var launchIdx int32
-	cleanupTestCases := []CleanUpEvent{}
+	cleanupTestCases := []cleanUpEvent{}
 
 	for i := 0; i < numCases; i++ {
 		if rand.Intn(2) == 0 {
