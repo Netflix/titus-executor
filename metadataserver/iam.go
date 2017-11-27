@@ -298,7 +298,7 @@ func (proxy *iamProxy) maybeAssumeRole(sessionLifetime time.Duration) {
 		proxy.doAssumeRole(sessionLifetime)
 	} else if roleAssumptionState.assumeRoleError == nil {
 		expiration := *roleAssumptionState.assumeRoleOutput.Credentials.Expiration
-		if time.Until(expiration) > renewalWindow {
+		if time.Until(expiration) < renewalWindow {
 			log.Debug("Renewing credentials")
 			proxy.doAssumeRole(sessionLifetime)
 		}
