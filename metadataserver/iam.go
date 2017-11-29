@@ -170,7 +170,10 @@ func (proxy *iamProxy) securityCredentials(w http.ResponseWriter, r *http.Reques
 		$ curl 169.254.169.254/latest/meta-data/iam/security-credentials/
 		TitusInstanceProfile
 	*/
-	fmt.Fprintf(w, "%s", proxy.roleName)
+
+	if _, err := fmt.Fprintf(w, "%s", proxy.roleName); err != nil {
+		log.Warning("Error: securityCredentials: ", err)
+	}
 }
 
 // A ec2RoleCredRespBody provides the shape for marshaling credential
