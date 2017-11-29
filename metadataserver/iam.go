@@ -172,7 +172,7 @@ func (proxy *iamProxy) securityCredentials(w http.ResponseWriter, r *http.Reques
 	*/
 
 	if _, err := fmt.Fprintf(w, "%s", proxy.roleName); err != nil {
-		log.Error("Error: securityCredentials: ", err)
+		log.Warning("Error: securityCredentials: ", err)
 	}
 }
 
