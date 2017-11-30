@@ -196,6 +196,7 @@ func (lgc *LaunchGuardClient) NewLaunchEvent(parentCtx context.Context, key stri
 	if err != nil {
 		log.Error("Error creating client-side launch event: ", err)
 		close(launchEvent.ch)
+		cancel()
 		return launchEvent
 	}
 	go func() {
