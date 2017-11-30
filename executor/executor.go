@@ -442,7 +442,7 @@ func (e *Executor) startContainer(c *containerState, startTime time.Time) { // n
 	// Wait until the launchGuard is released.
 	// TODO(Andrew L): We only block concurrent launches to avoid a race condition introduced
 	// by the Titus master releasing resources prior to the agent releasing them.
-	le := e.launchGuard.NewLaunchEvent()
+	le := e.launchGuard.NewLaunchEvent(c.context(), "default")
 	select {
 	case <-le.Launch():
 		c.logEntry.Info("Launch not blocked on on launchGuard")
@@ -589,7 +589,7 @@ func (e *Executor) StopTask(taskID string) error {
 	log.Printf("Setting launchGuard while stopping task %s", taskID)
 	ctx, cancel := context.WithTimeout(e.ctx, killTimeout)
 	_ = cancel
-	ce := e.launchGuard.NewRealCleanUpEvent(ctx)
+	ce := e.launchGuard.NewRealCleanUpEvent(ctx, "default")
 
 	select {
 	// After we put this message on the channel it'll get read in the main executor loop,
