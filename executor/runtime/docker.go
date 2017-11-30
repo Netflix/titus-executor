@@ -720,7 +720,7 @@ error:
 func (r *DockerRuntime) createTitusContainerConfigFile(c *Container) error {
 	containerConfigFile := filepath.Join(titusEnvironments, fmt.Sprintf("%s.json", c.TaskID))
 
-	f, err := os.OpenFile(containerConfigFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
+	f, err := os.OpenFile(containerConfigFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gas
 	if err != nil {
 		return err
 	}
@@ -735,7 +735,7 @@ func (r *DockerRuntime) createTitusContainerConfigFile(c *Container) error {
 // Creates the file $titusEnvironments/ContainerID.env filled with newline delimited set of environment variables
 func (r *DockerRuntime) createTitusEnvironmentFile(c *Container) error {
 	envFile := filepath.Join(titusEnvironments, fmt.Sprintf("%s.env", c.TaskID))
-	f, err := os.OpenFile(envFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
+	f, err := os.OpenFile(envFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gas
 	if err != nil {
 		return err
 	}

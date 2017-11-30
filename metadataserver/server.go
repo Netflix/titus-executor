@@ -55,7 +55,7 @@ type MetadataServer struct {
 }
 
 func dumpRoutes(r *mux.Router) {
-	_ = r.Walk(
+	err := r.Walk(
 		func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
 			pathTemplate, err := route.GetPathTemplate()
 			if err != nil {
@@ -67,6 +67,7 @@ func dumpRoutes(r *mux.Router) {
 			}).Debug("Gorilla Route")
 			return nil
 		})
+	_ = err
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
@@ -107,40 +108,54 @@ func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titus
 
 func (ms *MetadataServer) macAddr(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.macAddr.count")
-	fmt.Fprintf(w, defaultMacAddress)
+	if _, err := fmt.Fprintf(w, defaultMacAddress); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
 }
 
 func (ms *MetadataServer) instanceID(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.instanceId.count")
-	fmt.Fprintf(w, ms.titusTaskInstanceID)
+	if _, err := fmt.Fprintf(w, ms.titusTaskInstanceID); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
 }
 
 func (ms *MetadataServer) localIPV4(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.localIPV4.count")
-	fmt.Fprintf(w, ms.ipv4Address)
+	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
 
 }
 
 func (ms *MetadataServer) publicIPV4(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.publicIPV4.count")
-	fmt.Fprintf(w, ms.ipv4Address)
+	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
 }
 
 func (ms *MetadataServer) localHostname(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.localIPV4.count")
-	fmt.Fprintf(w, ms.ipv4Address)
+	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
 
 }
 
 func (ms *MetadataServer) publicHostname(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.publicHostname.count")
-	fmt.Fprintf(w, ms.ipv4Address)
+	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
 }
 
 func (ms *MetadataServer) ping(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.ping.count")
 
-	fmt.Fprintf(w, "ping called")
+	if _, err := fmt.Fprintf(w, "ping called"); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
 }
 
 func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
