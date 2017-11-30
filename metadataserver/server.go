@@ -108,21 +108,21 @@ func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titus
 
 func (ms *MetadataServer) macAddr(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.macAddr.count")
-	if _, err := fmt.Fprintf(w, defaultMacAddress); err != nil {
+	if _, err := fmt.Fprint(w, defaultMacAddress); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 }
 
 func (ms *MetadataServer) instanceID(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.instanceId.count")
-	if _, err := fmt.Fprintf(w, ms.titusTaskInstanceID); err != nil {
+	if _, err := fmt.Fprint(w, ms.titusTaskInstanceID); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 }
 
 func (ms *MetadataServer) localIPV4(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.localIPV4.count")
-	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+	if _, err := fmt.Fprint(w, ms.ipv4Address); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 
@@ -130,14 +130,14 @@ func (ms *MetadataServer) localIPV4(w http.ResponseWriter, r *http.Request) {
 
 func (ms *MetadataServer) publicIPV4(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.publicIPV4.count")
-	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+	if _, err := fmt.Fprint(w, ms.ipv4Address); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 }
 
 func (ms *MetadataServer) localHostname(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.localIPV4.count")
-	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+	if _, err := fmt.Fprint(w, ms.ipv4Address); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 
@@ -145,7 +145,7 @@ func (ms *MetadataServer) localHostname(w http.ResponseWriter, r *http.Request) 
 
 func (ms *MetadataServer) publicHostname(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.publicHostname.count")
-	if _, err := fmt.Fprintf(w, ms.ipv4Address); err != nil {
+	if _, err := fmt.Fprint(w, ms.ipv4Address); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 }
