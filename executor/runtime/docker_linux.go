@@ -90,7 +90,7 @@ func setupSystemPods(parentCtx context.Context, c *Container, cred ucred) error 
 	// /proc/$PID -> $titusInits/$taskID
 	pidpath := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10))
 	path := filepath.Join(titusInits, c.TaskID)
-	if err := os.Mkdir(path, 0755); err != nil {
+	if err := os.Mkdir(path, 0755); err != nil { // nolint: gas
 		return err
 	}
 	c.registerRuntimeCleanup(func() error {
