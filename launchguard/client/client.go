@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"io"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/launchguard/core"
 	"github.com/pborman/uuid"
@@ -16,7 +18,9 @@ import (
 )
 
 const (
+	// MaxLaunchTime is the Maximum time a launch event will stay active before we decide launchguard is going to be ignored
 	MaxLaunchTime = 10 * time.Minute
+	// RefreshWindow is how often launch events should be renewed, or will be considered dead by the server
 	RefreshWindow = time.Second
 )
 
@@ -32,15 +36,18 @@ var (
 	_ core.CleanUpEvent = (*ClientCleanupEvent)(nil)
 )
 
-type ClientLaunchEvent struct {
+// ClientLaunchEvent is used to synchronize launching containers
+type ClientLaunchEvent struct { // nolint: golint
 	ch chan struct{}
 }
 
+// Launch returns a channel which will be closed once you're allowed to launch
 func (cle *ClientLaunchEvent) Launch() <-chan struct{} {
 	return cle.ch
 }
 
-type ClientCleanupEvent struct {
+// ClientCleanupEvent should be used when tearing a container down
+type ClientCleanupEvent struct { // nolint: golint
 	once   sync.Once
 	key    string
 	id     string
@@ -49,6 +56,7 @@ type ClientCleanupEvent struct {
 	ch     chan struct{}
 }
 
+// Done is used to indicate that the event has been cleaned up, and the launch guard can move on. It is idempotent.
 func (cce *ClientCleanupEvent) Done() {
 	cce.once.Do(func() {
 		close(cce.ch)
@@ -78,8 +86,7 @@ func (cce *ClientCleanupEvent) run(ctx context.Context) {
 }
 
 func (cce *ClientCleanupEvent) heartbeat(ctx context.Context) error {
-	var url url.URL
-	url = *cce.lgc.url
+	url := *cce.lgc.url
 
 	url.Path = fmt.Sprintf("/launchguard/%s/cleanupevent/%s/heartbeat", cce.key, cce.id)
 	request, err := http.NewRequest("POST", url.String(), nil)
@@ -92,7 +99,7 @@ func (cce *ClientCleanupEvent) heartbeat(ctx context.Context) error {
 		return fmt.Errorf("Heartbeat failed: %v", err)
 	}
 
-	_ = resp.Body.Close()
+	shouldClose(resp.Body)
 	if resp.StatusCode == http.StatusAccepted {
 		return nil
 	}
@@ -105,8 +112,7 @@ func (cce *ClientCleanupEvent) delete(parentCtx context.Context) error {
 	ctx, cancel := context.WithTimeout(parentCtx, time.Second)
 	defer cancel()
 
-	var url url.URL
-	url = *cce.lgc.url
+	url := *cce.lgc.url
 
 	url.Path = fmt.Sprintf("/launchguard/%s/cleanupevent/%s", cce.key, cce.id)
 	request, err := http.NewRequest("DELETE", url.String(), nil)
@@ -119,7 +125,7 @@ func (cce *ClientCleanupEvent) delete(parentCtx context.Context) error {
 		return fmt.Errorf("Deletion failed: %v", err)
 	}
 
-	_ = resp.Body.Close()
+	shouldClose(resp.Body)
 	if resp.StatusCode == http.StatusOK {
 		return nil
 	}
@@ -127,6 +133,7 @@ func (cce *ClientCleanupEvent) delete(parentCtx context.Context) error {
 	return fmt.Errorf("Deletion failed, status: %s", resp.Status)
 }
 
+// NewLaunchGuardClient instantiates a new client for the launchguard server.
 func NewLaunchGuardClient(m metrics.Reporter, baseuri string) (*LaunchGuardClient, error) {
 	client := http.Client{
 		Timeout: 0,
@@ -153,8 +160,7 @@ func (lgc *LaunchGuardClient) NewRealCleanUpEvent(parentCtx context.Context, key
 		ch:     make(chan struct{}),
 	}
 
-	var url url.URL
-	url = *lgc.url
+	url := *lgc.url
 
 	url.Path = fmt.Sprintf("/launchguard/%s/cleanupevent/%s", key, ce.id)
 	request, err := http.NewRequest("PUT", url.String(), nil)
@@ -163,7 +169,7 @@ func (lgc *LaunchGuardClient) NewRealCleanUpEvent(parentCtx context.Context, key
 	}
 	resp, err := lgc.httpClient.Do(request.WithContext(ctx))
 	if err == nil {
-		_ = resp.Body.Close()
+		shouldClose(resp.Body)
 		if resp.StatusCode == http.StatusCreated {
 			go ce.run(ctx)
 			return ce
@@ -178,7 +184,8 @@ func (lgc *LaunchGuardClient) NewRealCleanUpEvent(parentCtx context.Context, key
 	return ce
 }
 
-// Will block
+// NewLaunchEvent returns a launch event. This launch event creation may block for up to MaxLaunchTime,
+// but you must look at the channel in order to get actual clearance to launch
 func (lgc *LaunchGuardClient) NewLaunchEvent(parentCtx context.Context, key string) core.LaunchEvent {
 	var url url.URL
 
@@ -207,8 +214,14 @@ func (lgc *LaunchGuardClient) NewLaunchEvent(parentCtx context.Context, key stri
 		if err != nil {
 			log.Error("Error reading client-side launch event info: ", err)
 		}
-		_ = resp.Body.Close()
+		shouldClose(resp.Body)
 		log.Debug("Launch event finished: ", string(buf))
 	}()
 	return launchEvent
+}
+
+func shouldClose(closeable io.Closer) {
+	if err := closeable.Close(); err != nil {
+		log.Errorf("Unable to close %v because: %v", closeable, err)
+	}
 }

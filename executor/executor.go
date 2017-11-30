@@ -111,7 +111,7 @@ func WithRuntime(m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) // nolint: vet
 	r, err := rp(ctx)
 	if err != nil {
 		cancel()
@@ -119,7 +119,7 @@ func WithRuntime(m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.
 	}
 	lgc, err := launchguardClient.NewLaunchGuardClient(m, "http://localhost:8006")
 	if err != nil {
-		return nil, err
+		return nil, err // nolint: vet
 	}
 	exec := &Executor{
 		metrics:      m,

@@ -25,6 +25,7 @@ type launchGuardContainer struct {
 	cleanupEvents map[string]*cleanupRoutine
 }
 
+// LaunchGuardServer is a launch guard server state holder
 type LaunchGuardServer struct {
 	sync.Mutex
 	router       *mux.Router
@@ -32,6 +33,7 @@ type LaunchGuardServer struct {
 	launchguards map[string]*launchGuardContainer
 }
 
+// NewLaunchGuardServer is a mechanism by which to instantiate LaunchGuardServer state
 func NewLaunchGuardServer(m metrics.Reporter) *LaunchGuardServer {
 	lgs := &LaunchGuardServer{
 		m:            m,
@@ -70,19 +72,22 @@ func (lgs *LaunchGuardServer) getLaunchGuardContainer(key string) *launchGuardCo
 func (lgs *LaunchGuardServer) newLaunchEvent(resp http.ResponseWriter, req *http.Request) {
 	lgc := lgs.getLaunchGuardContainer(mux.Vars(req)["key"])
 
-	log.Info("X")
 	launchEvent := core.NewLaunchEvent(lgc.lg)
-	log.Info("Y")
 
 	resp.WriteHeader(http.StatusOK)
 	resp.(http.Flusher).Flush()
-	log.Info("Z")
 
 	select {
 	case <-launchEvent.Launch():
-		_, _ = resp.Write([]byte("launch"))
+		_, err := resp.Write([]byte("launch"))
+		if err != nil {
+			log.Error("Cannot write: ", err)
+		}
 	case <-req.Context().Done():
-		_, _ = resp.Write([]byte("timeout"))
+		_, err := resp.Write([]byte("timeout"))
+		if err != nil {
+			log.Error("Cannot write: ", err)
+		}
 	}
 }
 

@@ -10,16 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"net/http/httptest"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers/test"
 	titusruntime "github.com/Netflix/titus-executor/executor/runtime"
-	"github.com/Netflix/titus-executor/uploader"
-	"net/http/httptest"
-	"github.com/Netflix/titus-executor/launchguard/server"
-	"github.com/stretchr/testify/require"
 	"github.com/Netflix/titus-executor/launchguard/client"
+	"github.com/Netflix/titus-executor/launchguard/server"
+	"github.com/Netflix/titus-executor/uploader"
+	"github.com/stretchr/testify/require"
 )
 
 var (

@@ -71,11 +71,11 @@ func (lg *LaunchGuard) loop() {
 
 func (lg *LaunchGuard) dispatchEmpty() launchGuardStateMachineState {
 	select {
-	case cleanUpEvent := <-lg.cleanUpEventChan:
-		lg.events = append(lg.events, cleanUpEvent)
+	case myCleanUpEvent := <-lg.cleanUpEventChan:
+		lg.events = append(lg.events, myCleanUpEvent)
 		return waitingOnCleanupEventState
-	case launchEvent := <-lg.launchEventChan:
-		lg.events = append(lg.events, launchEvent)
+	case myLaunchEvent := <-lg.launchEventChan:
+		lg.events = append(lg.events, myLaunchEvent)
 		return doLaunchState
 	case <-lg.ticker.C:
 		return emptyState
@@ -83,20 +83,20 @@ func (lg *LaunchGuard) dispatchEmpty() launchGuardStateMachineState {
 }
 
 func (lg *LaunchGuard) dispatchWaitingOnCleanupEvent() launchGuardStateMachineState {
-	cleanUpEvent := lg.events[0].(*RealCleanUpEvent)
+	lastCleanUpEvent := lg.events[0].(*RealCleanUpEvent)
 	select {
-	case <-cleanUpEvent.done():
-		if cleanUpEvent.ctx.Err() == context.DeadlineExceeded {
+	case <-lastCleanUpEvent.done():
+		if lastCleanUpEvent.ctx.Err() == context.DeadlineExceeded {
 			lg.metrics.Counter("titus.executor.launchGuard.deadlineExceededError", 1, nil)
 		}
 		// Remove event from the wait queue
 		lg.events = lg.events[1:]
 		return lg.determineStateAfter()
-	case cleanUpEvent := <-lg.cleanUpEventChan:
-		lg.events = append(lg.events, cleanUpEvent)
+	case myCleanupEvent := <-lg.cleanUpEventChan:
+		lg.events = append(lg.events, myCleanupEvent)
 		return waitingOnCleanupEventState
-	case launchEvent := <-lg.launchEventChan:
-		lg.events = append(lg.events, launchEvent)
+	case myLaunchEvent := <-lg.launchEventChan:
+		lg.events = append(lg.events, myLaunchEvent)
 		return waitingOnCleanupEventState
 	case <-lg.ticker.C:
 		return waitingOnCleanupEventState
@@ -144,7 +144,7 @@ type RealCleanUpEvent struct {
 }
 
 // NewRealCleanUpEvent must be used to instantiate new real cleanup events
-func NewRealCleanUpEvent(parentCtx context.Context, lg *LaunchGuard) cleanUpEvent {
+func NewRealCleanUpEvent(parentCtx context.Context, lg *LaunchGuard) cleanUpEvent { // nolint: golint
 	ctx, cancel := context.WithCancel(parentCtx)
 	event := &RealCleanUpEvent{
 		ctx:       ctx,
@@ -196,7 +196,7 @@ type realLaunchEvent struct {
 }
 
 // NewLaunchEvent must be used to instantiate new LaunchEvents
-func NewLaunchEvent(lg *LaunchGuard) launchEvent {
+func NewLaunchEvent(lg *LaunchGuard) launchEvent { // nolint: golint
 	event := &realLaunchEvent{
 		metrics:    lg.metrics,
 		createdAt:  time.Now(),
