@@ -169,7 +169,11 @@ func (lgc *LaunchGuardClient) NewRealCleanUpEvent(parentCtx context.Context, key
 			return ce
 		}
 	}
-	log.WithField("statusCode", resp.StatusCode).Warning("Unable to create cleanup event: ", err)
+	if resp != nil {
+		log.WithField("statusCode", resp.StatusCode).Warning("Unable to create cleanup event: ", err)
+	} else {
+		log.Warning("Unable to create cleanup event: ", err)
+	}
 	cancel()
 	return ce
 }
