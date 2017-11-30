@@ -54,6 +54,9 @@ RUN systemctl enable docker.service
 # TODO(fabio): detect what storage-driver to use at runtime
 RUN mkdir -p /etc/docker
 COPY hack/agent/daemon.json /etc/docker/daemon.json
+COPY hack/agent/titus-shared.env /etc/titus-shared.env
+COPY hack/agent/10-disable-atlas-agent.conf /etc/systemd/system/atlas-titus-agent@.service.d/10-disable-atlas-agent.conf
+
 
 # Directories that the executor needs access to, which will be available with --volumes-from
 VOLUME /run
