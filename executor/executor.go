@@ -117,6 +117,10 @@ func WithRuntime(m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.
 		cancel()
 		return nil, err
 	}
+	lgc, err := launchguardClient.NewLaunchGuardClient(m, "http://localhost:8006")
+	if err != nil {
+		return nil, err
+	}
 	exec := &Executor{
 		metrics:      m,
 		runtime:      r,
@@ -127,7 +131,7 @@ func WithRuntime(m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.
 		ctx:          ctx,
 		cancel:       cancel,
 		shutdownDone: make(chan bool),
-		launchGuard:  launchguardClient.NewLaunchGuardClient(m),
+		launchGuard:  lgc,
 	}
 	exec.setupServeMux()
 	exec.setupEphemeralHTTPServer()

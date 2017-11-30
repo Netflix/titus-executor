@@ -1,0 +1,15 @@
+[Unit]
+Description=Titus Launchguard: Titus Launch Locking Server
+Conflicts=halt.target shutdown.target sigpwr.target
+
+[Service]
+EnvironmentFile=-/etc/titus-shared.env
+ExecStart=/apps/titus-executor/bin/titus-launchguard-server
+Restart=always
+StartLimitInterval=0
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+

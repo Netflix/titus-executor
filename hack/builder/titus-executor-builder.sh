@@ -66,6 +66,7 @@ fi
 
 cat <<-EOF >/tmp/post-install.sh
 systemctl enable titus-darion.service
+systemctl enable titus-launchguard.service
 systemctl enable titus-reaper.service
 EOF
 chmod +x /tmp/post-install.sh
