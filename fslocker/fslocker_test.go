@@ -99,6 +99,22 @@ func TestFSLockerRemove(t *testing.T) {
 	assert.Len(t, files, 0)
 }
 
+func TestFSLockerOptimistic(t *testing.T) {
+	dir, err := ioutil.TempDir("", "fs-locker")
+	require.NoError(t, err)
+	defer removeAll(t, dir)
+
+	locker, err := NewFSLocker(dir)
+	assert.NoError(t, err)
+
+	l1, err := locker.ExclusiveLock("test", durationPointer(0))
+	assert.NoError(t, err)
+	l2, err := locker.ExclusiveLock("test", durationPointer(0))
+	assert.Error(t, err)
+	l1.Unlock()
+	assert.Nil(t, l2)
+}
+
 func removeAll(t *testing.T, dir string) {
 	assert.NoError(t, os.RemoveAll(dir))
 }
