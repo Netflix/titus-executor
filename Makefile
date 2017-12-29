@@ -71,15 +71,11 @@ test-standalone: titus-agent go-junit-report | $(clean) $(builder)
 ## Source code
 
 .PHONY: validate
-validate: vet metalinter
+validate: metalinter
 
 .PHONY: validate-docker
 validate-docker: | $(builder)
 	$(DOCKER_RUN) -v $(PWD):/go/src/$(GO_PKG) -w /go/src/$(GO_PKG) titusoss/titus-executor-builder make -j validate
-
-.PHONY: vet
-vet: govendor
-	 govendor vet -v +local
 
 .PHONY: fmt
 fmt: goimports govendor
