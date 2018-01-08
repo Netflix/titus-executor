@@ -1,5 +1,15 @@
 # Change Log
 
+## [20171231.0](https://github.com/Netflix/titus-executor/tree/20171231.0) (2017-12-29)
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20171031.1...20171231.0)
+
+**Merged pull requests:**
+
+- Do not run go vet independently of gometalinter [\#24](https://github.com/Netflix/titus-executor/pull/24) ([sargun](https://github.com/sargun))
+- Use fmt.Fprint where possible, instead of fmt.Fprintf [\#23](https://github.com/Netflix/titus-executor/pull/23) ([sargun](https://github.com/sargun))
+- Fix build [\#20](https://github.com/Netflix/titus-executor/pull/20) ([sargun](https://github.com/sargun))
+- Fix renewal of IAM credentials [\#18](https://github.com/Netflix/titus-executor/pull/18) ([sargun](https://github.com/sargun))
+
 ## [20171031.1](https://github.com/Netflix/titus-executor/tree/20171031.1) (2017-11-17)
 [Full Changelog](https://github.com/Netflix/titus-executor/compare/20171031.0...20171031.1)
 
