@@ -484,7 +484,7 @@ func (e *Executor) startContainer(c *containerState, startTime time.Time) { // n
 		c.logEntry.Errorf("task %s: failed to create container %s", c.Container.TaskID, err)
 		// Treat registry pull errors as LOST and non-existent images as FAILED.
 		switch err.(type) {
-		case *runtime.RegistryImageNotFoundError, *runtime.InvalidSecurityGroupError:
+		case *runtime.RegistryImageNotFoundError, *runtime.InvalidSecurityGroupError, *runtime.BadEntryPointError:
 			c.logEntry.Errorf("Returning TASK_FAILED for task %s : %v", c.Container.TaskID, err)
 			e.update <- newUpdate(c.Container.TaskID, titusdriver.Failed, err.Error())
 		default:
