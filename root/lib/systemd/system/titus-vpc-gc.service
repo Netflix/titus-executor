@@ -1,0 +1,9 @@
+[Unit]
+Description=Runs Titus VPC GC
+Requires=titus-setup-networking.service
+After=titus-setup-networking.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/run/titus.env
+ExecStart=/apps/titus-executor/bin/titus-vpc-tool gc

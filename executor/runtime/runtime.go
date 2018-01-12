@@ -40,6 +40,15 @@ type Runtime interface {
 	Status(*Container) (Status, error)
 }
 
+// NetworkConfigurationDetails used to pass results back to master
+type NetworkConfigurationDetails struct {
+	IsRoutableIP bool
+	IPAddress    string
+	EniIPAddress string
+	EniID        string
+	ResourceID   string
+}
+
 // Details contains additional details about a container that are
 // not returned by normal container start calls.
 type Details struct {

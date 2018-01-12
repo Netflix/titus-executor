@@ -33,6 +33,12 @@
 			"revisionTime": "2017-10-19T18:51:21Z"
 		},
 		{
+			"checksumSHA1": "7eAIWei337IlBYIfzA3HyOEV9WE=",
+			"path": "github.com/apparentlymart/go-cidr/cidr",
+			"revision": "2bd8b58cf4275aeb086ade613de226773e29e853",
+			"revisionTime": "2017-06-16T19:18:03Z"
+		},
+		{
 			"checksumSHA1": "JtsL9yDNdYfSXQV9IuV/UAF5TuU=",
 			"path": "github.com/aws/aws-sdk-go/aws",
 			"revision": "c62aa4b6a2f5da253df8aa799a05d7cf4befda88",
@@ -135,10 +141,22 @@
 			"revisionTime": "2017-05-19T21:07:03Z"
 		},
 		{
+			"checksumSHA1": "04ypv4x12l4q0TksA1zEVsmgpvw=",
+			"path": "github.com/aws/aws-sdk-go/internal/shareddefaults",
+			"revision": "0ee4b9eab69cac09cf503646e7046231c19b518e",
+			"revisionTime": "2017-10-05T21:00:34Z"
+		},
+		{
 			"checksumSHA1": "wk7EyvDaHwb5qqoOP/4d3cV0708=",
 			"path": "github.com/aws/aws-sdk-go/private/protocol",
 			"revision": "c62aa4b6a2f5da253df8aa799a05d7cf4befda88",
 			"revisionTime": "2017-05-19T21:07:03Z"
+		},
+		{
+			"checksumSHA1": "1QmQ3FqV37w0Zi44qv8pA1GeR0A=",
+			"path": "github.com/aws/aws-sdk-go/private/protocol/ec2query",
+			"revision": "0ee4b9eab69cac09cf503646e7046231c19b518e",
+			"revisionTime": "2017-10-05T21:00:34Z"
 		},
 		{
 			"checksumSHA1": "ZqY5RWavBLWTo6j9xqdyBEaNFRk=",
@@ -169,6 +187,12 @@
 			"path": "github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil",
 			"revision": "c62aa4b6a2f5da253df8aa799a05d7cf4befda88",
 			"revisionTime": "2017-05-19T21:07:03Z"
+		},
+		{
+			"checksumSHA1": "GNoW7onYG1kS9HuD5zGaIs8dWrg=",
+			"path": "github.com/aws/aws-sdk-go/service/ec2",
+			"revision": "0ee4b9eab69cac09cf503646e7046231c19b518e",
+			"revisionTime": "2017-10-05T21:00:34Z"
 		},
 		{
 			"checksumSHA1": "krqUUMDYRN2ohYcumxZl8BTR5EQ=",
@@ -538,6 +562,34 @@
 			"revisionTime": "2015-06-20T23:27:11Z"
 		},
 		{
+			"checksumSHA1": "IW/Eq1RV/1pPvJzYpRBFuAHHpE8=",
+			"path": "github.com/stretchr/testify/require",
+			"revision": "089c7181b8c728499929ff09b62d3fdd8df8adff",
+			"revisionTime": "2015-06-20T23:27:11Z"
+		},
+		{
+			"checksumSHA1": "UT1q+WaSOQqgWGmNZuMzL0ZcAz0=",
+			"path": "github.com/vishvananda/netlink",
+			"revision": "1882fa99fc5adc217f354c6f37a172876877f77d",
+			"revisionTime": "2017-12-27T10:00:08Z",
+			"version": "master",
+			"versionExact": "master"
+		},
+		{
+			"checksumSHA1": "IhcRdAGtwckV0wquYtDXf/JjSRw=",
+			"path": "github.com/vishvananda/netlink/nl",
+			"revision": "1882fa99fc5adc217f354c6f37a172876877f77d",
+			"revisionTime": "2017-12-27T10:00:08Z",
+			"version": "master",
+			"versionExact": "master"
+		},
+		{
+			"checksumSHA1": "zjfUA3qOv6grhBLpyJ+7EejXWQE=",
+			"path": "github.com/vishvananda/netns",
+			"revision": "8ba1072b58e0c2a240eb5f6120165c7776c3e7b8",
+			"revisionTime": "2016-04-30T05:37:23Z"
+		},
+		{
 			"checksumSHA1": "76lzrz5pj1pqOkTOT3Wkb+RlBvU=",
 			"path": "github.com/wercker/journalhook",
 			"revision": "77fe873a00e76086d9bf745cfbaecce922ade9d6",
@@ -561,7 +613,7 @@
 			"revisionTime": "2017-03-08T20:54:49Z"
 		},
 		{
-			"checksumSHA1": "gRu2kYXXhEN+A+NpuAuMrjuiud0=",
+			"checksumSHA1": "++MsxaBN30inOcAz7KvFGddE7ic=",
 			"path": "golang.org/x/sys/unix",
 			"revision": "810d7000345868fc619eb81f46307107118f4ae1",
 			"revisionTime": "2018-01-09T14:25:55Z"
@@ -571,6 +623,12 @@
 			"path": "golang.org/x/sys/windows",
 			"revision": "99f16d856c9836c42d24e7ab64ea72916925fa97",
 			"revisionTime": "2017-03-08T15:04:45Z"
+		},
+		{
+			"checksumSHA1": "Yx1MU40fyGe7hhqW9+dkv8kXa60=",
+			"path": "gopkg.in/urfave/cli.v1",
+			"revision": "cfb38830724cc34fedffe9a2a29fb54fa9169cd1",
+			"revisionTime": "2017-08-11T01:42:03Z"
 		}
 	],
 	"rootPath": "github.com/Netflix/titus-executor"

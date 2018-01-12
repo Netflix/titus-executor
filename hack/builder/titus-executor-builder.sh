@@ -60,13 +60,15 @@ fi
 
 MAYBE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-if [[ ${BUILDKITE_BRANCH:-$MAYBE_BRANCH} != "master" ]]; then
+if [[ ${BUILDKITE_BRANCH:-$MAYBE_BRANCH} != "master" && "${ENABLE_DEV:-true}" == "true" ]]; then
     provides="--provides titus-executor-dev"
 fi
 
 cat <<-EOF >/tmp/post-install.sh
 systemctl enable titus-darion.service
 systemctl enable titus-reaper.service
+systemctl enable titus-setup-networking.service
+systemctl enable titus-vpc-gc.timer
 EOF
 chmod +x /tmp/post-install.sh
 

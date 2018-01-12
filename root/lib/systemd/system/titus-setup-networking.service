@@ -1,0 +1,19 @@
+# /lib/systemd/system/titus-setup-networking.service
+[Unit]
+Description=Titus Networking Setup
+Wants=nflx-set-hostname.service
+After=nflx-set-hostname.service
+After=network.target
+
+[Service]
+Type=simple
+RemainAfterExit=true
+ExecStart=/apps/titus-executor/bin/titus-vpc-tool setup
+LimitCORE=infinity
+LimitMEMLOCK=1G
+Restart=on-failure
+StartLimitInterval=0
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
