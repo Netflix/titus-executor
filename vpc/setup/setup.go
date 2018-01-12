@@ -38,17 +38,21 @@ func setup(parentCtx *context.VPCContext) error {
 	// setup interfaces
 	err = setupInterfaces(ctx)
 	if err != nil {
-		return err
+		return cli.NewMultiError(cli.NewExitError("Unable to setup interfaces", 1), err)
 	}
 
 	// TODO: Ensure interfaces are attached in DeleteOnTermination
 	err = setupIFBs(ctx)
 	if err != nil {
-		return err
+		return cli.NewMultiError(cli.NewExitError("Unable to setup IFBs", 1), err)
 	}
 
 	// Setup qdiscs on ENI interfaces
-	return configureQdiscs(ctx)
+	err = configureQdiscs(ctx)
+	if err != nil {
+		return cli.NewMultiError(cli.NewExitError("Unable to setup qdiscs", 1), err)
+	}
+	return nil
 }
 
 // TODO: Wrap in CLI errrors

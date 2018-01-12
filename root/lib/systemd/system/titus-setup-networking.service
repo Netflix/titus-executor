@@ -6,14 +6,11 @@ After=nflx-set-hostname.service
 After=network.target
 
 [Service]
-Type=simple
+Type=oneshot
 RemainAfterExit=true
 ExecStart=/apps/titus-executor/bin/titus-vpc-tool setup
 LimitCORE=infinity
 LimitMEMLOCK=1G
-Restart=on-failure
-StartLimitInterval=0
-RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

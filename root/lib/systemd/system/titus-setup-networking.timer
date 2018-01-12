@@ -1,0 +1,9 @@
+[Unit]
+Description=Runs VPC Network Setup
+
+[Timer]
+OnBootSec=5s
+OnUnitInactiveSec=10s
+
+[Install]
+WantedBy=timers.target
