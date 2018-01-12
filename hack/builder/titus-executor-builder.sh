@@ -67,7 +67,7 @@ fi
 cat <<-EOF >/tmp/post-install.sh
 systemctl enable titus-darion.service
 systemctl enable titus-reaper.service
-systemctl enable titus-setup-networking.service
+systemctl enable titus-setup-networking.timer
 systemctl enable titus-vpc-gc.timer
 EOF
 chmod +x /tmp/post-install.sh
