@@ -538,6 +538,12 @@
 			"revisionTime": "2015-06-20T23:27:11Z"
 		},
 		{
+			"checksumSHA1": "IW/Eq1RV/1pPvJzYpRBFuAHHpE8=",
+			"path": "github.com/stretchr/testify/require",
+			"revision": "089c7181b8c728499929ff09b62d3fdd8df8adff",
+			"revisionTime": "2015-06-20T23:27:11Z"
+		},
+		{
 			"checksumSHA1": "76lzrz5pj1pqOkTOT3Wkb+RlBvU=",
 			"path": "github.com/wercker/journalhook",
 			"revision": "77fe873a00e76086d9bf745cfbaecce922ade9d6",
