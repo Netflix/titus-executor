@@ -56,8 +56,9 @@ const (
 const (
 	fuseDev = "/dev/fuse"
 	// See: TITUS-1231, this is added as extra padding for container initialization
-	builtInDiskBuffer = 1100 // In megabytes, includes extra space for /logs.
-	titusEnvironments = "/var/lib/titus-environments"
+	builtInDiskBuffer       = 1100 // In megabytes, includes extra space for /logs.
+	titusEnvironments       = "/var/lib/titus-environments"
+	defaultNetworkBandwidth = 128 * MB
 )
 
 const envFileTemplateStr = `
@@ -1327,7 +1328,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 func setupNetworkingArgs(c *Container) []string {
 	bw := c.BandwidthLimitMbps * 1000 * 1000
 	if bw == 0 {
-		bw = 128 * MB
+		bw = defaultNetworkBandwidth
 	}
 	args := []string{
 		"setup-container",
