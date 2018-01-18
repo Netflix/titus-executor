@@ -60,6 +60,7 @@ const (
 	builtInDiskBuffer       = 1100 // In megabytes, includes extra space for /logs.
 	titusEnvironments       = "/var/lib/titus-environments"
 	defaultNetworkBandwidth = 128 * MB
+	defaultKillWait         = 10 * time.Second
 )
 
 const envFileTemplateStr = `
@@ -1542,13 +1543,17 @@ func (r *DockerRuntime) Kill(c *Container) error {
 	log.Infof("Killing %s", c.TaskID)
 
 	var errs []error
-	containerStopTimeout := 10 * time.Second
+	containerStopTimeout := time.Second * time.Duration(c.TitusInfo.GetKillWaitSeconds())
+	if containerStopTimeout == 0 {
+		containerStopTimeout = defaultKillWait
+	}
 
 	if containerJSON, err := r.client.ContainerInspect(context.TODO(), c.ID); docker.IsErrContainerNotFound(err) {
 		goto stopped
 	} else if err != nil {
 		log.Error("Failed to inspect container: ", err)
 		errs = append(errs, err)
+		// There could be a race condition here, where if the container is killed before it is started, it could go into a wonky state
 	} else if !containerJSON.State.Running {
 		goto stopped
 	}
