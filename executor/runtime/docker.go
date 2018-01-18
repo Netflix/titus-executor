@@ -35,6 +35,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
 
@@ -364,7 +365,6 @@ func setShares(logEntry *log.Entry, c *Container, hostCfg *container.HostConfig)
 }
 
 func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int64) (*container.Config, *container.HostConfig, error) {
-
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
 	entrypoint, err := GetEntrypointFromProto(c.TitusInfo)
@@ -448,6 +448,19 @@ func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int
 		// seccomp profile will automatically adjust based on the capabilities.
 		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
 	}
+
+	// label is necessary for metadata proxy compatibility
+	containerCfg.Labels["titus.vpc.ipv4"] = c.Allocation.IPV4Address // deprecated
+	containerCfg.Labels["titus.net.ipv4"] = c.Allocation.IPV4Address
+
+	// TODO(fabio): find a way to avoid regenerating the env map
+	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address
+
+	if config.UseNewNetworkDriver() {
+		hostCfg.NetworkMode = container.NetworkMode("none")
+	}
+
+	containerCfg.Env = getSortedEnvArray(c.Env)
 
 	return containerCfg, hostCfg, nil
 }
@@ -591,7 +604,7 @@ func doDockerPull(ctx context.Context, metrics metrics.Reporter, client *docker.
 	}
 }
 
-func prepareNetworkDriver(c *Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
+func prepareNetworkDriver(c *Container) error {
 	log.Printf("Configuring VPC network for %s", c.TaskID)
 
 	args := []string{
@@ -650,16 +663,6 @@ func prepareNetworkDriver(c *Container, dockerCfg *container.Config, hostCfg *co
 
 	log.Printf("vpc network configuration obtained %+v", c.Allocation)
 
-	// label is necessary for metadata proxy compatibility
-	dockerCfg.Labels["titus.vpc.ipv4"] = c.Allocation.IPV4Address // deprecated
-	dockerCfg.Labels["titus.net.ipv4"] = c.Allocation.IPV4Address
-	hostCfg.NetworkMode = container.NetworkMode("none")
-
-	// TODO(fabio): find a way to avoid regenerating the env map
-	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address
-
-	dockerCfg.Env = getSortedEnvArray(c.Env)
-
 	return nil
 }
 
@@ -672,46 +675,52 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *Container, binds [
 	var dockerCfg *container.Config
 	var hostCfg *container.HostConfig
 	var size int64
-	var imageInfo types.ImageInspect
 
+	group, errGroupCtx := errgroup.WithContext(ctx)
 	err := r.validateEFSMounts(c)
 	if err != nil {
 		goto error
 	}
 
-	err = r.dockerPull(ctx, c)
-	if err != nil {
-		goto error
-	}
+	group.Go(func() error {
+		if pullErr := r.dockerPull(errGroupCtx, c); pullErr != nil {
+			return pullErr
+		}
 
-	imageInfo, _, err = r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
-	if err != nil {
-		log.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
-		return err
-	}
-	size = r.reportDockerImageSizeMetric(c, imageInfo)
+		imageInfo, _, inspectErr := r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
+		if inspectErr != nil {
+			log.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
+			return inspectErr
+		}
 
-	// Check if this image (container) has a an entrypoint, or if we
-	// were passed one
-	if !r.hasEntrypoint(imageInfo, c) {
-		return NoEntrypointError
-	}
-
-	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size)
-	if err != nil {
-		goto error
-	}
+		size = r.reportDockerImageSizeMetric(c, imageInfo)
+		// Check if this image (container) has a an entrypoint, or if we
+		// were passed one
+		if !r.hasEntrypoint(imageInfo, c) {
+			return NoEntrypointError
+		}
+		return nil
+	})
 
 	if config.UseNewNetworkDriver() {
-		err = prepareNetworkDriver(c, dockerCfg, hostCfg)
-		if err != nil {
-			goto error
-		}
+		group.Go(func() error {
+			return prepareNetworkDriver(c)
+		})
 	} else {
 		// Don't call out to network driver for local development
 		mockIP := "1.2.3.4"
 		log.Printf("Mocking networking configuration in dev mode to IP %s", mockIP)
 		c.Allocation.IPV4Address = mockIP
+	}
+
+	err = group.Wait()
+	if err != nil {
+		goto error
+	}
+
+	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size)
+	if err != nil {
+		goto error
 	}
 
 	// setupGPU will override the current Volume driver if there is one
