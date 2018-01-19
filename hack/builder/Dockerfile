@@ -2,7 +2,7 @@ FROM ubuntu:xenial
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
     apt-get install -y build-essential make cmake g++ gcc libc6-dev pkg-config \
-        libattr1-dev git curl wget jq ruby ruby-dev rubygems lintian unzip bison flex && \
+        libattr1-dev git curl wget jq ruby ruby-dev rubygems lintian unzip bison flex clang llvm && \
     rm -rf /var/lib/apt/lists/*
 
 RUN gem install --no-ri --no-rdoc fpm
@@ -56,6 +56,8 @@ RUN go get -u golang.org/x/tools/cmd/goimports
 RUN go get -u github.com/mitchellh/gox
 RUN go get -u github.com/alecthomas/gometalinter
 RUN gometalinter --install
+
+RUN go get -u github.com/jteeuwen/go-bindata/...
 
 VOLUME /tmp
 VOLUME /src

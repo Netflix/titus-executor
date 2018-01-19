@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/metatron"
+	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -41,7 +41,7 @@ type cleanupFunc func() error
 
 // Container contains config state for a container.
 // It is not safe to be used concurrently, synchronization and locking needs to be handled externally.
-type Container struct {
+type Container struct { // nolint: maligned
 	ID        string
 	Pid       int
 	TaskID    string
@@ -53,16 +53,19 @@ type Container struct {
 
 	userNamespacesDisabled bool
 
-	// VPC driver fields
-	NetworkCfgParams *NetworkConfigurationParams
-	NetworkCfg       *NetworkConfiguration
-
 	// Metatron fields
 	MetatronConfig *metatron.CredentialsConfig
 
 	// cleanup callbacks that runtime implementations can register to do cleanup
 	// after a launchGuard on the taskID has been lifted
 	cleanup []cleanupFunc
+
+	// VPC driver fields
+	SecurityGroupIDs []string
+	// Titus Index 1 = ENI index 0
+	Allocation         vpcTypes.Allocation
+	NormalizedENIIndex int
+	BandwidthLimitMbps uint32
 }
 
 // Resources specify constraints to be applied to a Container
@@ -84,19 +87,20 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, constraints *Re
 	labels["TITUS_TASK_INSTANCE_ID"] = env["TITUS_TASK_INSTANCE_ID"]
 
 	c := &Container{
-		TaskID:    taskID,
-		TitusInfo: titusInfo,
-		Resources: constraints,
-		Env:       env,
-		Labels:    labels,
-		NetworkCfgParams: &NetworkConfigurationParams{
-			ResourceID:      fmt.Sprintf("resource-eni-%s", networkCfgParams.GetEniLabel()),
-			SgIds:           networkCfgParams.GetSecurityGroups(),
-			RoutableIP:      titusInfo.GetAllocateIpAddress(), // TODO: use NetworkCfgParams instead
-			Bandwidth:       networkCfgParams.GetBandwidthLimitMbps(),
-			IamRole:         titusInfo.GetIamProfile(),
-			TitusInstanceID: env["TITUS_TASK_INSTANCE_ID"],
-		},
+		TaskID:             taskID,
+		TitusInfo:          titusInfo,
+		Resources:          constraints,
+		Env:                env,
+		Labels:             labels,
+		SecurityGroupIDs:   networkCfgParams.GetSecurityGroups(),
+		BandwidthLimitMbps: networkCfgParams.GetBandwidthLimitMbps(),
+	}
+	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
+		titusENIIndex, err := strconv.Atoi(networkCfgParams.GetEniLabel())
+		if err != nil {
+			panic(err)
+		}
+		c.NormalizedENIIndex = titusENIIndex + 1
 	}
 
 	if isAppInList(c, userNamespacesExemptApplications) {

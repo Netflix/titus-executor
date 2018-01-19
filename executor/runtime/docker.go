@@ -26,8 +26,8 @@ import (
 	"github.com/Netflix/quitelite-client-go/properties"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/nvidia"
+	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -35,6 +35,8 @@ import (
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sys/unix"
 )
 
 // units
@@ -55,8 +57,10 @@ const (
 const (
 	fuseDev = "/dev/fuse"
 	// See: TITUS-1231, this is added as extra padding for container initialization
-	builtInDiskBuffer = 1100 // In megabytes, includes extra space for /logs.
-	titusEnvironments = "/var/lib/titus-environments"
+	builtInDiskBuffer       = 1100 // In megabytes, includes extra space for /logs.
+	titusEnvironments       = "/var/lib/titus-environments"
+	defaultNetworkBandwidth = 128 * MB
+	defaultKillWait         = 10 * time.Second
 )
 
 const envFileTemplateStr = `
@@ -85,8 +89,9 @@ var (
 	cfsBandwidthPeriod = properties.NewDynamicProperty(context.TODO(), "titus.executor.cfsBandwidthPeriod", "100000", "", nil)
 	// bandwidth | nanocpus | none
 	cfsBandwidthMode = properties.NewDynamicProperty(context.TODO(), "titus.executor.cfsBandwidthMode", bandwidthMode, "", nil)
-
-	tiniVerbosity = properties.NewDynamicProperty(context.TODO(), "titus.executor.tiniVerbosity", "", "", nil)
+	tiniVerbosity    = properties.NewDynamicProperty(context.TODO(), "titus.executor.tiniVerbosity", "", "", nil)
+	batchSize        = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.batchSize", "4", "", nil)
+	burst            = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.burst", "false", "", nil)
 
 	prepareTimeout = newTimeoutDynamicProperty(context.TODO(), "prepare", time.Minute*10)
 	startTimeout   = newTimeoutDynamicProperty(context.TODO(), "start", time.Minute*10)
@@ -361,7 +366,6 @@ func setShares(logEntry *log.Entry, c *Container, hostCfg *container.HostConfig)
 }
 
 func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int64) (*container.Config, *container.HostConfig, error) {
-
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
 	entrypoint, err := GetEntrypointFromProto(c.TitusInfo)
@@ -445,6 +449,19 @@ func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int
 		// seccomp profile will automatically adjust based on the capabilities.
 		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
 	}
+
+	// label is necessary for metadata proxy compatibility
+	containerCfg.Labels["titus.vpc.ipv4"] = c.Allocation.IPV4Address // deprecated
+	containerCfg.Labels["titus.net.ipv4"] = c.Allocation.IPV4Address
+
+	// TODO(fabio): find a way to avoid regenerating the env map
+	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address
+
+	if config.UseNewNetworkDriver() {
+		hostCfg.NetworkMode = container.NetworkMode("none")
+	}
+
+	containerCfg.Env = getSortedEnvArray(c.Env)
 
 	return containerCfg, hostCfg, nil
 }
@@ -588,37 +605,64 @@ func doDockerPull(ctx context.Context, metrics metrics.Reporter, client *docker.
 	}
 }
 
-func prepareNetworkDriver(c *Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
-	log.Printf("Configuring VPC network for %s using params %+v", c.TaskID, c.NetworkCfgParams)
+func prepareNetworkDriver(c *Container) error {
+	log.Printf("Configuring VPC network for %s", c.TaskID)
 
-	// TODO(fabio): this is docker specific, move it out of the executor package
-	networkConfiguration, err := CreateNetworkConfiguration(c.TaskID, c.NetworkCfgParams) // nolint: vetshadow
+	args := []string{
+		"allocate-network",
+		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
+		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
+	}
+	if newBatchSize, err := batchSize.Read().AsString(); err != nil {
+		log.Error("Unable to fetch batchsize override: ", err)
+	} else {
+		args = append(args, "--batch-size", newBatchSize)
+	}
+	cmd := exec.Command("/apps/titus-executor/bin/titus-vpc-tool", args...) // nolint: gas
+
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		// TODO(Andrew L): The VPC driver should return a single code that we can should
-		if (strings.Contains(err.Error(), "invalid security groups requested for vpc id")) ||
-			(strings.Contains(err.Error(), "InvalidGroup.NotFound") ||
-				(strings.Contains(err.Error(), "InvalidSecurityGroupID.NotFound"))) {
-			var invalidSg InvalidSecurityGroupError
-			invalidSg.reason = err
-			return &invalidSg
-		}
-		return fmt.Errorf("vpc network configuration error: %s", err)
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	c.registerRuntimeCleanup(func() error {
+		_ = cmd.Process.Signal(unix.SIGTERM)
+		killTimer := time.AfterFunc(5*time.Minute, func() {
+			_ = cmd.Process.Kill()
+		})
+		err := cmd.Wait()
+		killTimer.Stop()
+		_ = cmd.Process.Kill()
+		return err
+	})
+	cancelTimer := time.AfterFunc(5*time.Minute, func() {
+		log.Warning("timed out trying to allocate network")
+		_ = cmd.Process.Kill()
+	})
+	if err := json.NewDecoder(stdoutPipe).Decode(&c.Allocation); err != nil {
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("Unable to read json from pipe: %+v", err)
+	}
+	if !cancelTimer.Stop() {
+		// Ruh roh, we failed to stop the timer in time.
+		return errors.New("Race condition experienced with stopping VPC allocation")
 	}
 
-	log.Printf("vpc network configuration obtained %+v", networkConfiguration)
-	c.NetworkCfg = networkConfiguration
+	if !c.Allocation.Success {
+		_ = cmd.Process.Kill()
+		if (strings.Contains(c.Allocation.Error, "invalid security groups requested for vpc id")) ||
+			(strings.Contains(c.Allocation.Error, "InvalidGroup.NotFound") ||
+				(strings.Contains(c.Allocation.Error, "InvalidSecurityGroupID.NotFound"))) {
+			var invalidSg InvalidSecurityGroupError
+			invalidSg.reason = errors.New(c.Allocation.Error)
+			return &invalidSg
+		}
+		return fmt.Errorf("vpc network configuration error: %s", c.Allocation.Error)
+	}
 
-	// label is necessary for metadata proxy compatibility
-	dockerCfg.Labels["titus.vpc.ipv4"] = networkConfiguration.IPAddress // deprecated
-	dockerCfg.Labels["titus.net.ipv4"] = networkConfiguration.IPAddress
-	dockerCfg.Labels["titus.net.veth"] = fmt.Sprintf("veth%sA", networkConfiguration.ContainerID[:6])
-	dockerCfg.Labels[models.NetworkContainerIDLabel] = networkConfiguration.ContainerID
-	hostCfg.NetworkMode = container.NetworkMode(fmt.Sprintf("container:%s", networkConfiguration.ContainerID))
-
-	// TODO(fabio): find a way to avoid regenerating the env map
-	c.Env["EC2_LOCAL_IPV4"] = networkConfiguration.IPAddress
-
-	dockerCfg.Env = getSortedEnvArray(c.Env)
+	log.Printf("vpc network configuration obtained %+v", c.Allocation)
 
 	return nil
 }
@@ -632,48 +676,52 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *Container, binds [
 	var dockerCfg *container.Config
 	var hostCfg *container.HostConfig
 	var size int64
-	var imageInfo types.ImageInspect
 
+	group, errGroupCtx := errgroup.WithContext(ctx)
 	err := r.validateEFSMounts(c)
 	if err != nil {
 		goto error
 	}
 
-	err = r.dockerPull(ctx, c)
+	group.Go(func() error {
+		if pullErr := r.dockerPull(errGroupCtx, c); pullErr != nil {
+			return pullErr
+		}
+
+		imageInfo, _, inspectErr := r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
+		if inspectErr != nil {
+			log.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
+			return inspectErr
+		}
+
+		size = r.reportDockerImageSizeMetric(c, imageInfo)
+		// Check if this image (container) has a an entrypoint, or if we
+		// were passed one
+		if !r.hasEntrypoint(imageInfo, c) {
+			return NoEntrypointError
+		}
+		return nil
+	})
+
+	if config.UseNewNetworkDriver() {
+		group.Go(func() error {
+			return prepareNetworkDriver(c)
+		})
+	} else {
+		// Don't call out to network driver for local development
+		mockIP := "1.2.3.4"
+		log.Printf("Mocking networking configuration in dev mode to IP %s", mockIP)
+		c.Allocation.IPV4Address = mockIP
+	}
+
+	err = group.Wait()
 	if err != nil {
 		goto error
-	}
-
-	imageInfo, _, err = r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
-	if err != nil {
-		log.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
-		return err
-	}
-	size = r.reportDockerImageSizeMetric(c, imageInfo)
-
-	// Check if this image (container) has a an entrypoint, or if we
-	// were passed one
-	if !r.hasEntrypoint(imageInfo, c) {
-		return NoEntrypointError
 	}
 
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size)
 	if err != nil {
 		goto error
-	}
-
-	if config.UseNewNetworkDriver() {
-		err = prepareNetworkDriver(c, dockerCfg, hostCfg)
-		if err != nil {
-			goto error
-		}
-	} else {
-		// Don't call out to network driver for local development
-		mockIP := "1.2.3.4"
-		log.Printf("Mocking networking configuration in dev mode to IP %s", mockIP)
-		c.NetworkCfg = &NetworkConfiguration{
-			IPAddress: mockIP,
-		}
 	}
 
 	// setupGPU will override the current Volume driver if there is one
@@ -1236,7 +1284,6 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 		shouldClose(unixConn)
 		return nil
 	})
-
 	if err != nil {
 		log.Error("Unable to get FDs from container: ", err)
 		return "", nil, nil, err
@@ -1244,9 +1291,22 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 
 	rootFile := files[0]
 
-	err = setupScheduler(cred)
+	// r.logDir(c), &cred, rootFile, nil
+	err = r.setupPostStartLogDirTiniHandleConnection2(parentCtx, c, cred, rootFile)
+	return r.logDir(c), &cred, rootFile, err
+}
+
+func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx context.Context, c *Container, cred ucred, rootFile *os.File) error {
+	if config.UseNewNetworkDriver() && c.Allocation.IPV4Address != "" {
+		err := setupNetworking(c, cred)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := setupScheduler(cred)
 	if err != nil {
-		return "", nil, nil, err
+		return err
 	}
 
 	/* This can be "broken" if the titus-executor crashes. The link will be dangling, and point to a
@@ -1258,7 +1318,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 	err = os.Symlink(logsRoot, darionRoot)
 	if err != nil {
 		log.Warning("Unable to setup symlink for darion: ", err)
-		return "", nil, nil, err
+		return err
 	}
 
 	c.registerRuntimeCleanup(rootFile.Close)
@@ -1269,10 +1329,88 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 	err = setupSystemPods(parentCtx, c, cred)
 	if err != nil {
 		log.Warning("Unable to launch metrics pod: ", err)
-		return "", nil, nil, err
+		return err
 	}
 
-	return r.logDir(c), &cred, rootFile, nil
+	return nil
+}
+
+func setupNetworkingArgs(c *Container) []string {
+	bw := c.BandwidthLimitMbps * 1000 * 1000
+	if bw == 0 {
+		bw = defaultNetworkBandwidth
+	}
+	args := []string{
+		"setup-container",
+		"--bandwidth", strconv.Itoa(int(bw)),
+		"--netns", "3",
+	}
+	if burstVal, err := burst.Read().AsBool(); err != nil {
+		log.Error("Unable to determine whether network bursting is enabled: ", err)
+	} else if burstVal || c.TitusInfo.GetAllowNetworkBursting() {
+		args = append(args, "--burst")
+	}
+
+	return args
+}
+
+func setupNetworking(c *Container, cred ucred) error {
+	log.Info("Setting up container network")
+	var result vpcTypes.WiringStatus
+
+	netnsFile, err := os.Open(filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "ns", "net"))
+	if err != nil {
+		return err
+	}
+	defer shouldClose(netnsFile)
+
+	cmd := exec.Command("/apps/titus-executor/bin/titus-vpc-tool", setupNetworkingArgs(c)...) // nolint: gas
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.ExtraFiles = []*os.File{netnsFile}
+
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+	c.registerRuntimeCleanup(func() error {
+		_ = cmd.Process.Signal(unix.SIGTERM)
+		killTimer := time.AfterFunc(1*time.Minute, func() {
+			_ = cmd.Process.Kill()
+		})
+		err := cmd.Wait()
+		killTimer.Stop()
+		_ = cmd.Process.Kill()
+		return err
+	})
+
+	cancelTimer := time.AfterFunc(5*time.Minute, func() {
+		log.Warning("timed out trying to setup container network")
+		_ = cmd.Process.Kill()
+	})
+	if err := json.NewEncoder(stdin).Encode(c.Allocation); err != nil {
+		_ = cmd.Process.Kill()
+		return err
+	}
+	if err := json.NewDecoder(stdout).Decode(&result); err != nil {
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("Unable to read json from pipe during setup-container: %+v", err)
+	}
+	if !cancelTimer.Stop() {
+		return errors.New("Race condition experienced with container network setup")
+	}
+	if !result.Success {
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("Network setup error: %s", result.Error)
+	}
+
+	return nil
 }
 
 func launchTini(conn *net.UnixConn) error {
@@ -1327,21 +1465,14 @@ func (r *DockerRuntime) Details(c *Container) (*Details, error) {
 		IPAddresses: make(map[string]string),
 	}
 
-	if c.NetworkCfg != nil {
-		if c.NetworkCfgParams.RoutableIP {
-			details.IPAddresses["nfvpc"] = c.NetworkCfg.IPAddress
-		} else {
-			// for back compatibility
-			details.IPAddresses["bridge"] = c.NetworkCfg.IPAddress
-		}
-
-		// new details
+	if c.Allocation.IPV4Address != "" {
+		details.IPAddresses["nfvpc"] = c.Allocation.IPV4Address
 		details.NetworkConfiguration = &NetworkConfigurationDetails{
-			IsRoutableIP: c.NetworkCfgParams.RoutableIP,
-			IPAddress:    c.NetworkCfg.IPAddress,
-			EniID:        c.NetworkCfg.EniID,
-			EniIPAddress: c.NetworkCfg.GwAddress,
-			ResourceID:   c.NetworkCfg.ResourceID,
+			IsRoutableIP: true,
+			IPAddress:    c.Allocation.IPV4Address,
+			EniIPAddress: c.Allocation.IPV4Address,
+			EniID:        c.Allocation.ENI,
+			ResourceID:   fmt.Sprintf("resource-eni-%d", c.Allocation.DeviceIndex-1),
 		}
 	} else {
 		ci, err := r.client.ContainerInspect(context.TODO(), c.ID)
@@ -1412,13 +1543,17 @@ func (r *DockerRuntime) Kill(c *Container) error {
 	log.Infof("Killing %s", c.TaskID)
 
 	var errs []error
-	containerStopTimeout := 10 * time.Second
+	containerStopTimeout := time.Second * time.Duration(c.TitusInfo.GetKillWaitSeconds())
+	if containerStopTimeout == 0 {
+		containerStopTimeout = defaultKillWait
+	}
 
 	if containerJSON, err := r.client.ContainerInspect(context.TODO(), c.ID); docker.IsErrContainerNotFound(err) {
 		goto stopped
 	} else if err != nil {
 		log.Error("Failed to inspect container: ", err)
 		errs = append(errs, err)
+		// There could be a race condition here, where if the container is killed before it is started, it could go into a wonky state
 	} else if !containerJSON.State.Running {
 		goto stopped
 	}
@@ -1438,16 +1573,6 @@ func (r *DockerRuntime) Kill(c *Container) error {
 	}
 
 stopped:
-
-	if config.UseNewNetworkDriver() && c.NetworkCfg != nil {
-		if err := CleanupNetworkConfiguration(c.NetworkCfg.ContainerID); err != nil {
-			log.Errorf("Cleanup network error for task %s: %v", c.TaskID, err)
-			errs = append(errs, err)
-		} else {
-			log.Debugf("Cleaned up VPC network for %s with config %+v", c.TaskID, c.NetworkCfg)
-		}
-	}
-
 	// Deallocate any GPU device assigned to the container
 	// Note: Since the executor doesn't persist task->GPU device mappings
 	// we expect the executor to remove existing containers on startup

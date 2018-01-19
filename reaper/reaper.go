@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	titusruntime "github.com/Netflix/titus-executor/executor/runtime"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
@@ -120,7 +119,6 @@ func filterTitusContainers(containers []types.Container) []types.Container {
 func (reaper *Reaper) processContainer(ctx context.Context, container types.Container, httpClient *http.Client, dockerClient *docker.Client) {
 	containerJSON, err := dockerClient.ContainerInspect(ctx, container.ID)
 	taskID := containerJSON.Config.Labels[models.TaskIDLabel]
-	networkContainerID := containerJSON.Config.Labels[models.NetworkContainerIDLabel]
 	l := reaper.log.WithField("taskID", taskID)
 	if docker.IsErrContainerNotFound(err) {
 		return
@@ -133,9 +131,6 @@ func (reaper *Reaper) processContainer(ctx context.Context, container types.Cont
 		timeout := 30 * time.Second
 		if err := dockerClient.ContainerStop(ctx, containerJSON.ID, &timeout); err != nil {
 			l.Warning("Unable to stop container: ", err)
-		}
-		if err := titusruntime.CleanupNetworkConfiguration(networkContainerID); err != nil {
-			l.Warning("Issue cleaning up container network namespace: ", err)
 		}
 		if err := dockerClient.ContainerRemove(ctx, containerJSON.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			l.Warning("Unable to remove container: ", err)
