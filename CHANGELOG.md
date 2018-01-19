@@ -1,6 +1,17 @@
 # Change Log
 
-## [20171231.0](https://github.com/Netflix/titus-executor/tree/20171231.0) (2017-12-29)
+## [20180119.0](https://github.com/Netflix/titus-executor/tree/20180119.0) (2018-01-19)
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20171231.0...20180119.0)
+
+**Merged pull requests:**
+
+- Disable atlas agent during testing [\#30](https://github.com/Netflix/titus-executor/pull/30) ([sargun](https://github.com/sargun))
+- Bump golang.org/x/sys/unix [\#28](https://github.com/Netflix/titus-executor/pull/28) ([sargun](https://github.com/sargun))
+- Bump protodefs [\#27](https://github.com/Netflix/titus-executor/pull/27) ([sargun](https://github.com/sargun))
+- no entrypoint or command during container.Create should yield FAILED [\#26](https://github.com/Netflix/titus-executor/pull/26) ([fabiokung](https://github.com/fabiokung))
+- Networking [\#25](https://github.com/Netflix/titus-executor/pull/25) ([sargun](https://github.com/sargun))
+
+## [20171231.0](https://github.com/Netflix/titus-executor/tree/20171231.0) (2018-01-08)
 [Full Changelog](https://github.com/Netflix/titus-executor/compare/20171031.1...20171231.0)
 
 **Merged pull requests:**
