@@ -1,7 +1,7 @@
 {
     "protoDefs": {
         "com.netflix:titus-api-definitions": {
-            "locked": "0.0.1-rc14",
+            "locked": "0.0.1-rc17",
             "requested": "0.+"
         }
     }
