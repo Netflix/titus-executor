@@ -37,6 +37,10 @@ type JobInput struct {
 	Capabilities *titus.ContainerInfo_Capabilities
 	// Environment  is any extra environment variables to add
 	Environment map[string]string
+	// IgnoreLaunchGuard sets the V3 engine flag on the job
+	IgnoreLaunchGuard bool
+	// StopTimeoutSeconds is the duration we wait after SIGTERM for the container to exit
+	KillWaitSeconds uint32
 }
 
 // JobRunResponse returned from RunJob
@@ -198,9 +202,14 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
 			EniLabel: protobuf.String("1"),
 		},
-		IamProfile:       protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-		Capabilities:     jobInput.Capabilities,
-		TitusProvidedEnv: env,
+		IamProfile:        protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
+		Capabilities:      jobInput.Capabilities,
+		TitusProvidedEnv:  env,
+		IgnoreLaunchGuard: protobuf.Bool(jobInput.IgnoreLaunchGuard),
+	}
+
+	if jobInput.KillWaitSeconds > 0 {
+		ci.KillWaitSeconds = protobuf.Uint32(jobInput.KillWaitSeconds)
 	}
 	if id := jobInput.ImageDigest; id != "" {
 		ci.ImageDigest = protobuf.String(id)

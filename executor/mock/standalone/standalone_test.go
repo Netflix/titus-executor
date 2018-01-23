@@ -60,6 +60,10 @@ var (
 		name: "titusoss/no-entrypoint-test",
 		tag:  "20171109-1510275133",
 	}
+	ignoreSignals = testImage{
+		name: "titusoss/ignore-signals",
+		tag:  "20180122-1516662139",
+	}
 )
 
 // This file still uses log as opposed to using the testing library's built-in logging framework.
@@ -75,6 +79,7 @@ func TestStandalone(t *testing.T) {
 		testDefaultCapabilities,
 		testHTTPServerEndpoint,
 		testLaunchAfterKill,
+		testLaunchAfterKillDisableLaunchguard,
 		testStdoutGoesToLogFile,
 		testStderrGoesToLogFile,
 		testImageByDigest,
@@ -90,6 +95,7 @@ func TestStandalone(t *testing.T) {
 		testMetadataProxyInjection,
 		testMetdataProxyDefaultRoute,
 		testSimpleJobWithBadEnvironment,
+		testTerminateTimeout,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -283,6 +289,67 @@ func testLaunchAfterKill(t *testing.T) {
 					t.Fail()
 				}
 				return
+			}
+		}
+	}
+}
+
+func testLaunchAfterKillDisableLaunchguard(t *testing.T) {
+	// Start the executor
+	jobRunner := mock.NewJobRunner(false)
+	defer jobRunner.StopExecutor()
+
+	// Submit a job that runs for 30s and does
+	// NOT exit on SIGTERM
+	ji := &mock.JobInput{
+		ImageName:         ignoreSignals.name,
+		Version:           ignoreSignals.tag,
+		IgnoreLaunchGuard: true,
+	}
+	firstJobResponse := jobRunner.StartJob(ji)
+
+	// Wait until the task is running
+	for {
+		status := <-firstJobResponse.StatusChannel
+		if status == "TASK_RUNNING" {
+			t.Log("First task running")
+			break
+		}
+	}
+
+	// Submit a request to kill the job. Since the
+	// job does not exit on SIGTERM we expect the kill
+	// to take at least 10 seconds.
+	if err := jobRunner.KillTask(firstJobResponse.TaskID); err != nil {
+		t.Fail()
+	}
+
+	// Start another task that should not block while the kill is happening
+	ji = &mock.JobInput{
+		ImageName:         alpine.name,
+		Version:           alpine.tag,
+		Entrypoint:        "sleep 6",
+		IgnoreLaunchGuard: true,
+	}
+	secondJobResponse := jobRunner.StartJob(ji)
+	waitForJobs(t, firstJobResponse, secondJobResponse)
+}
+
+func waitForJobs(t *testing.T, firstJobResponse, secondJobResponse *mock.JobRunResponse) {
+	for {
+		select {
+		case firstStatus := <-firstJobResponse.StatusChannel:
+			t.Log("First job in state: ", firstStatus)
+			if mock.IsTerminalState(firstStatus) {
+				t.Fatal("First job ended up in terminal state: ", firstStatus)
+			}
+		case secondStatus := <-secondJobResponse.StatusChannel:
+			t.Log("Second job in state: ", secondStatus)
+			if secondStatus == "TASK_RUNNING" || secondStatus == "TASK_FINISHED" {
+				// Success
+				return
+			} else if mock.IsTerminalState(secondStatus) {
+				t.Fatal("Second job reached terminal state: ", secondStatus)
 			}
 		}
 	}
@@ -567,4 +634,49 @@ func testMetdataProxyDefaultRoute(t *testing.T) {
 	if !mock.RunJobExpectingSuccess(ji, false) {
 		t.Fail()
 	}
+}
+
+func testTerminateTimeout(t *testing.T) {
+	// Start the executor
+	jobRunner := mock.NewJobRunner(false)
+	defer jobRunner.StopExecutor()
+
+	// Submit a job that runs for a long time and does
+	// NOT exit on SIGTERM
+	ji := &mock.JobInput{
+		ImageName:       ignoreSignals.name,
+		Version:         ignoreSignals.tag,
+		KillWaitSeconds: 20,
+	}
+	jobResponse := jobRunner.StartJob(ji)
+
+	// Wait until the task is running
+	for {
+		status := <-jobResponse.StatusChannel
+		if status == "TASK_RUNNING" {
+			break
+		}
+	}
+
+	// Submit a request to kill the job. Since the
+	// job does not exit on SIGTERM we expect the kill
+	// to take at least 20 seconds
+	killTime := time.Now()
+	if err := jobRunner.KillTask(jobResponse.TaskID); err != nil {
+		t.Fail()
+	}
+
+	for status := range jobResponse.StatusChannel {
+
+		if mock.IsTerminalState(status) {
+			if status != "TASK_KILLED" {
+				t.Fail()
+			}
+			if time.Since(killTime) < 20*time.Second {
+				t.Fatal("Task was killed too quickly")
+			}
+			return
+		}
+	}
+	t.Fail()
 }
