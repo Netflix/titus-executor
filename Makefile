@@ -14,7 +14,7 @@ include hack/make/lint.mk
 SHELL                 := /usr/bin/env bash -eu -o pipefail
 GO_PKG                := github.com/Netflix/titus-executor
 LOCAL_DIRS            = $(shell govendor list -p -no-status +local)
-TEST_FLAGS            ?= -v -parallel 16
+TEST_FLAGS            ?= -v -parallel 32
 TEST_OUTPUT           ?= test.xml
 TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
 

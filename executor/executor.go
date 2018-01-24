@@ -432,21 +432,24 @@ func (e *Executor) startContainer(c *containerState, startTime time.Time) { // n
 		return
 	}
 
-	e.update <- newUpdate(c.Container.TaskID, titusdriver.Starting, "waiting_on_launchguard")
+	if c.TitusInfo.GetIgnoreLaunchGuard() {
+		c.logEntry.Info("Ignoring Launchguard")
+	} else {
+		e.update <- newUpdate(c.Container.TaskID, titusdriver.Starting, "waiting_on_launchguard")
 
-	// Wait until the launchGuard is released.
-	// TODO(Andrew L): We only block concurrent launches to avoid a race condition introduced
-	// by the Titus master releasing resources prior to the agent releasing them.
-	le := launchguard.NewLaunchEvent(e.launchGuard)
-	select {
-	case <-le.Launch():
-		c.logEntry.Info("Launch not blocked on on launchGuard")
-	default:
-		c.logEntry.Info("Launch waiting on launchGuard")
-		<-le.Launch()
-		c.logEntry.Info("No longer waiting on launchGuard")
+		// Wait until the launchGuard is released.
+		// TODO(Andrew L): We only block concurrent launches to avoid a race condition introduced
+		// by the Titus master releasing resources prior to the agent releasing them.
+		le := launchguard.NewLaunchEvent(e.launchGuard)
+		select {
+		case <-le.Launch():
+			c.logEntry.Info("Launch not blocked on on launchGuard")
+		default:
+			c.logEntry.Info("Launch waiting on launchGuard")
+			<-le.Launch()
+			c.logEntry.Info("No longer waiting on launchGuard")
+		}
 	}
-
 	// Send another update to indicate that we've gotten passed launchguard.
 	e.update <- newUpdate(c.Container.TaskID, titusdriver.Starting, "creating_metatron")
 
@@ -572,7 +575,7 @@ error:
 func (e *Executor) StopTask(taskID string) error {
 	log.Printf("task %s : kill", taskID)
 	e.Lock()
-	_, exists := e.tasks[taskID]
+	cs, exists := e.tasks[taskID]
 	e.Unlock()
 
 	if !exists {
@@ -580,17 +583,23 @@ func (e *Executor) StopTask(taskID string) error {
 		return nil
 	}
 
-	// Enable launch guard to prevent subsequent launch requests
-	log.Printf("Setting launchGuard while stopping task %s", taskID)
 	ctx, cancel := context.WithTimeout(e.ctx, killTimeout)
 	_ = cancel
-	ce := launchguard.NewRealCleanUpEvent(ctx, e.launchGuard)
 
+	update := newUpdate(taskID, titusdriver.Killed, "mesos")
+	if cs.TitusInfo.GetIgnoreLaunchGuard() {
+		cs.logEntry.Info("Not setting launchguard while stopping task")
+	} else {
+		// Enable launch guard to prevent subsequent launch requests
+		cs.logEntry.Info("Setting launchGuard while stopping task")
+		ce := launchguard.NewRealCleanUpEvent(ctx, e.launchGuard)
+		update = update.withCleanUpEvent(ce)
+	}
 	select {
 	// After we put this message on the channel it'll get read in the main executor loop,
 	// and the main executor loop will read it and mark the container as killed, and subsequently
 	// call the kill function
-	case e.update <- newUpdate(taskID, titusdriver.Killed, "mesos").withCleanUpEvent(ce):
+	case e.update <- update:
 	case <-e.ctx.Done():
 		return fmt.Errorf("Stop for task %s canceled", taskID)
 	}
