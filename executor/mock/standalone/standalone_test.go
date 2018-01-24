@@ -241,7 +241,7 @@ func testHTTPServerEndpoint(t *testing.T) { // nolint: gocyclo
 func testLaunchAfterKill(t *testing.T) {
 	// Start the executor
 	jobRunner := mock.NewJobRunner(false)
-	defer jobRunner.StopExecutor()
+	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for a long time and does
 	// NOT exit on SIGTERM
@@ -281,12 +281,12 @@ func testLaunchAfterKill(t *testing.T) {
 		select {
 		case firstStatus := <-firstJobResponse.StatusChannel:
 			if firstStatus != "TASK_KILLED" {
-				t.Fail()
+				t.Fatal("First status did not end up in killed state: ", firstStatus)
 			}
 		case secondStatus := <-secondJobResponse.StatusChannel:
 			if mock.IsTerminalState(secondStatus) {
 				if secondStatus != "TASK_FINISHED" {
-					t.Fail()
+					t.Fatal("Second task ended up in terminal state: ", secondStatus)
 				}
 				return
 			}
@@ -297,7 +297,7 @@ func testLaunchAfterKill(t *testing.T) {
 func testLaunchAfterKillDisableLaunchguard(t *testing.T) {
 	// Start the executor
 	jobRunner := mock.NewJobRunner(false)
-	defer jobRunner.StopExecutor()
+	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for 30s and does
 	// NOT exit on SIGTERM
@@ -639,7 +639,7 @@ func testMetdataProxyDefaultRoute(t *testing.T) {
 func testTerminateTimeout(t *testing.T) {
 	// Start the executor
 	jobRunner := mock.NewJobRunner(false)
-	defer jobRunner.StopExecutor()
+	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for a long time and does
 	// NOT exit on SIGTERM

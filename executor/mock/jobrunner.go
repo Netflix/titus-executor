@@ -172,6 +172,11 @@ func (jobRunner *JobRunner) StopExecutor() {
 	close(jobRunner.shutdownChannel)
 }
 
+// StopExecutorAsync stops a currently running executor
+func (jobRunner *JobRunner) StopExecutorAsync() {
+	go jobRunner.StopExecutor()
+}
+
 // StartJob starts a job on an existing JobRunner and returns once the job is started
 func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 	// Define some stock job to run
