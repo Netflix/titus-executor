@@ -384,6 +384,7 @@ func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int
 
 	c.Env["TITUS_IAM_ROLE"] = c.TitusInfo.GetIamProfile()
 
+	hostname := strings.ToLower(c.TaskID)
 	containerCfg := &container.Config{
 		Image:      c.QualifiedImageName(),
 		Entrypoint: entrypoint,
@@ -391,12 +392,14 @@ func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int
 		Env:        getSortedEnvArray(c.Env),
 		Labels:     c.Labels,
 		Volumes:    map[string]struct{}{},
+		Hostname:   hostname,
 	}
 
 	hostCfg := &container.HostConfig{
 		AutoRemove: false,
 		Privileged: false,
 		Binds:      binds,
+		ExtraHosts: []string{fmt.Sprintf("%s:%s", hostname, c.Allocation.IPV4Address)},
 	}
 	hostCfg.Memory = c.Resources.Mem * MiB
 	hostCfg.MemorySwap = 0
