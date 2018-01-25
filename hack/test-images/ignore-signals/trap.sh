@@ -1,4 +1,4 @@
 #!/bin/bash
 trap '' SIGINT SIGTERM
-sleep 30
+sleep 120
 echo completed normally
