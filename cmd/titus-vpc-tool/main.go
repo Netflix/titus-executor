@@ -6,6 +6,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/allocate"
 	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/Netflix/titus-executor/vpc/gc"
+	"github.com/Netflix/titus-executor/vpc/globalgc"
 	"github.com/Netflix/titus-executor/vpc/setup"
 	"gopkg.in/urfave/cli.v1"
 )
@@ -33,6 +34,7 @@ func main() {
 		allocate.AllocateNetwork,
 		gc.GC,
 		allocate.SetupContainer,
+		globalgc.GlobalGC,
 	}
 
 	if err := app.Run(os.Args); err != nil {
