@@ -36,7 +36,6 @@ type VPCContext struct {
 
 func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
 	logger := logrus.New()
-	logger.Hooks.Add(&journalhook.JournalHook{})
 	// Setup log level
 	level, err := logrus.ParseLevel(cliContext.GlobalString("log-level"))
 	if err != nil {
@@ -44,6 +43,11 @@ func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
 	}
 	logger.Level = level
 
+	if cliContext.GlobalBoolT("journald") {
+		logger.Hooks.Add(&journalhook.JournalHook{})
+	} else {
+		logger.Info("Disabling journald hook")
+	}
 	ret := &VPCContext{
 		Context:    context.Background(),
 		CLIContext: cliContext,
