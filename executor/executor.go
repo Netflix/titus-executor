@@ -22,6 +22,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// WaitingOnLaunchguardMessage is the status message we send to the master while we wait for launchguard
+const WaitingOnLaunchguardMessage = "waiting_on_launchguard"
 const shutdownTimeout = time.Hour
 const killTimeout = 5 * time.Minute
 
@@ -435,8 +437,7 @@ func (e *Executor) startContainer(c *containerState, startTime time.Time) { // n
 	if c.TitusInfo.GetIgnoreLaunchGuard() {
 		c.logEntry.Info("Ignoring Launchguard")
 	} else {
-		e.update <- newUpdate(c.Container.TaskID, titusdriver.Starting, "waiting_on_launchguard")
-
+		e.update <- newUpdate(c.Container.TaskID, titusdriver.Starting, WaitingOnLaunchguardMessage)
 		// Wait until the launchGuard is released.
 		// TODO(Andrew L): We only block concurrent launches to avoid a race condition introduced
 		// by the Titus master releasing resources prior to the agent releasing them.

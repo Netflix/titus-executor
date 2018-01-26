@@ -13,7 +13,7 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor/drivers/test"
+	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
 	titusruntime "github.com/Netflix/titus-executor/executor/runtime"
 	"github.com/Netflix/titus-executor/uploader"
 )
