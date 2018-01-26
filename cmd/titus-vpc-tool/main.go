@@ -28,6 +28,10 @@ func main() {
 			Name:  "log-level",
 			Value: "info",
 		},
+		cli.BoolTFlag{
+			Name:  "journald",
+			Usage: "Allows disabling the journald logging hook -- is enabled by default",
+		},
 	}
 	app.Commands = []cli.Command{
 		setup.Setup,
