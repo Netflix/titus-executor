@@ -331,18 +331,6 @@ func (e *Executor) killContainer(updateInfo update) { // nolint: gocyclo
 		cleanupErrs = append(cleanupErrs, err)
 	}
 
-	// Release the launch guard here if we're blocking concurrent task
-	// launches while killing the container. We only block
-	// concurrent launches to avoid a race condition introduced
-	// by the Titus master releasing resources prior to the agent releasing them.
-	// Release the launchGuard after the first phase of cleanup.
-	if updateInfo.ce != nil {
-		log.WithField("taskID", updateInfo.TaskID).Info("Unsetting launchguard")
-		updateInfo.ce.Done()
-	} else {
-		log.WithField("taskID", updateInfo.TaskID).Info("No launchguard to unset")
-	}
-
 	if c.watcher != nil {
 		if err := c.watcher.Stop(); err != nil {
 			log.Errorf("Error while shutting down watcher for %s : %v", c.TaskID, err)
@@ -353,6 +341,18 @@ func (e *Executor) killContainer(updateInfo update) { // nolint: gocyclo
 	if err := e.runtime.Cleanup(c.Container); err != nil {
 		log.Errorf("Cleanup for %s failed : %v", c.TaskID, err)
 		cleanupErrs = append(cleanupErrs, err)
+	}
+
+	// Release the launch guard here if we're blocking concurrent task
+	// launches while killing the container. We only block
+	// concurrent launches to avoid a race condition introduced
+	// by the Titus master releasing resources prior to the agent releasing them.
+	// Release the launchGuard after the first phase of cleanup.
+	if updateInfo.ce != nil {
+		log.WithField("taskID", updateInfo.TaskID).Info("Unsetting launchguard")
+		updateInfo.ce.Done()
+	} else {
+		log.WithField("taskID", updateInfo.TaskID).Info("No launchguard to unset")
 	}
 
 	e.metrics.Counter("titus.executor.taskCleanupDone", 1, nil)
