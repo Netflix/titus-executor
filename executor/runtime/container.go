@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -66,6 +67,9 @@ type Container struct { // nolint: maligned
 	Allocation         vpcTypes.Allocation
 	NormalizedENIIndex int
 	BandwidthLimitMbps uint32
+
+	AllocationCommand *exec.Cmd
+	SetupCommand      *exec.Cmd
 }
 
 // Resources specify constraints to be applied to a Container

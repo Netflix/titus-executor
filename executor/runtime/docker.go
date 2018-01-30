@@ -621,31 +621,31 @@ func prepareNetworkDriver(c *Container) error {
 	} else {
 		args = append(args, "--batch-size", newBatchSize)
 	}
-	cmd := exec.Command("/apps/titus-executor/bin/titus-vpc-tool", args...) // nolint: gas
+	c.AllocationCommand = exec.Command("/apps/titus-executor/bin/titus-vpc-tool", args...) // nolint: gas
 
-	stdoutPipe, err := cmd.StdoutPipe()
+	stdoutPipe, err := c.AllocationCommand.StdoutPipe()
 	if err != nil {
 		return err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := c.AllocationCommand.Start(); err != nil {
 		return err
 	}
 	c.registerRuntimeCleanup(func() error {
-		_ = cmd.Process.Signal(unix.SIGTERM)
+		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM)
 		killTimer := time.AfterFunc(5*time.Minute, func() {
-			_ = cmd.Process.Kill()
+			_ = c.AllocationCommand.Process.Kill()
 		})
-		err := cmd.Wait()
+		err := c.AllocationCommand.Wait()
 		killTimer.Stop()
-		_ = cmd.Process.Kill()
+		_ = c.AllocationCommand.Process.Kill()
 		return err
 	})
 	cancelTimer := time.AfterFunc(5*time.Minute, func() {
 		log.Warning("timed out trying to allocate network")
-		_ = cmd.Process.Kill()
+		_ = c.AllocationCommand.Process.Kill()
 	})
 	if err := json.NewDecoder(stdoutPipe).Decode(&c.Allocation); err != nil {
-		_ = cmd.Process.Kill()
+		_ = c.AllocationCommand.Process.Kill()
 		return fmt.Errorf("Unable to read json from pipe: %+v", err)
 	}
 	if !cancelTimer.Stop() {
@@ -654,7 +654,7 @@ func prepareNetworkDriver(c *Container) error {
 	}
 
 	if !c.Allocation.Success {
-		_ = cmd.Process.Kill()
+		_ = c.AllocationCommand.Process.Kill()
 		if (strings.Contains(c.Allocation.Error, "invalid security groups requested for vpc id")) ||
 			(strings.Contains(c.Allocation.Error, "InvalidGroup.NotFound") ||
 				(strings.Contains(c.Allocation.Error, "InvalidSecurityGroupID.NotFound"))) {
@@ -1367,49 +1367,49 @@ func setupNetworking(c *Container, cred ucred) error {
 	}
 	defer shouldClose(netnsFile)
 
-	cmd := exec.Command("/apps/titus-executor/bin/titus-vpc-tool", setupNetworkingArgs(c)...) // nolint: gas
-	stdin, err := cmd.StdinPipe()
+	c.SetupCommand = exec.Command("/apps/titus-executor/bin/titus-vpc-tool", setupNetworkingArgs(c)...) // nolint: gas
+	stdin, err := c.SetupCommand.StdinPipe()
 	if err != nil {
 		return err
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdout, err := c.SetupCommand.StdoutPipe()
 	if err != nil {
 		return err
 	}
-	cmd.ExtraFiles = []*os.File{netnsFile}
+	c.SetupCommand.ExtraFiles = []*os.File{netnsFile}
 
-	err = cmd.Start()
+	err = c.SetupCommand.Start()
 	if err != nil {
 		return err
 	}
 	c.registerRuntimeCleanup(func() error {
-		_ = cmd.Process.Signal(unix.SIGTERM)
+		_ = c.SetupCommand.Process.Signal(unix.SIGTERM)
 		killTimer := time.AfterFunc(1*time.Minute, func() {
-			_ = cmd.Process.Kill()
+			_ = c.SetupCommand.Process.Kill()
 		})
-		err := cmd.Wait()
+		err := c.SetupCommand.Wait()
 		killTimer.Stop()
-		_ = cmd.Process.Kill()
+		_ = c.SetupCommand.Process.Kill()
 		return err
 	})
 
 	cancelTimer := time.AfterFunc(5*time.Minute, func() {
 		log.Warning("timed out trying to setup container network")
-		_ = cmd.Process.Kill()
+		_ = c.SetupCommand.Process.Kill()
 	})
 	if err := json.NewEncoder(stdin).Encode(c.Allocation); err != nil {
-		_ = cmd.Process.Kill()
+		_ = c.SetupCommand.Process.Kill()
 		return err
 	}
 	if err := json.NewDecoder(stdout).Decode(&result); err != nil {
-		_ = cmd.Process.Kill()
+		_ = c.SetupCommand.Process.Kill()
 		return fmt.Errorf("Unable to read json from pipe during setup-container: %+v", err)
 	}
 	if !cancelTimer.Stop() {
 		return errors.New("Race condition experienced with container network setup")
 	}
 	if !result.Success {
-		_ = cmd.Process.Kill()
+		_ = c.SetupCommand.Process.Kill()
 		return fmt.Errorf("Network setup error: %s", result.Error)
 	}
 
@@ -1576,6 +1576,20 @@ func (r *DockerRuntime) Kill(c *Container) error {
 	}
 
 stopped:
+	if c.SetupCommand != nil {
+		_ = c.SetupCommand.Process.Signal(unix.SIGTERM)
+	}
+	if c.AllocationCommand != nil {
+		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM)
+		time.AfterFunc(5*time.Second, func() {
+			_ = c.AllocationCommand.Process.Kill()
+		})
+
+		log.WithField("taskId", c.TaskID).Info("Waiting for deallocation to finish")
+		_ = c.AllocationCommand.Wait()
+		log.WithField("taskId", c.TaskID).Info("Deallocation finished")
+	}
+
 	// Deallocate any GPU device assigned to the container
 	// Note: Since the executor doesn't persist task->GPU device mappings
 	// we expect the executor to remove existing containers on startup
