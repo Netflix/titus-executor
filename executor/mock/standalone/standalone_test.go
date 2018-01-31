@@ -16,12 +16,15 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/executor"
 	"github.com/Netflix/titus-executor/executor/drivers"
+	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
 	"github.com/Netflix/titus-executor/executor/mock"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
 var standalone bool
@@ -192,7 +195,7 @@ func testHTTPServerEndpoint(t *testing.T) { // nolint: gocyclo
 	defer jobRunner.StopExecutor()
 
 	for status := range jobResponse.StatusChannel { // nolint: gosimple
-		if status != "TASK_RUNNING" {
+		if status.Status != "TASK_RUNNING" {
 			continue
 		}
 		log.Printf("HTTP Server URL obtained %v\n", jobRunner.HTTPServer.URL)
@@ -255,7 +258,7 @@ func testLaunchAfterKill(t *testing.T) {
 	// Wait until the task is running
 	for {
 		status := <-firstJobResponse.StatusChannel
-		if status == "TASK_RUNNING" {
+		if status.Status == "TASK_RUNNING" {
 			break
 		}
 	}
@@ -280,12 +283,12 @@ func testLaunchAfterKill(t *testing.T) {
 	for {
 		select {
 		case firstStatus := <-firstJobResponse.StatusChannel:
-			if firstStatus != "TASK_KILLED" {
+			if firstStatus.Status != "TASK_KILLED" {
 				t.Fatal("First status did not end up in killed state: ", firstStatus)
 			}
 		case secondStatus := <-secondJobResponse.StatusChannel:
 			if mock.IsTerminalState(secondStatus) {
-				if secondStatus != "TASK_FINISHED" {
+				if secondStatus.Status != "TASK_FINISHED" {
 					t.Fatal("Second task ended up in terminal state: ", secondStatus)
 				}
 				return
@@ -299,27 +302,30 @@ func testLaunchAfterKillDisableLaunchguard(t *testing.T) {
 	jobRunner := mock.NewJobRunner(false)
 	defer jobRunner.StopExecutorAsync()
 
-	// Submit a job that runs for 30s and does
+	// Submit a job that runs for 120s and does
 	// NOT exit on SIGTERM
 	ji := &mock.JobInput{
 		ImageName:         ignoreSignals.name,
 		Version:           ignoreSignals.tag,
 		IgnoreLaunchGuard: true,
+		KillWaitSeconds:   30,
 	}
 	firstJobResponse := jobRunner.StartJob(ji)
 
 	// Wait until the task is running
 	for {
 		status := <-firstJobResponse.StatusChannel
-		if status == "TASK_RUNNING" {
-			t.Log("First task running")
+		if status.Status == "TASK_RUNNING" {
+			t.Log("First task running, id: ", firstJobResponse.TaskID)
 			break
 		}
 	}
+	// The bash script inside of the container needs to run, and setup traps before we send the kill signal
+	time.Sleep(5 * time.Second)
 
 	// Submit a request to kill the job. Since the
 	// job does not exit on SIGTERM we expect the kill
-	// to take at least 10 seconds.
+	// to take at least 30 seconds.
 	if err := jobRunner.KillTask(firstJobResponse.TaskID); err != nil {
 		t.Fail()
 	}
@@ -336,22 +342,35 @@ func testLaunchAfterKillDisableLaunchguard(t *testing.T) {
 }
 
 func waitForJobs(t *testing.T, firstJobResponse, secondJobResponse *mock.JobRunResponse) {
-	for {
+	var job1terminal, job2terminal bool
+	var job1terminalTime, job2startTime time.Time
+	statuses := []testdriver.TaskStatus{}
+
+	for !(job1terminal && job2terminal) {
 		select {
-		case firstStatus := <-firstJobResponse.StatusChannel:
-			t.Log("First job in state: ", firstStatus)
-			if mock.IsTerminalState(firstStatus) {
-				t.Fatal("First job ended up in terminal state: ", firstStatus)
+		case status := <-firstJobResponse.StatusChannel:
+			statuses = append(statuses, status)
+			if mock.IsTerminalState(status) {
+				assert.Equal(t, "TASK_KILLED", status.Status)
+				job1terminal = true
+				job1terminalTime = time.Now()
 			}
-		case secondStatus := <-secondJobResponse.StatusChannel:
-			t.Log("Second job in state: ", secondStatus)
-			if secondStatus == "TASK_RUNNING" || secondStatus == "TASK_FINISHED" {
-				// Success
-				return
-			} else if mock.IsTerminalState(secondStatus) {
-				t.Fatal("Second job reached terminal state: ", secondStatus)
+		case status := <-secondJobResponse.StatusChannel:
+			statuses = append(statuses, status)
+			if mock.IsTerminalState(status) {
+				job2terminal = true
+			} else if status.Status == "TASK_RUNNING" {
+				job2startTime = time.Now()
 			}
 		}
+	}
+	// Test that:
+	// 1. we saw no launchguard messages
+	// 2. that job2 started before job1 was killed
+	t.Log("Execution history ", statuses)
+	assert.True(t, job2startTime.Before(job1terminalTime))
+	for _, status := range statuses {
+		assert.NotEqual(t, executor.WaitingOnLaunchguardMessage, status.Msg)
 	}
 }
 
@@ -471,7 +490,7 @@ func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 
 	select {
 	case taskStatus := <-testResultBigImage.StatusChannel:
-		if taskStatus != "TASK_STARTING" {
+		if taskStatus.Status != "TASK_STARTING" {
 			t.Fatal("Task never observed in TASK_STARTING, instead: ", taskStatus)
 		}
 	case <-time.After(15 * time.Second):
@@ -499,11 +518,11 @@ func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 		select {
 		case taskStatus := <-testResultBigImage.StatusChannel:
 			t.Log("Observed task status: ", taskStatus)
-			if taskStatus == "TASK_RUNNING" {
+			if taskStatus.Status == "TASK_RUNNING" {
 				t.Fatalf("Task %s started after killTask %v", testResultBigImage.TaskID, taskStatus)
 			}
-			if taskStatus == "TASK_KILLED" || taskStatus == "TASK_LOST" {
-				t.Logf("Task %s successfully terminated with status %s", testResultBigImage.TaskID, taskStatus)
+			if taskStatus.Status == "TASK_KILLED" || taskStatus.Status == "TASK_LOST" {
+				t.Logf("Task %s successfully terminated with status %s", testResultBigImage.TaskID, taskStatus.Status)
 				goto big_task_killed
 			}
 		case <-timeOut:
@@ -523,7 +542,7 @@ big_task_killed:
 	for {
 		select {
 		case taskStatus := <-testResultSmallImage.StatusChannel:
-			if taskStatus == "TASK_FINISHED" {
+			if taskStatus.Status == "TASK_FINISHED" {
 				t.Log("Small job finished")
 				goto small_task_finished
 			}
@@ -588,11 +607,11 @@ func testShutdown(t *testing.T) {
 		for {
 			select {
 			case status := <-testResult.StatusChannel:
-				if status == "TASK_RUNNING" {
+				if status.Status == "TASK_RUNNING" {
 					taskRunning <- true
 				} else if mock.IsTerminalState(status) {
-					if status != "TASK_KILLED" {
-						t.Errorf("Task %s not killed successfully, %s!", testResult.TaskID, status)
+					if status.Status != "TASK_KILLED" {
+						t.Errorf("Task %s not killed successfully, %s!", testResult.TaskID, status.Status)
 					}
 					taskRunning <- false
 					return
@@ -653,7 +672,7 @@ func testTerminateTimeout(t *testing.T) {
 	// Wait until the task is running
 	for {
 		status := <-jobResponse.StatusChannel
-		if status == "TASK_RUNNING" {
+		if status.Status == "TASK_RUNNING" {
 			break
 		}
 	}
@@ -669,7 +688,7 @@ func testTerminateTimeout(t *testing.T) {
 	for status := range jobResponse.StatusChannel {
 
 		if mock.IsTerminalState(status) {
-			if status != "TASK_KILLED" {
+			if status.Status != "TASK_KILLED" {
 				t.Fail()
 			}
 			if time.Since(killTime) < 20*time.Second {

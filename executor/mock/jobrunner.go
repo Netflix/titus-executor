@@ -12,7 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor"
-	"github.com/Netflix/titus-executor/executor/drivers/test"
+	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
 	"github.com/Netflix/titus-executor/uploader"
 	protobuf "github.com/golang/protobuf/proto"
 	"github.com/pborman/uuid"
@@ -45,7 +45,7 @@ type JobInput struct {
 
 // JobRunResponse returned from RunJob
 type JobRunResponse struct {
-	StatusChannel chan string
+	StatusChannel chan testdriver.TaskStatus
 	TaskID        string
 }
 
@@ -63,10 +63,10 @@ func (jobRunResponse *JobRunResponse) WaitForSuccess() bool {
 // if it completed successfully.
 func (jobRunResponse *JobRunResponse) WaitForCompletion() (string, error) {
 	for status := range jobRunResponse.StatusChannel {
-		if status == "TASK_RUNNING" || status == "TASK_STARTING" {
+		if status.Status == "TASK_RUNNING" || status.Status == "TASK_STARTING" {
 			continue // Ignore non-terminal states
 		}
-		return status, nil
+		return status.Status, nil
 	}
 	return "TASK_LOST", errStatusChannelClosed
 }
@@ -76,7 +76,7 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 	notify := make(chan bool, 1) // max one message to be sent
 	go func() {
 		for status := range jobRunResponse.StatusChannel {
-			if status == "TASK_RUNNING" {
+			if status.Status == "TASK_RUNNING" {
 				notify <- true
 				close(notify)
 				return
@@ -91,7 +91,8 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 }
 
 // IsTerminalState returns true if the task status is a terminal state
-func IsTerminalState(taskStatus string) bool {
+func IsTerminalState(rawTaskStatus testdriver.TaskStatus) bool {
+	taskStatus := rawTaskStatus.Status
 	return taskStatus == "TASK_FINISHED" || taskStatus == "TASK_FAILED" ||
 		taskStatus == "TASK_KILLED" || taskStatus == "TASK_LOST"
 }
@@ -99,7 +100,7 @@ func IsTerminalState(taskStatus string) bool {
 // NewJobRunResponse returns a new struct to handle responses from a running job
 func NewJobRunResponse(taskID string) *JobRunResponse {
 	return &JobRunResponse{
-		StatusChannel: make(chan string, 10),
+		StatusChannel: make(chan testdriver.TaskStatus, 10),
 		TaskID:        taskID,
 	}
 }
@@ -233,7 +234,7 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 	err := e.StartTask(taskID, ci, memMiB, cpu, diskMiB, ports)
 	if err != nil {
 		log.Printf("Failed to start task %s: %s", taskID, err)
-		go func() { jobResult.StatusChannel <- "TASK_LOST" }()
+		go func() { jobResult.StatusChannel <- testdriver.TaskStatus{Status: "TASK_LOST"} }()
 	}
 	return jobResult
 }
@@ -258,12 +259,12 @@ func (jobRunner *JobRunner) MonitorTask() {
 		case taskStatus := <-jobRunner.testDriver.StatusChannel:
 			if jobResult, exists := jobRunner.taskResponseMap[taskStatus.TaskID]; exists {
 				log.WithField("taskID", taskStatus.TaskID).Info("Forwarding status update: ", taskStatus.Status)
-				jobResult.StatusChannel <- taskStatus.Status
+				jobResult.StatusChannel <- taskStatus
 			} else {
 				log.Infof("Received a status for unknown task %s", taskStatus.TaskID)
 			}
 			// Remove tasks with terminal states from the map
-			if IsTerminalState(taskStatus.Status) {
+			if IsTerminalState(taskStatus) {
 				log.Infof("Deleting task %s from map because state is %s", taskStatus.TaskID, taskStatus.Status)
 				delete(jobRunner.taskResponseMap, taskStatus.TaskID)
 			}
