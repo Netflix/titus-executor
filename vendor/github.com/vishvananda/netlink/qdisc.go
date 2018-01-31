@@ -263,3 +263,30 @@ func (qdisc *Fq) Attrs() *QdiscAttrs {
 func (qdisc *Fq) Type() string {
 	return "fq"
 }
+
+// Fq is a classless packet scheduler meant to be mostly used for locally generated traffic.
+type FqCodel struct {
+	QdiscAttrs
+	Target   uint32
+	Limit    uint32
+	Interval uint32
+	ECN      uint32
+	Flows    uint32
+	Quantum  uint32
+	// There are some more attributes here, but support for them seems not ubiquitous
+}
+
+func NewFqCodel(attrs QdiscAttrs) *FqCodel {
+	return &FqCodel{
+		QdiscAttrs: attrs,
+		ECN:        1,
+	}
+}
+
+func (qdisc *FqCodel) Attrs() *QdiscAttrs {
+	return &qdisc.QdiscAttrs
+}
+
+func (qdisc *FqCodel) Type() string {
+	return "fq_codel"
+}

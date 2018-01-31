@@ -20,6 +20,7 @@ import (
 
 const (
 	containerInterfaceName = "eth0-tmp"
+	mtu                    = 9000
 )
 
 var (
@@ -158,7 +159,7 @@ func setupIFBSubqdisc(parentCtx *context.VPCContext, ip net.IP, link netlink.Lin
 		Handle:    netlink.MakeHandle(handle, 0),
 		Parent:    netlink.MakeHandle(1, handle),
 	}
-	qdisc := netlink.NewFq(attrs)
+	qdisc := netlink.NewFqCodel(attrs)
 
 	err := netlink.QdiscAdd(qdisc)
 	if err != nil && err != unix.EEXIST {
@@ -183,8 +184,10 @@ func setupIFBClass(parentCtx *context.VPCContext, bandwidth int, burst bool, ip 
 		ceil = vpc.GetMaxNetworkbps(parentCtx.InstanceType)
 	}
 	htbclassattrs := netlink.HtbClassAttrs{
-		Rate: uint64(bandwidth),
-		Ceil: ceil,
+		Rate:    uint64(bandwidth),
+		Ceil:    ceil,
+		Buffer:  uint32(float64(bandwidth/8)/netlink.Hz() + float64(mtu)),
+		Cbuffer: uint32(float64(ceil/8)/netlink.Hz() + float64(mtu)),
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	parentCtx.Logger.Debug("Setting up HTB class: ", class)

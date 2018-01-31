@@ -13,6 +13,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	mtu = 9001
+)
+
 var (
 	rootHtbClass = netlink.MakeHandle(1, 1)
 )
@@ -156,7 +160,7 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string) error {
 			LinkAttrs: netlink.LinkAttrs{
 				Name: ifbName,
 				// Hardcoded
-				TxQLen: 1000,
+				TxQLen: 10000,
 				// AWS Upper bound of MTU
 				MTU: 9001,
 			},
@@ -229,14 +233,18 @@ func setupIFBQdisc(ctx *context.VPCContext, link netlink.Link) error {
 	return setupIFBHTBRootClass(ctx, link)
 }
 func setupIFBHTBRootClass(ctx *context.VPCContext, link netlink.Link) error {
+
 	classattrs := netlink.ClassAttrs{
 		LinkIndex: link.Attrs().Index,
 		Parent:    netlink.HANDLE_ROOT,
 		Handle:    rootHtbClass,
 	}
 
+	rate := vpc.GetMaxNetworkbps(ctx.InstanceType)
 	htbclassattrs := netlink.HtbClassAttrs{
-		Rate: vpc.GetMaxNetworkbps(ctx.InstanceType),
+		Rate:    rate,
+		Buffer:  uint32(float64(rate/8)/netlink.Hz() + float64(mtu)),
+		Cbuffer: uint32(float64(rate/8)/netlink.Hz() + float64(mtu)),
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	return netlink.ClassReplace(class)
