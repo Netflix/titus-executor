@@ -400,6 +400,9 @@ func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int
 		Privileged: false,
 		Binds:      binds,
 		ExtraHosts: []string{fmt.Sprintf("%s:%s", hostname, c.Allocation.IPV4Address)},
+		Sysctls: map[string]string{
+			"net.ipv4.tcp_ecn": "1",
+		},
 	}
 	hostCfg.Memory = c.Resources.Mem * MiB
 	hostCfg.MemorySwap = 0
@@ -1588,6 +1591,8 @@ stopped:
 		log.WithField("taskId", c.TaskID).Info("Waiting for deallocation to finish")
 		_ = c.AllocationCommand.Wait()
 		log.WithField("taskId", c.TaskID).Info("Deallocation finished")
+	} else {
+		log.WithField("taskId", c.TaskID).Info("No need to deallocate, no allocation command")
 	}
 
 	// Deallocate any GPU device assigned to the container
