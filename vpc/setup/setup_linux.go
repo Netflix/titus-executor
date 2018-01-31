@@ -155,8 +155,8 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string) error {
 		ifb := netlink.Ifb{
 			LinkAttrs: netlink.LinkAttrs{
 				Name: ifbName,
-				// See: https://github.com/containernetworking/cni/pull/199/files
-				TxQLen: -1,
+				// Hardcoded
+				TxQLen: 1000,
 				// AWS Upper bound of MTU
 				MTU: 9001,
 			},

@@ -15,6 +15,7 @@ import (
 	"github.com/apparentlymart/go-cidr/cidr"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -136,7 +137,35 @@ func setupIFBClasses(parentCtx *context.VPCContext, bandwidth int, burst bool, i
 	if err != nil {
 		return err
 	}
-	return setupIFBClass(parentCtx, bandwidth, burst, ip, ifbIngress)
+	err = setupIFBSubqdisc(parentCtx, ip, ifbEgress)
+	if err != nil {
+		return err
+	}
+
+	err = setupIFBClass(parentCtx, bandwidth, burst, ip, ifbIngress)
+	if err != nil {
+		return err
+	}
+	return setupIFBSubqdisc(parentCtx, ip, ifbIngress)
+}
+
+func setupIFBSubqdisc(parentCtx *context.VPCContext, ip net.IP, link netlink.Link) error {
+	handle := ipaddressToHandle(ip)
+
+	// The qdisc wasn't found, add it
+	attrs := netlink.QdiscAttrs{
+		LinkIndex: link.Attrs().Index,
+		Handle:    netlink.MakeHandle(handle, 0),
+		Parent:    netlink.MakeHandle(1, handle),
+	}
+	qdisc := netlink.NewFq(attrs)
+
+	err := netlink.QdiscAdd(qdisc)
+	if err != nil && err != unix.EEXIST {
+		return err
+	}
+
+	return nil
 }
 
 func setupIFBClass(parentCtx *context.VPCContext, bandwidth int, burst bool, ip net.IP, link netlink.Link) error {
@@ -194,6 +223,7 @@ func teardownNetwork(ctx *context.VPCContext, allocation types.Allocation, link 
 	deleteLink(ctx, link, netnsfd)
 	ip := net.ParseIP(allocation.IPV4Address)
 
+	// Removing the classes automatically removes the qdiscs
 	ifbEgress, err := netlink.LinkByName(vpc.EgressIFB)
 	if err == nil {
 		removeClass(ctx, ip, ifbEgress)

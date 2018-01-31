@@ -400,6 +400,9 @@ func (r *DockerRuntime) dockerConfig(c *Container, binds []string, imageSize int
 		Privileged: false,
 		Binds:      binds,
 		ExtraHosts: []string{fmt.Sprintf("%s:%s", hostname, c.Allocation.IPV4Address)},
+		Sysctls: map[string]string{
+			"net.ipv4.tcp_congestion_control": "bbr",
+		},
 	}
 	hostCfg.Memory = c.Resources.Mem * MiB
 	hostCfg.MemorySwap = 0
