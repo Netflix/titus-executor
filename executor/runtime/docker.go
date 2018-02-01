@@ -210,12 +210,11 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter) (Runtime,
 		metrics:         m,
 		registryAuthCfg: nil, // we don't need registry authentication yet
 		client:          client,
-		gpuInfo:         nvidia.NewNvidiaInfo(client),
 	}
 
 	dockerRuntime.awsRegion = os.Getenv("EC2_REGION")
 
-	err = dockerRuntime.gpuInfo.InitHostGpuInfo()
+	dockerRuntime.gpuInfo, err = nvidia.NewNvidiaInfo(client)
 	if err != nil {
 		return nil, err
 	}
@@ -1450,7 +1449,7 @@ func (r *DockerRuntime) setupGPU(c *Container, dockerCfg *container.Config, host
 	}
 
 	// Allocate a specific GPU to add to the container
-	gpuDevicePaths, err := r.gpuInfo.AllocDevices(c.TaskID, c.TitusInfo.GetNumGpus())
+	gpuDevicePaths, err := r.gpuInfo.AllocDevices(c.TaskID, int(c.TitusInfo.GetNumGpus()))
 	if err != nil {
 		return fmt.Errorf("Cannot allocate %d requested GPU device: %v", c.TitusInfo.GetNumGpus(), err)
 	}
