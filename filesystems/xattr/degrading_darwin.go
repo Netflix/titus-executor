@@ -1,6 +1,6 @@
 // +build darwin
 
-package filesystems
+package xattr
 
 import (
 	"errors"

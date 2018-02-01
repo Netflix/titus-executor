@@ -69,7 +69,7 @@ func NewUploadersFromUploaderArray(uploaders []Uploader) *Uploaders {
 // Performs a parallel upload of all of files in a directory but
 // not its subdirectories. A slice containing the error results for
 // each upload with an error is returned.
-func uploadDir(uploader Uploader, local string, remote string, contentType string) []error {
+func uploadDir(uploader Uploader, local string, remote string, ctypeFunc ContentTypeInferenceFunction) []error {
 	var errs []error
 
 	fi, err := os.Stat(local)
@@ -92,7 +92,7 @@ func uploadDir(uploader Uploader, local string, remote string, contentType strin
 			qremote := path.Join(remote, finfo.Name())
 
 			log.Printf("Uploading log file %s to %s", qlocal, qremote)
-			if err = uploader.Upload(qlocal, qremote, contentType); err != nil {
+			if err = uploader.Upload(qlocal, qremote, ctypeFunc); err != nil {
 				uploadErr := fmt.Errorf("Error uploading to %s: %s", qremote, err)
 				log.Printf("%s", uploadErr)
 				errs = append(errs, uploadErr)
@@ -104,7 +104,7 @@ func uploadDir(uploader Uploader, local string, remote string, contentType strin
 
 // Upload is used to run each of uploaders available. A slice containing
 // the error results for each upload with an error is returned.
-func (e *Uploaders) Upload(local, remote, contentType string) []error {
+func (e *Uploaders) Upload(local, remote string, ctypeFunc ContentTypeInferenceFunction) []error {
 	var errs []error
 
 	fi, staterr := os.Stat(local)
@@ -115,34 +115,18 @@ func (e *Uploaders) Upload(local, remote, contentType string) []error {
 
 	if fi.IsDir() {
 		for _, uploader := range e.uploaders {
-			errs = uploadDir(uploader, local, remote, contentType)
+			errs = uploadDir(uploader, local, remote, ctypeFunc)
 		}
 	} else {
 		for _, uploader := range e.uploaders {
 			log.Printf("uploading %s to %s", local, remote)
-			uploadErrMsg := uploader.Upload(local, remote, contentType)
+			uploadErrMsg := uploader.Upload(local, remote, ctypeFunc)
 			if uploadErrMsg != nil {
 				uploadErr := fmt.Errorf("Error uploading to %s : %s", remote, uploadErrMsg)
 				errs = append(errs, uploadErr)
 			}
 		}
 	}
-	return errs
-}
-
-// UploadFile wraps the uploaders, and calls the UploadFile method on them. It Requires an IO Reader to function
-func (e *Uploaders) UploadFile(local io.Reader, remote, contentType string) []error {
-	var errs []error
-
-	for _, uploader := range e.uploaders {
-		log.Debugf("uploading %s to %s", local, remote)
-		uploadErrMsg := uploader.UploadFile(local, remote, contentType)
-		if uploadErrMsg != nil {
-			uploadErr := fmt.Errorf("Error uploading to %s : %s", remote, uploadErrMsg)
-			errs = append(errs, uploadErr)
-		}
-	}
-
 	return errs
 }
 

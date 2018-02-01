@@ -1,4 +1,4 @@
-package filesystems
+package xattr
 
 import (
 	"bytes"
@@ -9,11 +9,18 @@ import (
 
 	"runtime"
 
+	"mime"
+
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
-const maxValueSize = 4 * 1024 * 1024 // 4MB
-const unusedArg = 0
+const (
+	maxValueSize = 4 * 1024 * 1024 // 4MB
+	unusedArg    = 0
+	// MimeTypeAttr is the key of the xattr for file mime types
+	MimeTypeAttr = "user.mime_type"
+)
 
 // ssize_t is variable across systems, but on ours it's int64, we use the same name as the system for consistency
 type ssize_t int64 // nolint: golint
@@ -22,7 +29,8 @@ type ssize_t int64 // nolint: golint
 var ErrInvalidKey = errors.New("Key Invalid")
 var listXattrsStartBufferSize = 16 * 1024 // 16KB buffer to start with
 
-func makeHole(file *os.File, start, len int64) error {
+// MakeHole zeros out a chunk of a file, ideally deallocating space underneath it
+func MakeHole(file *os.File, start, len int64) error {
 	return realMakeHole(file, start, len)
 }
 
@@ -55,11 +63,13 @@ func fRealListXattrs(file *os.File, bufsize int) (map[string]struct{}, error) {
 	return retmap, nil
 }
 
-func fListXattrs(file *os.File) (map[string]struct{}, error) {
+// FListXattrs lists xattrs given a specific file handle
+func FListXattrs(file *os.File) (map[string]struct{}, error) {
 	return fRealListXattrs(file, listXattrsStartBufferSize)
 }
 
-func fSetXattr(file *os.File, key string, value []byte) error {
+// FSetXattr sets an xattr for a given file handle
+func FSetXattr(file *os.File, key string, value []byte) error {
 	if len(key) == 0 {
 		return ErrInvalidKey
 	}
@@ -67,7 +77,8 @@ func fSetXattr(file *os.File, key string, value []byte) error {
 	return realFSetXattr(file, byteKey, value)
 }
 
-func fDelXattr(file *os.File, key string) error {
+// FDelXattr deletes an xattr for a given file handle
+func FDelXattr(file *os.File, key string) error {
 	if len(key) == 0 {
 		return ErrInvalidKey
 	}
@@ -75,7 +86,8 @@ func fDelXattr(file *os.File, key string) error {
 	return realFDelXattr(file, byteKey)
 }
 
-func fGetXattr(file *os.File, key string) ([]byte, error) {
+// FGetXattr gets an xattr for a given file handle
+func FGetXattr(file *os.File, key string) ([]byte, error) {
 	byteKey := append([]byte(key), 0)
 	return realFGetXattr(file, byteKey)
 }
@@ -133,7 +145,8 @@ func delXattr(path string, key string) error { // nolint: deadcode
 	return realDelXattr(append([]byte(path), 0), byteKey)
 }
 
-func getXattr(path string, key string) ([]byte, error) {
+// GetXattr gets an xattr given a particular filename
+func GetXattr(path string, key string) ([]byte, error) {
 	byteKey := append([]byte(key), 0)
 	return realGetXattr(append([]byte(path), 0), byteKey)
 }
@@ -145,4 +158,27 @@ func pointerToByteSlice(byteSlice []byte) uintptr {
 	}
 	// Use of unsafe calls should be audited,LOW,HIGH (gas)
 	return uintptr(unsafe.Pointer(&byteSlice[0])) // nolint: gas
+}
+
+// GetMimeType tries to get the mime type for a given filename based on the xattr
+func GetMimeType(filename string) string {
+	mimeType, err := GetXattr(filename, MimeTypeAttr)
+	if err == ENOATTR || err == unix.EISDIR {
+		return ""
+	}
+	if err != nil {
+		log.WithField("filename", filename).Warning("Unable to get mime type attribute, because: ", err)
+		return ""
+	}
+	mimeTypeStr := string(mimeType)
+	normalizedMimeType, params, err := mime.ParseMediaType(mimeTypeStr)
+	if err != nil {
+		log.WithField("filename", filename).WithField("mimeType", mimeTypeStr).Warning("Unable to normalize attribute, because: ", err)
+		return ""
+	}
+	if params == nil {
+		log.WithField("filename", filename).WithField("mimeType", mimeTypeStr).Warning("Params are nil")
+		return ""
+	}
+	return normalizedMimeType
 }

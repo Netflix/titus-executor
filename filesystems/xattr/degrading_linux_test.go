@@ -1,6 +1,6 @@
 // +build linux
 
-package filesystems
+package xattr
 
 import (
 	"crypto/rand"
@@ -39,7 +39,7 @@ func TestFallocate(t *testing.T) {
 
 	// Start should get rounded up to 8192
 	// Length should get turned into 8192 as well
-	err = makeHole(testfile, 4097, 11059)
+	err = MakeHole(testfile, 4097, 11059)
 	if err != nil {
 		t.Fatal("Couldn't make hole in temp file:", err)
 	}

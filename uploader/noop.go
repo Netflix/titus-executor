@@ -14,12 +14,7 @@ func NewNoopUploader(config map[string]string) (Uploader, error) {
 }
 
 // Upload does nothing (i.e., noop)
-func (u *NoopUploader) Upload(local, remote, contentType string) error {
-	return nil
-}
-
-// UploadFile does nothing (i.e., noop)
-func (u *NoopUploader) UploadFile(local io.Reader, remote, contentType string) error {
+func (u *NoopUploader) Upload(local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	return nil
 }
 
