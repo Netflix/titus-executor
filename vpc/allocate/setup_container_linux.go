@@ -160,6 +160,7 @@ func setupIFBSubqdisc(parentCtx *context.VPCContext, ip net.IP, link netlink.Lin
 		Parent:    netlink.MakeHandle(1, handle),
 	}
 	qdisc := netlink.NewFqCodel(attrs)
+	qdisc.Quantum = 9001
 
 	err := netlink.QdiscAdd(qdisc)
 	if err != nil && err != unix.EEXIST {
