@@ -632,15 +632,16 @@ func prepareNetworkDriver(c *Container) error {
 	if err := c.AllocationCommand.Start(); err != nil {
 		return err
 	}
+
 	c.registerRuntimeCleanup(func() error {
 		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM)
 		killTimer := time.AfterFunc(5*time.Minute, func() {
 			_ = c.AllocationCommand.Process.Kill()
 		})
-		err := c.AllocationCommand.Wait()
+		_ = c.AllocationCommand.Wait()
 		killTimer.Stop()
 		_ = c.AllocationCommand.Process.Kill()
-		return err
+		return nil
 	})
 	cancelTimer := time.AfterFunc(5*time.Minute, func() {
 		log.Warning("timed out trying to allocate network")
@@ -1384,15 +1385,16 @@ func setupNetworking(c *Container, cred ucred) error {
 	if err != nil {
 		return err
 	}
+
 	c.registerRuntimeCleanup(func() error {
 		_ = c.SetupCommand.Process.Signal(unix.SIGTERM)
 		killTimer := time.AfterFunc(1*time.Minute, func() {
 			_ = c.SetupCommand.Process.Kill()
 		})
-		err := c.SetupCommand.Wait()
+		_ = c.SetupCommand.Wait()
 		killTimer.Stop()
 		_ = c.SetupCommand.Process.Kill()
-		return err
+		return nil
 	})
 
 	cancelTimer := time.AfterFunc(5*time.Minute, func() {

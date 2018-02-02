@@ -11,11 +11,13 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/sirupsen/logrus"
 )
 
 // EC2MetadataClientWrapper wraps the EC2 library and provides some helper functions
 type EC2MetadataClientWrapper struct {
 	ec2metadata *ec2metadata.EC2Metadata
+	logger      *logrus.Entry
 }
 
 // EC2NetworkInterface encapsulates information about network interfaces
@@ -39,9 +41,10 @@ type EC2NetworkInterface struct {
 }
 
 // NewEC2MetadataClientWrapper creates a new ec2metadata wrapper instance
-func NewEC2MetadataClientWrapper(session client.ConfigProvider) *EC2MetadataClientWrapper {
+func NewEC2MetadataClientWrapper(session client.ConfigProvider, logger *logrus.Entry) *EC2MetadataClientWrapper {
 	return &EC2MetadataClientWrapper{
 		ec2metadata: ec2metadata.New(session),
+		logger:      logger,
 	}
 }
 
@@ -138,6 +141,9 @@ func (mdc *EC2MetadataClientWrapper) getMetadata(path string) (string, error) {
 			// "Fatal error"
 			break
 		}
+	}
+	if err != nil {
+		mdc.logger.WithField("path", path).Warning("Error while fetching metadata: ", err)
 	}
 	return val, err
 }

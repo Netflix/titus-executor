@@ -8,6 +8,9 @@ import (
 
 	"math/rand"
 
+	"fmt"
+	"strings"
+
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
@@ -103,6 +106,18 @@ func getInstanceIdentityDocument(ec2MetadataClient *ec2metadata.EC2Metadata) (ec
 	return instanceIdentityDocument, err
 }
 
+type awsLogger struct {
+	logger *logrus.Entry
+}
+
+func (l *awsLogger) Log(args ...interface{}) {
+	formattedAWSArg := fmt.Sprint(args...)
+	// AWS doesn't have a way to enable error logging without enabling debug logging...
+	if strings.Contains(formattedAWSArg, "ERROR") || strings.Contains(formattedAWSArg, "error") {
+		l.logger.WithField("origin", "aws").Error(formattedAWSArg)
+	}
+}
+
 func (ctx *VPCContext) setupEC2() error {
 	ec2MetadataClient := ec2metadata.New(session.Must(session.NewSession()))
 	if !ec2MetadataClient.Available() {
@@ -114,11 +129,13 @@ func (ctx *VPCContext) setupEC2() error {
 
 		awsConfig := aws.NewConfig().
 			WithMaxRetries(3).
-			WithRegion(instanceIDDocument.Region)
+			WithRegion(instanceIDDocument.Region).
+			WithLogger(&awsLogger{logger: ctx.Logger}).
+			WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries)
 
 		if session, err2 := session.NewSession(awsConfig); err2 == nil {
 			ctx.AWSSession = session
-			ctx.EC2metadataClientWrapper = ec2wrapper.NewEC2MetadataClientWrapper(session)
+			ctx.EC2metadataClientWrapper = ec2wrapper.NewEC2MetadataClientWrapper(session, ctx.Logger)
 		} else {
 			return cli.NewMultiError(cli.NewExitError("Unable to create AWS Session", 1), err2)
 		}
