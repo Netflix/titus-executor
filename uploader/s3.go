@@ -74,12 +74,16 @@ func getEC2Region() (string, error) {
 }
 
 // Upload writes a single file only to S3!
-func (u *S3Uploader) Upload(local string, remote string, contentType string) error {
+func (u *S3Uploader) Upload(local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
 
 	f, err := os.Open(local)
 	if err != nil {
 		return err
+	}
+	contentType := ctypeFunc(local)
+	if contentType == "" {
+		contentType = defaultS3ContentType
 	}
 	defer func() {
 		if err = f.Close(); err != nil {
@@ -87,16 +91,19 @@ func (u *S3Uploader) Upload(local string, remote string, contentType string) err
 		}
 	}()
 
-	return u.UploadFile(f, remote, contentType)
+	return u.uploadFile(f, remote, contentType)
 }
 
 // UploadFile writes a single file only to S3!
-func (u *S3Uploader) UploadFile(local io.Reader, remote string, contentType string) error {
+func (u *S3Uploader) uploadFile(local io.Reader, remote string, contentType string) error {
 	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
+	if contentType == "" {
+		contentType = defaultS3ContentType
+	}
 
 	result, err := u.s3Uploader.Upload(&s3manager.UploadInput{
 		ACL:         aws.String(defaultS3ACL),
-		ContentType: aws.String(defaultS3ContentType),
+		ContentType: aws.String(contentType),
 		Bucket:      aws.String(u.bucketName),
 		Key:         aws.String(remote),
 		Body:        local,
@@ -115,8 +122,11 @@ func (u *S3Uploader) UploadPartOfFile(local io.ReadSeeker, start, length int64, 
 	if _, err := local.Seek(start, io.SeekStart); err != nil {
 		return err
 	}
+	if contentType == "" {
+		contentType = defaultS3ContentType
+	}
 	limitLocal := io.LimitReader(local, length)
-	return u.UploadFile(limitLocal, remote, contentType)
+	return u.uploadFile(limitLocal, remote, contentType)
 }
 
 type logAdapter struct {

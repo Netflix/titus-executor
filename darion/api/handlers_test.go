@@ -10,16 +10,17 @@ import (
 
 	"github.com/Netflix/titus-executor/darion/conf"
 	"github.com/Netflix/titus-executor/filesystems"
+	"github.com/Netflix/titus-executor/filesystems/xattr"
 	log "github.com/sirupsen/logrus"
 )
 
 func init() {
 	log.SetLevel(log.DebugLevel)
 	// We need to add some attrs to otherlogfile. Xattrs + Git don't work
-	if err := filesystems.SetXattr("testdata/Titus-fake-container/logs/subdir/otherlogfile", filesystems.StdioAttr, []byte("638")); err != nil {
+	if err := xattr.SetXattr("testdata/Titus-fake-container/logs/subdir/otherlogfile", filesystems.StdioAttr, []byte("638")); err != nil {
 		panic(err)
 	}
-	if err := filesystems.SetXattr("testdata/Titus-fake-container/logs/subdir/otherlogfile", filesystems.VirtualFilePrefixWithSeparator+"testsuffix", []byte("0,638")); err != nil {
+	if err := xattr.SetXattr("testdata/Titus-fake-container/logs/subdir/otherlogfile", filesystems.VirtualFilePrefixWithSeparator+"testsuffix", []byte("0,638")); err != nil {
 		panic(err)
 	}
 	filesystems.PotentialStdioNames["otherlogfile"] = struct{}{}

@@ -1,4 +1,4 @@
-package filesystems
+package xattr
 
 import (
 	"bytes"
@@ -10,9 +10,14 @@ import (
 
 	"github.com/leanovate/gopter/prop"
 
+	"runtime"
+	"strings"
+
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
@@ -55,18 +60,18 @@ func TestBasicFXattrs(t *testing.T) {
 func fCheckSetGetListDelete(testfile *os.File, t *testing.T) {
 
 	// Set
-	if err := fSetXattr(testfile, exampleAttrName, []byte(exampleAttrVal)); err != nil {
+	if err := FSetXattr(testfile, exampleAttrName, []byte(exampleAttrVal)); err != nil {
 		t.Fatal("Unable to set x attr: ", err)
 	}
 	// Get
-	if val, err := fGetXattr(testfile, exampleAttrName); err != nil {
+	if val, err := FGetXattr(testfile, exampleAttrName); err != nil {
 		t.Fatal("Unable to get x attr: ", err)
 	} else if string(val) != exampleAttrVal {
 		t.Fatal("Unexpected value: ", string(val))
 	}
 
 	// List
-	if attrs, err := fListXattrs(testfile); err != nil {
+	if attrs, err := FListXattrs(testfile); err != nil {
 		t.Fatal("Could not list xattrs: ", err)
 	} else if len(attrs) != 1 {
 		t.Fatal("Unexpected number of attributes seen: ", attrs)
@@ -74,14 +79,14 @@ func fCheckSetGetListDelete(testfile *os.File, t *testing.T) {
 		t.Fatal("Value unexpected: ", attrs)
 	}
 
-	if err := fDelXattr(testfile, exampleAttrName); err != nil {
+	if err := FDelXattr(testfile, exampleAttrName); err != nil {
 		t.Fatal("Could not delete xattr: ", err)
 	}
 
 }
 
 func fCheckListEmpty(testfile *os.File, t *testing.T) {
-	attrs, err := fListXattrs(testfile)
+	attrs, err := FListXattrs(testfile)
 	if err != nil {
 		t.Fatal("Could not list xattrs: ", err)
 	}
@@ -91,14 +96,14 @@ func fCheckListEmpty(testfile *os.File, t *testing.T) {
 }
 
 func fCheckGetMissing(testfile *os.File, t *testing.T) {
-	_, err := fGetXattr(testfile, exampleAttrName)
+	_, err := FGetXattr(testfile, exampleAttrName)
 	if err != ENOATTR {
 		t.Fatal("Get had unexpected result: ", err)
 	}
 }
 
 func fCheckDelMissing(testfile *os.File, t *testing.T) {
-	err := fDelXattr(testfile, exampleAttrName)
+	err := FDelXattr(testfile, exampleAttrName)
 	if err != ENOATTR {
 		t.Fatal("Delete had unexpected result: ", err)
 	}
@@ -108,7 +113,7 @@ func testManyFXattrsWithFile(testfile *os.File, keyValues map[string][]byte) boo
 	expectedKeyValues := map[string][]byte{}
 	expectedKeys := map[string]struct{}{}
 	for key, value := range keyValues {
-		if err := fSetXattr(testfile, key, value); err == ErrInvalidKey && len(key) == 0 {
+		if err := FSetXattr(testfile, key, value); err == ErrInvalidKey && len(key) == 0 {
 			// continue, this is fine
 			continue
 		} else if err == syscall.ENAMETOOLONG && len(key) > XATTR_MAXNAMELEN {
@@ -132,7 +137,7 @@ func verifyTestManyFXattrsWithFile(testfile *os.File, expectedKeys map[string]st
 
 	// OS X with HFS+ takes a ridiculous amount of time to do the following
 	// Perhaps we should think of sampling?
-	if xattrlist, err := fListXattrs(testfile); err != nil {
+	if xattrlist, err := FListXattrs(testfile); err != nil {
 		log.Warning("Unable to retrieve xattrs: ", err)
 		return false
 	} else if !reflect.DeepEqual(xattrlist, expectedKeys) {
@@ -141,7 +146,7 @@ func verifyTestManyFXattrsWithFile(testfile *os.File, expectedKeys map[string]st
 	}
 
 	for key, expectedValue := range expectedKeyValues {
-		if value, err := fGetXattr(testfile, key); err != nil {
+		if value, err := FGetXattr(testfile, key); err != nil {
 			log.Warning("Unable to retrieve xattr: ", err)
 			return false
 		} else if !bytes.Equal(value, expectedValue) {
@@ -265,7 +270,7 @@ func checkSetGetListDelete(path string, t *testing.T) {
 		t.Fatal("Unable to set x attr: ", err)
 	}
 	// Get
-	if val, err := getXattr(path, exampleAttrName); err != nil {
+	if val, err := GetXattr(path, exampleAttrName); err != nil {
 		t.Fatal("Unable to get x attr: ", err)
 	} else if string(val) != exampleAttrVal {
 		t.Fatal("Unexpected value: ", string(val))
@@ -297,7 +302,7 @@ func checkListEmpty(path string, t *testing.T) {
 }
 
 func checkGetMissing(path string, t *testing.T) {
-	_, err := getXattr(path, exampleAttrName)
+	_, err := GetXattr(path, exampleAttrName)
 	if err != ENOATTR {
 		t.Fatalf("Get had unexpected result %v with file %s", err, path)
 	}
@@ -338,4 +343,68 @@ func isExt() bool {
 	default:
 	}
 	return false
+}
+
+func TestMimeTypes(t *testing.T) {
+	testFunctions := []func(*testing.T, *os.File, string){
+		testSimpleMimeParsing,
+		testSimpleNoParsing,
+		testSimpleBadMimeType1,
+		testSimpleBadMimeType2,
+	}
+
+	skipIfUnsupportedFilesystem(t)
+	for _, fun := range testFunctions {
+		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
+		splitName := strings.Split(fullName, ".")
+		funName := splitName[len(splitName)-1]
+
+		t.Run(strings.Title(funName), decorateTestFunction(fun))
+	}
+}
+
+func decorateTestFunction(f func(*testing.T, *os.File, string)) func(*testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		testfile, err := ioutil.TempFile("", "mime-test")
+		require.NoError(t, err)
+		tempfileName := testfile.Name()
+		defer func() {
+			require.NoError(t, testfile.Close())
+			require.NoError(t, os.Remove(tempfileName))
+		}()
+
+		f(t, testfile, tempfileName)
+	}
+}
+
+func testSimpleMimeParsing(t *testing.T, testfile *os.File, filename string) {
+	require.NoError(t, FSetXattr(testfile, MimeTypeAttr, []byte("application/json")))
+	assert.Equal(t, "application/json", GetMimeType(filename))
+}
+
+func testSimpleNoParsing(t *testing.T, testfile *os.File, filename string) {
+	assert.Equal(t, "", GetMimeType(filename))
+}
+
+func testSimpleBadMimeType1(t *testing.T, testfile *os.File, filename string) {
+	require.NoError(t, FSetXattr(testfile, MimeTypeAttr, []byte("")))
+	assert.Equal(t, "", GetMimeType(filename))
+}
+
+func testSimpleBadMimeType2(t *testing.T, testfile *os.File, filename string) {
+	require.NoError(t, FSetXattr(testfile, MimeTypeAttr, []byte("application/json;text/plain")))
+	assert.Equal(t, "", GetMimeType(filename))
+}
+
+func mustRemove(file *os.File) {
+	if err := os.Remove(file.Name()); err != nil {
+		panic(err)
+	}
+}
+
+func mustClose(file *os.File) {
+	if err := file.Close(); err != nil {
+		panic(err)
+	}
 }

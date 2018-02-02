@@ -8,12 +8,6 @@ func mustClose(file *os.File) {
 	}
 }
 
-func mustRemove(file *os.File) {
-	if err := os.Remove(file.Name()); err != nil {
-		panic(err)
-	}
-}
-
 func max(x int, y int) int {
 	if x > y {
 		return x

@@ -1,6 +1,6 @@
 // +build linux
 
-package filesystems
+package xattr
 
 import (
 	"math"

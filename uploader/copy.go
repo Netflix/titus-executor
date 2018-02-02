@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/Netflix/titus-executor/filesystems/xattr"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -28,7 +29,7 @@ func NewCopyUploader(config map[string]string) (Uploader, error) {
 }
 
 // Upload copies a single file only!
-func (u *CopyUploader) Upload(local, remote, contentType string) error {
+func (u *CopyUploader) Upload(local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	l, err := os.Open(local)
 	if err != nil {
 		return err
@@ -39,11 +40,14 @@ func (u *CopyUploader) Upload(local, remote, contentType string) error {
 		}
 	}()
 
-	return u.UploadFile(l, remote, contentType)
+	contentType := ctypeFunc(local)
+
+	// copy uploader doesn't understand content types, ignore it
+	return u.uploadFile(l, remote, contentType)
 }
 
 // UploadFile copies a single file only!
-func (u *CopyUploader) UploadFile(local io.Reader, remote, contentType string) error {
+func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) error {
 	fullremote := path.Join(u.Dir, remote)
 	log.Println("copy : local io.Reader -> " + fullremote)
 
@@ -62,6 +66,12 @@ func (u *CopyUploader) UploadFile(local io.Reader, remote, contentType string) e
 		}
 	}()
 
+	if contentType != "" {
+		err = xattr.FSetXattr(r, xattr.MimeTypeAttr, []byte(contentType))
+		if err != nil {
+			log.Warning("Unable to set content type: ", err)
+		}
+	}
 	_, err = io.Copy(r, local)
 	return err
 }
@@ -74,5 +84,5 @@ func (u *CopyUploader) UploadPartOfFile(local io.ReadSeeker, start, length int64
 		return errors.New("Could not seek")
 	}
 	limitLocal := io.LimitReader(local, length)
-	return u.UploadFile(limitLocal, remote, contentType)
+	return u.uploadFile(limitLocal, remote, contentType)
 }

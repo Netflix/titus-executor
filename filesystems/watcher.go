@@ -21,6 +21,7 @@ import (
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	log "github.com/sirupsen/logrus"
 )
@@ -32,8 +33,7 @@ const (
 	// VirtualFilePrefixWithSeparator is the VirtualFilePrefix with a "." appended (the namespace separator
 	VirtualFilePrefixWithSeparator = VirtualFilePrefix + "."
 	// StdioAttr is the attribute that states this is a stdio, rotatable file
-	StdioAttr = "user.stdio"
-
+	StdioAttr                    = "user.stdio"
 	waitForDieAfterContextCancel = time.Minute
 )
 
@@ -167,7 +167,7 @@ and then pessimistic expansion.
 
 // CheckFileForStdio determines whether the file at the path below is one written by tini as a stdio rotator
 func CheckFileForStdio(fileName string) bool {
-	if _, err := getXattr(fileName, StdioAttr); err == ENOATTR {
+	if _, err := xattr.GetXattr(fileName, StdioAttr); err == xattr.ENOATTR {
 		return false
 	} else if os.IsNotExist(err) {
 		return false
@@ -180,7 +180,7 @@ func CheckFileForStdio(fileName string) bool {
 
 // CheckFDForStdio determines whether the file at the fd is one written by tini as a stdio rotator
 func CheckFDForStdio(file *os.File) bool {
-	if _, err := fGetXattr(file, StdioAttr); err == ENOATTR {
+	if _, err := xattr.FGetXattr(file, StdioAttr); err == xattr.ENOATTR {
 		return false
 	} else if os.IsNotExist(err) {
 		return false
@@ -358,7 +358,7 @@ func (w *Watcher) doFinalStdioUploadAndReclaim(file *os.File) {
 }
 
 func (w *Watcher) doStdioUploadAndReclaim(mode stdioRotateMode, file *os.File) {
-	xattrList, err := fListXattrs(file)
+	xattrList, err := xattr.FListXattrs(file)
 	if err != nil {
 		log.Warning("Could not fetch xattr list for %s, because %v, not uploading and reclaiming", file.Name(), err)
 		return
@@ -390,7 +390,7 @@ func (w *Watcher) doStdioUploadAndReclaim(mode stdioRotateMode, file *os.File) {
 
 // FetchStartAndLen returns the virtual file start and length for a given xattrKey (a key that includes the prefix)
 func FetchStartAndLen(xattrKey string, file *os.File) (int64, int64, error) {
-	xattrValBytes, err := fGetXattr(file, xattrKey)
+	xattrValBytes, err := xattr.FGetXattr(file, xattrKey)
 	if err != nil {
 		log.Errorf("Could not get attribute value for key %s because: %v", xattrKey, err)
 		return 0, 0, err
@@ -449,12 +449,12 @@ func (w *Watcher) doStdioUploadAndReclaimVirtualFile(mode stdioRotateMode, start
 	if !w.keepLocalFileAfterUpload {
 		holeSize := start + length - 1
 		log.WithField("filename", file.Name()).WithField("xattrKey", xattrKey).WithField("holeSize", holeSize).Debug("Deleting old file")
-		err = fDelXattr(file, xattrKey)
+		err = xattr.FDelXattr(file, xattrKey)
 		if err != nil {
 			log.Errorf("Could not delete attr %s on file %s, not punching hole because: %v", xattrKey, file.Name(), err)
 		}
 
-		err = makeHole(file, 0, holeSize)
+		err = xattr.MakeHole(file, 0, holeSize)
 		if err != nil {
 			log.Errorf("Could not make hole in file %s, because: %v", file.Name(), err)
 		}
@@ -507,14 +507,14 @@ func updateFile(currentOffset, cutLoc int64, file *os.File) error {
 	virtualFileLengthStr := strconv.FormatInt(cutLoc-currentOffset, 10)
 	newAttrVal := strings.Join([]string{curOffsetStr, virtualFileLengthStr}, ",")
 
-	err := fSetXattr(file, newAttrKey, []byte(newAttrVal))
+	err := xattr.FSetXattr(file, newAttrKey, []byte(newAttrVal))
 	if err != nil {
 		return err
 	}
 
-	err = fSetXattr(file, StdioAttr, []byte(strconv.FormatInt(cutLoc, 10)))
+	err = xattr.FSetXattr(file, StdioAttr, []byte(strconv.FormatInt(cutLoc, 10)))
 	if err != nil {
-		tmpErr := fDelXattr(file, newAttrKey)
+		tmpErr := xattr.FDelXattr(file, newAttrKey)
 		if tmpErr != nil {
 			log.Errorf("Could not roll back adding virtual file %s because: %v", newAttrKey, tmpErr)
 		}
@@ -565,7 +565,7 @@ func getCutOffset(file *os.File) (int64, error) {
 
 // GetCurrentOffset gets the current place where the "active" file is being written from for a given stdio file
 func GetCurrentOffset(file *os.File) (int64, error) {
-	currentOffsetBytes, err := fGetXattr(file, StdioAttr)
+	currentOffsetBytes, err := xattr.FGetXattr(file, StdioAttr)
 	if err != nil {
 		log.Errorf("Unable to determine current offset of %s, not doing stdio rotate", file.Name())
 		return 0, err
@@ -611,7 +611,8 @@ func (w *Watcher) uploadAllLogFiles() error {
 		if CheckFileForStdio(logFile) {
 			continue
 		}
-		errs2 := w.uploaders.Upload(logFile, path.Join(w.uploadDir, remoteFilePath), "")
+
+		errs2 := w.uploaders.Upload(logFile, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType)
 		errs = append(errs, errs2...)
 
 		// Collect any errors from the upload and append to single error to return
@@ -646,7 +647,7 @@ func (w *Watcher) uploadLogfile(fileToUpload string) {
 			return
 		}
 
-		if err := w.uploaders.Upload(fileToUpload, path.Join(w.uploadDir, remoteFilePath), ""); err != nil {
+		if err := w.uploaders.Upload(fileToUpload, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType); err != nil {
 			w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 			log.Printf("watch : error uploading %s : %s\n", fileToUpload, err)
 		}

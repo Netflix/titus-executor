@@ -13,6 +13,7 @@ import (
 
 	"github.com/Netflix/titus-executor/darion/conf"
 	"github.com/Netflix/titus-executor/filesystems"
+	"github.com/Netflix/titus-executor/filesystems/xattr"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -73,7 +74,7 @@ func buildVirtualFileMapping(containerID, uriFileName string) map[string]virtual
 		}
 
 		diskFileName := filepath.Join(conf.ContainersHome, containerID, "logs", path.Dir(uriFileName), potentialStdioName)
-		xattrList, err := filesystems.ListXattrs(diskFileName)
+		xattrList, err := xattr.ListXattrs(diskFileName)
 		if err != nil {
 			log.Warningf("Could not fetch xattr list for %s, because %v, not adding to virtual file table", diskFileName, err)
 			continue
@@ -244,7 +245,7 @@ func writeStdioVirtualLinks(containerID, fileName string, w io.Writer) error {
 		}
 	}
 	// Then build the virtual files
-	xattrList, err := filesystems.ListXattrs(fileName)
+	xattrList, err := xattr.ListXattrs(fileName)
 	if err != nil {
 		log.Warning("Could not fetch xattr list for %s, because %v, not listing virtual files", fileName, err)
 		return nil

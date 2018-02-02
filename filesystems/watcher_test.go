@@ -1,25 +1,25 @@
 package filesystems
 
 import (
+	"context"
 	"io/ioutil"
+	"math/rand"
+	_ "net/http/pprof"
 	"os"
+	"path"
+	"path/filepath"
+	"reflect"
 	"regexp"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
-	"path/filepath"
-	"reflect"
-
-	"math/rand"
-	_ "net/http/pprof"
-
+	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/sirupsen/logrus"
-
-	"context"
-	"path"
-	"sort"
-	"strings"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -56,16 +56,21 @@ func TestWatcher(t *testing.T) {
 	}()
 
 	helloBytes := []byte("hello\nprana\n")
-	err = ioutil.WriteFile(tmp+"/prana-log-20161001-19.log", helloBytes, 0644)
+	prana1 := filepath.Join(tmp, "/prana-log-20161001-19.log")
+	err = ioutil.WriteFile(prana1, helloBytes, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.NoError(t, xattr.SetXattr(prana1, xattr.MimeTypeAttr, []byte("application/binary")))
+
 	time.Sleep(time.Second * 10)
 
-	err = ioutil.WriteFile(tmp+"/prana-log-20161001-20.log", helloBytes, 0644)
+	prana2 := filepath.Join(tmp, "/prana-log-20161001-20.log")
+	err = ioutil.WriteFile(prana2, helloBytes, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.NoError(t, xattr.SetXattr(prana2, xattr.MimeTypeAttr, []byte("application/binary")))
 	destLoc, err := ioutil.TempDir(".", "s3-logs-")
 
 	if err != nil {
@@ -88,14 +93,11 @@ func TestWatcher(t *testing.T) {
 
 	verifyTestWatcher(destLoc, t)
 
-	err = w.Stop()
+	assert.NoError(t, w.Stop())
 	if err != nil {
 		t.Fatal("Could not stop watcher: ", err)
 	}
-	if w.Stop() != nil {
-		t.Fatal("Stopping the watcher a second time did something odd")
-	}
-
+	assert.NoError(t, w.Stop(), "Stopping the watcher a second time did something odd")
 }
 
 func verifyTestWatcher(destLoc string, t *testing.T) {
@@ -106,6 +108,7 @@ func verifyTestWatcher(destLoc string, t *testing.T) {
 	if len(fileInfos) != 1 {
 		t.Fatalf("Expected number of files did not get uploaded (1 vs %d)", len(fileInfos))
 	}
+	assert.Equal(t, "application/binary", xattr.GetMimeType(filepath.Join(destLoc, fileInfos[0].Name())))
 }
 
 func TestDoubleUpload(t *testing.T) { // nolint: gocyclo
@@ -306,7 +309,7 @@ func setupLogRotate(tmpLogDir, destLogDir string, t *testing.T) (*Watcher, []byt
 	if err != nil {
 		t.Fatal("Couldn't open log file: ", err)
 	}
-	err = fSetXattr(file, StdioAttr, []byte{})
+	err = xattr.FSetXattr(file, StdioAttr, []byte{})
 	if err != nil {
 		t.Fatal("Could not set xattr on file: ", err)
 	}
