@@ -568,10 +568,10 @@
 			"revisionTime": "2015-06-20T23:27:11Z"
 		},
 		{
-			"checksumSHA1": "UT1q+WaSOQqgWGmNZuMzL0ZcAz0=",
+			"checksumSHA1": "JCFloSXE3PsgmZ/FDK8rdXBlgZc=",
 			"path": "github.com/vishvananda/netlink",
-			"revision": "1882fa99fc5adc217f354c6f37a172876877f77d",
-			"revisionTime": "2017-12-27T10:00:08Z",
+			"revision": "a2af46a09c21dd8b727a0f8912e559b8b484144d",
+			"revisionTime": "2018-01-31T02:37:42Z",
 			"version": "master",
 			"versionExact": "master"
 		},
