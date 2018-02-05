@@ -7,6 +7,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/Netflix/titus-executor/vpc/setup"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"gopkg.in/urfave/cli.v1"
 )
@@ -80,17 +81,7 @@ func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) erro
 
 	// Mark the candidates
 	if len(candidates) > 0 {
-		parentCtx.Logger.Info("Marking candidates: ", candidates)
-		createTagsInput := &ec2.CreateTagsInput{
-			Resources: aws.StringSlice(candidates),
-			Tags: []*ec2.Tag{
-				{
-					Key:   aws.String(markTag),
-					Value: aws.String(now.Format(time.RFC3339)),
-				},
-			},
-		}
-		_, err = ec2Client.CreateTagsWithContext(parentCtx, createTagsInput)
+		err = doMark(parentCtx, candidates, now, ec2Client)
 		if err != nil {
 			return err
 		}
@@ -134,6 +125,35 @@ func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) erro
 
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func doMark(parentCtx *context.VPCContext, candidates []string, now time.Time, ec2Client *ec2.EC2) error {
+	// Split it up into chunks of 10
+	for i := 0; i*10 < len(candidates); i++ {
+		pageBegin := i * 10
+		pageEnd := min(len(candidates), (i+1)*10)
+		parentCtx.Logger.Info("Marking candidates: ", candidates[pageBegin:pageEnd])
+		createTagsInput := &ec2.CreateTagsInput{
+			Resources: aws.StringSlice(candidates[pageBegin:pageEnd]),
+			Tags: []*ec2.Tag{
+				{
+					Key:   aws.String(markTag),
+					Value: aws.String(now.Format(time.RFC3339)),
+				},
+			},
+		}
+		_, err := ec2Client.CreateTagsWithContext(parentCtx, createTagsInput)
+		// Is this an actual fatal error?
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "InvalidNetworkInterfaceID.NotFound" {
+				parentCtx.Logger.Warning("Unable to process batch because: ", err)
+			} else {
+				return err
+			}
 		}
 	}
 
@@ -207,4 +227,11 @@ func deleteSelected(parentCtx *context.VPCContext, selected []string) error {
 		ctx.Logger.Debug("Deleted interface")
 	}
 	return nil
+}
+
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
 }
