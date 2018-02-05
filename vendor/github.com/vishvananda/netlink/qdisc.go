@@ -264,7 +264,7 @@ func (qdisc *Fq) Type() string {
 	return "fq"
 }
 
-// Fq is a classless packet scheduler meant to be mostly used for locally generated traffic.
+// FQ_Codel (Fair Queuing Controlled Delay) is queuing discipline that combines Fair Queuing with the CoDel AQM scheme.
 type FqCodel struct {
 	QdiscAttrs
 	Target   uint32
