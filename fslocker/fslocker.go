@@ -2,11 +2,11 @@ package fslocker
 
 import (
 	"io"
-	"os"
-	"time"
-
 	"io/ioutil"
+	"math/rand"
+	"os"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -219,8 +219,16 @@ func lockHelper(fd *os.File, how int, timeout *time.Duration) error {
 }
 
 func (locker *FSLocker) mkdirLockDir(path string) (*os.File, error) {
+	var err error
 	lockPath := filepath.Join(locker.path, path)
-	if err := os.MkdirAll(lockPath, 0700); err != nil {
+	for i := 0; i < 10; i++ {
+		err = os.MkdirAll(lockPath, 0700)
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond * time.Duration(rand.Intn(100)))
+	}
+	if err != nil {
 		return nil, err
 	}
 	return os.OpenFile(lockPath, os.O_RDONLY, 0400)
