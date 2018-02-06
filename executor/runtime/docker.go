@@ -665,7 +665,7 @@ func prepareNetworkDriver(c *Container) error {
 			invalidSg.reason = errors.New(c.Allocation.Error)
 			return &invalidSg
 		}
-		return fmt.Errorf("vpc network configuration error: %s", c.Allocation.Error)
+		return fmt.Errorf("vpc network configuration error: %s; %v", c.Allocation.Error, c.AllocationCommand.Wait())
 	}
 
 	log.Printf("vpc network configuration obtained %+v", c.Allocation)

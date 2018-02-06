@@ -119,7 +119,13 @@ func (l *awsLogger) Log(args ...interface{}) {
 }
 
 func (ctx *VPCContext) setupEC2() error {
-	ec2MetadataClient := ec2metadata.New(session.Must(session.NewSession()))
+	ec2MetadataClient := ec2metadata.New(
+		session.Must(
+			session.NewSession(
+				aws.NewConfig().
+					WithMaxRetries(3).
+					WithLogger(&awsLogger{logger: ctx.Logger}).
+					WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries))))
 	if !ec2MetadataClient.Available() {
 		return cli.NewExitError("EC2 metadata service unavailable", 1)
 	}
