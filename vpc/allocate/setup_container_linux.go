@@ -8,6 +8,9 @@ import (
 	"net"
 	"reflect"
 
+	"fmt"
+	"math/rand"
+
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
@@ -19,8 +22,7 @@ import (
 )
 
 const (
-	containerInterfaceName = "eth0-tmp"
-	mtu                    = 9000
+	mtu = 9000
 )
 
 var (
@@ -46,6 +48,7 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd, bandwidth int, bur
 	}
 	defer nsHandle.Delete()
 
+	containerInterfaceName := fmt.Sprintf("tmp-%d", rand.Intn(10000))
 	ipvlan := netlink.IPVlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name:        containerInterfaceName,
