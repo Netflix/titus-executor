@@ -232,6 +232,11 @@ func (mgr *IPPoolManager) DoGc(parentCtx *context.VPCContext, gracePeriod time.D
 		defer ipAddrLock.Unlock()
 		ipAddrLock.Bump()
 	}
+	// At this point it's safe to unlock, unlock is idempotent, so it's safe to call these here
+	// we've locked the individual files involved, meaning no one should be able to use those IPs
+	// and it's safe the unlock.
+	// We unlock here, because in finishGc, it can take quite a while (minutes).
+	lock.Unlock()
 
 	return mgr.finishGC(parentCtx, fileRemovalList, deallocationList)
 }

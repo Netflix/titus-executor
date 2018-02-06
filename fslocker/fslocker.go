@@ -36,11 +36,15 @@ func (l *Lock) Read(p []byte) (int, error) {
 
 // Unlock the lock
 func (l *Lock) Unlock() {
+	if l.file == nil {
+		return
+	}
 	err := unix.Flock(int(l.file.Fd()), unix.LOCK_UN)
 	if err != nil {
 		panic(err)
 	}
 	shouldClose(l.file)
+	l.file = nil
 }
 
 // Bump the mtime on the locked file
