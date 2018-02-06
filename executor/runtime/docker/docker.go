@@ -603,6 +603,8 @@ func prepareNetworkDriver(c *runtimeTypes.Container) error {
 	c.AllocationCommand = exec.Command("/apps/titus-executor/bin/titus-vpc-tool", args...) // nolint: gas
 
 	stdoutPipe, err := c.AllocationCommand.StdoutPipe()
+	c.AllocationCommand.Stderr = os.Stderr
+
 	if err != nil {
 		return err
 	}
@@ -1356,6 +1358,7 @@ func setupNetworking(c *runtimeTypes.Container, cred ucred) error {
 	if err != nil {
 		return err
 	}
+	c.AllocationCommand.Stderr = os.Stderr
 	c.SetupCommand.ExtraFiles = []*os.File{netnsFile}
 
 	err = c.SetupCommand.Start()
