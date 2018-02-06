@@ -60,6 +60,7 @@ func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
 	// Setup EC2 client
 	err = ret.setupEC2()
 	if err != nil {
+		logger.Warning("Unable to setup EC2 client: ", err)
 		return nil, err
 	}
 
