@@ -1,10 +1,13 @@
 // +build !linux
 
-package runtime
+package docker
 
 import (
 	"context"
 	"errors"
+
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+
 	"net"
 )
 
@@ -24,6 +27,6 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 	return false
 }
 
-func setupSystemPods(parentCtx context.Context, c *Container, cred ucred) error {
+func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
 	return nil
 }

@@ -16,6 +16,8 @@ import (
 	"github.com/Netflix/titus-executor/executor/launchguard"
 	"github.com/Netflix/titus-executor/executor/metatron"
 	"github.com/Netflix/titus-executor/executor/runtime"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
@@ -31,11 +33,11 @@ type update struct {
 	TaskID  string
 	State   titusdriver.TitusTaskState
 	Mesg    string
-	Details *runtime.Details
+	Details *runtimeTypes.Details
 	ce      launchguard.CleanUpEvent
 }
 
-func (u update) withDetails(details *runtime.Details) update {
+func (u update) withDetails(details *runtimeTypes.Details) update {
 	u.Details = details
 	return u
 }
@@ -53,7 +55,7 @@ func newUpdate(taskID string, state titusdriver.TitusTaskState, mesg string) upd
 
 type containerState struct {
 	sync.Mutex
-	*runtime.Container
+	*runtimeTypes.Container
 	isKilled bool
 	watcher  *filesystems.Watcher
 
@@ -75,7 +77,7 @@ func (c *containerState) cancel() {
 type Executor struct {
 	metrics      metrics.Reporter
 	titusDriver  titusdriver.TitusDriver
-	runtime      runtime.Runtime
+	runtime      runtimeTypes.Runtime
 	logUploaders *uploader.Uploaders
 
 	sync.RWMutex
@@ -94,12 +96,12 @@ type Executor struct {
 }
 
 // RuntimeProvider is a factory function for runtime implementations. It is called only once by WithRuntime
-type RuntimeProvider func(context.Context) (runtime.Runtime, error)
+type RuntimeProvider func(context.Context) (runtimeTypes.Runtime, error)
 
 // New constructs a new Executor object with the default (docker) runtime
 func New(m metrics.Reporter, logUploaders *uploader.Uploaders) (*Executor, error) {
-	dockerRuntime := func(ctx context.Context) (runtime.Runtime, error) {
-		return runtime.NewDockerRuntime(ctx, m)
+	dockerRuntime := func(ctx context.Context) (runtimeTypes.Runtime, error) {
+		return docker.NewDockerRuntime(ctx, m)
 	}
 	return WithRuntime(m, dockerRuntime, logUploaders)
 }
@@ -168,15 +170,15 @@ func (e *Executor) runCheck(taskID string) bool {
 	}
 
 	switch status {
-	case runtime.StatusRunning:
+	case runtimeTypes.StatusRunning:
 		// no need to update the status if task is running
 		c.logEntry.Debug("running")
 		return false
-	case runtime.StatusFinished:
+	case runtimeTypes.StatusFinished:
 		c.logEntry.Info("finished")
 		e.update <- newUpdate(taskID, titusdriver.Finished, "finished")
 		return true
-	case runtime.StatusFailed:
+	case runtimeTypes.StatusFailed:
 		c.logEntry.Info("failed")
 		e.update <- newUpdate(taskID, titusdriver.Failed, err.Error())
 		return true
@@ -249,7 +251,7 @@ func (e *Executor) Start() {
 
 // setupMetatron returns a Docker formatted string bind mount for a container for a directory that will contain
 // TODO(fabio): create a type for Binds
-func (e *Executor) setupMetatron(c *runtime.Container) (*metatron.CredentialsConfig, error) {
+func (e *Executor) setupMetatron(c *runtimeTypes.Container) (*metatron.CredentialsConfig, error) {
 	if config.DevWorkspace().MockMetatronCreds {
 		// Make up some creds for local testing
 		testAppMetadata := "type=titus&version=1&app=myApp&stack=myStack&imageName=myImage&imageVersion=latest&entry=myEntryPoint&t=1481328000"
@@ -401,7 +403,7 @@ func (e *Executor) StartTask(taskID string, titusInfo *titus.ContainerInfo, mem 
 
 	c := &containerState{
 		Container: runtime.NewContainer(taskID, titusInfo,
-			&runtime.Resources{
+			&runtimeTypes.Resources{
 				Mem:       mem,
 				CPU:       cpu,
 				Disk:      disk,
@@ -488,7 +490,7 @@ func (e *Executor) startContainer(c *containerState, startTime time.Time) { // n
 		c.logEntry.Errorf("task %s: failed to create container %s", c.Container.TaskID, err)
 		// Treat registry pull errors as LOST and non-existent images as FAILED.
 		switch err.(type) {
-		case *runtime.RegistryImageNotFoundError, *runtime.InvalidSecurityGroupError, *runtime.BadEntryPointError:
+		case *runtimeTypes.RegistryImageNotFoundError, *runtimeTypes.InvalidSecurityGroupError, *runtimeTypes.BadEntryPointError:
 			c.logEntry.Errorf("Returning TASK_FAILED for task %s : %v", c.Container.TaskID, err)
 			e.update <- newUpdate(c.Container.TaskID, titusdriver.Failed, err.Error())
 		default:
@@ -504,7 +506,7 @@ func (e *Executor) startContainer(c *containerState, startTime time.Time) { // n
 		c.logEntry.Printf("task %s : start container %s", c.Container.TaskID, err)
 
 		switch err.(type) {
-		case *runtime.BadEntryPointError:
+		case *runtimeTypes.BadEntryPointError:
 			c.logEntry.Printf("Returning TaskState_TASK_FAILED for task %s : %v", c.Container.TaskID, err)
 			e.update <- newUpdate(c.Container.TaskID, titusdriver.Failed, err.Error())
 		default:

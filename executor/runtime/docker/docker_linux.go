@@ -1,6 +1,6 @@
 // build +linux
 
-package runtime
+package docker
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"time"
 	"unsafe"
 
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/coreos/go-systemd/dbus"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -75,7 +76,7 @@ func setupScheduler(cred ucred) error {
 	return nil
 }
 
-func setupSystemPods(parentCtx context.Context, c *Container, cred ucred) error {
+func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
 	ctx, cancel := context.WithTimeout(parentCtx, metricStartTimeout)
 	defer cancel()
 
@@ -93,13 +94,13 @@ func setupSystemPods(parentCtx context.Context, c *Container, cred ucred) error 
 	if err := os.Mkdir(path, 0755); err != nil { // nolint: gas
 		return err
 	}
-	c.registerRuntimeCleanup(func() error {
+	c.RegisterRuntimeCleanup(func() error {
 		return os.Remove(path)
 	})
 	if err := unix.Mount(pidpath, path, "", unix.MS_BIND, ""); err != nil {
 		return err
 	}
-	c.registerRuntimeCleanup(func() error {
+	c.RegisterRuntimeCleanup(func() error {
 		// 0x8 is
 		return unix.Unmount(path, unix.MNT_DETACH|umountNoFollow)
 	})

@@ -14,12 +14,13 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
-	titusruntime "github.com/Netflix/titus-executor/executor/runtime"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+
 	"github.com/Netflix/titus-executor/uploader"
 )
 
 var (
-	_ titusruntime.Runtime = (*runtimeMock)(nil)
+	_ runtimeTypes.Runtime = (*runtimeMock)(nil)
 )
 
 func TestMain(m *testing.M) {
@@ -216,7 +217,7 @@ func mocks(t *testing.T, killRequests chan<- chan<- struct{}, sub <-chan subscri
 		kills:       killRequests,
 	}
 	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	e, err := WithRuntime(metrics.Discard, func(ctx context.Context) (titusruntime.Runtime, error) {
+	e, err := WithRuntime(metrics.Discard, func(ctx context.Context) (runtimeTypes.Runtime, error) {
 		r.ctx = ctx
 		return r, nil
 	}, l)
@@ -272,12 +273,12 @@ func notifyAll(subscriptions map[string][]chan<- struct{}, taskID string) {
 	delete(subscriptions, taskID)
 }
 
-func (r *runtimeMock) Prepare(ctx context.Context, c *titusruntime.Container, bindMounts []string) error {
+func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string) error {
 	r.t.Log("runtimeMock.Prepare", c.TaskID)
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context, c *titusruntime.Container) (string, error) {
+func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, error) {
 	r.t.Log("runtimeMock.Start", c.TaskID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -292,7 +293,7 @@ func (r *runtimeMock) notifyStartCalled(notify chan struct{}) {
 	r.startCalled = notify
 }
 
-func (r *runtimeMock) Kill(c *titusruntime.Container) error {
+func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 	r.t.Log("runtimeMock.Kill", c.TaskID)
 	// send a kill request and wait for a grant
 	req := make(chan struct{}, 1)
@@ -309,23 +310,23 @@ func (r *runtimeMock) Kill(c *titusruntime.Container) error {
 	return nil
 }
 
-func (r *runtimeMock) Cleanup(c *titusruntime.Container) error {
+func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
 	r.t.Log("runtimeMock.Cleanup", c.TaskID)
 	return nil
 }
 
-func (r *runtimeMock) Details(c *titusruntime.Container) (*titusruntime.Details, error) {
+func (r *runtimeMock) Details(c *runtimeTypes.Container) (*runtimeTypes.Details, error) {
 	r.t.Log("runtimeMock.Details", c.TaskID)
-	return &titusruntime.Details{
+	return &runtimeTypes.Details{
 		IPAddresses: make(map[string]string),
-		NetworkConfiguration: &titusruntime.NetworkConfigurationDetails{
+		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: false,
 		},
 	}, nil
 }
 
-func (r *runtimeMock) Status(c *titusruntime.Container) (titusruntime.Status, error) {
+func (r *runtimeMock) Status(c *runtimeTypes.Container) (runtimeTypes.Status, error) {
 	r.t.Log("runtimeMock.Status", c.TaskID)
 	// always running is fine for these tests
-	return titusruntime.StatusRunning, nil
+	return runtimeTypes.StatusRunning, nil
 }

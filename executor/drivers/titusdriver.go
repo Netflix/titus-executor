@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/executor/runtime"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 )
 
 // TitusTaskState represents the current state of a task
@@ -43,7 +43,7 @@ func (s TitusTaskState) String() string {
 type TitusDriver interface {
 	// ReportTitusTaskStatus is a callback function to notify the driver
 	// of a change in task state.
-	ReportTitusTaskStatus(taskID string, msg string, state TitusTaskState, details *runtime.Details)
+	ReportTitusTaskStatus(taskID string, msg string, state TitusTaskState, details *runtimeTypes.Details)
 }
 
 // TitusExecutor is the interface implemented by a generic Titus executor.
