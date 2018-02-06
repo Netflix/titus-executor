@@ -120,7 +120,7 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 		case <-ticker.C:
 			err = allocation.refresh()
 			if err != nil {
-				ctx.Logger.Error("Unable to refresh IP allocation record")
+				ctx.Logger.Error("Unable to refresh IP allocation record: ", err)
 			}
 		}
 	}
