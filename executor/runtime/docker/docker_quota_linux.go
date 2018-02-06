@@ -1,6 +1,6 @@
 // build +linux
 
-package runtime
+package docker
 
 /*
 #include <linux/quota.h>

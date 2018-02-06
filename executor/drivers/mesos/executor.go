@@ -7,7 +7,7 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	titusproto "github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/runtime"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	protobuf "github.com/golang/protobuf/proto"
 	"github.com/mesos/mesos-go/executor"
 	"github.com/mesos/mesos-go/mesosproto"
@@ -116,7 +116,7 @@ func (e *titusMesosExecutor) Error(exec executor.ExecutorDriver, err string) {
 }
 
 // ReportTitusTaskStatus notifies Mesos of a change in task state.
-func (e *titusMesosExecutor) ReportTitusTaskStatus(taskID string, msg string, state titusdriver.TitusTaskState, details *runtime.Details) {
+func (e *titusMesosExecutor) ReportTitusTaskStatus(taskID string, msg string, state titusdriver.TitusTaskState, details *runtimeTypes.Details) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/runtime"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -13,7 +13,7 @@ type TaskStatus struct {
 	TaskID    string
 	Status    string
 	Msg       string
-	Details   *runtime.Details
+	Details   *runtimeTypes.Details
 	Timestamp time.Time
 }
 
@@ -33,7 +33,7 @@ func New(executor titusdriver.TitusExecutor) (*TitusTestDriver, error) {
 }
 
 // ReportTitusTaskStatus notifies a test via a channel about a task's state
-func (driver *TitusTestDriver) ReportTitusTaskStatus(taskID string, msg string, state titusdriver.TitusTaskState, details *runtime.Details) {
+func (driver *TitusTestDriver) ReportTitusTaskStatus(taskID string, msg string, state titusdriver.TitusTaskState, details *runtimeTypes.Details) {
 	log.Printf("Sending task status for task %s, state %s, and message %s", taskID, state.String(), msg)
 	driver.StatusChannel <- TaskStatus{TaskID: taskID, Status: state.String(), Msg: msg, Details: details, Timestamp: time.Now()}
 }
