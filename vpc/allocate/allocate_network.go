@@ -169,10 +169,12 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 
 	networkInterface, err := getInterfaceByIdx(ctx, deviceIdx)
 	if err != nil {
+		ctx.Logger.Warning("Unable to get interface by idx: ", err)
 		return nil, err
 	}
 	sharedSGLock, err := setupSecurityGroups(ctx, networkInterface, securityGroups)
 	if err != nil {
+		ctx.Logger.Warning("Unable to setup security groups: ", err)
 		return nil, err
 	}
 	// 2. Get a (free) IP
@@ -233,6 +235,7 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.E
 	maybeReconfigurationLockPath := filepath.Join(networkInterface.LockPath(), "security-group-reconfig")
 	maybeReconfigurationLock, err := ctx.FSLocker.ExclusiveLock(maybeReconfigurationLockPath, &lockTimeout)
 	if err != nil {
+		ctx.Logger.Warning("Unable to get security-group-reconfig lock: ", err)
 		return nil, err
 	}
 	defer maybeReconfigurationLock.Unlock()
@@ -242,6 +245,7 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.E
 	sgConfigureLockPath := filepath.Join(networkInterface.LockPath(), "security-group-current-config")
 	sgConfigurationLock, err := ctx.FSLocker.SharedLock(sgConfigureLockPath, &lockTimeout)
 	if err != nil {
+		ctx.Logger.Warning("Unable to get security-group-current-config lock: ", err)
 		return nil, err
 	}
 	if reflect.DeepEqual(securityGroups, networkInterface.SecurityGroupIds) {
