@@ -50,8 +50,7 @@ var interfaceLimits = map[string]map[string]limits{
 			interfaces:               8,
 			ipAddressesPerInterface:  30,
 			ip6AddressesPerInterface: 30,
-			// Is this number correct?
-			networkThroughput: 10000,
+			networkThroughput:        23000,
 		},
 	},
 	"r4": {
