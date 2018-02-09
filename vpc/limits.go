@@ -88,7 +88,7 @@ var interfaceLimits = map[string]map[string]limits{
 			interfaces:               15,
 			ipAddressesPerInterface:  50,
 			ip6AddressesPerInterface: 50,
-			networkThroughput:        15000,
+			networkThroughput:        23000,
 		},
 	},
 	"p2": {
