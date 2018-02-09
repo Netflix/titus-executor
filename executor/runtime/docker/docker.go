@@ -87,10 +87,11 @@ var (
 	// Fortunately, this is adjustable.
 	cfsBandwidthPeriod = properties.NewDynamicProperty(context.TODO(), "titus.executor.cfsBandwidthPeriod", "100000", "", nil)
 	// bandwidth | nanocpus | none
-	cfsBandwidthMode = properties.NewDynamicProperty(context.TODO(), "titus.executor.cfsBandwidthMode", bandwidthMode, "", nil)
-	tiniVerbosity    = properties.NewDynamicProperty(context.TODO(), "titus.executor.tiniVerbosity", "", "", nil)
-	batchSize        = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.batchSize", "4", "", nil)
-	burst            = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.burst", "false", "", nil)
+	cfsBandwidthMode           = properties.NewDynamicProperty(context.TODO(), "titus.executor.cfsBandwidthMode", bandwidthMode, "", nil)
+	tiniVerbosity              = properties.NewDynamicProperty(context.TODO(), "titus.executor.tiniVerbosity", "", "", nil)
+	batchSize                  = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.batchSize", "4", "", nil)
+	burst                      = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.burst", "false", "", nil)
+	securityConvergenceTimeout = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.securityConvergenceTimeout", "10s", "", nil)
 
 	prepareTimeout = newTimeoutDynamicProperty(context.TODO(), "prepare", time.Minute*10)
 	startTimeout   = newTimeoutDynamicProperty(context.TODO(), "start", time.Minute*10)
@@ -594,6 +595,7 @@ func prepareNetworkDriver(c *runtimeTypes.Container) error {
 		"allocate-network",
 		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
+		"--security-convergence-timeout", securityConvergenceTimeout.Read().MustString(),
 	}
 	if newBatchSize, err := batchSize.Read().AsString(); err != nil {
 		log.Error("Unable to fetch batchsize override: ", err)
