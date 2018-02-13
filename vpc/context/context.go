@@ -178,7 +178,7 @@ func (ctx *VPCContext) setupEC2() error {
 			WithMaxRetries(3).
 			WithRegion(instanceIDDocument.Region).
 			WithLogger(newAWSLogger).
-			WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries)
+			WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries | aws.LogDebugWithHTTPBody)
 
 		if session, err2 := session.NewSession(awsConfig); err2 == nil {
 			ctx.AWSSession = session
