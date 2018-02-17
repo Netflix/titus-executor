@@ -23,6 +23,7 @@ import (
 
 const (
 	mtu = 9000
+	hz  = 100.0
 )
 
 var (
@@ -190,8 +191,8 @@ func setupIFBClass(parentCtx *context.VPCContext, bandwidth int, burst bool, ip 
 	htbclassattrs := netlink.HtbClassAttrs{
 		Rate:    uint64(bandwidth),
 		Ceil:    ceil,
-		Buffer:  uint32(float64(bandwidth/8)/netlink.Hz() + float64(mtu)),
-		Cbuffer: uint32(float64(ceil/8)/netlink.Hz() + float64(mtu)),
+		Buffer:  uint32(float64(bandwidth)/(hz*8) + float64(mtu)),
+		Cbuffer: uint32(float64(ceil)/(hz*8) + float64(mtu)),
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	parentCtx.Logger.Debug("Setting up HTB class: ", class)
