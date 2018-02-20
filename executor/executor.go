@@ -13,12 +13,13 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/launchguard"
 	"github.com/Netflix/titus-executor/executor/metatron"
 	"github.com/Netflix/titus-executor/executor/runtime"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/filesystems"
+	launchguardClient "github.com/Netflix/titus-executor/launchguard/client"
+	launchguardCore "github.com/Netflix/titus-executor/launchguard/core"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	log "github.com/sirupsen/logrus"
@@ -34,14 +35,14 @@ type update struct {
 	State   titusdriver.TitusTaskState
 	Mesg    string
 	Details *runtimeTypes.Details
-	ce      launchguard.CleanUpEvent
+	ce      launchguardCore.CleanUpEvent
 }
 
 func (u update) withDetails(details *runtimeTypes.Details) update {
 	u.Details = details
 	return u
 }
-func (u update) withCleanUpEvent(ce launchguard.CleanUpEvent) update {
+func (u update) withCleanUpEvent(ce launchguardCore.CleanUpEvent) update {
 	u.ce = ce
 	return u
 }
@@ -84,7 +85,7 @@ type Executor struct {
 	tasks      map[string]*containerState
 	taskStates map[string]titusdriver.TitusTaskState
 
-	launchGuard *launchguard.LaunchGuard
+	launchGuard *launchguardClient.LaunchGuardClient
 
 	update       chan update
 	cancel       context.CancelFunc
@@ -114,11 +115,15 @@ func WithRuntime(m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) // nolint: vet
 	r, err := rp(ctx)
 	if err != nil {
 		cancel()
 		return nil, err
+	}
+	lgc, err := launchguardClient.NewLaunchGuardClient(m, "http://localhost:8006")
+	if err != nil {
+		return nil, err // nolint: vet
 	}
 	exec := &Executor{
 		metrics:      m,
@@ -130,7 +135,7 @@ func WithRuntime(m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.
 		ctx:          ctx,
 		cancel:       cancel,
 		shutdownDone: make(chan bool),
-		launchGuard:  launchguard.NewLaunchGuard(m),
+		launchGuard:  lgc,
 	}
 	exec.setupServeMux()
 	exec.setupEphemeralHTTPServer()
@@ -443,7 +448,7 @@ func (e *Executor) startContainer(c *containerState, startTime time.Time) { // n
 		// Wait until the launchGuard is released.
 		// TODO(Andrew L): We only block concurrent launches to avoid a race condition introduced
 		// by the Titus master releasing resources prior to the agent releasing them.
-		le := launchguard.NewLaunchEvent(e.launchGuard)
+		le := e.launchGuard.NewLaunchEvent(c.context(), c.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
 		select {
 		case <-le.Launch():
 			c.logEntry.Info("Launch not blocked on on launchGuard")
@@ -595,7 +600,7 @@ func (e *Executor) StopTask(taskID string) error {
 	} else {
 		// Enable launch guard to prevent subsequent launch requests
 		cs.logEntry.Info("Setting launchGuard while stopping task")
-		ce := launchguard.NewRealCleanUpEvent(ctx, e.launchGuard)
+		ce := e.launchGuard.NewRealCleanUpEvent(ctx, cs.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
 		update = update.withCleanUpEvent(ce)
 	}
 	select {

@@ -1,11 +1,10 @@
-package launchguard
+package core
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
-
-	"context"
 
 	"github.com/Netflix/metrics-client-go/metrics"
 )
@@ -28,8 +27,8 @@ const (
 // LaunchGuard coordinates the starting and shutting down of containers
 type LaunchGuard struct {
 	metrics          metrics.Reporter
-	cleanUpEventChan chan CleanUpEvent
-	launchEventChan  chan LaunchEvent
+	cleanUpEventChan chan cleanUpEvent
+	launchEventChan  chan launchEvent
 	events           []launchGuardEvent
 	// The purpose of the Ticker is to bump the state so we can report the depth metric
 	ticker *time.Ticker
@@ -41,9 +40,9 @@ func NewLaunchGuard(m metrics.Reporter) *LaunchGuard {
 		metrics: m,
 		events:  []launchGuardEvent{},
 		// We should always be able to take cleanup events async
-		cleanUpEventChan: make(chan CleanUpEvent),
+		cleanUpEventChan: make(chan cleanUpEvent),
 		// Launch Events are blocking anyway, no point in optimizing here
-		launchEventChan: make(chan LaunchEvent),
+		launchEventChan: make(chan launchEvent),
 		ticker:          time.NewTicker(tickWindow),
 	}
 	go lg.loop()
@@ -72,11 +71,11 @@ func (lg *LaunchGuard) loop() {
 
 func (lg *LaunchGuard) dispatchEmpty() launchGuardStateMachineState {
 	select {
-	case cleanUpEvent := <-lg.cleanUpEventChan:
-		lg.events = append(lg.events, cleanUpEvent)
+	case myCleanUpEvent := <-lg.cleanUpEventChan:
+		lg.events = append(lg.events, myCleanUpEvent)
 		return waitingOnCleanupEventState
-	case launchEvent := <-lg.launchEventChan:
-		lg.events = append(lg.events, launchEvent)
+	case myLaunchEvent := <-lg.launchEventChan:
+		lg.events = append(lg.events, myLaunchEvent)
 		return doLaunchState
 	case <-lg.ticker.C:
 		return emptyState
@@ -84,20 +83,20 @@ func (lg *LaunchGuard) dispatchEmpty() launchGuardStateMachineState {
 }
 
 func (lg *LaunchGuard) dispatchWaitingOnCleanupEvent() launchGuardStateMachineState {
-	cleanUpEvent := lg.events[0].(*RealCleanUpEvent)
+	lastCleanUpEvent := lg.events[0].(*RealCleanUpEvent)
 	select {
-	case <-cleanUpEvent.done():
-		if cleanUpEvent.ctx.Err() == context.DeadlineExceeded {
+	case <-lastCleanUpEvent.done():
+		if lastCleanUpEvent.ctx.Err() == context.DeadlineExceeded {
 			lg.metrics.Counter("titus.executor.launchGuard.deadlineExceededError", 1, nil)
 		}
 		// Remove event from the wait queue
 		lg.events = lg.events[1:]
 		return lg.determineStateAfter()
-	case cleanUpEvent := <-lg.cleanUpEventChan:
-		lg.events = append(lg.events, cleanUpEvent)
+	case myCleanupEvent := <-lg.cleanUpEventChan:
+		lg.events = append(lg.events, myCleanupEvent)
 		return waitingOnCleanupEventState
-	case launchEvent := <-lg.launchEventChan:
-		lg.events = append(lg.events, launchEvent)
+	case myLaunchEvent := <-lg.launchEventChan:
+		lg.events = append(lg.events, myLaunchEvent)
 		return waitingOnCleanupEventState
 	case <-lg.ticker.C:
 		return waitingOnCleanupEventState
@@ -109,16 +108,16 @@ func (lg *LaunchGuard) determineStateAfter() launchGuardStateMachineState {
 		return emptyState
 	}
 	switch lg.events[0].(type) {
-	case CleanUpEvent:
+	case cleanUpEvent:
 		return waitingOnCleanupEventState
-	case LaunchEvent:
+	case launchEvent:
 		return doLaunchState
 	}
 	panic(fmt.Sprintf("Unknown event type: %T", lg.events[0]))
 }
 
 func (lg *LaunchGuard) doLaunch() launchGuardStateMachineState {
-	event := lg.events[0].(LaunchEvent)
+	event := lg.events[0].(launchEvent)
 	event.notifyLaunch()
 	lg.events = lg.events[1:]
 	return lg.determineStateAfter()
@@ -127,18 +126,12 @@ func (lg *LaunchGuard) doLaunch() launchGuardStateMachineState {
 type launchGuardEvent interface{}
 
 var (
-	_ CleanUpEvent = (*RealCleanUpEvent)(nil)
-	_ CleanUpEvent = (*NoopCleanUpEvent)(nil)
+	_ cleanUpEvent = (*RealCleanUpEvent)(nil)
+	_ cleanUpEvent = (*NoopCleanUpEvent)(nil)
 )
 
 /* cleanup event code */
 // These are events that
-
-// CleanUpEvent should be used when tearing a container down
-type CleanUpEvent interface {
-	Done()
-	done() <-chan struct{}
-}
 
 // RealCleanUpEvent should be used when the launchGuard is actually needed (kill)
 type RealCleanUpEvent struct {
@@ -151,7 +144,7 @@ type RealCleanUpEvent struct {
 }
 
 // NewRealCleanUpEvent must be used to instantiate new real cleanup events
-func NewRealCleanUpEvent(parentCtx context.Context, lg *LaunchGuard) CleanUpEvent {
+func NewRealCleanUpEvent(parentCtx context.Context, lg *LaunchGuard) cleanUpEvent { // nolint: golint
 	ctx, cancel := context.WithCancel(parentCtx)
 	event := &RealCleanUpEvent{
 		ctx:       ctx,
@@ -192,16 +185,8 @@ func (ce *NoopCleanUpEvent) done() <-chan struct{} {
 func (ce *NoopCleanUpEvent) Cancel() {}
 
 var (
-	_ LaunchEvent = (*realLaunchEvent)(nil)
+	_ launchEvent = (*realLaunchEvent)(nil)
 )
-
-/* Launch Event code */
-
-// LaunchEvent is used to synchronize launching containers
-type LaunchEvent interface {
-	Launch() <-chan struct{}
-	notifyLaunch()
-}
 
 type realLaunchEvent struct {
 	metrics    metrics.Reporter
@@ -211,7 +196,7 @@ type realLaunchEvent struct {
 }
 
 // NewLaunchEvent must be used to instantiate new LaunchEvents
-func NewLaunchEvent(lg *LaunchGuard) LaunchEvent {
+func NewLaunchEvent(lg *LaunchGuard) launchEvent { // nolint: golint
 	event := &realLaunchEvent{
 		metrics:    lg.metrics,
 		createdAt:  time.Now(),
