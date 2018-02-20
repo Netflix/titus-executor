@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 
+	"container/list"
+
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
@@ -107,26 +109,64 @@ func getInstanceIdentityDocument(ec2MetadataClient *ec2metadata.EC2Metadata) (ec
 	return instanceIdentityDocument, err
 }
 
+// This isn't thread safe. But that's okay, because we don't use it in a multi-threaded way.
 type awsLogger struct {
-	logger *logrus.Entry
+	logger      *logrus.Entry
+	debugMode   bool
+	oldMessages *list.List
+}
+
+type oldMessage struct {
+	entry           *logrus.Entry
+	formattedAWSArg string
 }
 
 func (l *awsLogger) Log(args ...interface{}) {
 	formattedAWSArg := fmt.Sprint(args...)
 	// AWS doesn't have a way to enable error logging without enabling debug logging...
-	if strings.Contains(formattedAWSArg, "ERROR") || strings.Contains(formattedAWSArg, "error") {
-		l.logger.WithField("origin", "aws").Error(formattedAWSArg)
+	message := l.logger.WithField("origin", "aws").WithField("debugMode", l.debugMode)
+	if l.debugMode {
+		message.Error(formattedAWSArg)
+		return
 	}
+
+	if strings.Contains(formattedAWSArg, "EOF") || strings.Contains(formattedAWSArg, "404 - Not Found") {
+		// We need to dump all existing logs, and in addition turn our internal log level to debug
+		l.debugMode = true
+		message.Error(formattedAWSArg)
+		l.dumpExistingMessages()
+		return
+	}
+	if strings.Contains(formattedAWSArg, "ERROR") || strings.Contains(formattedAWSArg, "error") {
+		message.Error(formattedAWSArg)
+		return
+	}
+
+	msg := &oldMessage{
+		entry:           message.WithField("originalTimestamp", time.Now()),
+		formattedAWSArg: formattedAWSArg,
+	}
+	l.oldMessages.PushBack(msg)
+}
+
+func (l *awsLogger) dumpExistingMessages() {
+	for e := l.oldMessages.Front(); e != nil; e = e.Next() {
+		le := e.Value.(*oldMessage)
+		le.entry.Error(le.formattedAWSArg)
+	}
+	// Dump old Messages, reinitialize it to wipe out all messages.
+	l.oldMessages = list.New()
 }
 
 func (ctx *VPCContext) setupEC2() error {
+	newAWSLogger := &awsLogger{logger: ctx.Logger, oldMessages: list.New()}
 	ec2MetadataClient := ec2metadata.New(
 		session.Must(
 			session.NewSession(
 				aws.NewConfig().
 					WithMaxRetries(3).
-					WithLogger(&awsLogger{logger: ctx.Logger}).
-					WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries))))
+					WithLogger(newAWSLogger).
+					WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries | aws.LogDebugWithHTTPBody))))
 	if !ec2MetadataClient.Available() {
 		return cli.NewExitError("EC2 metadata service unavailable", 1)
 	}
@@ -137,8 +177,8 @@ func (ctx *VPCContext) setupEC2() error {
 		awsConfig := aws.NewConfig().
 			WithMaxRetries(3).
 			WithRegion(instanceIDDocument.Region).
-			WithLogger(&awsLogger{logger: ctx.Logger}).
-			WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries)
+			WithLogger(newAWSLogger).
+			WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries | aws.LogDebugWithHTTPBody)
 
 		if session, err2 := session.NewSession(awsConfig); err2 == nil {
 			ctx.AWSSession = session

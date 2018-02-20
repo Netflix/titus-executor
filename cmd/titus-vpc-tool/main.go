@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"time"
 
 	"github.com/Netflix/titus-executor/vpc/allocate"
 	"github.com/Netflix/titus-executor/vpc/context"
@@ -41,6 +42,9 @@ func main() {
 		globalgc.GlobalGC,
 	}
 
+	// This is here because logs are buffered, and it's a way to try to guarantee that logs
+	// are flushed at shutdown
+	defer time.Sleep(100 * time.Millisecond)
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
