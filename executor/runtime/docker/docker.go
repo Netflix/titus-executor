@@ -92,6 +92,7 @@ var (
 	batchSize                  = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.batchSize", "4", "", nil)
 	burst                      = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.burst", "false", "", nil)
 	securityConvergenceTimeout = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.securityConvergenceTimeout", "10s", "", nil)
+	pidLimit                   = properties.NewDynamicProperty(context.TODO(), "titus.executor.pidLimit", "100000", "", nil)
 
 	prepareTimeout = newTimeoutDynamicProperty(context.TODO(), "prepare", time.Minute*10)
 	startTimeout   = newTimeoutDynamicProperty(context.TODO(), "start", time.Minute*10)
@@ -386,6 +387,12 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Sysctls: map[string]string{
 			"net.ipv4.tcp_ecn": "1",
 		},
+	}
+	pidLimit, err := pidLimit.Read().AsInteger()
+	if err != nil {
+		log.Warning("Could not get pid limit: ", err)
+	} else {
+		hostCfg.PidsLimit = int64(pidLimit)
 	}
 	hostCfg.Memory = c.Resources.Mem * MiB
 	hostCfg.MemorySwap = 0
