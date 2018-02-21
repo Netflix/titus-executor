@@ -10,13 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"net/http/httptest"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-
+	"github.com/Netflix/titus-executor/launchguard/client"
+	"github.com/Netflix/titus-executor/launchguard/server"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -211,6 +215,8 @@ func TestDoNotDeadlockWhenReceivingMultipleKillsForATask(t *testing.T) { // noli
 }
 
 func mocks(t *testing.T, killRequests chan<- chan<- struct{}, sub <-chan subscription) (*runtimeMock, *Executor) {
+	lgs := httptest.NewServer(server.NewLaunchGuardServer(metrics.Discard))
+
 	r := &runtimeMock{
 		t:           t,
 		startCalled: make(chan<- struct{}),
@@ -224,6 +230,10 @@ func mocks(t *testing.T, killRequests chan<- chan<- struct{}, sub <-chan subscri
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	e.launchGuard, err = client.NewLaunchGuardClient(metrics.Discard, lgs.URL)
+	require.NoError(t, err)
+
 	go e.Start()
 
 	var driver *testdriver.TitusTestDriver
