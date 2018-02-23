@@ -613,6 +613,25 @@
 			"revisionTime": "2017-01-31T01:35:07Z"
 		},
 		{
+			"checksumSHA1": "eA9qNw7Tkpi1GLojT/Vxa99aL00=",
+			"path": "github.com/opencontainers/runc/libcontainer/cgroups",
+			"revision": "c4e4bb0df2fc7d1f3cd578a847b1c252d15b5702",
+			"revisionTime": "2018-01-25T15:09:09Z"
+		},
+		{
+			"checksumSHA1": "s0A2QT/y6WHMQx6djbl4TopB/34=",
+			"path": "github.com/opencontainers/runc/libcontainer/configs",
+			"revision": "c4e4bb0df2fc7d1f3cd578a847b1c252d15b5702",
+			"revisionTime": "2018-01-25T15:09:09Z"
+		},
+		{
+			"checksumSHA1": "AMYc2X2O/IL6EGrq6lTl5vEhLiY=",
+			"origin": "github.com/opencontainers/runc/vendor/github.com/opencontainers/runtime-spec/specs-go",
+			"path": "github.com/opencontainers/runtime-spec/specs-go",
+			"revision": "c4e4bb0df2fc7d1f3cd578a847b1c252d15b5702",
+			"revisionTime": "2018-01-25T15:09:09Z"
+		},
+		{
 			"checksumSHA1": "ayRaLmkRnALRhJ4UwpKIHk9kfXo=",
 			"path": "github.com/pborman/uuid",
 			"revision": "cccd189d45f7ac3368a0d127efb7f4d08ae0b655"
