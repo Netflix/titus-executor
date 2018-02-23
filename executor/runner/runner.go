@@ -251,7 +251,6 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	}
 
 no_launchguard:
-	r.updateStatus(titusdriver.Starting, "creating")
 
 	select {
 	case <-r.killChan:
@@ -262,6 +261,7 @@ no_launchguard:
 		return
 	default:
 	}
+	r.updateStatus(titusdriver.Starting, "creating")
 
 	defer r.handleShutdown()
 	// When Create() returns the host may have been modified to create storage and pull the image.
@@ -318,6 +318,8 @@ no_launchguard:
 		r.logger.Error("Error fetching details for task: ", err)
 		r.updateStatus(titusdriver.Lost, err.Error())
 		return
+	} else if details == nil {
+		r.logger.Error("Unable to fetch task details")
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
 	r.updateStatusWithDetails(titusdriver.Running, "running", details)
@@ -537,14 +539,16 @@ func (r *Runner) updateStatusWithDetails(status titusdriver.TitusTaskState, msg 
 	if details != nil {
 		l = l.WithField("details", details)
 	}
-	l.Info()
+	l.Info("Updating task status")
 	r.UpdatesChan <- Update{
-		TaskID: r.container.TaskID,
-		State:  status,
-		Mesg:   msg,
+		TaskID:  r.container.TaskID,
+		State:   status,
+		Mesg:    msg,
+		Details: details,
 	}
 }
 
+// Update encapsulates information on the updatechan about task status updates
 type Update struct {
 	TaskID  string
 	State   titusdriver.TitusTaskState

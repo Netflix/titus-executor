@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 
@@ -18,6 +17,8 @@ import (
 	"gopkg.in/urfave/cli.v1"
 
 	"time"
+
+	"io/ioutil"
 
 	"github.com/Netflix/titus-executor/executor/runner"
 )
@@ -50,6 +51,9 @@ func main() {
 	// avoid os.Exit as much as possible to let deferred functions run
 	app.Action = func(c *cli.Context) error {
 		return cli.NewExitError(mainWithError(c), 1)
+	}
+	if err := app.Run(os.Args); err != nil {
+		panic(err)
 	}
 }
 

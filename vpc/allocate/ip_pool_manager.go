@@ -265,6 +265,7 @@ func (mgr *IPPoolManager) finishGC(parentCtx *context.VPCContext, fileRemovalLis
 				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", initialIPCount-len(mgr.networkInterface.IPv4Addresses), len(deallocationList))
 				goto freed
 			}
+			parentCtx.Logger.Warning("IP Refresh retrying on GC")
 			time.Sleep(1 * time.Second)
 		}
 	}

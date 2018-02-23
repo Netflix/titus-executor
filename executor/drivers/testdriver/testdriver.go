@@ -4,9 +4,9 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/executor/drivers"
+	"github.com/Netflix/titus-executor/executor/runner"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	log "github.com/sirupsen/logrus"
-	"github.com/Netflix/titus-executor/executor/runner"
 )
 
 // TaskStatus describes a particular task's status
@@ -29,7 +29,7 @@ func New(r *runner.Runner) (*TitusTestDriver, error) {
 	driver := &TitusTestDriver{
 		StatusChannel: make(chan TaskStatus, 10),
 	}
-	go func () {
+	go func() {
 		for update := range r.UpdatesChan {
 			driver.ReportTitusTaskStatus(update.TaskID, update.Mesg, update.State, update.Details)
 		}

@@ -5,21 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"net/http/httptest"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor"
-	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
+	"github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/uploader"
 	protobuf "github.com/golang/protobuf/proto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
-	"github.com/Netflix/titus-executor/executor/drivers"
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
@@ -48,8 +44,9 @@ type JobInput struct {
 
 // JobRunResponse returned from RunJob
 type JobRunResponse struct {
-	runner *runner.Runner
-	TaskID string
+	runner     *runner.Runner
+	TaskID     string
+	UpdateChan chan runner.Update
 }
 
 // WaitForSuccess blocks on the jobs completion and returns true
@@ -95,9 +92,15 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 
 // IsTerminalState returns true if the task status is a terminal state
 func IsTerminalState(rawTaskStatus titusdriver.TitusTaskState) bool {
-	taskStatus := rawTaskStatus.String()
-	return taskStatus == "TASK_FINISHED" || taskStatus == "TASK_FAILED" ||
-		taskStatus == "TASK_KILLED" || taskStatus == "TASK_LOST"
+	switch rawTaskStatus {
+	case titusdriver.Finished:
+	case titusdriver.Failed:
+	case titusdriver.Killed:
+	case titusdriver.Lost:
+	default:
+		return false
+	}
+	return true
 }
 
 // JobRunner is the entrypoint struct to create an executor and run test jobs on it
@@ -201,8 +204,9 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 		log.Printf("Failed to start task %s: %s", taskID, err)
 	}
 	jrr := &JobRunResponse{
-		runner: jobRunner.runner,
-		TaskID: taskID,
+		runner:     jobRunner.runner,
+		TaskID:     taskID,
+		UpdateChan: jobRunner.runner.UpdatesChan,
 	}
 
 	return jrr
@@ -211,10 +215,10 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 // KillTask issues a kill task request to the executor. The kill
 // may be done in the background and the state change should occur
 // on the existing JobRunResponse channel.
-func (jobRunner *JobRunner) KillTask(taskID string) error {
+func (jobRunner *JobRunner) KillTask() error {
 	jobRunner.runner.Kill()
 	<-jobRunner.runner.StoppedChan
-	// TODO: Read terminal status back
+	return nil
 }
 
 // RunJobExpectingSuccess is similar to RunJob but returns true when the task completes successfully.

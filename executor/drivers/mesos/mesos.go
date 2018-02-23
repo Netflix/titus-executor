@@ -42,7 +42,6 @@ const (
 // New allocates a TitusMesosDriver, which includes an allocated Titus executor
 // and an allocated Mesos driver.
 func New(m metrics.Reporter, runner *runner.Runner) (*TitusMesosDriver, error) {
-	var err error
 	// Get required ENV vars that the Mesos slave should have set
 	tmd := &TitusMesosDriver{
 		runner:  runner,
@@ -70,6 +69,7 @@ func New(m metrics.Reporter, runner *runner.Runner) (*TitusMesosDriver, error) {
 	log.Printf("Starting Mesos driver with Driverconfig: %+v", driverCfg)
 	//mesosLibProcessIPKey, addr, mesosLibProcessPortKey, portNum)
 
+	var err error
 	tmd.mesosDriver, err = mesosExecutor.NewMesosExecutorDriver(driverCfg)
 	if err != nil {
 		log.Printf("Unable to create ExecutorDriver : %s", err)
@@ -90,7 +90,10 @@ func (driver *TitusMesosDriver) Start() error {
 	go func() {
 		<-driver.runner.StoppedChan
 		time.Sleep(10 * time.Second)
-		driver.mesosDriver.Stop()
+		if _, err2 := driver.mesosDriver.Stop(); err2 != nil {
+			log.Error("Could not stop mesos driver: ", err2)
+		}
+
 	}()
 	return nil
 }
@@ -120,33 +123,35 @@ func (driver *TitusMesosDriver) Join() error {
 }
 
 // Registered registers a Mesos driver and starts the executor
-func (e *TitusMesosDriver) Registered(mesosDriver mesosExecutor.ExecutorDriver, execInfo *mesosproto.ExecutorInfo, fwinfo *mesosproto.FrameworkInfo, slaveInfo *mesosproto.SlaveInfo) {
-	e.Lock()
-	defer e.Unlock()
+func (driver *TitusMesosDriver) Registered(mesosDriver mesosExecutor.ExecutorDriver, execInfo *mesosproto.ExecutorInfo, fwinfo *mesosproto.FrameworkInfo, slaveInfo *mesosproto.SlaveInfo) {
+	driver.Lock()
+	defer driver.Unlock()
 	// TODO(Andrew L): Log more stuff here
 	log.Printf("Registering Mesos framework %+v", fwinfo)
-	e.mesosDriver = mesosDriver
+	driver.mesosDriver = mesosDriver
 
 }
 
 // Reregistered registers a Mesos driver with a running executor
-func (e *TitusMesosDriver) Reregistered(mesosDriver mesosExecutor.ExecutorDriver, slaveInfo *mesosproto.SlaveInfo) {
-	e.Lock()
-	defer e.Unlock()
+func (driver *TitusMesosDriver) Reregistered(mesosDriver mesosExecutor.ExecutorDriver, slaveInfo *mesosproto.SlaveInfo) {
+	driver.Lock()
+	defer driver.Unlock()
 	log.Printf("re-registered")
-	e.mesosDriver = mesosDriver
+	driver.mesosDriver = mesosDriver
 }
 
 // Disconnected stops a running executor
-func (e *TitusMesosDriver) Disconnected(mesosExecDriver mesosExecutor.ExecutorDriver) {
+func (driver *TitusMesosDriver) Disconnected(mesosExecDriver mesosExecutor.ExecutorDriver) {
 	log.Printf("disconnected")
-	e.mesosDriver.Stop()
+	if _, err2 := driver.mesosDriver.Stop(); err2 != nil {
+		log.Error("Could not stop mesos driver: ", err2)
+	}
 }
 
 // LaunchTask starts a new task
-func (e *TitusMesosDriver) LaunchTask(exec mesosExecutor.ExecutorDriver, taskInfo *mesosproto.TaskInfo) {
+func (driver *TitusMesosDriver) LaunchTask(exec mesosExecutor.ExecutorDriver, taskInfo *mesosproto.TaskInfo) {
 	taskID := taskInfo.GetTaskId().GetValue()
-	e.metrics.Counter("titus.executor.mesosLaunchTask", 1, nil)
+	driver.metrics.Counter("titus.executor.mesosLaunchTask", 1, nil)
 
 	log.Printf("task %s : launch", taskID)
 
@@ -154,15 +159,14 @@ func (e *TitusMesosDriver) LaunchTask(exec mesosExecutor.ExecutorDriver, taskInf
 	titusInfo := new(titusproto.ContainerInfo)
 	if err := protobuf.Unmarshal(taskInfo.GetData(), titusInfo); err != nil {
 		log.Printf("Failed to unmarshal protobuf data for task %s: %s", taskID, err)
-		e.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
-		e.ReportTitusTaskStatus(taskID, err.Error(), titusdriver.Lost, nil)
+		driver.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
+		driver.ReportTitusTaskStatus(taskID, err.Error(), titusdriver.Lost, nil)
 		return
 	}
 	// Get basic container dimensions from Mesos
 	// TODO(Andrew L): We should move this info to the protobuf
 	var mem, cpu int64
 	var disk uint64
-	var hostPorts []uint16
 	for _, r := range taskInfo.GetResources() {
 		if r.GetName() == "mem" {
 			mem = int64(r.GetScalar().GetValue())
@@ -170,55 +174,49 @@ func (e *TitusMesosDriver) LaunchTask(exec mesosExecutor.ExecutorDriver, taskInf
 			cpu = int64(r.GetScalar().GetValue())
 		} else if r.GetName() == "disk" {
 			disk = uint64(r.GetScalar().GetValue())
-		} else if r.GetName() == "ports" {
-			for _, portRange := range r.GetRanges().GetRange() {
-				for port := portRange.GetBegin(); port <= portRange.GetEnd(); port++ {
-					hostPorts = append(hostPorts, uint16(port))
-				}
-			}
 		}
 	}
 
-	if err := e.runner.StartTask(taskID, titusInfo, mem, cpu, disk); err != nil {
+	if err := driver.runner.StartTask(taskID, titusInfo, mem, cpu, disk); err != nil {
 		log.Printf("Failed to start task %s: %s", taskID, err)
 	}
 }
 
 // KillTask kills a running task
-func (e *TitusMesosDriver) KillTask(exec mesosExecutor.ExecutorDriver, taskID *mesosproto.TaskID) {
-	e.runner.Kill()
+func (driver *TitusMesosDriver) KillTask(exec mesosExecutor.ExecutorDriver, taskID *mesosproto.TaskID) {
+	driver.runner.Kill()
 }
 
 // FrameworkMessage sends a message from the framework to the executor
-func (e *TitusMesosDriver) FrameworkMessage(exec mesosExecutor.ExecutorDriver, msg string) {
+func (driver *TitusMesosDriver) FrameworkMessage(exec mesosExecutor.ExecutorDriver, msg string) {
 	log.Printf("Received Mesos framework message %s", msg)
 }
 
 // Shutdown shuts the running executor down. All running tasks will be killed.
-func (e *TitusMesosDriver) Shutdown(exec mesosExecutor.ExecutorDriver) {
+func (driver *TitusMesosDriver) Shutdown(exec mesosExecutor.ExecutorDriver) {
 	log.Printf("Shutting down Mesos driver")
-	e.runner.Kill()
+	driver.runner.Kill()
 }
 
 // Error sends an error message from the framework to the executor.
-func (e *TitusMesosDriver) Error(exec mesosExecutor.ExecutorDriver, err string) {
+func (driver *TitusMesosDriver) Error(exec mesosExecutor.ExecutorDriver, err string) {
 	log.Printf("Received Mesos error %s", err)
 }
 
-func (e *TitusMesosDriver) taskStatusMonitor() {
-	for update := range e.runner.UpdatesChan {
-		e.handleUpdate(update)
+func (driver *TitusMesosDriver) taskStatusMonitor() {
+	for update := range driver.runner.UpdatesChan {
+		driver.handleUpdate(update)
 	}
 }
 
-func (e *TitusMesosDriver) handleUpdate(update runner.Update) {
-	e.Lock()
-	defer e.Unlock()
-	if e.mesosDriver == nil {
-		log.Error("Attempted to report status for %s, but no mesos driver has been registered", update.TaskID)
+func (driver *TitusMesosDriver) handleUpdate(update runner.Update) {
+	driver.Lock()
+	defer driver.Unlock()
+	if driver.mesosDriver == nil {
+		log.Errorf("Attempted to report status for %s, but no mesos driver has been registered", update.TaskID)
 		return
 	}
-	log.Printf("task %s : details %#v", update.TaskID, update.Details)
+	log.Printf("Updating task %s : details %#v", update.TaskID, update.Details)
 	var dataBytes []byte
 	if update.Details != nil {
 		dataBytes, _ = json.Marshal(update.Details) // nolint: gas
@@ -231,8 +229,8 @@ func (e *TitusMesosDriver) handleUpdate(update runner.Update) {
 		Data:    dataBytes,
 	}
 
-	if _, err := e.mesosDriver.SendStatusUpdate(mesosStatus); err != nil {
-		e.metrics.Counter("titus.executor.mesosStatusSendError", 1, nil)
+	if _, err := driver.mesosDriver.SendStatusUpdate(mesosStatus); err != nil {
+		driver.metrics.Counter("titus.executor.mesosStatusSendError", 1, nil)
 		log.Printf("Failed to send Mesos status update for task %s : %s", update.TaskID, err)
 		// TODO(Andrew L): Should we act on this failure? Presumably the Slave or Master may be
 		// down so we can wait for their recovery action.
@@ -240,11 +238,11 @@ func (e *TitusMesosDriver) handleUpdate(update runner.Update) {
 }
 
 // ReportTitusTaskStatus notifies Mesos of a change in task state.
-func (e *TitusMesosDriver) ReportTitusTaskStatus(taskID string, msg string, state titusdriver.TitusTaskState, details *runtimeTypes.Details) {
-	e.Lock()
-	defer e.Unlock()
+func (driver *TitusMesosDriver) ReportTitusTaskStatus(taskID string, msg string, state titusdriver.TitusTaskState, details *runtimeTypes.Details) {
+	driver.Lock()
+	defer driver.Unlock()
 
-	if e.mesosDriver == nil {
+	if driver.mesosDriver == nil {
 		log.Warnf("Attempted to report status for %s, but no mesos driver has been registered", taskID)
 		return
 	}
@@ -263,8 +261,8 @@ func (e *TitusMesosDriver) ReportTitusTaskStatus(taskID string, msg string, stat
 		Data:    dataBytes,
 	}
 
-	if _, err := e.mesosDriver.SendStatusUpdate(mesosStatus); err != nil {
-		e.metrics.Counter("titus.executor.mesosStatusSendError", 1, nil)
+	if _, err := driver.mesosDriver.SendStatusUpdate(mesosStatus); err != nil {
+		driver.metrics.Counter("titus.executor.mesosStatusSendError", 1, nil)
 		log.Printf("Failed to send Mesos status update for task %s : %s", taskID, err)
 		// TODO(Andrew L): Should we act on this failure? Presumably the Slave or Master may be
 		// down so we can wait for their recovery action.

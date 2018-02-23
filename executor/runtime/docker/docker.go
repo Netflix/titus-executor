@@ -135,6 +135,7 @@ type DockerRuntime struct { // nolint: golint
 	tiniSocketDir     string
 	tiniEnabled       bool
 	storageOptEnabled bool
+	pidCgroupPath     string
 }
 
 type compositeError struct {
@@ -195,6 +196,11 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter) (runtimeT
 		metrics:         m,
 		registryAuthCfg: nil, // we don't need registry authentication yet
 		client:          client,
+	}
+
+	dockerRuntime.pidCgroupPath, err = getOwnCgroup("pids")
+	if err != nil {
+		return nil, err
 	}
 
 	dockerRuntime.awsRegion = os.Getenv("EC2_REGION")
@@ -388,6 +394,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv4.tcp_ecn": "1",
 		},
 	}
+	hostCfg.Resources.CgroupParent = r.pidCgroupPath
 	pidLimit, err := pidLimit.Read().AsInteger()
 	if err != nil {
 		log.Warning("Could not get pid limit: ", err)
