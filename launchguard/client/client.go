@@ -223,7 +223,7 @@ func (lgc *LaunchGuardClient) NewLaunchEvent(parentCtx context.Context, key stri
 			log.Error("Error reading client-side launch event info: ", err)
 		}
 		shouldClose(resp.Body)
-		log.Debug("Launch event finished: ", string(buf))
+		log.Debug("Launch (client) event finished: ", string(buf))
 	}()
 	return launchEvent
 }
