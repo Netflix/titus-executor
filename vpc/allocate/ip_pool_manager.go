@@ -244,7 +244,7 @@ func (mgr *IPPoolManager) DoGc(parentCtx *context.VPCContext, gracePeriod time.D
 func (mgr *IPPoolManager) finishGC(parentCtx *context.VPCContext, fileRemovalList, deallocationList []string) error {
 	// Prioritize giving IPs back to Amazon
 
-	initialIpCount := len(mgr.networkInterface.IPv4Addresses)
+	initialIPCount := len(mgr.networkInterface.IPv4Addresses)
 	if len(deallocationList) > 0 {
 		parentCtx.Logger.Info("Deallocating Ip addresses: ", deallocationList)
 		unassignPrivateIPAddressesInput := &ec2.UnassignPrivateIpAddressesInput{
@@ -257,11 +257,15 @@ func (mgr *IPPoolManager) finishGC(parentCtx *context.VPCContext, fileRemovalLis
 		}
 		start := time.Now()
 		for time.Since(start) < time.Second*30 {
-			mgr.networkInterface.Refresh()
-			if len(mgr.networkInterface.IPv4Addresses) < initialIpCount {
-				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", initialIpCount-len(mgr.networkInterface.IPv4Addresses), len(deallocationList))
+			err := mgr.networkInterface.Refresh()
+			if err != nil {
+				parentCtx.Logger.Error("Could not refresh IPs: ", err)
+				continue
+			} else if len(mgr.networkInterface.IPv4Addresses) < initialIPCount {
+				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", initialIPCount-len(mgr.networkInterface.IPv4Addresses), len(deallocationList))
+				goto freed
 			}
-			goto freed
+			time.Sleep(1 * time.Second)
 		}
 	}
 	parentCtx.Logger.Info("IP Refresh failed on GC")
