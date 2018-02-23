@@ -462,26 +462,6 @@ func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 big_task_killed:
 	t.Log("Big Image successfully stopped, trying to start follow-on job")
 
-	var testResultSmallImage *mock.JobRunResponse
-	select {
-	case testResultSmallImage = <-c:
-	case <-time.After(30 * time.Second):
-		t.Fatal("Unable to get small image result after 30 seconds")
-	}
-
-	for {
-		select {
-		case taskStatus := <-testResultSmallImage.UpdateChan:
-			if taskStatus.State.String() == "TASK_FINISHED" {
-				t.Log("Small job finished")
-				goto small_task_finished
-			}
-		case <-time.After(60 * time.Second):
-			t.Fatal("Launchguard probably stuck, small job did not start in 60 seconds")
-		}
-	}
-small_task_finished:
-
 	t.Log("Test completed, shutting down")
 	// We do this here, otherwise  a stuck executor can prevent this from exiting.
 	jobRunner.StopExecutor()
