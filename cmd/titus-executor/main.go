@@ -10,12 +10,16 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/quitelite-client-go/properties"
 	"github.com/Netflix/titus-executor/config"
-	titusExecutor "github.com/Netflix/titus-executor/executor"
 	"github.com/Netflix/titus-executor/executor/drivers/mesos"
 	"github.com/Netflix/titus-executor/logsutil"
 	"github.com/Netflix/titus-executor/tag"
 	"github.com/Netflix/titus-executor/uploader"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/urfave/cli.v1"
+
+	"time"
+
+	"github.com/Netflix/titus-executor/executor/runner"
 )
 
 func init() {
@@ -40,13 +44,16 @@ func setupLogging() {
 }
 
 func main() {
+	app := cli.NewApp()
+	app.Name = "titus-executor"
+	defer time.Sleep(1 * time.Second)
 	// avoid os.Exit as much as possible to let deferred functions run
-	if err := mainWithError(); err != nil {
-		log.Fatal(err)
+	app.Action = func(c *cli.Context) error {
+		return cli.NewExitError(mainWithError(c), 1)
 	}
 }
 
-func mainWithError() error {
+func mainWithError(c *cli.Context) error {
 	defer log.Info("titus executor terminated")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -72,12 +79,16 @@ func mainWithError() error {
 		return fmt.Errorf("Cannot create log uploaders: %v", err)
 	}
 
-	executor, err := titusExecutor.New(m, logUploaders)
+	runner, err := runner.New(ctx, m, logUploaders, runner.Config{
+		StatusCheckFrequency:        config.StatusCheckFrequency(),
+		MetatronEnabled:             config.MetatronEnabled(),
+		DevWorkspaceMockMetaronCred: config.DevWorkspace().MockMetatronCreds,
+	})
 	if err != nil {
 		return fmt.Errorf("Cannot create Titus executor: %v", err)
 	}
 
-	mesosDriverWrapper, err := titusmesosdriver.New(m, executor)
+	mesosDriverWrapper, err := titusmesosdriver.New(m, runner)
 	if err != nil {
 		return fmt.Errorf("Unable to create the Mesos driver: %v", err)
 	}

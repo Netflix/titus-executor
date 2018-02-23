@@ -6,6 +6,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	log "github.com/sirupsen/logrus"
+	"github.com/Netflix/titus-executor/executor/runner"
 )
 
 // TaskStatus describes a particular task's status
@@ -24,11 +25,15 @@ type TitusTestDriver struct {
 }
 
 // New allocates and initializes a TitusTestDriver and sets the driver in the executor
-func New(executor titusdriver.TitusExecutor) (*TitusTestDriver, error) {
+func New(r *runner.Runner) (*TitusTestDriver, error) {
 	driver := &TitusTestDriver{
 		StatusChannel: make(chan TaskStatus, 10),
 	}
-	executor.SetTitusDriver(driver)
+	go func () {
+		for update := range r.UpdatesChan {
+			driver.ReportTitusTaskStatus(update.TaskID, update.Mesg, update.State, update.Details)
+		}
+	}()
 	return driver, nil
 }
 

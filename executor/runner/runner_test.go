@@ -61,8 +61,8 @@ func TestHoldsLaunchesUntilStopFinishes(t *testing.T) { // nolint: gocyclo
 	)
 
 	defer func() {
-		<-e1.stoppedChan
-		<-e2.stoppedChan
+		<-e1.StoppedChan
+		<-e2.StoppedChan
 
 	}()
 	// one task is running
@@ -137,7 +137,7 @@ func mocks(ctx context.Context, t *testing.T, killRequests chan<- chan<- struct{
 
 // drain the status channel allow others to be notified when particular Tasks are RUNNING
 func drain(t *testing.T, e *Runner, taskLaunched chan struct{}) {
-	for status := range e.updatesChan {
+	for status := range e.UpdatesChan {
 		t.Logf("Reported status: %+v", status)
 		if status.State.String() == "TASK_RUNNING" {
 			close(taskLaunched)

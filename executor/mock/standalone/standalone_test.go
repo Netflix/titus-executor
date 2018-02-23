@@ -243,7 +243,7 @@ func testHTTPServerEndpoint(t *testing.T) { // nolint: gocyclo
 
 func testLaunchAfterKill(t *testing.T) {
 	// Start the executor
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for a long time and does
@@ -299,7 +299,7 @@ func testLaunchAfterKill(t *testing.T) {
 
 func testLaunchAfterKillDisableLaunchguard(t *testing.T) {
 	// Start the executor
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for 120s and does
@@ -479,7 +479,7 @@ func testImagePullError(t *testing.T) {
 }
 
 func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 
 	bigImageJobID := fmt.Sprintf("Skynet-%v%v", rand.Intn(1000), time.Now().Second())
 	testResultBigImage := jobRunner.StartJob(&mock.JobInput{
@@ -600,7 +600,7 @@ func testShutdown(t *testing.T) {
 		Entrypoint: "sleep 6000",
 	}
 
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 	testResult := jobRunner.StartJob(ji)
 	taskRunning := make(chan bool, 10)
 	go func() {
@@ -657,7 +657,7 @@ func testMetdataProxyDefaultRoute(t *testing.T) {
 
 func testTerminateTimeout(t *testing.T) {
 	// Start the executor
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for a long time and does

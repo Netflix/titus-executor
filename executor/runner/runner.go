@@ -72,8 +72,8 @@ type Runner struct { // nolint: maligned
 	// Close this channel to start killing the container
 	killOnce    sync.Once
 	killChan    chan struct{}
-	stoppedChan chan struct{}
-	updatesChan chan update
+	StoppedChan chan struct{}
+	UpdatesChan chan Update
 	lastStatus  titusdriver.TitusTaskState
 }
 
@@ -103,8 +103,8 @@ func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, lo
 		config:       &cfg,
 		taskChan:     make(chan task, 1),
 		killChan:     make(chan struct{}),
-		updatesChan:  make(chan update, 1),
-		stoppedChan:  make(chan struct{}),
+		UpdatesChan:  make(chan Update, 1),
+		StoppedChan:  make(chan struct{}),
 	}
 	setupCh := make(chan error)
 	go runner.startRunner(ctx, setupCh, rp)
@@ -152,10 +152,10 @@ func (r *Runner) Kill() {
 }
 
 func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp RuntimeProvider) { // nolint: gocyclo
-	defer close(r.updatesChan)
+	defer close(r.UpdatesChan)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	defer close(r.stoppedChan)
+	defer close(r.StoppedChan)
 
 	if err := r.setupRunner(ctx, rp); err != nil {
 		setupCh <- err
@@ -338,7 +338,7 @@ no_launchguard:
 			shouldQuit, titusTaskStatus, msg := parseStatus(status, err)
 			if shouldQuit {
 				r.logger.Info("Status: ", status)
-				// TODO: Generate update
+				// TODO: Generate Update
 				r.updateStatus(titusTaskStatus, msg)
 				return
 			}
@@ -372,7 +372,12 @@ func (r *Runner) handleShutdown() { // nolint: gocyclo
 		// TODO(Andrew L): There may be leaked resources that are not being
 		// accounted for. Consider forceful cleanup or tracking leaked resources.
 		r.logger.Error("Failed to fully complete primary kill actions: ", err)
-		cleanupErrs = append(cleanupErrs, err)
+		switch r.lastStatus {
+		case titusdriver.Finished:
+		case titusdriver.Failed:
+		default:
+			cleanupErrs = append(cleanupErrs, err)
+		}
 	}
 	r.logger.Info("Unsetting launchguard")
 	ce.Done()
@@ -423,7 +428,7 @@ func parseStatus(status runtimeTypes.Status, err error) (bool, titusdriver.Titus
 
 	switch status {
 	case runtimeTypes.StatusRunning:
-		// no need to update the status if task is running
+		// no need to Update the status if task is running
 		return false, titusdriver.Running, ""
 	case runtimeTypes.StatusFinished:
 		return true, titusdriver.Finished, "finished"
@@ -533,14 +538,14 @@ func (r *Runner) updateStatusWithDetails(status titusdriver.TitusTaskState, msg 
 		l = l.WithField("details", details)
 	}
 	l.Info()
-	r.updatesChan <- update{
+	r.UpdatesChan <- Update{
 		TaskID: r.container.TaskID,
 		State:  status,
 		Mesg:   msg,
 	}
 }
 
-type update struct {
+type Update struct {
 	TaskID  string
 	State   titusdriver.TitusTaskState
 	Mesg    string

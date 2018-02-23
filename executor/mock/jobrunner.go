@@ -13,10 +13,13 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor"
 	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
+	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/uploader"
 	protobuf "github.com/golang/protobuf/proto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/Netflix/titus-executor/executor/drivers"
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
@@ -45,8 +48,8 @@ type JobInput struct {
 
 // JobRunResponse returned from RunJob
 type JobRunResponse struct {
-	StatusChannel chan testdriver.TaskStatus
-	TaskID        string
+	runner *runner.Runner
+	TaskID string
 }
 
 // WaitForSuccess blocks on the jobs completion and returns true
@@ -62,11 +65,11 @@ func (jobRunResponse *JobRunResponse) WaitForSuccess() bool {
 // WaitForCompletion blocks on the jobs completion and returns its status
 // if it completed successfully.
 func (jobRunResponse *JobRunResponse) WaitForCompletion() (string, error) {
-	for status := range jobRunResponse.StatusChannel {
-		if status.Status == "TASK_RUNNING" || status.Status == "TASK_STARTING" {
+	for status := range jobRunResponse.runner.UpdatesChan {
+		if status.State.String() == "TASK_RUNNING" || status.State.String() == "TASK_STARTING" {
 			continue // Ignore non-terminal states
 		}
-		return status.Status, nil
+		return status.State.String(), nil
 	}
 	return "TASK_LOST", errStatusChannelClosed
 }
@@ -75,12 +78,12 @@ func (jobRunResponse *JobRunResponse) WaitForCompletion() (string, error) {
 func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 	notify := make(chan bool, 1) // max one message to be sent
 	go func() {
-		for status := range jobRunResponse.StatusChannel {
-			if status.Status == "TASK_RUNNING" {
+		for status := range jobRunResponse.runner.UpdatesChan {
+			if status.State == titusdriver.Running {
 				notify <- true
 				close(notify)
 				return
-			} else if IsTerminalState(status) {
+			} else if IsTerminalState(status.State) {
 				notify <- false
 				close(notify)
 				return
@@ -91,32 +94,23 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 }
 
 // IsTerminalState returns true if the task status is a terminal state
-func IsTerminalState(rawTaskStatus testdriver.TaskStatus) bool {
-	taskStatus := rawTaskStatus.Status
+func IsTerminalState(rawTaskStatus titusdriver.TitusTaskState) bool {
+	taskStatus := rawTaskStatus.String()
 	return taskStatus == "TASK_FINISHED" || taskStatus == "TASK_FAILED" ||
 		taskStatus == "TASK_KILLED" || taskStatus == "TASK_LOST"
 }
 
-// NewJobRunResponse returns a new struct to handle responses from a running job
-func NewJobRunResponse(taskID string) *JobRunResponse {
-	return &JobRunResponse{
-		StatusChannel: make(chan testdriver.TaskStatus, 10),
-		TaskID:        taskID,
-	}
-}
-
 // JobRunner is the entrypoint struct to create an executor and run test jobs on it
 type JobRunner struct {
-	executor        *executor.Executor
-	testDriver      *testdriver.TitusTestDriver
-	taskResponseMap map[string]*JobRunResponse
+	runner          *runner.Runner
+	ctx             context.Context
+	cancel          context.CancelFunc
 	shutdownChannel chan struct{}
-	HTTPServer      *httptest.Server
 }
 
 // NewJobRunner creates a new JobRunner with its executor started
 // in the background and the test driver configured to use it.
-func NewJobRunner(startHTTPServer bool) *JobRunner {
+func NewJobRunner() *JobRunner {
 	// Load a specific config for testing and disable metrics
 	config.Load(context.TODO(), "../config.json")
 
@@ -125,39 +119,17 @@ func NewJobRunner(startHTTPServer bool) *JobRunner {
 	if err != nil {
 		log.Fatalf("cannot create log uploaders: %s", err)
 	}
-	e, err := executor.New(metrics.Discard, logUploaders)
+	ctx, cancel := context.WithCancel(context.Background())
+	r, err := runner.New(ctx, metrics.Discard, logUploaders, runner.Config{})
 	if err != nil {
 		log.Fatalf("cannot create executor : %s", err)
 	}
 
-	// Create a test driver
-	var testDriver *testdriver.TitusTestDriver
-	testDriver, err = testdriver.New(e) // nolint: ineffassign
-	if err != nil {
-		log.Fatalf("cannot create test driver: %+v", err)
-	}
-
-	// Start the executor in the background
-	go e.Start()
-
 	jobRunner := &JobRunner{
-		executor:        e,
-		testDriver:      testDriver,
-		taskResponseMap: make(map[string]*JobRunResponse),
+		ctx: ctx, cancel: cancel,
+		runner:          r,
 		shutdownChannel: make(chan struct{}),
 	}
-
-	// If requested, start an HTTP server for the executor
-	var httpServer *httptest.Server
-	if startHTTPServer {
-		go func() {
-			httpServer = httptest.NewServer(e.GetServeMux())
-			jobRunner.HTTPServer = httpServer
-		}()
-	}
-
-	// Start a go routine to monitor status in the background
-	go jobRunner.MonitorTask()
 
 	return jobRunner
 }
@@ -166,16 +138,13 @@ var r = rand.New(rand.NewSource(999))
 
 // StopExecutor stops a currently running executor
 func (jobRunner *JobRunner) StopExecutor() {
-	if jobRunner.HTTPServer != nil {
-		defer jobRunner.HTTPServer.Close()
-	}
-	jobRunner.executor.Stop()
-	close(jobRunner.shutdownChannel)
+	jobRunner.cancel()
+	<-jobRunner.runner.StoppedChan
 }
 
 // StopExecutorAsync stops a currently running executor
 func (jobRunner *JobRunner) StopExecutorAsync() {
-	go jobRunner.StopExecutor()
+	jobRunner.cancel()
 }
 
 // StartJob starts a job on an existing JobRunner and returns once the job is started
@@ -223,65 +192,34 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 	cpu := int64(1)
 	memMiB := int64(400)
 	diskMiB := uint64(100)
-	var ports []uint16
 
 	// Get a reference to the executor and somewhere to stash results
-	e := jobRunner.executor
-	jobResult := NewJobRunResponse(taskID)
-	jobRunner.taskResponseMap[taskID] = jobResult
 
 	// Start the task and wait for it to complete
-	err := e.StartTask(taskID, ci, memMiB, cpu, diskMiB, ports)
+	err := jobRunner.runner.StartTask(taskID, ci, memMiB, cpu, diskMiB)
 	if err != nil {
 		log.Printf("Failed to start task %s: %s", taskID, err)
-		go func() { jobResult.StatusChannel <- testdriver.TaskStatus{Status: "TASK_LOST"} }()
 	}
-	return jobResult
+	jrr := &JobRunResponse{
+		runner: jobRunner.runner,
+		TaskID: taskID,
+	}
+
+	return jrr
 }
 
 // KillTask issues a kill task request to the executor. The kill
 // may be done in the background and the state change should occur
 // on the existing JobRunResponse channel.
 func (jobRunner *JobRunner) KillTask(taskID string) error {
-	return jobRunner.executor.StopTask(taskID)
-}
-
-// GetNumTasks returns the number of current tasks
-func (jobRunner *JobRunner) GetNumTasks() int {
-	return jobRunner.executor.GetNumTasks()
-}
-
-// MonitorTask is a blocking call that monitors all status from a
-// driver and forwards them to per-task status channels.
-func (jobRunner *JobRunner) MonitorTask() {
-	for {
-		select {
-		case taskStatus := <-jobRunner.testDriver.StatusChannel:
-			if jobResult, exists := jobRunner.taskResponseMap[taskStatus.TaskID]; exists {
-				log.WithField("taskID", taskStatus.TaskID).Info("Forwarding status update: ", taskStatus.Status)
-				jobResult.StatusChannel <- taskStatus
-			} else {
-				log.Infof("Received a status for unknown task %s", taskStatus.TaskID)
-			}
-			// Remove tasks with terminal states from the map
-			if IsTerminalState(taskStatus) {
-				log.Infof("Deleting task %s from map because state is %s", taskStatus.TaskID, taskStatus.Status)
-				delete(jobRunner.taskResponseMap, taskStatus.TaskID)
-			}
-		case <-jobRunner.shutdownChannel:
-			return
-		}
-	}
-}
-
-// ContainerID returns the runtime specific container ID for a task. It is set after the container is created.
-func (jobRunner *JobRunner) ContainerID(taskID string) string {
-	return jobRunner.executor.ContainerID(taskID)
+	jobRunner.runner.Kill()
+	<-jobRunner.runner.StoppedChan
+	// TODO: Read terminal status back
 }
 
 // RunJobExpectingSuccess is similar to RunJob but returns true when the task completes successfully.
 func RunJobExpectingSuccess(jobInput *JobInput, startHTTPServer bool) bool {
-	jobRunner := NewJobRunner(startHTTPServer)
+	jobRunner := NewJobRunner()
 	defer jobRunner.StopExecutor()
 
 	jobResult := jobRunner.StartJob(jobInput)
@@ -290,7 +228,7 @@ func RunJobExpectingSuccess(jobInput *JobInput, startHTTPServer bool) bool {
 
 // RunJob runs a single Titus task based on provided JobInput
 func RunJob(jobInput *JobInput, startHTTPServer bool) (string, error) {
-	jobRunner := NewJobRunner(startHTTPServer)
+	jobRunner := NewJobRunner()
 	defer jobRunner.StopExecutor()
 
 	jobResult := jobRunner.StartJob(jobInput)
