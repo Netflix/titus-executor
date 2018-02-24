@@ -241,10 +241,36 @@ func (mgr *IPPoolManager) DoGc(parentCtx *context.VPCContext, gracePeriod time.D
 	return mgr.finishGC(parentCtx, fileRemovalList, deallocationList)
 }
 
+func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, deallocationList []string) bool {
+	for i := 0; i < 30; i++ {
+		err := mgr.networkInterface.Refresh()
+		if err != nil {
+			parentCtx.Logger.Error("Could not refresh IPs: ", err)
+		} else {
+			allocMap := make(map[string]struct{})
+			for _, ip := range mgr.networkInterface.IPv4Addresses {
+				allocMap[ip] = struct{}{}
+			}
+
+			missingIPs := 0
+			for _, oldIP := range oldIPList {
+				if _, ok := allocMap[oldIP]; !ok {
+					missingIPs++
+				}
+			}
+			if missingIPs > 0 {
+				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", missingIPs, len(deallocationList))
+				return true
+			}
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return false
+}
+
 func (mgr *IPPoolManager) finishGC(parentCtx *context.VPCContext, fileRemovalList, deallocationList []string) error {
 	// Prioritize giving IPs back to Amazon
-
-	initialIPCount := len(mgr.networkInterface.IPv4Addresses)
+	oldIPList := mgr.networkInterface.IPv4Addresses
 	if len(deallocationList) > 0 {
 		parentCtx.Logger.Info("Deallocating Ip addresses: ", deallocationList)
 		unassignPrivateIPAddressesInput := &ec2.UnassignPrivateIpAddressesInput{
@@ -255,23 +281,12 @@ func (mgr *IPPoolManager) finishGC(parentCtx *context.VPCContext, fileRemovalLis
 		if _, err := ec2.New(parentCtx.AWSSession).UnassignPrivateIpAddressesWithContext(parentCtx, unassignPrivateIPAddressesInput); err != nil {
 			return err
 		}
-		start := time.Now()
-		for time.Since(start) < time.Second*30 {
-			err := mgr.networkInterface.Refresh()
-			if err != nil {
-				parentCtx.Logger.Error("Could not refresh IPs: ", err)
-				continue
-			} else if len(mgr.networkInterface.IPv4Addresses) < initialIPCount {
-				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", initialIPCount-len(mgr.networkInterface.IPv4Addresses), len(deallocationList))
-				goto freed
-			}
-			parentCtx.Logger.Warning("IP Refresh retrying on GC")
-			time.Sleep(1 * time.Second)
+
+		if !mgr.ipsFreed(parentCtx, oldIPList, deallocationList) {
+			parentCtx.Logger.Warning("IP Refresh failed on GC")
 		}
 	}
-	parentCtx.Logger.Info("IP Refresh failed on GC")
 
-freed:
 	for _, ip := range fileRemovalList {
 		if err := parentCtx.FSLocker.RemovePath(filepath.Join(mgr.ipAddressesPath(), ip)); err != nil {
 			return err
