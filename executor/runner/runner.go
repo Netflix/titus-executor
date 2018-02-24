@@ -340,7 +340,7 @@ no_launchguard:
 			}
 			shouldQuit, titusTaskStatus, msg := parseStatus(status, err)
 			if shouldQuit {
-				r.logger.Info("Status: ", status)
+				r.logger.Info("Status: ", titusTaskStatus.String())
 				// TODO: Generate Update
 				r.updateStatus(ctx, titusTaskStatus, msg)
 				return
