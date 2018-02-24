@@ -202,8 +202,8 @@ static int get_route_cb(struct nl_msg *msg, void *arg) {
 static struct nl_addr* get_route_prefsrc(int ns_fd, int af, char *dst) {
 	struct route_cb_arg cb_arg;
 	struct nl_addr *dst_addr;
+	struct rtmsg rmsg = {};
 	struct nl_sock *nls;
-	struct rtmsg rmsg;
 	struct nl_msg *m;
 	int err;
 
