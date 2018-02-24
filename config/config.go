@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Netflix/quitelite-client-go/properties"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	log "github.com/sirupsen/logrus"
 )
@@ -102,7 +100,7 @@ var currentConfig struct {
 }
 
 // Load loads the configuration from the given file
-func Load(ctx context.Context, configFilePath string) {
+func Load(configFilePath string) {
 	configLock.Lock()
 	defer configLock.Unlock()
 	if configFilePath == "" {
@@ -176,64 +174,7 @@ func Load(ctx context.Context, configFilePath string) {
 		currentConfig.logsTmpDir = defaultLogsTmpDir
 	}
 
-	startupDynamicPropertyHandlers()
 	log.Debugf("LOG Uploader Configuration %+v\n", currentConfig.logUpload)
-}
-
-func startupDynamicPropertyHandlers() {
-	go dynamicBoolPropertyHandler(&currentConfig.logUpload.KeepLocalFileAfterUpload, "titus.executor.config.logUpload.keepLocalFileAfterUpload")
-	go dynamicDurationPropertyHandler(&currentConfig.logUpload.LogUploadCheckInterval, "titus.executor.config.logUpload.logUploadCheckInterval")
-	go dynamicDurationPropertyHandler(&currentConfig.logUpload.LogUploadThresholdTime, "titus.executor.config.logUpload.logUploadThresholdTime")
-	go dynamicDurationPropertyHandler(&currentConfig.logUpload.StdioLogCheckInterval, "titus.executor.config.logUpload.stdioLogCheckInterval")
-	go dynamicBoolPropertyHandler(&currentConfig.metatronEnabled, "titus.executor.config.metatronEnabled")
-
-}
-
-func dynamicBoolPropertyHandler(val *bool, configName string) {
-	baseLogObject := log.WithField("configName", configName)
-	baseLogObject.WithField("initialValue", *val).Debug("Initializing")
-
-	dp := properties.NewDynamicProperty(context.Background(), configName, *val, "", nil)
-	for newVal := range dp.C {
-		handleDynamicBoolProperty(baseLogObject, val, newVal)
-	}
-}
-func handleDynamicBoolProperty(baseLogObject *log.Entry, val *bool, newVal *properties.DynamicPropertyValue) {
-	configLock.Lock()
-	defer configLock.Unlock()
-
-	updateBaseLogObject := baseLogObject.WithField("oldValue", *val)
-	if boolVal, err := newVal.AsBool(); err != nil {
-		baseLogObject.WithField("newValue", newVal).Warning("Received invalid value")
-	} else {
-		updateBaseLogObject.WithField("newValue", boolVal).Debug("Updating Property")
-		*val = boolVal
-	}
-}
-
-func dynamicDurationPropertyHandler(val *time.Duration, configName string) {
-	baseLogObject := log.WithField("configName", configName)
-
-	baseLogObject.WithField("initialValue", *val).Debug("Initializing")
-
-	dp := properties.NewDynamicProperty(context.Background(), configName, *val, "", nil)
-	defer dp.Stop()
-
-	for newVal := range dp.C {
-		handleDynamicDurationProperty(baseLogObject, val, newVal)
-	}
-}
-
-func handleDynamicDurationProperty(baseLogObject *log.Entry, val *time.Duration, newVal *properties.DynamicPropertyValue) {
-	configLock.Lock()
-	defer configLock.Unlock()
-	updateBaseLogObject := baseLogObject.WithField("oldValue", val.String())
-	if newDuration, err := newVal.AsDuration(); err != nil {
-		updateBaseLogObject.WithField("newValue", newVal).WithField("error", err).Warning("Received invalid value")
-	} else {
-		*val = newDuration
-		updateBaseLogObject.WithField("newValue", newDuration.String()).Debug("Updating Property")
-	}
 }
 
 func getEnv() env {

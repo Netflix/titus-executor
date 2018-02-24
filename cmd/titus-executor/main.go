@@ -3,26 +3,23 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/quitelite-client-go/properties"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers/mesos"
+	"github.com/Netflix/titus-executor/executor/runner"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/Netflix/titus-executor/logsutil"
+	"github.com/Netflix/titus-executor/properties"
 	"github.com/Netflix/titus-executor/tag"
 	"github.com/Netflix/titus-executor/uploader"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/urfave/cli.v1"
-
-	"time"
-
-	"io/ioutil"
-
-	"github.com/Netflix/titus-executor/executor/runtime/docker"
-
-	"github.com/Netflix/titus-executor/executor/runner"
+	"gopkg.in/urfave/cli.v1/altsrc"
 )
 
 func init() {
@@ -30,20 +27,29 @@ func init() {
 	logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
 }
 
+var logLevel string
+
 func setupLogging() {
-	dp := properties.NewDynamicProperty(context.Background(), "titus.executor.logLevel", "info", "", nil)
-	defer dp.Stop()
-	for val := range dp.C {
-		if valStr, err := val.AsString(); err != nil {
-			log.Error("Cannot set log level: ", err)
-		} else if valStr == "debug" {
-			log.SetLevel(log.DebugLevel)
-		} else if valStr == "info" {
-			log.SetLevel(log.InfoLevel)
-		} else {
-			log.Errorf("Received log level %s from dynamic property, unknown", valStr)
-		}
+	switch logLevel {
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+
+	case "info":
+		log.SetLevel(log.InfoLevel)
+	default:
+		log.Errorf("Received log level %s from dynamic property, unknown", logLevel)
+
 	}
+}
+
+var flags = []cli.Flag{
+	cli.BoolFlag{Name: "disable-quitelite"},
+	cli.StringFlag{Name: " quitelite-url"},
+	cli.StringFlag{
+		Name:        "titus.executor.logLevel",
+		Value:       "info",
+		Destination: &logLevel,
+	},
 }
 
 func main() {
@@ -54,8 +60,9 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		return cli.NewExitError(mainWithError(c), 1)
 	}
-	app.Flags = docker.Flags
+	app.Flags = append(flags, docker.Flags...)
 
+	altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource("disable-quitelite", "quitelite-url"))
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
@@ -68,7 +75,7 @@ func mainWithError(c *cli.Context) error {
 	defer cancel()
 	var err error
 	// Don't specify a file so config loads with the default JSON config
-	config.Load(ctx, "")
+	config.Load("")
 
 	go setupLogging()
 

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -10,14 +9,14 @@ import (
 )
 
 func TestDefaultLogDir(t *testing.T) {
-	Load(context.TODO(), "with-log-upload-config.json")
+	Load("with-log-upload-config.json")
 
 	if logDirTempVal := LogsTmpDir(); logDirTempVal != "/var/lib/titus-container-logs" {
 		t.Fatal("Log dir set to unexpected value: ", logDirTempVal)
 	}
 }
 func TestDefaultDurations(t *testing.T) {
-	Load(context.TODO(), "no-log-upload-config.json")
+	Load("no-log-upload-config.json")
 	if Stack() == "" {
 		t.Fatalf("Stack empty")
 	}
@@ -31,7 +30,7 @@ func TestDefaultDurations(t *testing.T) {
 }
 
 func TestConfiguredDurations(t *testing.T) {
-	Load(context.TODO(), "with-log-upload-config.json")
+	Load("with-log-upload-config.json")
 	if Stack() == "" {
 		t.Fatalf("Stack empty")
 	}

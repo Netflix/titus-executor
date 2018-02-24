@@ -115,7 +115,7 @@ type JobRunner struct {
 // in the background and the test driver configured to use it.
 func NewJobRunner() *JobRunner {
 	// Load a specific config for testing and disable metrics
-	config.Load(context.TODO(), "../config.json")
+	config.Load("../config.json")
 
 	// Create an executor
 	logUploaders, err := uploader.NewUploaders(config.Uploaders().Log)

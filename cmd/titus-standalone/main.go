@@ -96,7 +96,7 @@ func mainWithError(c *cli.Context, options *cliOptions) error { // nolint: gocyc
 	defer cancel()
 	var err error
 	// Don't specify a file so config loads with the default JSON config
-	config.Load(ctx, "")
+	config.Load("")
 
 	var m metrics.Reporter
 	switch config.DevWorkspace().DisableMetrics {

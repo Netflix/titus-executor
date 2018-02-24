@@ -135,11 +135,7 @@ func shouldTerminate(ctx context.Context, logger *log.Entry, container types.Con
 		2. Check if we can hit the Executor bind URI, and find out about the container
 		3. Check if the container status is "right"
 	*/
-	if !isPidAlive(executorPid) {
-		return true
-	}
-
-	return false
+	return !isPidAlive(executorPid)
 }
 
 func isPidAlive(pidStr string) bool {
