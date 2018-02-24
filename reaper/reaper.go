@@ -2,9 +2,6 @@ package reaper
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"os"
 	"strconv"
 	"syscall"
@@ -15,8 +12,6 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	log "github.com/sirupsen/logrus"
-
-	"io"
 
 	docker "github.com/docker/docker/client"
 )
@@ -45,12 +40,6 @@ func RunReaper(dockerHost string) {
 	reaper.watchLoop(ctx, dockerHost)
 }
 
-func newHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout: time.Second * 5,
-	}
-}
-
 // Watches state from Docker
 func (reaper *Reaper) watchLoop(parentCtx context.Context, dockerHost string) {
 	/*
@@ -62,7 +51,6 @@ func (reaper *Reaper) watchLoop(parentCtx context.Context, dockerHost string) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 
-	httpClient := newHTTPClient()
 	dockerClient, err := docker.NewClient(dockerHost, "", nil, nil)
 	if err != nil {
 		log.Fatal("Unable to connect to Docker: ", err)
@@ -73,7 +61,7 @@ func (reaper *Reaper) watchLoop(parentCtx context.Context, dockerHost string) {
 		select {
 		case <-ticker:
 			reaper.log.Info("Beginning cycle")
-			reaper.runReapCycle(ctx, httpClient, dockerClient)
+			reaper.runReapCycle(ctx, dockerClient)
 
 			ticker = time.After(time.Minute)
 		case <-ctx.Done():
@@ -82,7 +70,7 @@ func (reaper *Reaper) watchLoop(parentCtx context.Context, dockerHost string) {
 	}
 }
 
-func (reaper *Reaper) runReapCycle(parentCtx context.Context, httpClient *http.Client, dockerClient *docker.Client) {
+func (reaper *Reaper) runReapCycle(parentCtx context.Context, dockerClient *docker.Client) {
 	ctx, cancel := context.WithTimeout(parentCtx, 60*time.Second)
 	defer cancel()
 	filter := filters.NewArgs()
@@ -100,7 +88,7 @@ func (reaper *Reaper) runReapCycle(parentCtx context.Context, httpClient *http.C
 	titusContainers := filterTitusContainers(containers)
 	/* Now we have to inspect these to get the container JSON */
 	for _, container := range titusContainers {
-		reaper.processContainer(ctx, container, httpClient, dockerClient)
+		reaper.processContainer(ctx, container, dockerClient)
 	}
 }
 
@@ -116,7 +104,7 @@ func filterTitusContainers(containers []types.Container) []types.Container {
 	return ret
 }
 
-func (reaper *Reaper) processContainer(ctx context.Context, container types.Container, httpClient *http.Client, dockerClient *docker.Client) {
+func (reaper *Reaper) processContainer(ctx context.Context, container types.Container, dockerClient *docker.Client) {
 	containerJSON, err := dockerClient.ContainerInspect(ctx, container.ID)
 	taskID := containerJSON.Config.Labels[models.TaskIDLabel]
 	l := reaper.log.WithField("taskID", taskID)
@@ -126,7 +114,7 @@ func (reaper *Reaper) processContainer(ctx context.Context, container types.Cont
 		reaper.log.Fatal("Unable to fetch container JSON: ", err)
 	}
 
-	if shouldTerminate(ctx, &reaper.log, containerJSON, httpClient) {
+	if shouldTerminate(ctx, &reaper.log, containerJSON) {
 		l.Info("Terminating container")
 		timeout := 30 * time.Second
 		if err := dockerClient.ContainerStop(ctx, containerJSON.ID, &timeout); err != nil {
@@ -139,65 +127,15 @@ func (reaper *Reaper) processContainer(ctx context.Context, container types.Cont
 	}
 }
 
-func shouldTerminate(ctx context.Context, logger *log.Entry, container types.ContainerJSON, httpClient *http.Client) bool {
+func shouldTerminate(ctx context.Context, logger *log.Entry, container types.ContainerJSON) bool {
 	executorPid := container.Config.Labels[models.ExecutorPidLabel]
-	executorHTTPListenerAddress := container.Config.Labels[models.ExecutorHTTPListenerAddressLabel]
-	taskID := container.Config.Labels[models.TaskIDLabel]
-	l := logger.WithField("taskID", taskID)
 	/*
 		Steps:
 		1. Check if the executor PID exists
 		2. Check if we can hit the Executor bind URI, and find out about the container
 		3. Check if the container status is "right"
 	*/
-	if !isPidAlive(executorPid) {
-		return true
-	}
-
-	if !executorThinksIsAlive(ctx, l, httpClient, executorHTTPListenerAddress, taskID) {
-		return true
-	}
-
-	return false
-}
-
-func executorThinksIsAlive(ctx context.Context, l *log.Entry, httpClient *http.Client, executorHTTPListenerAddress, taskID string) bool {
-	var containerStates models.CurrentState
-
-	URI := fmt.Sprintf("http://%s/get-current-state", executorHTTPListenerAddress)
-	req, err := http.NewRequest("GET", URI, nil)
-	if err != nil {
-		log.Fatal("Unable to build HTTP request: ", err)
-	}
-
-	resp, err := httpClient.Do(req.WithContext(ctx))
-	if err != nil {
-		log.Warningf("Unable to connect to executor %s because: %+v, assuming task death", executorHTTPListenerAddress, err)
-		return false
-	}
-	defer shouldClose(resp.Body)
-
-	err = json.NewDecoder(resp.Body).Decode(&containerStates)
-	if err != nil {
-		log.Warningf("Unable to decode response from executor %s because +%v", executorHTTPListenerAddress, err)
-		return false
-	}
-
-	if taskState, ok := containerStates.Tasks[taskID]; !ok {
-		l.Info("Task ID not in executor Task map")
-		return false
-	} else if taskState == "" || taskState == "TASK_FINISHED" || taskState == "TASK_FAILED" || taskState == "TASK_KILLED" || taskState == "TASK_LOST" {
-		l.WithField("executorAddress", executorHTTPListenerAddress).WithField("taskState", taskState).Infof("Found task ID in state %s, but Docker container was not removed", taskState)
-		return false
-	}
-
-	return true
-}
-
-func shouldClose(c io.Closer) {
-	if err := c.Close(); err != nil {
-		log.Warning("Errror closing body: ", err)
-	}
+	return !isPidAlive(executorPid)
 }
 
 func isPidAlive(pidStr string) bool {

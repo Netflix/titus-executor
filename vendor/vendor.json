@@ -7,6 +7,12 @@
 			"revision": ""
 		},
 		{
+			"checksumSHA1": "Pc2ORQp+VY3Un/dkh4QwLC7R6lE=",
+			"path": "github.com/BurntSushi/toml",
+			"revision": "a368813c5e648fee92e5f6c30e3944ff9d5e8895",
+			"revisionTime": "2017-06-26T11:06:00Z"
+		},
+		{
 			"checksumSHA1": "L9njXCkN30+qHaLayiiA2Q9jDlY=",
 			"path": "github.com/Microsoft/go-winio",
 			"revision": "fff283ad5116362ca252298cfc9b95828956d85d",
@@ -613,6 +619,25 @@
 			"revisionTime": "2017-01-31T01:35:07Z"
 		},
 		{
+			"checksumSHA1": "eA9qNw7Tkpi1GLojT/Vxa99aL00=",
+			"path": "github.com/opencontainers/runc/libcontainer/cgroups",
+			"revision": "c4e4bb0df2fc7d1f3cd578a847b1c252d15b5702",
+			"revisionTime": "2018-01-25T15:09:09Z"
+		},
+		{
+			"checksumSHA1": "s0A2QT/y6WHMQx6djbl4TopB/34=",
+			"path": "github.com/opencontainers/runc/libcontainer/configs",
+			"revision": "c4e4bb0df2fc7d1f3cd578a847b1c252d15b5702",
+			"revisionTime": "2018-01-25T15:09:09Z"
+		},
+		{
+			"checksumSHA1": "AMYc2X2O/IL6EGrq6lTl5vEhLiY=",
+			"origin": "github.com/opencontainers/runc/vendor/github.com/opencontainers/runtime-spec/specs-go",
+			"path": "github.com/opencontainers/runtime-spec/specs-go",
+			"revision": "c4e4bb0df2fc7d1f3cd578a847b1c252d15b5702",
+			"revisionTime": "2018-01-25T15:09:09Z"
+		},
+		{
 			"checksumSHA1": "ayRaLmkRnALRhJ4UwpKIHk9kfXo=",
 			"path": "github.com/pborman/uuid",
 			"revision": "cccd189d45f7ac3368a0d127efb7f4d08ae0b655"
@@ -711,6 +736,18 @@
 			"path": "gopkg.in/urfave/cli.v1",
 			"revision": "cfb38830724cc34fedffe9a2a29fb54fa9169cd1",
 			"revisionTime": "2017-08-11T01:42:03Z"
+		},
+		{
+			"checksumSHA1": "xC05ftJepJipUMJIb96+9elSLXQ=",
+			"path": "gopkg.in/urfave/cli.v1/altsrc",
+			"revision": "cfb38830724cc34fedffe9a2a29fb54fa9169cd1",
+			"revisionTime": "2017-08-11T01:42:03Z"
+		},
+		{
+			"checksumSHA1": "AnKBN2Q4AWaSNb0JyINBQbnpxGM=",
+			"path": "gopkg.in/yaml.v2",
+			"revision": "7f97868eec74b32b0982dd158a51a446d1da7eb5",
+			"revisionTime": "2018-02-23T19:12:37Z"
 		}
 	],
 	"rootPath": "github.com/Netflix/titus-executor"

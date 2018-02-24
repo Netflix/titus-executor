@@ -6,16 +6,20 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/quitelite-client-go/properties"
 	"github.com/Netflix/titus-executor/config"
-	titusExecutor "github.com/Netflix/titus-executor/executor"
 	"github.com/Netflix/titus-executor/executor/drivers/mesos"
+	"github.com/Netflix/titus-executor/executor/runner"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/Netflix/titus-executor/logsutil"
+	"github.com/Netflix/titus-executor/properties"
 	"github.com/Netflix/titus-executor/tag"
 	"github.com/Netflix/titus-executor/uploader"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/urfave/cli.v1"
+	"gopkg.in/urfave/cli.v1/altsrc"
 )
 
 func init() {
@@ -23,37 +27,55 @@ func init() {
 	logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
 }
 
+var logLevel string
+
 func setupLogging() {
-	dp := properties.NewDynamicProperty(context.Background(), "titus.executor.logLevel", "info", "", nil)
-	defer dp.Stop()
-	for val := range dp.C {
-		if valStr, err := val.AsString(); err != nil {
-			log.Error("Cannot set log level: ", err)
-		} else if valStr == "debug" {
-			log.SetLevel(log.DebugLevel)
-		} else if valStr == "info" {
-			log.SetLevel(log.InfoLevel)
-		} else {
-			log.Errorf("Received log level %s from dynamic property, unknown", valStr)
-		}
+	switch logLevel {
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+
+	case "info":
+		log.SetLevel(log.InfoLevel)
+	default:
+		log.Errorf("Received log level %s from dynamic property, unknown", logLevel)
+
 	}
+}
+
+var flags = []cli.Flag{
+	cli.BoolFlag{Name: "disable-quitelite"},
+	cli.StringFlag{Name: " quitelite-url"},
+	cli.StringFlag{
+		Name:        "titus.executor.logLevel",
+		Value:       "info",
+		Destination: &logLevel,
+	},
 }
 
 func main() {
+	app := cli.NewApp()
+	app.Name = "titus-executor"
+	defer time.Sleep(1 * time.Second)
 	// avoid os.Exit as much as possible to let deferred functions run
-	if err := mainWithError(); err != nil {
-		log.Fatal(err)
+	app.Action = func(c *cli.Context) error {
+		return cli.NewExitError(mainWithError(c), 1)
+	}
+	app.Flags = append(flags, docker.Flags...)
+
+	altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource("disable-quitelite", "quitelite-url"))
+	if err := app.Run(os.Args); err != nil {
+		panic(err)
 	}
 }
 
-func mainWithError() error {
+func mainWithError(c *cli.Context) error {
 	defer log.Info("titus executor terminated")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var err error
 	// Don't specify a file so config loads with the default JSON config
-	config.Load(ctx, "")
+	config.Load("")
 
 	go setupLogging()
 
@@ -72,12 +94,16 @@ func mainWithError() error {
 		return fmt.Errorf("Cannot create log uploaders: %v", err)
 	}
 
-	executor, err := titusExecutor.New(m, logUploaders)
+	runner, err := runner.New(ctx, m, logUploaders, runner.Config{
+		StatusCheckFrequency:        config.StatusCheckFrequency(),
+		MetatronEnabled:             config.MetatronEnabled(),
+		DevWorkspaceMockMetaronCred: config.DevWorkspace().MockMetatronCreds,
+	})
 	if err != nil {
 		return fmt.Errorf("Cannot create Titus executor: %v", err)
 	}
 
-	mesosDriverWrapper, err := titusmesosdriver.New(m, executor)
+	mesosDriverWrapper, err := titusmesosdriver.New(m, runner)
 	if err != nil {
 		return fmt.Errorf("Unable to create the Mesos driver: %v", err)
 	}

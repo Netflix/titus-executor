@@ -275,17 +275,14 @@ func (n *PluginInfo) AllocDevices(taskID string, numDevs int) ([]string, error) 
 	n.perTaskAllocatedDevices[taskID] = make(map[string]*fslocker.ExclusiveLock)
 	for idx := range n.nvidiaDevices {
 		newIdx := idx + offset%len(n.nvidiaDevices)
-		if len(n.perTaskAllocatedDevices[taskID]) == numDevs {
-			goto success
-		}
 
 		device := n.nvidiaDevices[newIdx]
 		lock, err = n.fsLocker.ExclusiveLock(device, &zeroTimeout)
-		if err != nil {
-			goto fail
-		}
-		if lock != nil {
+		if err == nil && lock != nil {
 			n.perTaskAllocatedDevices[taskID][device] = lock
+		}
+		if len(n.perTaskAllocatedDevices[taskID]) == numDevs {
+			goto success
 		}
 	}
 	err = fmt.Errorf("Unable able to allocate %d GPU devices. Not enough free GPU devices available", numDevs)

@@ -5,10 +5,9 @@ package docker
 import (
 	"context"
 	"errors"
+	"net"
 
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-
-	"net"
 )
 
 var (
@@ -29,4 +28,8 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 
 func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
 	return nil
+}
+
+func getOwnCgroup(subsystem string) (string, error) {
+	return "", errUnsupported
 }

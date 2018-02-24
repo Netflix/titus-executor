@@ -15,6 +15,7 @@ import (
 
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/coreos/go-systemd/dbus"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
@@ -134,4 +135,8 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, required bool, taskI
 		}
 	}
 	return nil
+}
+
+func getOwnCgroup(subsystem string) (string, error) {
+	return cgroups.GetOwnCgroup(subsystem)
 }

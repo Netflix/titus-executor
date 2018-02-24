@@ -186,6 +186,7 @@ func (ce *NoopCleanUpEvent) Cancel() {}
 
 var (
 	_ launchEvent = (*realLaunchEvent)(nil)
+	_ LaunchEvent = (*NoopLaunchEvent)(nil)
 )
 
 type realLaunchEvent struct {
@@ -218,4 +219,14 @@ func (ce *realLaunchEvent) notifyLaunch() {
 			ce.metrics.Timer("titus.executor.launchEvent.timeInQueue", time.Since(ce.createdAt), nil)
 			close(ce.internalCh)
 		})
+}
+
+// NoopLaunchEvent is an event to stub out the CleanupEvent when one isn't needed (normal shutdown)
+type NoopLaunchEvent struct{}
+
+// Launch Always immediately returns a closed channel
+func (ce *NoopLaunchEvent) Launch() <-chan struct{} {
+	c := make(chan struct{})
+	close(c)
+	return c
 }

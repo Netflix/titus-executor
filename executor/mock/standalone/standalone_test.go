@@ -1,12 +1,9 @@
 package standalone
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
-	"net/http"
 	"os"
 	"reflect"
 	"runtime"
@@ -15,16 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"io/ioutil"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/executor"
-	"github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/drivers/testdriver"
 	"github.com/Netflix/titus-executor/executor/mock"
-	"github.com/Netflix/titus-executor/models"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
+	"gopkg.in/urfave/cli.v1"
 )
 
 var standalone bool
@@ -35,6 +31,10 @@ func init() {
 	}
 	flag.BoolVar(&standalone, "standalone", false, "Enable standalone tests")
 	flag.Parse()
+	app := cli.NewApp()
+	app.Flags = docker.Flags
+	app.Writer = ioutil.Discard
+	_ = app.Run(os.Args)
 }
 
 type testImage struct {
@@ -80,9 +80,6 @@ func TestStandalone(t *testing.T) {
 		testNoCapPtraceByDefault,
 		testCanAddCapabilities,
 		testDefaultCapabilities,
-		testHTTPServerEndpoint,
-		testLaunchAfterKill,
-		testLaunchAfterKillDisableLaunchguard,
 		testStdoutGoesToLogFile,
 		testStderrGoesToLogFile,
 		testImageByDigest,
@@ -181,196 +178,6 @@ func testDefaultCapabilities(t *testing.T) {
 	}
 	if !mock.RunJobExpectingSuccess(ji, false) {
 		t.Fail()
-	}
-}
-
-func testHTTPServerEndpoint(t *testing.T) { // nolint: gocyclo
-	ji := &mock.JobInput{
-		ImageName:  alpine.name,
-		Version:    alpine.tag,
-		Entrypoint: "sleep 5",
-	}
-	jobRunner := mock.NewJobRunner(true)
-	jobResponse := jobRunner.StartJob(ji)
-	defer jobRunner.StopExecutor()
-
-	for status := range jobResponse.StatusChannel { // nolint: gosimple
-		if status.Status != "TASK_RUNNING" {
-			continue
-		}
-		log.Printf("HTTP Server URL obtained %v\n", jobRunner.HTTPServer.URL)
-		checkURL := jobRunner.HTTPServer.URL + "/get-current-state"
-		http.DefaultClient.Timeout = 5 * time.Second
-		currentStateResponse, err := http.DefaultClient.Get(checkURL)
-		if err != nil {
-			t.Fatalf("Unable to fetch current executor state from http endpoint %s", err)
-		}
-
-		bytes, err := ioutil.ReadAll(currentStateResponse.Body)
-		if err != nil {
-			t.Fatalf("Unable to read current executor state from http endpoint %s", err)
-
-		}
-
-		var executorCurrentState models.CurrentState
-		err = json.Unmarshal(bytes, &executorCurrentState)
-		if err != nil {
-			t.Fatalf("Unable to deserialize current executor state from http endpoint %v\n", err)
-		}
-		if len(executorCurrentState.Tasks) != 1 {
-			t.Fatalf("Current tasks state len is %d vs expected(1)", len(executorCurrentState.Tasks))
-		}
-
-		if executorCurrentState.Tasks[jobResponse.TaskID] == "" {
-			t.Fatalf("Current tasks state does not contain %s", jobResponse.TaskID)
-		}
-		log.Printf("Current Task state %s", executorCurrentState.Tasks[jobResponse.TaskID])
-		if executorCurrentState.Tasks[jobResponse.TaskID] != titusdriver.Running.String() {
-			t.Fatalf("Current tasks state incorrect for task %s - %s vs expected(%s)",
-				jobResponse.TaskID,
-				executorCurrentState.Tasks[jobResponse.TaskID],
-				titusdriver.Running.String())
-		}
-
-		break
-
-	}
-
-	if !jobResponse.WaitForSuccess() {
-		t.Fail()
-	}
-}
-
-func testLaunchAfterKill(t *testing.T) {
-	// Start the executor
-	jobRunner := mock.NewJobRunner(false)
-	defer jobRunner.StopExecutorAsync()
-
-	// Submit a job that runs for a long time and does
-	// NOT exit on SIGTERM
-	ji := &mock.JobInput{
-		ImageName:  alpine.name,
-		Version:    alpine.tag,
-		Entrypoint: "sleep 600",
-	}
-	firstJobResponse := jobRunner.StartJob(ji)
-
-	// Wait until the task is running
-	for {
-		status := <-firstJobResponse.StatusChannel
-		if status.Status == "TASK_RUNNING" {
-			break
-		}
-	}
-
-	// Submit a request to kill the job. Since the
-	// job does not exit on SIGTERM we expect the kill
-	// to take at least 10 seconds.
-	if err := jobRunner.KillTask(firstJobResponse.TaskID); err != nil {
-		t.Fail()
-	}
-
-	// Start another task that should block while the kill is happening
-	// Submit a job that runs for a long time and does
-	// NOT exit on SIGTERM
-	ji = &mock.JobInput{
-		ImageName:  alpine.name,
-		Version:    alpine.tag,
-		Entrypoint: "sleep 6",
-	}
-	secondJobResponse := jobRunner.StartJob(ji)
-
-	for {
-		select {
-		case firstStatus := <-firstJobResponse.StatusChannel:
-			if firstStatus.Status != "TASK_KILLED" {
-				t.Fatal("First status did not end up in killed state: ", firstStatus)
-			}
-		case secondStatus := <-secondJobResponse.StatusChannel:
-			if mock.IsTerminalState(secondStatus) {
-				if secondStatus.Status != "TASK_FINISHED" {
-					t.Fatal("Second task ended up in terminal state: ", secondStatus)
-				}
-				return
-			}
-		}
-	}
-}
-
-func testLaunchAfterKillDisableLaunchguard(t *testing.T) {
-	// Start the executor
-	jobRunner := mock.NewJobRunner(false)
-	defer jobRunner.StopExecutorAsync()
-
-	// Submit a job that runs for 120s and does
-	// NOT exit on SIGTERM
-	ji := &mock.JobInput{
-		ImageName:         ignoreSignals.name,
-		Version:           ignoreSignals.tag,
-		IgnoreLaunchGuard: true,
-		KillWaitSeconds:   30,
-	}
-	firstJobResponse := jobRunner.StartJob(ji)
-
-	// Wait until the task is running
-	for {
-		status := <-firstJobResponse.StatusChannel
-		if status.Status == "TASK_RUNNING" {
-			t.Log("First task running, id: ", firstJobResponse.TaskID)
-			break
-		}
-	}
-	// The bash script inside of the container needs to run, and setup traps before we send the kill signal
-	time.Sleep(5 * time.Second)
-
-	// Submit a request to kill the job. Since the
-	// job does not exit on SIGTERM we expect the kill
-	// to take at least 30 seconds.
-	if err := jobRunner.KillTask(firstJobResponse.TaskID); err != nil {
-		t.Fail()
-	}
-
-	// Start another task that should not block while the kill is happening
-	ji = &mock.JobInput{
-		ImageName:         alpine.name,
-		Version:           alpine.tag,
-		Entrypoint:        "sleep 6",
-		IgnoreLaunchGuard: true,
-	}
-	secondJobResponse := jobRunner.StartJob(ji)
-	waitForJobs(t, firstJobResponse, secondJobResponse)
-}
-
-func waitForJobs(t *testing.T, firstJobResponse, secondJobResponse *mock.JobRunResponse) {
-	var job1terminal, job2terminal bool
-	var job1terminalTime, job2startTime time.Time
-	statuses := []testdriver.TaskStatus{}
-
-	for !(job1terminal && job2terminal) {
-		select {
-		case status := <-firstJobResponse.StatusChannel:
-			statuses = append(statuses, status)
-			if mock.IsTerminalState(status) {
-				assert.Equal(t, "TASK_KILLED", status.Status)
-				job1terminal = true
-				job1terminalTime = time.Now()
-			}
-		case status := <-secondJobResponse.StatusChannel:
-			statuses = append(statuses, status)
-			if mock.IsTerminalState(status) {
-				job2terminal = true
-			} else if status.Status == "TASK_RUNNING" {
-				job2startTime = time.Now()
-			}
-		}
-	}
-	// Test that:
-	// 1. we saw no launchguard messages
-	// 2. that job2 started before job1 was killed
-	t.Log("Execution history ", statuses)
-	assert.True(t, job2startTime.Before(job1terminalTime))
-	for _, status := range statuses {
-		assert.NotEqual(t, executor.WaitingOnLaunchguardMessage, status.Msg)
 	}
 }
 
@@ -479,7 +286,7 @@ func testImagePullError(t *testing.T) {
 }
 
 func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 
 	bigImageJobID := fmt.Sprintf("Skynet-%v%v", rand.Intn(1000), time.Now().Second())
 	testResultBigImage := jobRunner.StartJob(&mock.JobInput{
@@ -489,40 +296,27 @@ func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 	})
 
 	select {
-	case taskStatus := <-testResultBigImage.StatusChannel:
-		if taskStatus.Status != "TASK_STARTING" {
+	case taskStatus := <-testResultBigImage.UpdateChan:
+		if taskStatus.State.String() != "TASK_STARTING" {
 			t.Fatal("Task never observed in TASK_STARTING, instead: ", taskStatus)
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("Spent too long waiting for task starting")
 	}
 
-	if err := jobRunner.KillTask(testResultBigImage.TaskID); err != nil {
+	if err := jobRunner.KillTask(); err != nil {
 		t.Fatal("Could not stop task: ", err)
 	}
-	smallImageJobID := fmt.Sprintf("alpine-%v%v", rand.Intn(1000), time.Now().Second())
-	c := make(chan *mock.JobRunResponse, 1)
-	go func() {
-		defer close(c)
-		c <- jobRunner.StartJob(&mock.JobInput{
-			JobID:      smallImageJobID,
-			ImageName:  alpine.name,
-			Version:    alpine.tag,
-			Entrypoint: "/bin/sleep 5",
-		})
-		t.Log("Starting small container")
-	}()
-
 	timeOut := time.After(30 * time.Second)
 	for {
 		select {
-		case taskStatus := <-testResultBigImage.StatusChannel:
-			t.Log("Observed task status: ", taskStatus)
-			if taskStatus.Status == "TASK_RUNNING" {
+		case taskStatus := <-testResultBigImage.UpdateChan:
+			//		t.Log("Observed task status: ", taskStatus)
+			if taskStatus.State.String() == "TASK_RUNNING" {
 				t.Fatalf("Task %s started after killTask %v", testResultBigImage.TaskID, taskStatus)
 			}
-			if taskStatus.Status == "TASK_KILLED" || taskStatus.Status == "TASK_LOST" {
-				t.Logf("Task %s successfully terminated with status %s", testResultBigImage.TaskID, taskStatus.Status)
+			if taskStatus.State.String() == "TASK_KILLED" || taskStatus.State.String() == "TASK_LOST" {
+				t.Logf("Task %s successfully terminated with status %s", testResultBigImage.TaskID, taskStatus.State.String())
 				goto big_task_killed
 			}
 		case <-timeOut:
@@ -530,29 +324,6 @@ func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 		}
 	}
 big_task_killed:
-	t.Log("Big Image successfully stopped, trying to start follow-on job")
-
-	var testResultSmallImage *mock.JobRunResponse
-	select {
-	case testResultSmallImage = <-c:
-	case <-time.After(30 * time.Second):
-		t.Fatal("Unable to get small image result after 30 seconds")
-	}
-
-	for {
-		select {
-		case taskStatus := <-testResultSmallImage.StatusChannel:
-			if taskStatus.Status == "TASK_FINISHED" {
-				t.Log("Small job finished")
-				goto small_task_finished
-			}
-		case <-time.After(60 * time.Second):
-			t.Fatal("Launchguard probably stuck, small job did not start in 60 seconds")
-		}
-	}
-small_task_finished:
-
-	t.Log("Test completed, shutting down")
 	// We do this here, otherwise  a stuck executor can prevent this from exiting.
 	jobRunner.StopExecutor()
 }
@@ -600,18 +371,18 @@ func testShutdown(t *testing.T) {
 		Entrypoint: "sleep 6000",
 	}
 
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 	testResult := jobRunner.StartJob(ji)
 	taskRunning := make(chan bool, 10)
 	go func() {
 		for {
 			select {
-			case status := <-testResult.StatusChannel:
-				if status.Status == "TASK_RUNNING" {
+			case status := <-testResult.UpdateChan:
+				if status.State.String() == "TASK_RUNNING" {
 					taskRunning <- true
-				} else if mock.IsTerminalState(status) {
-					if status.Status != "TASK_KILLED" {
-						t.Errorf("Task %s not killed successfully, %s!", testResult.TaskID, status.Status)
+				} else if mock.IsTerminalState(status.State) {
+					if status.State.String() != "TASK_KILLED" {
+						t.Errorf("Task %s not killed successfully, %s!", testResult.TaskID, status.State.String())
 					}
 					taskRunning <- false
 					return
@@ -627,10 +398,6 @@ func testShutdown(t *testing.T) {
 	<-taskRunning
 	t.Logf("Task is running, stopping executor")
 	jobRunner.StopExecutor()
-	numTasks := jobRunner.GetNumTasks()
-	if numTasks != 0 {
-		t.Fatalf("Failed to shutdown all tasks, %d still running", numTasks)
-	}
 }
 
 func testMetadataProxyInjection(t *testing.T) {
@@ -657,7 +424,7 @@ func testMetdataProxyDefaultRoute(t *testing.T) {
 
 func testTerminateTimeout(t *testing.T) {
 	// Start the executor
-	jobRunner := mock.NewJobRunner(false)
+	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for a long time and does
@@ -671,8 +438,8 @@ func testTerminateTimeout(t *testing.T) {
 
 	// Wait until the task is running
 	for {
-		status := <-jobResponse.StatusChannel
-		if status.Status == "TASK_RUNNING" {
+		status := <-jobResponse.UpdateChan
+		if status.State.String() == "TASK_RUNNING" {
 			break
 		}
 	}
@@ -681,14 +448,14 @@ func testTerminateTimeout(t *testing.T) {
 	// job does not exit on SIGTERM we expect the kill
 	// to take at least 20 seconds
 	killTime := time.Now()
-	if err := jobRunner.KillTask(jobResponse.TaskID); err != nil {
+	if err := jobRunner.KillTask(); err != nil {
 		t.Fail()
 	}
 
-	for status := range jobResponse.StatusChannel {
+	for status := range jobResponse.UpdateChan {
 
-		if mock.IsTerminalState(status) {
-			if status.Status != "TASK_KILLED" {
+		if mock.IsTerminalState(status.State) {
+			if status.State.String() != "TASK_KILLED" {
 				t.Fail()
 			}
 			if time.Since(killTime) < 20*time.Second {
