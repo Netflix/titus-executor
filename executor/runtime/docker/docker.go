@@ -762,8 +762,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	err = r.pushEnvironment(c)
 
 error:
-	log.Error("Unable to create container: ", err)
-	r.metrics.Counter("titus.executor.dockerCreateContainerError", 1, nil)
+	if err != nil {
+		log.Error("Unable to create container: ", err)
+		r.metrics.Counter("titus.executor.dockerCreateContainerError", 1, nil)
+	}
 	return err
 }
 
