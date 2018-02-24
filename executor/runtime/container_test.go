@@ -2,20 +2,16 @@ package runtime
 
 import (
 	"testing"
-	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	protobuf "github.com/golang/protobuf/proto"
-	"golang.org/x/net/context"
 )
 
 func TestImageNameWithTag(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	// TODO(fabio): no tight coupling with the (global) config package
-	config.Load(ctx, "../mock/config.json")
-	cancel()
+	config.Load("../mock/config.json")
 
 	expected := "docker.io/titusoss/alpine:latest"
 	c := &runtimeTypes.Container{
@@ -30,10 +26,8 @@ func TestImageNameWithTag(t *testing.T) {
 }
 
 func TestImageTagLatestByDefault(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	// TODO(fabio): no tight coupling with the (global) config package
-	config.Load(ctx, "../mock/config.json")
-	cancel()
+	config.Load("../mock/config.json")
 
 	expected := "docker.io/titusoss/alpine:latest"
 	c := &runtimeTypes.Container{
@@ -47,10 +41,8 @@ func TestImageTagLatestByDefault(t *testing.T) {
 }
 
 func TestImageByDigest(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	// TODO(fabio): no tight coupling with the (global) config package
-	config.Load(ctx, "../mock/config.json")
-	cancel()
+	config.Load("../mock/config.json")
 
 	expected := "docker.io/" +
 		"titusoss/alpine@sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
@@ -66,10 +58,8 @@ func TestImageByDigest(t *testing.T) {
 }
 
 func TestImageByDigestIgnoresTag(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	// TODO(fabio): no tight coupling with the (global) config package
-	config.Load(ctx, "../mock/config.json")
-	cancel()
+	config.Load("../mock/config.json")
 
 	expected := "docker.io/" +
 		"titusoss/alpine@sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
