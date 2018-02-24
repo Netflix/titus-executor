@@ -886,7 +886,7 @@ func (r *DockerRuntime) pushMetatron(parentCtx context.Context, c *runtimeTypes.
 
 	// Push app credentials
 	log.WithFields(log.Fields{
-		"container": c.ID[:11],
+		"container": c.ID,
 		"taskID":    c.TaskID,
 	}).Info("Copying Metatron credentials")
 
@@ -1073,9 +1073,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 	var listener *net.UnixListener
 
 	entry := log.WithField("taskID", c.TaskID)
-
-	entry.Infof("container %s : start %s", c.TaskID, c.ID[:11])
-
+	entry.Info("Starting")
 	efsMountInfos, err := r.processEFSMounts(c)
 	if err != nil {
 		return "", err
@@ -1094,7 +1092,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 	dockerStartStartTime := time.Now()
 	err = r.client.ContainerStart(ctx, c.ID, types.ContainerStartOptions{})
 	if err != nil {
-		log.Printf("container %s : start %s : %s", c.TaskID, c.ID[:11], err)
+		entry.Error("Error starting: ", err)
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
 		// Check if bad entry point and return specific error
 		return "", maybeConvertIntoBadEntryPointError(err)
