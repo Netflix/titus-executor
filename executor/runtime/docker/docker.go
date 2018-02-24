@@ -723,7 +723,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 
 	// setupGPU will override the current Volume driver if there is one
-	if err := r.setupGPU(c, dockerCfg, hostCfg); err != nil { // nolint: vetshadow
+	err = r.setupGPU(c, dockerCfg, hostCfg)
+	if err != nil {
 		goto error
 	}
 
@@ -738,25 +739,30 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	if err != nil {
 		goto error
 	}
+	log.WithField("containerID", c.ID).Debug("Container successfully created")
 
 	err = r.pushMetatron(parentCtx, c)
 	if err != nil {
 		goto error
 	}
+	log.Debug("Metatron pushed")
 
 	err = r.createTitusEnvironmentFile(c)
 	if err != nil {
 		goto error
 	}
+	log.Debug("Titus environment pushed")
 
 	err = r.createTitusContainerConfigFile(c)
 	if err != nil {
 		goto error
 	}
+	log.Debug("Titus Configuration pushed")
 
 	err = r.pushEnvironment(c)
 
 error:
+	log.Error("Unable to create container: ", err)
 	r.metrics.Counter("titus.executor.dockerCreateContainerError", 1, nil)
 	return err
 }
