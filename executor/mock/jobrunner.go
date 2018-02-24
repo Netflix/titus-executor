@@ -123,7 +123,12 @@ func NewJobRunner() *JobRunner {
 		log.Fatalf("cannot create log uploaders: %s", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	r, err := runner.New(ctx, metrics.Discard, logUploaders, runner.Config{})
+	// TODO: Replace this config mechanism
+	r, err := runner.New(ctx, metrics.Discard, logUploaders, runner.Config{
+		StatusCheckFrequency:        time.Second * 1,
+		MetatronEnabled:             config.MetatronEnabled(),
+		DevWorkspaceMockMetaronCred: config.DevWorkspace().MockMetatronCreds,
+	})
 	if err != nil {
 		log.Fatalf("cannot create executor : %s", err)
 	}

@@ -103,7 +103,7 @@ func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, lo
 		config:       &cfg,
 		taskChan:     make(chan task, 1),
 		killChan:     make(chan struct{}),
-		UpdatesChan:  make(chan Update, 1),
+		UpdatesChan:  make(chan Update, 10),
 		StoppedChan:  make(chan struct{}),
 	}
 	setupCh := make(chan error)
@@ -205,7 +205,7 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 		le = r.launchGuard.NewLaunchEvent(ctx, r.container.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
 	}
 	if r.config.MetatronEnabled {
-		r.updateStatus(titusdriver.Starting, "creating_metatron")
+		r.updateStatus(ctx, titusdriver.Starting, "creating_metatron")
 		// TODO: Teach metatron about context
 		r.container.MetatronConfig, err = r.setupMetatron()
 		defer func() {
@@ -222,18 +222,20 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 			// any files created during the process
 			r.logger.Errorf("Failed to acquire Metatron certificates: %s", err)
 			r.err = err
-			r.updateStatus(titusdriver.Lost, err.Error())
+			r.updateStatus(ctx, titusdriver.Lost, err.Error())
 			return
 		}
 	}
 
+	// At this point we've begun starting, and we need to explicitly inform the master when the task finishes
+	defer r.handleShutdown(ctx)
 	select {
 	case <-le.Launch():
 		r.logger.Info("Launch not blocked on on launchGuard")
 		goto no_launchguard
 	default:
 		r.logger.Info("Launch waiting on launchGuard")
-		r.updateStatus(titusdriver.Starting, WaitingOnLaunchguardMessage)
+		r.updateStatus(ctx, titusdriver.Starting, WaitingOnLaunchguardMessage)
 
 	}
 	select {
@@ -261,9 +263,8 @@ no_launchguard:
 		return
 	default:
 	}
-	r.updateStatus(titusdriver.Starting, "creating")
+	r.updateStatus(ctx, titusdriver.Starting, "creating")
 
-	defer r.handleShutdown()
 	// When Create() returns the host may have been modified to create storage and pull the image.
 	// These steps may or may not have completed depending on if/where a failure occurred.
 	bindMounts := []string{}
@@ -275,27 +276,27 @@ no_launchguard:
 		switch err.(type) {
 		case *runtimeTypes.RegistryImageNotFoundError, *runtimeTypes.InvalidSecurityGroupError, *runtimeTypes.BadEntryPointError:
 			r.logger.Error("Returning TASK_FAILED for task: ", err)
-			r.updateStatus(titusdriver.Failed, err.Error())
+			r.updateStatus(ctx, titusdriver.Failed, err.Error())
 		default:
 			r.logger.Error("Returning TASK_LOST for task: ", err)
-			r.updateStatus(titusdriver.Lost, err.Error())
+			r.updateStatus(ctx, titusdriver.Lost, err.Error())
 		}
 		return
 	}
 
-	r.updateStatus(titusdriver.Starting, "starting")
+	r.updateStatus(ctx, titusdriver.Starting, "starting")
 	logDir, err := r.runtime.Start(ctx, r.container)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
-		r.logger.Info("start container %s", err)
+		r.logger.Info("start container: ", err)
 
 		switch err.(type) {
 		case *runtimeTypes.BadEntryPointError:
 			r.logger.Info("Returning TaskState_TASK_FAILED for task: ", err)
-			r.updateStatus(titusdriver.Failed, err.Error())
+			r.updateStatus(ctx, titusdriver.Failed, err.Error())
 		default:
 			r.logger.Info("Returning TASK_LOST for task: ", err)
-			r.updateStatus(titusdriver.Lost, err.Error())
+			r.updateStatus(ctx, titusdriver.Lost, err.Error())
 		}
 		return
 	}
@@ -305,7 +306,7 @@ no_launchguard:
 		err = r.maybeSetupExternalLogger(ctx, logDir)
 		if err != nil {
 			r.logger.Error("Unable to setup logging for container: ", err)
-			r.updateStatus(titusdriver.Lost, err.Error())
+			r.updateStatus(ctx, titusdriver.Lost, err.Error())
 			return
 		}
 	} else {
@@ -316,13 +317,13 @@ no_launchguard:
 	details, err := r.runtime.Details(r.container)
 	if err != nil {
 		r.logger.Error("Error fetching details for task: ", err)
-		r.updateStatus(titusdriver.Lost, err.Error())
+		r.updateStatus(ctx, titusdriver.Lost, err.Error())
 		return
 	} else if details == nil {
 		r.logger.Error("Unable to fetch task details")
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
-	r.updateStatusWithDetails(titusdriver.Running, "running", details)
+	r.updateStatusWithDetails(ctx, titusdriver.Running, "running", details)
 
 	// report metrics for startup time, docker image size
 	r.metrics.Timer("titus.executor.containerStartTime", time.Since(startTime), r.container.ImageTagForMetrics())
@@ -341,7 +342,7 @@ no_launchguard:
 			if shouldQuit {
 				r.logger.Info("Status: ", status)
 				// TODO: Generate Update
-				r.updateStatus(titusTaskStatus, msg)
+				r.updateStatus(ctx, titusTaskStatus, msg)
 				return
 			}
 		case <-r.killChan:
@@ -353,7 +354,8 @@ no_launchguard:
 	}
 }
 
-func (r *Runner) handleShutdown() { // nolint: gocyclo
+func (r *Runner) handleShutdown(ctx context.Context) { // nolint: gocyclo
+	r.logger.Debug("Handling shutdown")
 	launchGuardCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var cleanupErrs []error
@@ -405,12 +407,12 @@ func (r *Runner) handleShutdown() { // nolint: gocyclo
 		// accounted for. Consider forceful cleanup or tracking leaked resources.
 		// If the task finished successfully, include any info about cleanup errors
 		msg = fmt.Sprintf("%+v", cleanupErrs)
-		r.updateStatus(r.lastStatus, msg)
+		r.updateStatus(ctx, r.lastStatus, msg)
 	} else if r.wasKilled() {
-		r.updateStatus(titusdriver.Killed, msg)
+		r.updateStatus(ctx, titusdriver.Killed, msg)
 	}
 	if r.lastStatus == titusdriver.Running || r.lastStatus == titusdriver.Starting {
-		r.updateStatus(titusdriver.Lost, "Container lost -- Unknown")
+		r.updateStatus(ctx, titusdriver.Lost, "Container lost -- Unknown")
 		r.logger.Error("Container killed while non-terminal!")
 	}
 
@@ -529,22 +531,26 @@ func (r *Runner) setupRunner(ctx context.Context, rp RuntimeProvider) error {
 	return err
 }
 
-func (r *Runner) updateStatus(status titusdriver.TitusTaskState, msg string) {
-	r.updateStatusWithDetails(status, msg, nil)
+func (r *Runner) updateStatus(ctx context.Context, status titusdriver.TitusTaskState, msg string) {
+	r.updateStatusWithDetails(ctx, status, msg, nil)
 }
 
-func (r *Runner) updateStatusWithDetails(status titusdriver.TitusTaskState, msg string, details *runtimeTypes.Details) {
+func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver.TitusTaskState, msg string, details *runtimeTypes.Details) {
 	r.lastStatus = status
 	l := r.logger.WithField("msg", msg).WithField("taskStatus", status)
 	if details != nil {
 		l = l.WithField("details", details)
 	}
-	l.Info("Updating task status")
-	r.UpdatesChan <- Update{
+	select {
+	case r.UpdatesChan <- Update{
 		TaskID:  r.container.TaskID,
 		State:   status,
 		Mesg:    msg,
 		Details: details,
+	}:
+		l.Info("Updating task status")
+	case <-ctx.Done():
+		l.Info("Not sending update")
 	}
 }
 

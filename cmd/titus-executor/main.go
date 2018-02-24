@@ -20,6 +20,8 @@ import (
 
 	"io/ioutil"
 
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
+
 	"github.com/Netflix/titus-executor/executor/runner"
 )
 
@@ -52,6 +54,8 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		return cli.NewExitError(mainWithError(c), 1)
 	}
+	app.Flags = docker.Flags
+
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}

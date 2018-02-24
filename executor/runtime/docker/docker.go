@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/quitelite-client-go/properties"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -38,6 +37,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
+	"gopkg.in/urfave/cli.v1"
 )
 
 // units
@@ -49,10 +49,6 @@ const (
 	KB = 1000
 	MB = 1000 * KB
 	GB = 1000 * MB
-)
-
-const (
-	trueStr = "true"
 )
 
 const (
@@ -77,25 +73,76 @@ const (
 	sharesMode    = "shares"
 )
 
+// This is horrible
+// -Sorry,
+// Sargun
+var (
+	userNamespaceFDEnabled     bool
+	cfsBandwidthPeriod         uint64
+	cfsBandwidthMode           string
+	tiniVerbosity              int
+	batchSize                  int
+	burst                      bool
+	securityConvergenceTimeout time.Duration
+	pidLimit                   int
+	prepareTimeout             time.Duration
+	startTimeout               time.Duration
+)
+
+// Flags are the configuration for the docker runtime package
+var Flags = []cli.Flag{
+	cli.BoolTFlag{
+		Name:        "titus.executor.userNamespacesFDEnabled",
+		Destination: &userNamespaceFDEnabled,
+	},
+	cli.Uint64Flag{
+		Name:        "titus.executor.cfsBandwidthPeriod",
+		Value:       100000,
+		Destination: &cfsBandwidthPeriod,
+	},
+	cli.StringFlag{
+		Name:        "titus.executor.cfsBandwidthMode",
+		Value:       bandwidthMode,
+		Destination: &cfsBandwidthMode,
+	},
+	cli.IntFlag{
+		Name:        "titus.executor.tiniVerbosity",
+		Value:       0,
+		Destination: &tiniVerbosity,
+	},
+	cli.IntFlag{
+		Name:        "titus.executor.networking.batchSize",
+		Value:       4,
+		Destination: &batchSize,
+	},
+	cli.BoolFlag{
+		Name:        "titus.executor.networking.burst",
+		Destination: &burst,
+	},
+	cli.DurationFlag{
+		Name:        "titus.executor.networking.securityConvergenceTimeout",
+		Destination: &securityConvergenceTimeout,
+		Value:       time.Second * 10,
+	},
+	cli.IntFlag{
+		Name:        "titus.executor.pidLimit",
+		Value:       100000,
+		Destination: &pidLimit,
+	},
+	cli.DurationFlag{
+		Name:        "titus.executor.timeouts.prepare",
+		Value:       time.Minute * 10,
+		Destination: &prepareTimeout,
+	},
+	cli.DurationFlag{
+		Name:        "titus.executor.timeouts.start",
+		Value:       time.Minute * 10,
+		Destination: &startTimeout,
+	},
+}
+
 var (
 	envFileTemplate = template.Must(template.New("").Parse(envFileTemplateStr))
-
-	userNamespaceFDEnabled = properties.NewDynamicProperty(context.TODO(), "titus.executor.userNamespacesFDEnabled", trueStr, "", nil)
-
-	// _microseconds_ -- The Linux default is 100 microseconds, but unfortunately Docker
-	// requires that our minimum ask is 1000. I've done 100000 here, which is 100 *milliseconds*
-	// Fortunately, this is adjustable.
-	cfsBandwidthPeriod = properties.NewDynamicProperty(context.TODO(), "titus.executor.cfsBandwidthPeriod", "100000", "", nil)
-	// bandwidth | nanocpus | none
-	cfsBandwidthMode           = properties.NewDynamicProperty(context.TODO(), "titus.executor.cfsBandwidthMode", bandwidthMode, "", nil)
-	tiniVerbosity              = properties.NewDynamicProperty(context.TODO(), "titus.executor.tiniVerbosity", "", "", nil)
-	batchSize                  = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.batchSize", "4", "", nil)
-	burst                      = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.burst", "false", "", nil)
-	securityConvergenceTimeout = properties.NewDynamicProperty(context.TODO(), "titus.executor.networking.securityConvergenceTimeout", "10s", "", nil)
-	pidLimit                   = properties.NewDynamicProperty(context.TODO(), "titus.executor.pidLimit", "100000", "", nil)
-
-	prepareTimeout = newTimeoutDynamicProperty(context.TODO(), "prepare", time.Minute*10)
-	startTimeout   = newTimeoutDynamicProperty(context.TODO(), "start", time.Minute*10)
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -146,41 +193,10 @@ func (e *compositeError) Error() string {
 	return fmt.Sprintf("%#v", e.errors)
 }
 
-type timeoutDynamicProperty struct {
-	originalValue time.Duration
-	dp            *properties.DynamicProperty
-}
-
-func newTimeoutDynamicProperty(ctx context.Context, name string, t time.Duration) *timeoutDynamicProperty {
-	propertyName := fmt.Sprintf("titus.executor.timeouts.%s", name)
-	dp := properties.NewDynamicProperty(ctx, propertyName, t.String(), "", nil)
-	return &timeoutDynamicProperty{t, dp}
-}
-
-func (dp *timeoutDynamicProperty) read() time.Duration {
-	dur, err := dp.dp.Read().AsDuration()
-	if err != nil {
-		return dp.originalValue
-	}
-	return dur
-}
-
-func enableUserNamespacesFD() bool {
-	if val, err := userNamespaceFDEnabled.Read().AsBool(); err != nil {
-		log.Error("Could not parse user namespaces FD property, assuming enabled: ", err)
-		return true
-	} else if !val {
-		log.Info("User namespaces FD disabled globally by fast property")
-		return false
-	}
-
-	return true
-}
-
 // NewDockerRuntime provides a Runtime implementation on Docker
 func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter) (runtimeTypes.Runtime, error) {
 	log.Info("New Docker client, to host ", config.Docker().Host)
-	client, err := docker.NewClient(config.Docker().Host, "", nil, map[string]string{})
+	client, err := docker.NewClient(config.Docker().Host, "1.26", nil, map[string]string{})
 
 	if err != nil {
 		return nil, err
@@ -295,15 +311,9 @@ func getSortedEnvArray(env map[string]string) []string {
 }
 
 func maybeSetCFSBandwidth(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
-	bandwidthMode, err := cfsBandwidthMode.Read().AsString()
-	logEntry := log.WithField("taskID", c.TaskID).WithField("bandwidthMode", bandwidthMode)
-	if err != nil {
-		logEntry.Error("Could not get bandwidth mode, defaulting to nanocpus: ", err)
-		setNanoCPUs(logEntry, c, hostCfg)
-		return
-	}
+	logEntry := log.WithField("taskID", c.TaskID).WithField("bandwidthMode", cfsBandwidthMode)
 
-	switch bandwidthMode {
+	switch cfsBandwidthMode {
 	case bandwidthMode:
 		setCFSBandwidth(logEntry, c, hostCfg)
 	case nanocpusMode:
@@ -317,28 +327,22 @@ func maybeSetCFSBandwidth(c *runtimeTypes.Container, hostCfg *container.HostConf
 }
 
 func setCFSBandwidth(logEntry *log.Entry, c *runtimeTypes.Container, hostCfg *container.HostConfig) {
-	period, err := cfsBandwidthPeriod.Read().AsInteger()
-	if err != nil {
-		period = 100000
-		logEntry.Errorf("Could not parse cpu periods defaulting to %d: %v", period, err)
-	}
-
-	quota := int64(period) * c.Resources.CPU
+	quota := int64(cfsBandwidthPeriod) * c.Resources.CPU
 	if quota <= 0 {
 		logEntry.Error("Invalid CPU quota configuration")
 		setNanoCPUs(logEntry, c, hostCfg)
 		return
 	}
 
-	logEntry.WithField("quota", quota).WithField("period", period).Info("Configuring with CFS Bandwidth")
+	logEntry.WithField("quota", quota).WithField("period", cfsBandwidthPeriod).Info("Configuring with CFS Bandwidth")
 
-	if period < 1000 || period > 1000000 {
-		logEntry.WithField("quota", quota).WithField("period", period).Error("Invalid CFS Bandwidth, falling back to NanoCPUs")
+	if cfsBandwidthPeriod < 1000 || cfsBandwidthPeriod > 1000000 {
+		logEntry.WithField("quota", quota).WithField("period", cfsBandwidthPeriod).Error("Invalid CFS Bandwidth, falling back to NanoCPUs")
 		setNanoCPUs(logEntry, c, hostCfg)
 		return
 	}
 
-	hostCfg.CPUPeriod = int64(period)
+	hostCfg.CPUPeriod = int64(cfsBandwidthPeriod)
 	hostCfg.CPUQuota = quota
 }
 
@@ -394,13 +398,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv4.tcp_ecn": "1",
 		},
 	}
-	hostCfg.Resources.CgroupParent = r.pidCgroupPath
-	pidLimit, err := pidLimit.Read().AsInteger()
-	if err != nil {
-		log.Warning("Could not get pid limit: ", err)
-	} else {
-		hostCfg.PidsLimit = int64(pidLimit)
-	}
+	hostCfg.CgroupParent = r.pidCgroupPath
+	hostCfg.PidsLimit = int64(pidLimit)
 	hostCfg.Memory = c.Resources.Mem * MiB
 	hostCfg.MemorySwap = 0
 	// Limit this to a fairly small number to prevent the containers from ever getting more CPU shares than the system
@@ -479,8 +478,8 @@ func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, containerCfg *conta
 	c.Env["TITUS_UNIX_CB_PATH"] = filepath.Join("/titus-executor-sockets/", socketFileName)
 	/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
 	c.Env["TITUS_CONFIRM"] = "true"
-	if tv, err := tiniVerbosity.Read().AsString(); tv != "" && err == nil {
-		c.Env["TINI_VERBOSITY"] = tv
+	if tiniVerbosity > 0 {
+		c.Env["TINI_VERBOSITY"] = strconv.Itoa(tiniVerbosity)
 	}
 
 	// We should probably just add the getSortedEnvArray method to the Config struct
@@ -609,13 +608,10 @@ func prepareNetworkDriver(c *runtimeTypes.Container) error {
 		"allocate-network",
 		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
-		"--security-convergence-timeout", securityConvergenceTimeout.Read().MustString(),
+		"--security-convergence-timeout", securityConvergenceTimeout.String(),
+		"--batch-size", strconv.Itoa(batchSize),
 	}
-	if newBatchSize, err := batchSize.Read().AsString(); err != nil {
-		log.Error("Unable to fetch batchsize override: ", err)
-	} else {
-		args = append(args, "--batch-size", newBatchSize)
-	}
+
 	c.AllocationCommand = exec.Command("/apps/titus-executor/bin/titus-vpc-tool", args...) // nolint: gas
 
 	stdoutPipe, err := c.AllocationCommand.StdoutPipe()
@@ -670,7 +666,8 @@ func prepareNetworkDriver(c *runtimeTypes.Container) error {
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string) error { // nolint: gocyclo
-	ctx, cancel := context.WithTimeout(parentCtx, prepareTimeout.read())
+	log.WithField("prepareTimeout", prepareTimeout).Info("Preparing container")
+	ctx, cancel := context.WithTimeout(parentCtx, prepareTimeout)
 	defer cancel()
 	var containerCreateBody container.ContainerCreateCreatedBody
 	dockerCreateStartTime := time.Now()
@@ -1070,7 +1067,7 @@ func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountI
 
 // Start runs an already created container. A watcher is created that monitors container state
 func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Container) (string, error) {
-	ctx, cancel := context.WithTimeout(parentCtx, startTimeout.read())
+	ctx, cancel := context.WithTimeout(parentCtx, startTimeout)
 	defer cancel()
 	var err error
 	var listener *net.UnixListener
@@ -1154,7 +1151,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 	}
 	defer shouldClose(userNSFile)
 
-	if enableUserNamespacesFD() {
+	if userNamespaceFDEnabled {
 		baseMountOptions = append(baseMountOptions, "user_ns_fd=4")
 		extraFiles = append(extraFiles, userNSFile)
 	}
@@ -1329,7 +1326,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 
 	err = setupSystemPods(parentCtx, c, cred)
 	if err != nil {
-		log.Warning("Unable to launch metrics pod: ", err)
+		log.Warning("Unable to launch pod: ", err)
 		return err
 	}
 
@@ -1346,12 +1343,9 @@ func setupNetworkingArgs(c *runtimeTypes.Container) []string {
 		"--bandwidth", strconv.Itoa(int(bw)),
 		"--netns", "3",
 	}
-	if burstVal, err := burst.Read().AsBool(); err != nil {
-		log.Error("Unable to determine whether network bursting is enabled: ", err)
-	} else if burstVal || c.TitusInfo.GetAllowNetworkBursting() {
+	if burst {
 		args = append(args, "--burst")
 	}
-
 	return args
 }
 

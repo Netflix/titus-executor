@@ -222,11 +222,11 @@ static struct nl_addr* get_route_prefsrc(int ns_fd, int af, char *dst) {
 	BUG_ON(nlmsg_append(m, &rmsg, sizeof(rmsg), NLMSG_ALIGNTO) < 0, "Unable to create message");
 	BUG_ON(nla_put_addr(m, RTA_DST, dst_addr) < 0, "Unable to create message");
 
+    BUG_ON_PERROR(setns(ns_fd, CLONE_NEWNET), "Unable to switch to Namespace");
+
 	nls = nl_socket_alloc();
 	BUG_ON(!nls, "Could not allocate netlink socket");
 	nl_socket_modify_cb(nls, NL_CB_VALID, NL_CB_CUSTOM, get_route_cb, &cb_arg);
-
-        BUG_ON_PERROR(setns(ns_fd, CLONE_NEWNET), "Unable to switch to Namespace");
 
 	err = nl_connect(nls, NETLINK_ROUTE);
 	BUG_ON(err < 0, "%s: unable to connect netlink route socket", nl_geterror(err));
@@ -250,7 +250,7 @@ err:
 	return cb_arg.pref_src;
 }
 
-static void add_route(int ns_fd, int af, struct nl_addr *src, struct nl_addr *dst, struct nl_addr *gateway, char *interface_name) {
+static int add_route(int ns_fd, int af, struct nl_addr *src, struct nl_addr *dst, struct nl_addr *gateway, char *interface_name) {
 	struct rtnl_link *interface;
 	struct rtnl_route *route;
 	struct rtnl_nexthop *nh;
@@ -291,12 +291,16 @@ static void add_route(int ns_fd, int af, struct nl_addr *src, struct nl_addr *ds
 
 	/* The route now owns the next hop object */
 	err = rtnl_route_add(nls, route, RTM_NEWROUTE | NLM_F_EXCL);
-	BUG_ON(err < 0, "%s: unable to add route", nl_geterror(err));
+	WARN_ON(err < 0, "%s: unable to add route", nl_geterror(err));
 
 	nl_close(nls);
 	nl_socket_free(nls);
 
 	rtnl_route_put(route);
+
+	if (err < 0)
+		return err;
+	return 0;
 }
 
 void do_reexec(char *argv[], int container_pid_ns, int new_ns, int host_ns, struct stat *container_stat) {
@@ -357,23 +361,30 @@ void setup_container_route(int container_ns) {
 			fprintf(stderr, "Using %s as pref src\n", ip);
 			goto add_route;
 		}
-		if (getenv("ENABLE_EC2_LOCAL_IPV4_FALLBACK")) {
-			fprintf(stderr, "Could not resolve route based on pref_src, falling back\n");
-			container_ip = getenv("EC2_LOCAL_IPV4");
-			BUG_ON(!container_ip, "EC2_LOCAL_IPV4 unset, and unable to get default route");
-			BUG_ON(nl_addr_parse(container_ip, AF_INET, &pref_src) < 0, "Error parsing IP: %s", container_ip);
-			goto add_route;
-		}
 		sleep(1);
 	}
 
+    if (getenv("ENABLE_EC2_LOCAL_IPV4_FALLBACK")) {
+		fprintf(stderr, "Could not resolve route based on pref_src, falling back\n");
+		container_ip = getenv("EC2_LOCAL_IPV4");
+		BUG_ON(!container_ip, "EC2_LOCAL_IPV4 unset, and unable to get default route");
+		BUG_ON(nl_addr_parse(container_ip, AF_INET, &pref_src) < 0, "Error parsing IP: %s", container_ip);
+		goto add_route;
+	}
 	fprintf(stderr, "Could not resolv pref src, and ENABLE_EC2_LOCAL_IPV4_FALLBACK not set, exiting\n");
 	exit(1);
 
 add_route:
-	add_route(container_ns, AF_INET, pref_src, metadataip, NULL, IN_CONTAINER_INTERFACE_NAME);
-
-	nl_addr_put(pref_src);
+	/* Sometimes add route has issues if the netns / iface isn't totally up, we should retry */
+    for (i = 0; i < 5; i++) {
+		if (!add_route(container_ns, AF_INET, pref_src, metadataip, NULL, IN_CONTAINER_INTERFACE_NAME)) {
+			nl_addr_put(pref_src);
+			return;
+		}
+		sleep(1);
+	}
+	fprintf(stderr, "Could not add route, exiting\n");
+	exit(1);
 }
 
 int main(int argc, char *argv[]) {

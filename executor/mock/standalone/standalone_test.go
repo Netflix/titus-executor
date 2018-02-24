@@ -12,13 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"io/ioutil"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/mock"
-	"github.com/Netflix/titus-executor/executor/runner"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
+	"gopkg.in/urfave/cli.v1"
 )
 
 var standalone bool
@@ -29,6 +31,10 @@ func init() {
 	}
 	flag.BoolVar(&standalone, "standalone", false, "Enable standalone tests")
 	flag.Parse()
+	app := cli.NewApp()
+	app.Flags = docker.Flags
+	app.Writer = ioutil.Discard
+	_ = app.Run(os.Args)
 }
 
 type testImage struct {
@@ -74,8 +80,6 @@ func TestStandalone(t *testing.T) {
 		testNoCapPtraceByDefault,
 		testCanAddCapabilities,
 		testDefaultCapabilities,
-		testLaunchAfterKill,
-		testLaunchAfterKillDisableLaunchguard,
 		testStdoutGoesToLogFile,
 		testStderrGoesToLogFile,
 		testImageByDigest,
@@ -174,133 +178,6 @@ func testDefaultCapabilities(t *testing.T) {
 	}
 	if !mock.RunJobExpectingSuccess(ji, false) {
 		t.Fail()
-	}
-}
-
-func testLaunchAfterKill(t *testing.T) {
-	// Start the executor
-	jobRunner := mock.NewJobRunner()
-	defer jobRunner.StopExecutorAsync()
-
-	// Submit a job that runs for a long time and does
-	// NOT exit on SIGTERM
-	ji := &mock.JobInput{
-		ImageName:  alpine.name,
-		Version:    alpine.tag,
-		Entrypoint: "sleep 600",
-	}
-	firstJobResponse := jobRunner.StartJob(ji)
-
-	// Wait until the task is running
-	for status := range firstJobResponse.UpdateChan {
-		if status.State.String() == "TASK_RUNNING" {
-			break
-		}
-	}
-
-	// Submit a request to kill the job. Since the
-	// job does not exit on SIGTERM we expect the kill
-	// to take at least 10 seconds.
-	if err := jobRunner.KillTask(); err != nil {
-		t.Fail()
-	}
-
-	// Start another task that should block while the kill is happening
-	// Submit a job that runs for a long time and does
-	// NOT exit on SIGTERM
-	ji = &mock.JobInput{
-		ImageName:  alpine.name,
-		Version:    alpine.tag,
-		Entrypoint: "sleep 6",
-	}
-	secondJobResponse := jobRunner.StartJob(ji)
-
-	for {
-		select {
-		case firstStatus := <-firstJobResponse.UpdateChan:
-			if firstStatus.State.String() != "TASK_KILLED" {
-				t.Fatal("First status did not end up in killed state: ", firstStatus)
-			}
-		case secondStatus := <-secondJobResponse.UpdateChan:
-			if mock.IsTerminalState(secondStatus.State) {
-				if secondStatus.State.String() != "TASK_FINISHED" {
-					t.Fatal("Second task ended up in terminal state: ", secondStatus)
-				}
-				return
-			}
-		}
-	}
-}
-
-func testLaunchAfterKillDisableLaunchguard(t *testing.T) {
-	// Start the executor
-	jobRunner := mock.NewJobRunner()
-	defer jobRunner.StopExecutorAsync()
-
-	// Submit a job that runs for 120s and does
-	// NOT exit on SIGTERM
-	ji := &mock.JobInput{
-		ImageName:         ignoreSignals.name,
-		Version:           ignoreSignals.tag,
-		IgnoreLaunchGuard: true,
-		KillWaitSeconds:   30,
-	}
-	firstJobResponse := jobRunner.StartJob(ji)
-
-	// Wait until the task is running
-	firstJobResponse.ListenForRunning()
-
-	// The bash script inside of the container needs to run, and setup traps before we send the kill signal
-	time.Sleep(5 * time.Second)
-
-	// Submit a request to kill the job. Since the
-	// job does not exit on SIGTERM we expect the kill
-	// to take at least 30 seconds.
-	if err := jobRunner.KillTask(); err != nil {
-		t.Fail()
-	}
-
-	// Start another task that should not block while the kill is happening
-	ji = &mock.JobInput{
-		ImageName:         alpine.name,
-		Version:           alpine.tag,
-		Entrypoint:        "sleep 6",
-		IgnoreLaunchGuard: true,
-	}
-	secondJobResponse := jobRunner.StartJob(ji)
-	waitForJobs(t, firstJobResponse, secondJobResponse)
-}
-
-func waitForJobs(t *testing.T, firstJobResponse, secondJobResponse *mock.JobRunResponse) {
-	var job1terminal, job2terminal bool
-	var job1terminalTime, job2startTime time.Time
-	statuses := []runner.Update{}
-
-	for !(job1terminal && job2terminal) {
-		select {
-		case status := <-firstJobResponse.UpdateChan:
-			statuses = append(statuses, status)
-			if mock.IsTerminalState(status.State) {
-				assert.Equal(t, "TASK_KILLED", status.State.String())
-				job1terminal = true
-				job1terminalTime = time.Now()
-			}
-		case status := <-secondJobResponse.UpdateChan:
-			statuses = append(statuses, status)
-			if mock.IsTerminalState(status.State) {
-				job2terminal = true
-			} else if status.State.String() == "TASK_RUNNING" {
-				job2startTime = time.Now()
-			}
-		}
-	}
-	// Test that:
-	// 1. we saw no launchguard messages
-	// 2. that job2 started before job1 was killed
-	t.Log("Execution history ", statuses)
-	assert.True(t, job2startTime.Before(job1terminalTime))
-	for _, status := range statuses {
-		assert.NotEqual(t, runner.WaitingOnLaunchguardMessage, status.Mesg)
 	}
 }
 
@@ -430,24 +307,11 @@ func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 	if err := jobRunner.KillTask(); err != nil {
 		t.Fatal("Could not stop task: ", err)
 	}
-	smallImageJobID := fmt.Sprintf("alpine-%v%v", rand.Intn(1000), time.Now().Second())
-	c := make(chan *mock.JobRunResponse, 1)
-	go func() {
-		defer close(c)
-		c <- jobRunner.StartJob(&mock.JobInput{
-			JobID:      smallImageJobID,
-			ImageName:  alpine.name,
-			Version:    alpine.tag,
-			Entrypoint: "/bin/sleep 5",
-		})
-		t.Log("Starting small container")
-	}()
-
 	timeOut := time.After(30 * time.Second)
 	for {
 		select {
 		case taskStatus := <-testResultBigImage.UpdateChan:
-			t.Log("Observed task status: ", taskStatus)
+			//		t.Log("Observed task status: ", taskStatus)
 			if taskStatus.State.String() == "TASK_RUNNING" {
 				t.Fatalf("Task %s started after killTask %v", testResultBigImage.TaskID, taskStatus)
 			}
@@ -460,9 +324,6 @@ func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 		}
 	}
 big_task_killed:
-	t.Log("Big Image successfully stopped, trying to start follow-on job")
-
-	t.Log("Test completed, shutting down")
 	// We do this here, otherwise  a stuck executor can prevent this from exiting.
 	jobRunner.StopExecutor()
 }
