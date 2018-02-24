@@ -74,7 +74,7 @@ type Runner struct { // nolint: maligned
 	killChan    chan struct{}
 	StoppedChan chan struct{}
 	UpdatesChan chan Update
-	lastStatus  titusdriver.TitusTaskState
+all	lastStatus  titusdriver.TitusTaskState
 }
 
 // RuntimeProvider is a factory function for runtime implementations. It is called only once by WithRuntime

@@ -184,7 +184,7 @@ func (driver *TitusMesosDriver) LaunchTask(exec mesosExecutor.ExecutorDriver, ta
 
 // KillTask kills a running task
 func (driver *TitusMesosDriver) KillTask(exec mesosExecutor.ExecutorDriver, taskID *mesosproto.TaskID) {
-	time.AfterFunc(10 * time.Minute, func() {
+	time.AfterFunc(10*time.Minute, func() {
 		log.Error("Executor is performing emergency termination after task kill")
 		time.Sleep(1 * time.Second)
 		os.Exit(1)
@@ -200,7 +200,7 @@ func (driver *TitusMesosDriver) FrameworkMessage(exec mesosExecutor.ExecutorDriv
 // Shutdown shuts the running executor down. All running tasks will be killed.
 func (driver *TitusMesosDriver) Shutdown(exec mesosExecutor.ExecutorDriver) {
 	log.Printf("Shutting down Mesos driver")
-	time.AfterFunc(10 * time.Minute, func() {
+	time.AfterFunc(10*time.Minute, func() {
 		log.Error("Executor is performing emergency termination after shutdown")
 		time.Sleep(1 * time.Second)
 		os.Exit(1)
