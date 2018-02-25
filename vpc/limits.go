@@ -27,7 +27,7 @@ var interfaceLimits = map[string]map[string]limits{
 			ip6AddressesPerInterface: 15,
 			networkThroughput:        1000,
 		},
-		"2large": limits{
+		"2xlarge": limits{
 			interfaces:               4,
 			ipAddressesPerInterface:  15,
 			ip6AddressesPerInterface: 15,
@@ -53,6 +53,45 @@ var interfaceLimits = map[string]map[string]limits{
 			networkThroughput:        23000,
 		},
 	},
+	"m5": {
+		"large": limits{
+			interfaces:               3,
+			ipAddressesPerInterface:  10,
+			ip6AddressesPerInterface: 10,
+			networkThroughput:        100,
+		},
+		"xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  15,
+			ip6AddressesPerInterface: 15,
+			networkThroughput:        1000,
+		},
+		"2xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  15,
+			ip6AddressesPerInterface: 15,
+			networkThroughput:        1000,
+		},
+		"4xlarge": limits{
+			interfaces:               8,
+			ipAddressesPerInterface:  30,
+			ip6AddressesPerInterface: 30,
+			networkThroughput:        2000,
+		},
+		"12xlarge": limits{
+			interfaces:               8,
+			ipAddressesPerInterface:  30,
+			ip6AddressesPerInterface: 30,
+			// Is this number correct?
+			networkThroughput: 10000,
+		},
+		"24xlarge": limits{
+			interfaces:               15,
+			ipAddressesPerInterface:  30,
+			ip6AddressesPerInterface: 50,
+			networkThroughput:        23000,
+		},
+	},
 	"r4": {
 		"large": limits{
 			interfaces:               3,
@@ -66,7 +105,7 @@ var interfaceLimits = map[string]map[string]limits{
 			ip6AddressesPerInterface: 15,
 			networkThroughput:        1000,
 		},
-		"2large": limits{
+		"2xlarge": limits{
 			interfaces:               4,
 			ipAddressesPerInterface:  15,
 			ip6AddressesPerInterface: 15,
@@ -142,12 +181,12 @@ func GetMaxIPv4Addresses(instanceType string) int {
 	return getLimits(instanceType).ipAddressesPerInterface
 }
 
-// getMaxNetworkMbps returns the maximum network throughput in Megabits per second that this instance type can handle
-func getMaxNetworkMbps(instanceType string) int {
+// GetMaxNetworkMbps returns the maximum network throughput in Megabits per second that this instance type can handle
+func GetMaxNetworkMbps(instanceType string) int {
 	return getLimits(instanceType).networkThroughput
 }
 
 // GetMaxNetworkbps returns the maximum network throughput in bits per second that this instance type can handle
 func GetMaxNetworkbps(instanceType string) uint64 {
-	return uint64(getMaxNetworkMbps(instanceType)) * 1000 * 1000
+	return uint64(GetMaxNetworkMbps(instanceType)) * 1000 * 1000
 }

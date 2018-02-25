@@ -7,6 +7,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/allocate"
 	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/Netflix/titus-executor/vpc/gc"
+	"github.com/Netflix/titus-executor/vpc/genconf"
 	"github.com/Netflix/titus-executor/vpc/globalgc"
 	"github.com/Netflix/titus-executor/vpc/setup"
 	"gopkg.in/urfave/cli.v1"
@@ -40,6 +41,7 @@ func main() {
 		gc.GC,
 		allocate.SetupContainer,
 		globalgc.GlobalGC,
+		genconf.GenConf,
 	}
 
 	// This is here because logs are buffered, and it's a way to try to guarantee that logs
