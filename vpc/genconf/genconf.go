@@ -43,7 +43,8 @@ func doGenConf(parentCtx *context.VPCContext) error {
 	maxInterfaces := vpc.GetMaxInterfaces(parentCtx.InstanceType)
 	maxIPs := vpc.GetMaxIPv4Addresses(parentCtx.InstanceType)
 	maxNetworkMbps := vpc.GetMaxNetworkMbps(parentCtx.InstanceType)
-	resourceSet := fmt.Sprintf("ResourceSet-ENIs-%d-%d", maxInterfaces, maxIPs)
+	// The number of interfaces exposed to the Titus scheduler is the maximum number of interfaces this instance can handle minus 1.
+	resourceSet := fmt.Sprintf("ResourceSet-ENIs-%d-%d", maxInterfaces-1, maxIPs)
 	if resourceSetOnly {
 		fmt.Println(resourceSet)
 		return nil
