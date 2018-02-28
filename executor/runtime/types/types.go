@@ -150,6 +150,13 @@ func (c *Container) GetEntrypointFromProto() ([]string, error) {
 	return cmd, nil
 }
 
+// NestedContainersEnabled returns whether or not this container should allow
+// internal containers and delegate certain privileges
+func (c *Container) NestedContainersEnabled() bool {
+	// TODO(sargun): Make this based on the protobuf
+	return true
+}
+
 // Resources specify constraints to be applied to a Container
 type Resources struct {
 	Mem       int64 // in MiB
