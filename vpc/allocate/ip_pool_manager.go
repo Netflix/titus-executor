@@ -29,32 +29,32 @@ func NewIPPoolManager(networkInterface *ec2wrapper.EC2NetworkInterface) *IPPoolM
 	return &IPPoolManager{networkInterface: networkInterface}
 }
 
-func (mgr *IPPoolManager) lockConfiguration(parentCtx *context.VPCContext) (*fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) lockConfiguration(parentCtx context.VPCContext) (*fslocker.ExclusiveLock, error) {
 	timeout := time.Minute
 	path := filepath.Join(mgr.networkInterface.LockPath(), "ip-config")
-	parentCtx.Logger.Debug("Taking exclusive lock for interface reconfiguration: ", path)
-	return parentCtx.FSLocker.ExclusiveLock(path, &timeout)
+	parentCtx.Logger().Debug("Taking exclusive lock for interface reconfiguration: ", path)
+	return parentCtx.FSLocker().ExclusiveLock(path, &timeout)
 }
 
-func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) error {
-	if len(mgr.networkInterface.IPv4Addresses) >= vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
+func (mgr *IPPoolManager) assignMoreIPs(ctx context.VPCContext, batchSize int) error {
+	if len(mgr.networkInterface.IPv4Addresses) >= vpc.GetMaxIPv4Addresses(ctx.InstanceType()) {
 		return errMaxIPAddressesAllocated
 	}
 
-	if len(mgr.networkInterface.IPv4Addresses)+batchSize > vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
-		batchSize = vpc.GetMaxIPv4Addresses(ctx.InstanceType) - len(mgr.networkInterface.IPv4Addresses)
+	if len(mgr.networkInterface.IPv4Addresses)+batchSize > vpc.GetMaxIPv4Addresses(ctx.InstanceType()) {
+		batchSize = vpc.GetMaxIPv4Addresses(ctx.InstanceType()) - len(mgr.networkInterface.IPv4Addresses)
 	}
 
-	ctx.Logger.Info("Unable to allocate, no IP addresses available, allocating new IPs")
+	ctx.Logger().Info("Unable to allocate, no IP addresses available, allocating new IPs")
 
 	// We failed to lock an IP address, let's retry.
 	assignPrivateIPAddressesInput := &ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId:             aws.String(mgr.networkInterface.InterfaceID),
 		SecondaryPrivateIpAddressCount: aws.Int64(int64(batchSize)),
 	}
-	_, err := ec2.New(ctx.AWSSession).AssignPrivateIpAddresses(assignPrivateIPAddressesInput)
+	_, err := ec2.New(ctx).AssignPrivateIpAddresses(assignPrivateIPAddressesInput)
 	if err != nil {
-		ctx.Logger.Warning("Unable to assign IPs from AWS: ", err)
+		ctx.Logger().Warning("Unable to assign IPs from AWS: ", err)
 		return err
 	}
 
@@ -71,21 +71,21 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) 
 		time.Sleep(time.Second)
 	}
 
-	ctx.Logger.Warning("Refreshed allocations seconds failed")
+	ctx.Logger().Warning("Refreshed allocations seconds failed")
 	return errIPRefreshFailed
 }
 
-func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int) (string, *fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) allocate(ctx context.VPCContext, batchSize int) (string, *fslocker.ExclusiveLock, error) {
 	configLock, err := mgr.lockConfiguration(ctx)
 	if err != nil {
-		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
+		ctx.Logger().Warning("Unable to get lock during allocation: ", err)
 		return "", nil, err
 	}
 	defer configLock.Unlock()
 
 	err = mgr.networkInterface.Refresh()
 	if err != nil {
-		ctx.Logger.Warning("Unable to refresh interface before attempting to do allocate: ", err)
+		ctx.Logger().Warning("Unable to refresh interface before attempting to do allocate: ", err)
 		return "", nil, err
 	}
 
@@ -93,14 +93,14 @@ func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int) (stri
 	// Did we successfully get an IP, or was there an error?
 	if err != nil || lock != nil {
 		if err != nil {
-			ctx.Logger.Warning("Unable to allocate IP: ", err)
+			ctx.Logger().Warning("Unable to allocate IP: ", err)
 		}
 		return ip, lock, err
 	}
 
 	err = mgr.assignMoreIPs(ctx, batchSize)
 	if err != nil {
-		ctx.Logger.Warning("Unable assign more IPs: ", err)
+		ctx.Logger().Warning("Unable assign more IPs: ", err)
 		return "", nil, err
 	}
 
@@ -108,13 +108,13 @@ func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int) (stri
 
 }
 
-func (mgr *IPPoolManager) doAllocate(ctx *context.VPCContext) (string, *fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) doAllocate(ctx context.VPCContext) (string, *fslocker.ExclusiveLock, error) {
 	// Let's see if we can lease a free IP address?
 	// Try locking the primary IP address first (always)
 	for _, ipAddress := range mgr.networkInterface.IPv4Addresses {
 		lock, err := mgr.tryAllocate(ctx, ipAddress)
 		if err != nil {
-			ctx.Logger.Warning("Unable to do allocation: ", err)
+			ctx.Logger().Warning("Unable to do allocation: ", err)
 			return "", nil, err
 		}
 		if lock != nil {
@@ -133,12 +133,12 @@ func (mgr *IPPoolManager) ipAddressPath(ip string) string {
 	return filepath.Join(mgr.ipAddressesPath(), ip)
 }
 
-func (mgr *IPPoolManager) tryAllocate(ctx *context.VPCContext, ipAddress string) (*fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) tryAllocate(ctx context.VPCContext, ipAddress string) (*fslocker.ExclusiveLock, error) {
 	var noTimeout time.Duration
 	ipAddressPath := mgr.ipAddressPath(ipAddress)
 
 	// Non-blocking lock
-	lock, err := ctx.FSLocker.ExclusiveLock(ipAddressPath, &noTimeout)
+	lock, err := ctx.FSLocker().ExclusiveLock(ipAddressPath, &noTimeout)
 	if err != nil && err != unix.EWOULDBLOCK {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (mgr *IPPoolManager) tryAllocate(ctx *context.VPCContext, ipAddress string)
 	return lock, nil
 }
 
-func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod time.Duration) (fileRemovalList, deallocationList []string, checkIPs map[string]struct{}, retErr error) {
+func (mgr *IPPoolManager) firstPass(parentCtx context.VPCContext, gracePeriod time.Duration) (fileRemovalList, deallocationList []string, checkIPs map[string]struct{}, retErr error) {
 	timeout := 0 * time.Second
 	checkIPs = make(map[string]struct{})
 
@@ -155,14 +155,14 @@ func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod t
 		currentlyAssignedIPs[ip] = struct{}{}
 	}
 
-	records, err := parentCtx.FSLocker.ListFiles(mgr.ipAddressesPath())
+	records, err := parentCtx.FSLocker().ListFiles(mgr.ipAddressesPath())
 	if err != nil {
 		retErr = err
 		return
 	}
 
 	for _, record := range records {
-		logEntry := parentCtx.Logger.WithField("ip", record.Name)
+		logEntry := parentCtx.Logger().WithField("ip", record.Name)
 
 		checkIPs[record.Name] = struct{}{}
 		// Checks:
@@ -178,7 +178,7 @@ func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod t
 		}
 
 		// 3. Is this IP address in use (can I get an exclusive lock)
-		ipAddrLock, err := parentCtx.FSLocker.ExclusiveLock(filepath.Join(mgr.ipAddressesPath(), record.Name), &timeout)
+		ipAddrLock, err := parentCtx.FSLocker().ExclusiveLock(filepath.Join(mgr.ipAddressesPath(), record.Name), &timeout)
 		// Seems like this address is in use
 		if err == unix.EWOULDBLOCK {
 			logEntry.Debug("File currently locked")
@@ -200,7 +200,7 @@ func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod t
 }
 
 // DoGc triggers GC for this IP Pool Manager.
-func (mgr *IPPoolManager) DoGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
+func (mgr *IPPoolManager) DoGc(parentCtx context.VPCContext, gracePeriod time.Duration) error {
 	timeout := 0 * time.Second
 	lock, err := mgr.lockConfiguration(parentCtx)
 	if err != nil {
@@ -215,13 +215,13 @@ func (mgr *IPPoolManager) DoGc(parentCtx *context.VPCContext, gracePeriod time.D
 	// If an IP has never been used, IMHO, we should create a record for it, and then the next GC cycle, if it hasn't been
 	// used, then we can blow it away
 	for _, ip := range mgr.networkInterface.IPv4Addresses {
-		logEntry := parentCtx.Logger.WithField("ip", ip)
+		logEntry := parentCtx.Logger().WithField("ip", ip)
 
 		if _, ok := checkIPs[ip]; ok {
 			continue
 		}
 		logEntry.Debug("Allocating recording record")
-		ipAddrLock, err := parentCtx.FSLocker.ExclusiveLock(filepath.Join(mgr.ipAddressesPath(), ip), &timeout)
+		ipAddrLock, err := parentCtx.FSLocker().ExclusiveLock(filepath.Join(mgr.ipAddressesPath(), ip), &timeout)
 		if err == unix.EWOULDBLOCK {
 			logEntry.Warning("File currently locked, this should never happen in pass-two")
 			continue
@@ -241,11 +241,11 @@ func (mgr *IPPoolManager) DoGc(parentCtx *context.VPCContext, gracePeriod time.D
 	return mgr.finishGC(parentCtx, fileRemovalList, deallocationList)
 }
 
-func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, deallocationList []string) bool {
+func (mgr *IPPoolManager) ipsFreed(parentCtx context.VPCContext, oldIPList, deallocationList []string) bool {
 	for i := 0; i < 30; i++ {
 		err := mgr.networkInterface.Refresh()
 		if err != nil {
-			parentCtx.Logger.Error("Could not refresh IPs: ", err)
+			parentCtx.Logger().Error("Could not refresh IPs: ", err)
 		} else {
 			allocMap := make(map[string]struct{})
 			for _, ip := range mgr.networkInterface.IPv4Addresses {
@@ -259,7 +259,7 @@ func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, dea
 				}
 			}
 			if missingIPs > 0 {
-				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", missingIPs, len(deallocationList))
+				parentCtx.Logger().Infof("%d IPs successfully freed; intended to free: %d", missingIPs, len(deallocationList))
 				return true
 			}
 		}
@@ -268,27 +268,27 @@ func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, dea
 	return false
 }
 
-func (mgr *IPPoolManager) finishGC(parentCtx *context.VPCContext, fileRemovalList, deallocationList []string) error {
+func (mgr *IPPoolManager) finishGC(parentCtx context.VPCContext, fileRemovalList, deallocationList []string) error {
 	// Prioritize giving IPs back to Amazon
 	oldIPList := mgr.networkInterface.IPv4Addresses
 	if len(deallocationList) > 0 {
-		parentCtx.Logger.Info("Deallocating Ip addresses: ", deallocationList)
+		parentCtx.Logger().Info("Deallocating Ip addresses: ", deallocationList)
 		unassignPrivateIPAddressesInput := &ec2.UnassignPrivateIpAddressesInput{
 			PrivateIpAddresses: aws.StringSlice(deallocationList),
 			NetworkInterfaceId: aws.String(mgr.networkInterface.InterfaceID),
 		}
 
-		if _, err := ec2.New(parentCtx.AWSSession).UnassignPrivateIpAddressesWithContext(parentCtx, unassignPrivateIPAddressesInput); err != nil {
+		if _, err := ec2.New(parentCtx).UnassignPrivateIpAddressesWithContext(parentCtx, unassignPrivateIPAddressesInput); err != nil {
 			return err
 		}
 
 		if !mgr.ipsFreed(parentCtx, oldIPList, deallocationList) {
-			parentCtx.Logger.Warning("IP Refresh failed on GC")
+			parentCtx.Logger().Warning("IP Refresh failed on GC")
 		}
 	}
 
 	for _, ip := range fileRemovalList {
-		if err := parentCtx.FSLocker.RemovePath(filepath.Join(mgr.ipAddressesPath(), ip)); err != nil {
+		if err := parentCtx.FSLocker().RemovePath(filepath.Join(mgr.ipAddressesPath(), ip)); err != nil {
 			return err
 		}
 	}

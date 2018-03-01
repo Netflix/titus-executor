@@ -8,9 +8,9 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func doSetupContainer(parentCtx *context.VPCContext, netnsfd, bandwidth int, burst bool, allocation types.Allocation) (netlink.Link, error) {
+func doSetupContainer(parentCtx context.VPCContext, netnsfd, bandwidth int, burst bool, allocation types.Allocation) (netlink.Link, error) {
 	return nil, types.ErrUnsupported
 }
 
-func teardownNetwork(ctx *context.VPCContext, allocation types.Allocation, link netlink.Link, netnsfd int) {
+func teardownNetwork(ctx context.VPCContext, allocation types.Allocation, link netlink.Link, netnsfd int) {
 }

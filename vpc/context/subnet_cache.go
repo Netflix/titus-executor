@@ -36,14 +36,14 @@ func newSubnetCache(fslocker *fslocker.FSLocker, statePath string) *SubnetCache 
 }
 
 // DescribeSubnet fetches the subnet from cache, or EC2, and automatically persists it to the persistent cache
-func (sc *SubnetCache) DescribeSubnet(parentCtx *VPCContext, subnetid string) (*ec2.Subnet, error) {
+func (sc *SubnetCache) DescribeSubnet(parentCtx VPCContext, subnetid string) (*ec2.Subnet, error) {
 	timeout := 30 * time.Second
 	ctx, cancel := parentCtx.WithField("subnetid", subnetid).WithTimeout(30 * time.Second)
 	defer cancel()
 	lockPath := fmt.Sprintf("subnets/%s", subnetid)
 	exclusiveLock, err := sc.fslocker.ExclusiveLock(lockPath, &timeout)
 	if err != nil {
-		ctx.Logger.Warning("Subnet cache unable to retrieve subnet information")
+		ctx.Logger().Warning("Subnet cache unable to retrieve subnet information")
 		return nil, err
 	}
 	defer exclusiveLock.Unlock()
@@ -53,12 +53,12 @@ func (sc *SubnetCache) DescribeSubnet(parentCtx *VPCContext, subnetid string) (*
 		return nil, err
 	}
 	if subnet != nil {
-		ctx.Logger.Info("Subnet successfully loaded from cache")
+		ctx.Logger().Info("Subnet successfully loaded from cache")
 		return subnet, err
 	}
 	subnet, err = sc.fetchFromEC2(ctx, subnetid)
 	if err != nil {
-		ctx.Logger.Info("Subnet successfully loaded from EC2")
+		ctx.Logger().Info("Subnet successfully loaded from EC2")
 		return nil, err
 	}
 	sc.persistToCache(ctx, *subnet)
@@ -66,7 +66,7 @@ func (sc *SubnetCache) DescribeSubnet(parentCtx *VPCContext, subnetid string) (*
 	return subnet, nil
 }
 
-func (sc *SubnetCache) fetchFromCache(ctx *VPCContext, subnetid string) (*ec2.Subnet, error) {
+func (sc *SubnetCache) fetchFromCache(ctx VPCContext, subnetid string) (*ec2.Subnet, error) {
 	path := filepath.Join(sc.stateDir, subnetid)
 	bytes, err := ioutil.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -85,11 +85,11 @@ func (sc *SubnetCache) fetchFromCache(ctx *VPCContext, subnetid string) (*ec2.Su
 	return &subnet, nil
 }
 
-func (sc *SubnetCache) fetchFromEC2(ctx *VPCContext, subnetid string) (*ec2.Subnet, error) {
+func (sc *SubnetCache) fetchFromEC2(ctx VPCContext, subnetid string) (*ec2.Subnet, error) {
 	describeSubnetsInput := &ec2.DescribeSubnetsInput{
 		SubnetIds: []*string{aws.String(subnetid)},
 	}
-	subnetOutput, err := ec2.New(ctx.AWSSession).DescribeSubnetsWithContext(ctx, describeSubnetsInput)
+	subnetOutput, err := ec2.New(ctx).DescribeSubnetsWithContext(ctx, describeSubnetsInput)
 	if err != nil {
 		return nil, err
 	}
@@ -104,9 +104,9 @@ func (sc *SubnetCache) fetchFromEC2(ctx *VPCContext, subnetid string) (*ec2.Subn
 	return subnet, nil
 }
 
-func (sc *SubnetCache) persistToCache(ctx *VPCContext, subnet ec2.Subnet) {
+func (sc *SubnetCache) persistToCache(ctx VPCContext, subnet ec2.Subnet) {
 	if *subnet.State != "available" {
-		ctx.Logger.Warning("Not persisting subnet because not available")
+		ctx.Logger().Warning("Not persisting subnet because not available")
 		return
 	}
 
@@ -114,15 +114,15 @@ func (sc *SubnetCache) persistToCache(ctx *VPCContext, subnet ec2.Subnet) {
 	path := filepath.Join(sc.stateDir, *subnet.SubnetId)
 	bytes, err := json.Marshal(subnet)
 	if err != nil {
-		ctx.Logger.Error("Unable to marshal subnet for caching: ", err)
+		ctx.Logger().Error("Unable to marshal subnet for caching: ", err)
 		return
 	}
 	err = atomicWriteOnce(path, bytes)
 	if err != nil {
-		ctx.Logger.Error("Unable to write subnet data: ", err)
+		ctx.Logger().Error("Unable to write subnet data: ", err)
 		return
 	}
-	ctx.Logger.Info("Subnet successfully persisted to cache")
+	ctx.Logger().Info("Subnet successfully persisted to cache")
 }
 
 func shouldClose(closer io.Closer) {

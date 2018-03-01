@@ -34,12 +34,12 @@ var GlobalGC = cli.Command{ // nolint: golint
 	},
 }
 
-func globalGc(parentCtx *context.VPCContext) error {
-	timeout := parentCtx.CLIContext.Duration("timeout")
+func globalGc(parentCtx context.VPCContextWithCLI) error {
+	timeout := parentCtx.CLIContext().Duration("timeout")
 	ctx, cancel := parentCtx.WithTimeout(timeout)
 	defer cancel()
 
-	minDetachTime := parentCtx.CLIContext.Duration("detach-time")
+	minDetachTime := parentCtx.CLIContext().Duration("detach-time")
 
 	if err := doGlobalGc(ctx, minDetachTime); err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to run GC", 1), err)
@@ -48,8 +48,8 @@ func globalGc(parentCtx *context.VPCContext) error {
 	return nil
 }
 
-func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) error {
-	ec2Client := ec2.New(parentCtx.AWSSession)
+func doGlobalGc(parentCtx context.VPCContext, minDetachTime time.Duration) error {
+	ec2Client := ec2.New(parentCtx)
 
 	describeAvailableRequest := &ec2.DescribeNetworkInterfacesInput{
 		Filters: []*ec2.Filter{
@@ -72,7 +72,7 @@ func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) erro
 	now := time.Now()
 	// Get the candidates, and selected
 	candidates, selected := markAndCollect(parentCtx, networkInterfaces, minDetachTime, now)
-	parentCtx.Logger.Info("Going to GC: ", selected)
+	parentCtx.Logger().Info("Going to GC: ", selected)
 	// Delete the selected
 	err = deleteSelected(parentCtx, selected)
 	if err != nil {
@@ -112,7 +112,7 @@ func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) erro
 
 	attachedInterfaces := extractNetworkInterfaces(markedNetworkInterfaces)
 	if len(attachedInterfaces) > 0 {
-		parentCtx.Logger.Info("Removing gc mark from interfaces: ", attachedInterfaces)
+		parentCtx.Logger().Info("Removing gc mark from interfaces: ", attachedInterfaces)
 		deleteTagsInput := &ec2.DeleteTagsInput{
 			Resources: attachedInterfaces,
 			Tags: []*ec2.Tag{
@@ -131,12 +131,12 @@ func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) erro
 	return nil
 }
 
-func doMark(parentCtx *context.VPCContext, candidates []string, now time.Time, ec2Client *ec2.EC2) error {
+func doMark(parentCtx context.VPCContext, candidates []string, now time.Time, ec2Client *ec2.EC2) error {
 	// Split it up into chunks of 10
 	for i := 0; i*10 < len(candidates); i++ {
 		pageBegin := i * 10
 		pageEnd := min(len(candidates), (i+1)*10)
-		parentCtx.Logger.Info("Marking candidates: ", candidates[pageBegin:pageEnd])
+		parentCtx.Logger().Info("Marking candidates: ", candidates[pageBegin:pageEnd])
 		createTagsInput := &ec2.CreateTagsInput{
 			Resources: aws.StringSlice(candidates[pageBegin:pageEnd]),
 			Tags: []*ec2.Tag{
@@ -150,7 +150,7 @@ func doMark(parentCtx *context.VPCContext, candidates []string, now time.Time, e
 		// Is this an actual fatal error?
 		if awsErr, ok := err.(awserr.Error); ok {
 			if awsErr.Code() == "InvalidNetworkInterfaceID.NotFound" {
-				parentCtx.Logger.Warning("Unable to process batch because: ", err)
+				parentCtx.Logger().Warning("Unable to process batch because: ", err)
 			} else {
 				return err
 			}
@@ -169,7 +169,7 @@ func extractNetworkInterfaces(networkInterfaces *ec2.DescribeNetworkInterfacesOu
 }
 
 // Returns ENI IDs that match the criteria to be GCd, and marks ENIs which could be elected for the next generation of GC
-func markAndCollect(parentCtx *context.VPCContext, networkInterfaces *ec2.DescribeNetworkInterfacesOutput, minDetachTime time.Duration, now time.Time) ([]string, []string) {
+func markAndCollect(parentCtx context.VPCContext, networkInterfaces *ec2.DescribeNetworkInterfacesOutput, minDetachTime time.Duration, now time.Time) ([]string, []string) {
 	candidates := []string{}
 	selected := []string{}
 
@@ -186,13 +186,13 @@ func markAndCollect(parentCtx *context.VPCContext, networkInterfaces *ec2.Descri
 			markTimestamp, err := time.Parse(time.RFC3339, *markTagValue)
 			if err != nil {
 				// This shouldn't happen.
-				parentCtx.Logger.Error("Unable to parse marktimestamp: ", markTagValue)
+				parentCtx.Logger().Error("Unable to parse marktimestamp: ", markTagValue)
 			} else if now.Sub(markTimestamp) > minDetachTime {
-				parentCtx.Logger.Debug("Marking interface as selected: ", *iface)
+				parentCtx.Logger().Debug("Marking interface as selected: ", *iface)
 				selected = append(selected, *iface.NetworkInterfaceId)
 			}
 		} else {
-			parentCtx.Logger.Debug("Marking interface as candidate: ", *iface)
+			parentCtx.Logger().Debug("Marking interface as candidate: ", *iface)
 			candidates = append(candidates, *iface.NetworkInterfaceId)
 		}
 	}
@@ -212,19 +212,19 @@ func tagSetToMap(tagSet []*ec2.Tag) map[string]*string {
 	return ret
 }
 
-func deleteSelected(parentCtx *context.VPCContext, selected []string) error {
-	ec2Client := ec2.New(parentCtx.AWSSession)
+func deleteSelected(parentCtx context.VPCContext, selected []string) error {
+	ec2Client := ec2.New(parentCtx)
 	for _, iface := range selected {
 		ctx := parentCtx.WithField("iface", iface)
 		deleteNetworkInterfaceInput := &ec2.DeleteNetworkInterfaceInput{
 			NetworkInterfaceId: aws.String(iface),
 		}
-		ctx.Logger.Debug("Deleting interface")
+		ctx.Logger().Debug("Deleting interface")
 		_, err := ec2Client.DeleteNetworkInterfaceWithContext(ctx, deleteNetworkInterfaceInput)
 		if err != nil {
 			return err
 		}
-		ctx.Logger.Debug("Deleted interface")
+		ctx.Logger().Debug("Deleted interface")
 	}
 	return nil
 }

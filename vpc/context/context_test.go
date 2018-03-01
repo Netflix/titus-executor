@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newTestContext() *VPCContext {
+func newTestContext() VPCContext {
 	logger := logrus.New()
 	logger.Level = logrus.DebugLevel
 
-	return &VPCContext{
+	return &vpcContext{
 		Context: context.Background(),
-		Logger:  logrus.NewEntry(logger),
+		logger:  logrus.NewEntry(logger),
 	}
 
 }

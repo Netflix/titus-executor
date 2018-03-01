@@ -26,9 +26,9 @@ var Setup = cli.Command{ // nolint: golint
 	Action: context.WrapFunc(setup),
 }
 
-func setup(parentCtx *context.VPCContext) error {
+func setup(parentCtx context.VPCContextWithCLI) error {
 	lockTimeout := time.Second
-	exclusiveLock, err := parentCtx.FSLocker.ExclusiveLock("setup", &lockTimeout)
+	exclusiveLock, err := parentCtx.FSLocker().ExclusiveLock("setup", &lockTimeout)
 	if err != nil {
 		return err
 	}
@@ -57,17 +57,17 @@ func setup(parentCtx *context.VPCContext) error {
 }
 
 // TODO: Wrap in CLI errrors
-func setupInterfaces(ctx *context.VPCContext) error {
-	allInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces()
+func setupInterfaces(ctx context.VPCContext) error {
+	allInterfaces, err := ctx.EC2metadataClientWrapper().Interfaces()
 	if err != nil {
 		return err
 	}
 
 	// We're "setup" here, go on
-	if vpc.GetMaxInterfaces(ctx.InstanceType) == len(allInterfaces) {
+	if vpc.GetMaxInterfaces(ctx.InstanceType()) == len(allInterfaces) {
 		return nil
 	}
-	ctx.Logger.Infof("%d interfaces missing, adding them", vpc.GetMaxInterfaces(ctx.InstanceType)-len(allInterfaces))
+	ctx.Logger().Infof("%d interfaces missing, adding them", vpc.GetMaxInterfaces(ctx.InstanceType())-len(allInterfaces))
 
 	interfaceByIdx := make(map[int]ec2wrapper.EC2NetworkInterface)
 
@@ -75,23 +75,23 @@ func setupInterfaces(ctx *context.VPCContext) error {
 		interfaceByIdx[networkInterface.DeviceNumber] = networkInterface
 	}
 
-	defaultMac, err := ctx.EC2metadataClientWrapper.PrimaryInterfaceMac()
+	defaultMac, err := ctx.EC2metadataClientWrapper().PrimaryInterfaceMac()
 	if err != nil {
 		return err
 	}
 	defaultInterface, ok := allInterfaces[defaultMac]
 	if !ok {
-		ctx.Logger.Warning("Unable to find default interface")
+		ctx.Logger().Warning("Unable to find default interface")
 		return errors.New("Unable to find default interface")
 	}
 	subnetID := defaultInterface.SubnetID
 
 	// Ignore interface device index 0 -- that's always the default network adapter
-	for i := 1; i < vpc.GetMaxInterfaces(ctx.InstanceType); i++ {
+	for i := 1; i < vpc.GetMaxInterfaces(ctx.InstanceType()); i++ {
 		if _, ok := interfaceByIdx[i]; !ok {
-			err = attachInterfaceAtIdx(ctx, ctx.InstanceID, subnetID, i)
+			err = attachInterfaceAtIdx(ctx, ctx.InstanceID(), subnetID, i)
 			if err != nil {
-				ctx.Logger.Warning("Unable to attach interface: ", err)
+				ctx.Logger().Warning("Unable to attach interface: ", err)
 				return err
 			}
 		}
@@ -100,9 +100,9 @@ func setupInterfaces(ctx *context.VPCContext) error {
 	return waitForInterfaces(ctx)
 }
 
-func attachInterfaceAtIdx(ctx *context.VPCContext, instanceID, subnetID string, idx int) error {
+func attachInterfaceAtIdx(ctx context.VPCContext, instanceID, subnetID string, idx int) error {
 	// TODO: Check DescribeInstances to make sure an existing interface is not in attaching
-	svc := ec2.New(ctx.AWSSession)
+	svc := ec2.New(ctx)
 
 	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
 		Description: aws.String(NetworkInterfaceDescription),
@@ -136,14 +136,14 @@ func attachInterfaceAtIdx(ctx *context.VPCContext, instanceID, subnetID string, 
 	return err
 }
 
-func waitForInterfaces(ctx *context.VPCContext) error {
+func waitForInterfaces(ctx context.VPCContext) error {
 	waitUntil := time.Now().Add(time.Minute)
 	for time.Until(waitUntil) > 0 {
-		allInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces()
+		allInterfaces, err := ctx.EC2metadataClientWrapper().Interfaces()
 		if err != nil {
 			return err
 		}
-		if vpc.GetMaxInterfaces(ctx.InstanceType) == len(allInterfaces) {
+		if vpc.GetMaxInterfaces(ctx.InstanceType()) == len(allInterfaces) {
 			return waitForInterfacesUp(ctx, allInterfaces)
 		}
 		time.Sleep(5 * time.Second)
@@ -151,7 +151,7 @@ func waitForInterfaces(ctx *context.VPCContext) error {
 	return errors.New("All interfaces not seen via metadata service")
 }
 
-func waitForInterfacesUp(ctx *context.VPCContext, allInterfaces map[string]ec2wrapper.EC2NetworkInterface) error {
+func waitForInterfacesUp(ctx context.VPCContext, allInterfaces map[string]ec2wrapper.EC2NetworkInterface) error {
 	waitUntil := time.Now().Add(time.Minute)
 
 	for time.Until(waitUntil) > 0 {

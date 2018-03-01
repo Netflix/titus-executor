@@ -22,24 +22,46 @@ import (
 	"github.com/wercker/journalhook"
 	"gopkg.in/urfave/cli.v1"
 )
+import "github.com/aws/aws-sdk-go/aws/client"
 
 // StateDir is the name for the state directory flag
 const StateDir = "state-dir"
 
-// VPCContext encapsulates some information that's gleaned at init time
-type VPCContext struct {
+type vpcContext struct {
 	context.Context
-	CLIContext               *cli.Context
-	FSLocker                 *fslocker.FSLocker
-	AWSSession               *session.Session
-	EC2metadataClientWrapper *ec2wrapper.EC2MetadataClientWrapper
-	Logger                   *logrus.Entry
-	InstanceType             string
-	InstanceID               string
-	SubnetCache              *SubnetCache
+	*session.Session
+	cliContext               *cli.Context
+	fsLocker                 *fslocker.FSLocker
+	ec2metadataClientWrapper *ec2wrapper.EC2MetadataClientWrapper
+	logger                   *logrus.Entry
+	instanceType             string
+	instanceID               string
+	subnetCache              *SubnetCache
 }
 
-func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
+// VPCContext encapsulates some information that's gleaned at init time
+type VPCContext interface {
+	context.Context
+	client.ConfigProvider
+	FSLocker() *fslocker.FSLocker
+	//AWSSession() *session.Session
+	EC2metadataClientWrapper() *ec2wrapper.EC2MetadataClientWrapper
+	Logger() *logrus.Entry
+	InstanceType() string
+	InstanceID() string
+	SubnetCache() *SubnetCache
+	WithCancel() (VPCContext, context.CancelFunc)
+	WithTimeout(timeout time.Duration) (VPCContext, context.CancelFunc)
+	WithField(key string, value interface{}) VPCContext
+}
+
+// VPCContextWithCLI has the cli object included with context
+type VPCContextWithCLI interface {
+	VPCContext
+	CLIContext() *cli.Context
+}
+
+func newVPCContext(cliContext *cli.Context) (VPCContextWithCLI, error) {
 	logger := logrus.New()
 	// Setup log level
 	level, err := logrus.ParseLevel(cliContext.GlobalString("log-level"))
@@ -53,10 +75,10 @@ func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
 	} else {
 		logger.Info("Disabling journald hook")
 	}
-	ret := &VPCContext{
+	ret := &vpcContext{
 		Context:    context.Background(),
-		CLIContext: cliContext,
-		Logger:     logrus.NewEntry(logger),
+		logger:     logrus.NewEntry(logger),
+		cliContext: cliContext,
 	}
 
 	// Setup EC2 client
@@ -82,14 +104,14 @@ func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	ret.FSLocker = locker
+	ret.fsLocker = locker
 
 	subnetCachingDirectory := filepath.Join(stateDir, "subnets")
 	err = os.MkdirAll(subnetCachingDirectory, 0700)
 	if err != nil {
 		return nil, err
 	}
-	ret.SubnetCache = newSubnetCache(locker, subnetCachingDirectory)
+	ret.subnetCache = newSubnetCache(locker, subnetCachingDirectory)
 
 	return ret, nil
 }
@@ -158,8 +180,8 @@ func (l *awsLogger) dumpExistingMessages() {
 	l.oldMessages = list.New()
 }
 
-func (ctx *VPCContext) setupEC2() error {
-	newAWSLogger := &awsLogger{logger: ctx.Logger, oldMessages: list.New()}
+func (ctx *vpcContext) setupEC2() error {
+	newAWSLogger := &awsLogger{logger: ctx.logger, oldMessages: list.New()}
 	ec2MetadataClient := ec2metadata.New(
 		session.Must(
 			session.NewSession(
@@ -171,8 +193,8 @@ func (ctx *VPCContext) setupEC2() error {
 		return cli.NewExitError("EC2 metadata service unavailable", 1)
 	}
 	if instanceIDDocument, err := getInstanceIdentityDocument(ec2MetadataClient); err == nil {
-		ctx.InstanceType = instanceIDDocument.InstanceType
-		ctx.InstanceID = instanceIDDocument.InstanceID
+		ctx.instanceType = instanceIDDocument.InstanceType
+		ctx.instanceID = instanceIDDocument.InstanceID
 
 		awsConfig := aws.NewConfig().
 			WithMaxRetries(3).
@@ -181,8 +203,8 @@ func (ctx *VPCContext) setupEC2() error {
 			WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries | aws.LogDebugWithHTTPBody)
 
 		if session, err2 := session.NewSession(awsConfig); err2 == nil {
-			ctx.AWSSession = session
-			ctx.EC2metadataClientWrapper = ec2wrapper.NewEC2MetadataClientWrapper(session, ctx.Logger)
+			ctx.Session = session
+			ctx.ec2metadataClientWrapper = ec2wrapper.NewEC2MetadataClientWrapper(session, ctx.logger)
 		} else {
 			return cli.NewMultiError(cli.NewExitError("Unable to create AWS Session", 1), err2)
 		}
@@ -194,8 +216,8 @@ func (ctx *VPCContext) setupEC2() error {
 }
 
 // WithCancel returns a copy of context, with cancel
-func (ctx *VPCContext) WithCancel() (*VPCContext, context.CancelFunc) {
-	ret := &VPCContext{}
+func (ctx *vpcContext) WithCancel() (VPCContext, context.CancelFunc) {
+	ret := &vpcContext{}
 	*ret = *ctx
 	newCtx, cancel := context.WithCancel(ctx.Context)
 	ret.Context = newCtx
@@ -203,8 +225,8 @@ func (ctx *VPCContext) WithCancel() (*VPCContext, context.CancelFunc) {
 }
 
 // WithTimeout returns a copy of context, with timeout
-func (ctx *VPCContext) WithTimeout(timeout time.Duration) (*VPCContext, context.CancelFunc) {
-	ret := &VPCContext{}
+func (ctx *vpcContext) WithTimeout(timeout time.Duration) (VPCContext, context.CancelFunc) {
+	ret := &vpcContext{}
 	*ret = *ctx
 	newCtx, cancel := context.WithTimeout(ctx.Context, timeout)
 	ret.Context = newCtx
@@ -212,15 +234,15 @@ func (ctx *VPCContext) WithTimeout(timeout time.Duration) (*VPCContext, context.
 }
 
 // WithField returns a copy of the context, but with this key-value added to the logger
-func (ctx *VPCContext) WithField(key string, value interface{}) *VPCContext {
-	ret := &VPCContext{}
+func (ctx *vpcContext) WithField(key string, value interface{}) VPCContext {
+	ret := &vpcContext{}
 	*ret = *ctx
-	ret.Logger = ctx.Logger.WithField(key, value)
+	ret.logger = ctx.logger.WithField(key, value)
 	return ret
 }
 
 // WrapFunc should only be used to setup initial context object for command entry
-func WrapFunc(internalFunc func(*VPCContext) error) func(*cli.Context) error {
+func WrapFunc(internalFunc func(VPCContextWithCLI) error) func(*cli.Context) error {
 	return func(cliCtx *cli.Context) error {
 		ctx, err := newVPCContext(cliCtx)
 		if err != nil {
@@ -228,4 +250,30 @@ func WrapFunc(internalFunc func(*VPCContext) error) func(*cli.Context) error {
 		}
 		return internalFunc(ctx)
 	}
+}
+
+func (ctx *vpcContext) FSLocker() *fslocker.FSLocker {
+	return ctx.fsLocker
+}
+func (ctx *vpcContext) AWSSession() *session.Session {
+	return ctx.Session
+}
+func (ctx *vpcContext) EC2metadataClientWrapper() *ec2wrapper.EC2MetadataClientWrapper {
+	return ctx.ec2metadataClientWrapper
+}
+func (ctx *vpcContext) Logger() *logrus.Entry {
+	return ctx.logger
+}
+func (ctx *vpcContext) InstanceType() string {
+	return ctx.instanceType
+}
+func (ctx *vpcContext) InstanceID() string {
+	return ctx.instanceID
+}
+func (ctx *vpcContext) SubnetCache() *SubnetCache {
+	return ctx.subnetCache
+}
+
+func (ctx *vpcContext) CLIContext() *cli.Context {
+	return ctx.cliContext
 }

@@ -32,10 +32,10 @@ var SetupContainer = cli.Command{ // nolint: golint
 	},
 }
 
-func setupContainer(parentCtx *context.VPCContext) error {
-	burst := parentCtx.CLIContext.Bool("burst")
-	bandwidth := parentCtx.CLIContext.Int("bandwidth")
-	netns := parentCtx.CLIContext.Int("netns")
+func setupContainer(parentCtx context.VPCContextWithCLI) error {
+	burst := parentCtx.CLIContext().Bool("burst")
+	bandwidth := parentCtx.CLIContext().Int("bandwidth")
+	netns := parentCtx.CLIContext().Int("netns")
 	if netns <= 0 {
 		return cli.NewExitError("netns required", 1)
 	}
@@ -54,16 +54,16 @@ func setupContainer(parentCtx *context.VPCContext) error {
 
 	err = json.NewEncoder(os.Stdout).Encode(types.WiringStatus{Success: true, Error: ""})
 	if err != nil {
-		parentCtx.Logger.Error("Unable to write wiring status: ", err)
+		parentCtx.Logger().Error("Unable to write wiring status: ", err)
 	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, unix.SIGTERM, unix.SIGINT)
 	<-c
 
-	parentCtx.Logger.Info("Beginning shutdown, and container teardown: ", allocation)
+	parentCtx.Logger().Info("Beginning shutdown, and container teardown: ", allocation)
 	teardownNetwork(parentCtx, allocation, link, netns)
 	// TODO: Teardown turned up network namespace
-	parentCtx.Logger.Info("Finished shutting down and deallocating")
+	parentCtx.Logger().Info("Finished shutting down and deallocating")
 	return nil
 }

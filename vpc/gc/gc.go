@@ -28,17 +28,17 @@ var GC = cli.Command{ // nolint: golint
 	},
 }
 
-func gc(parentCtx *context.VPCContext) error {
-	gracePeriod := parentCtx.CLIContext.Duration("grace-period")
+func gc(parentCtx context.VPCContextWithCLI) error {
+	gracePeriod := parentCtx.CLIContext().Duration("grace-period")
 	if gracePeriod < vpc.RefreshInterval {
 		return cli.NewExitError("Refresh interval invalid", 1)
 	}
 
-	timeout := parentCtx.CLIContext.Duration("timeout")
+	timeout := parentCtx.CLIContext().Duration("timeout")
 	ctx, cancel := parentCtx.WithTimeout(timeout)
 	defer cancel()
 
-	parentCtx.Logger.WithField("grace-period", gracePeriod).Debug()
+	parentCtx.Logger().WithField("grace-period", gracePeriod).Debug()
 	if err := doGc(ctx, gracePeriod); err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to run GC", 1), err)
 	}
@@ -46,8 +46,8 @@ func gc(parentCtx *context.VPCContext) error {
 	return nil
 }
 
-func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
-	interfaces, err := parentCtx.EC2metadataClientWrapper.Interfaces()
+func doGc(parentCtx context.VPCContext, gracePeriod time.Duration) error {
+	interfaces, err := parentCtx.EC2metadataClientWrapper().Interfaces()
 	if err != nil {
 		return err
 	}
@@ -63,10 +63,10 @@ func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
 	return nil
 }
 
-func doGcInterface(parentCtx *context.VPCContext, gracePeriod time.Duration, networkInterface *ec2wrapper.EC2NetworkInterface) error {
+func doGcInterface(parentCtx context.VPCContext, gracePeriod time.Duration, networkInterface *ec2wrapper.EC2NetworkInterface) error {
 	// Don't run GC on the primary interface
 	if networkInterface.DeviceNumber == 0 {
-		parentCtx.Logger.Debug("Not running GC on this interface")
+		parentCtx.Logger().Debug("Not running GC on this interface")
 		return nil
 	}
 
