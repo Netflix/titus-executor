@@ -362,12 +362,8 @@ func (r *Runner) handleShutdown(ctx context.Context) { // nolint: gocyclo
 	var ce launchguardCore.CleanUpEvent = &launchguardCore.NoopCleanUpEvent{}
 
 	if r.wasKilled() {
-		if r.container.TitusInfo.GetIgnoreLaunchGuard() {
-			r.logger.Info("Not setting launchguard while stopping task")
-		} else {
-			r.logger.Info("Setting launchGuard while stopping task")
-			ce = r.launchGuard.NewRealCleanUpEvent(launchGuardCtx, r.container.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
-		}
+		r.logger.Info("Setting launchGuard while stopping task")
+		ce = r.launchGuard.NewRealCleanUpEvent(launchGuardCtx, r.container.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
 	}
 	killStartTime := time.Now()
 	// Are we in a situation where the container exited gracefully, or less than gracefully?
