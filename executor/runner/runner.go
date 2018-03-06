@@ -362,13 +362,10 @@ func (r *Runner) handleShutdown(ctx context.Context) { // nolint: gocyclo
 	var ce launchguardCore.CleanUpEvent = &launchguardCore.NoopCleanUpEvent{}
 
 	if r.wasKilled() {
-		if r.container.TitusInfo.GetIgnoreLaunchGuard() {
-			r.logger.Info("Not setting launchguard while stopping task")
-		} else {
-			r.logger.Info("Setting launchGuard while stopping task")
-			ce = r.launchGuard.NewRealCleanUpEvent(launchGuardCtx, r.container.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
-		}
+		r.logger.Info("Setting launchGuard while stopping task")
+		ce = r.launchGuard.NewRealCleanUpEvent(launchGuardCtx, r.container.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
 	}
+
 	killStartTime := time.Now()
 	// Are we in a situation where the container exited gracefully, or less than gracefully?
 	// We need to stop the container
@@ -383,8 +380,17 @@ func (r *Runner) handleShutdown(ctx context.Context) { // nolint: gocyclo
 			cleanupErrs = append(cleanupErrs, err)
 		}
 	}
-	r.logger.Info("Unsetting launchguard")
-	ce.Done()
+	/* If this flag is not set to true, we've been launched by the v2 engine
+	 * therefore we can have a task started on this ENI instanteoously after a launch
+	 *
+	 * Otherwise, we hold the launchguard until all cleanup is completed
+	 */
+	if !r.container.TitusInfo.GetIgnoreLaunchGuard() {
+		r.logger.Info("Unsetting launchguard")
+		ce.Done()
+	} else {
+		defer ce.Done()
+	}
 
 	if r.watcher != nil {
 		if err := r.watcher.Stop(); err != nil {
