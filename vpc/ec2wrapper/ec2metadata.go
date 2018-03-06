@@ -165,6 +165,9 @@ func (ni *EC2NetworkInterface) Refresh() error {
 		return err
 	}
 	ni.IPv4Addresses = strings.Split(localIPv4s, "\n")
+	for idx, addr := range ni.IPv4Addresses {
+		ni.IPv4Addresses[idx] = strings.Trim(strings.TrimSpace(addr), "\x00")
+	}
 
 	return nil
 }

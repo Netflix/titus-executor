@@ -224,18 +224,15 @@ func lockHelper(fd *os.File, how int, timeout *time.Duration) error {
 
 func (locker *FSLocker) mkdirLockDir(path string) (*os.File, error) {
 	var err error
-	lockPath := filepath.Join(locker.path, path)
 	for i := 0; i < 10; i++ {
+		lockPath := filepath.Join(locker.path, path)
 		err = os.MkdirAll(lockPath, 0700)
 		if err == nil {
-			break
+			return os.OpenFile(lockPath, os.O_RDONLY, 0400)
 		}
 		time.Sleep(time.Millisecond * time.Duration(rand.Intn(100)))
 	}
-	if err != nil {
-		return nil, err
-	}
-	return os.OpenFile(lockPath, os.O_RDONLY, 0400)
+	return nil, err
 }
 
 func shouldClose(closeable io.Closer) {
