@@ -146,54 +146,50 @@ func (mgr *IPPoolManager) tryAllocate(ctx *context.VPCContext, ipAddress string)
 	return lock, nil
 }
 
-func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod time.Duration) (fileRemovalList, deallocationList []string, checkIPs map[string]struct{}, retErr error) {
+func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod time.Duration) (deallocationList []string, locks []*fslocker.ExclusiveLock, retErr error) {
 	timeout := 0 * time.Second
-	checkIPs = make(map[string]struct{})
-
-	currentlyAssignedIPs := make(map[string]struct{}, len(mgr.networkInterface.IPv4Addresses))
-	for _, ip := range mgr.networkInterface.IPv4Addresses {
-		currentlyAssignedIPs[ip] = struct{}{}
-	}
+	recordsDict := make(map[string]fslocker.Record)
+	locks = []*fslocker.ExclusiveLock{}
 
 	records, err := parentCtx.FSLocker.ListFiles(mgr.ipAddressesPath())
 	if err != nil {
 		retErr = err
 		return
 	}
-
 	for _, record := range records {
-		logEntry := parentCtx.Logger.WithField("ip", record.Name)
+		recordsDict[record.Name] = record
+	}
 
-		checkIPs[record.Name] = struct{}{}
+	// the first IP is always the primary IP on the interface, therefore it shouldn't be tested for removal
+	for _, ip := range mgr.networkInterface.IPv4Addresses[1:] {
+		logEntry := parentCtx.Logger.WithField("ip", ip)
+		logEntry.Debug("Checking IP address")
+
 		// Checks:
-		// 1. Is this IP address the primary for this interface?
-		if record.Name == mgr.networkInterface.IPv4Addresses[0] {
-			continue
-		}
-
-		// 2. Has the grace period elapsed for this IP?
-		if time.Since(record.BumpTime) < gracePeriod {
-			logEntry.WithField("bumpTime", record.BumpTime).Debug("Not GC'ing due to bump time")
-			continue
-		}
-
-		// 3. Is this IP address in use (can I get an exclusive lock)
-		ipAddrLock, err := parentCtx.FSLocker.ExclusiveLock(filepath.Join(mgr.ipAddressesPath(), record.Name), &timeout)
+		ipAddrLock, err := parentCtx.FSLocker.ExclusiveLock(filepath.Join(mgr.ipAddressesPath(), ip), &timeout)
 		// Seems like this address is in use
 		if err == unix.EWOULDBLOCK {
 			logEntry.Debug("File currently locked")
 			continue
 		} else if err != nil {
 			retErr = err
+			for _, lock := range locks {
+				lock.Unlock()
+			}
 			return
 		}
-		defer ipAddrLock.Unlock()
-
-		fileRemovalList = append(fileRemovalList, record.Name)
-		// 4. Is this IP currently assigned to the interface?
-		if _, ok := currentlyAssignedIPs[record.Name]; ok {
-			deallocationList = append(deallocationList, record.Name)
+		if record, ok := recordsDict[ip]; !ok {
+			logEntry.Debug("Did not have existing record / lock")
+			ipAddrLock.Unlock()
+			continue
+		} else if time.Since(record.BumpTime) < gracePeriod {
+			logEntry.WithField("timeSinceBumpTime", time.Since(record.BumpTime)).Debug("IP not idle long enough")
+			ipAddrLock.Unlock()
+			continue
 		}
+		ipAddrLock.Bump()
+		locks = append(locks, ipAddrLock)
+		deallocationList = append(deallocationList, ip)
 	}
 
 	return
@@ -201,48 +197,85 @@ func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod t
 
 // DoGc triggers GC for this IP Pool Manager.
 func (mgr *IPPoolManager) DoGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
-	timeout := 0 * time.Second
 	lock, err := mgr.lockConfiguration(parentCtx)
 	if err != nil {
 		return err
 	}
 	defer lock.Unlock()
-	fileRemovalList, deallocationList, checkIPs, err := mgr.firstPass(parentCtx, gracePeriod)
+	deallocationList, locks, err := mgr.firstPass(parentCtx, gracePeriod)
 	if err != nil {
 		return err
 	}
 
-	// If an IP has never been used, IMHO, we should create a record for it, and then the next GC cycle, if it hasn't been
-	// used, then we can blow it away
-	for _, ip := range mgr.networkInterface.IPv4Addresses {
-		logEntry := parentCtx.Logger.WithField("ip", ip)
-
-		if _, ok := checkIPs[ip]; ok {
-			continue
-		}
-		logEntry.Debug("Allocating recording record")
-		ipAddrLock, err := parentCtx.FSLocker.ExclusiveLock(filepath.Join(mgr.ipAddressesPath(), ip), &timeout)
-		if err == unix.EWOULDBLOCK {
-			logEntry.Warning("File currently locked, this should never happen in pass-two")
-			continue
-		} else if err != nil {
-			return err
-		}
-		// Don't unlock the records until we're done with the GC
-		defer ipAddrLock.Unlock()
-		ipAddrLock.Bump()
+	for _, lock := range locks {
+		defer lock.Unlock()
 	}
+
 	// At this point it's safe to unlock, unlock is idempotent, so it's safe to call these here
 	// we've locked the individual files involved, meaning no one should be able to use those IPs
 	// and it's safe the unlock.
-	// We unlock here, because in finishGc, it can take quite a while (minutes).
+	// We unlock here, because in freeIPs, it can take quite a while (minutes).
 	lock.Unlock()
 
-	return mgr.finishGC(parentCtx, fileRemovalList, deallocationList)
+	err = mgr.freeIPs(parentCtx, deallocationList)
+	if err != nil {
+		return err
+	}
+
+	// Do file deletions
+	return mgr.doFileCleanup(parentCtx, deallocationList)
+}
+
+func (mgr *IPPoolManager) doFileCleanup(parentCtx *context.VPCContext, deallocationList []string) error {
+	timeout := 0 * time.Second
+	recordsNotToDelete := make(map[string]struct{})
+	for _, ip := range deallocationList {
+		recordsNotToDelete[ip] = struct{}{}
+	}
+
+	for _, ip := range mgr.networkInterface.IPv4Addresses {
+		recordsNotToDelete[ip] = struct{}{}
+	}
+
+	records, err := parentCtx.FSLocker.ListFiles(mgr.ipAddressesPath())
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		logEntry := parentCtx.Logger.WithField("record", record.Name)
+		if _, ok := recordsNotToDelete[record.Name]; ok {
+			continue
+		}
+		logEntry.Debug("Checking")
+		if time.Since(record.BumpTime) < 5*time.Minute {
+			logEntry.WithField("timeSinceBump", time.Since(record.BumpTime)).Debug("Time since bump")
+			continue
+		}
+		logEntry.Info("Removing")
+		path := filepath.Join(mgr.ipAddressesPath(), record.Name)
+		lock, err := parentCtx.FSLocker.ExclusiveLock(path, &timeout)
+		// Seems like this address is in use
+		if err == unix.EWOULDBLOCK {
+			logEntry.Warning("File currently locked")
+			continue
+		} else if err != nil {
+			logEntry.Error("Unable to lock: ", err)
+			continue
+		}
+		defer lock.Unlock()
+
+		err = parentCtx.FSLocker.RemovePath(path)
+		if err != nil {
+			logEntry.Error("Unable to remove: ", err)
+		}
+	}
+
+	return nil
 }
 
 func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, deallocationList []string) bool {
-	for i := 0; i < 30; i++ {
+	successCount := 0
+	for i := 0; i < 180; i++ {
 		err := mgr.networkInterface.Refresh()
 		if err != nil {
 			parentCtx.Logger.Error("Could not refresh IPs: ", err)
@@ -260,37 +293,40 @@ func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, dea
 			}
 			if missingIPs > 0 {
 				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", missingIPs, len(deallocationList))
-				return true
+				successCount++
+				if successCount > 3 {
+					return true
+				}
+			} else {
+				parentCtx.Logger.Info("Resetting freed success count to 0")
+				// Reset the success count
+				successCount = 0
 			}
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 	return false
 }
 
-func (mgr *IPPoolManager) finishGC(parentCtx *context.VPCContext, fileRemovalList, deallocationList []string) error {
+func (mgr *IPPoolManager) freeIPs(parentCtx *context.VPCContext, deallocationList []string) error {
 	// Prioritize giving IPs back to Amazon
 	oldIPList := mgr.networkInterface.IPv4Addresses
-	if len(deallocationList) > 0 {
-		parentCtx.Logger.Info("Deallocating Ip addresses: ", deallocationList)
-		unassignPrivateIPAddressesInput := &ec2.UnassignPrivateIpAddressesInput{
-			PrivateIpAddresses: aws.StringSlice(deallocationList),
-			NetworkInterfaceId: aws.String(mgr.networkInterface.InterfaceID),
-		}
-
-		if _, err := ec2.New(parentCtx.AWSSession).UnassignPrivateIpAddressesWithContext(parentCtx, unassignPrivateIPAddressesInput); err != nil {
-			return err
-		}
-
-		if !mgr.ipsFreed(parentCtx, oldIPList, deallocationList) {
-			parentCtx.Logger.Warning("IP Refresh failed on GC")
-		}
+	if len(deallocationList) == 0 {
+		return nil
 	}
 
-	for _, ip := range fileRemovalList {
-		if err := parentCtx.FSLocker.RemovePath(filepath.Join(mgr.ipAddressesPath(), ip)); err != nil {
-			return err
-		}
+	parentCtx.Logger.Info("Deallocating Ip addresses: ", deallocationList)
+	unassignPrivateIPAddressesInput := &ec2.UnassignPrivateIpAddressesInput{
+		PrivateIpAddresses: aws.StringSlice(deallocationList),
+		NetworkInterfaceId: aws.String(mgr.networkInterface.InterfaceID),
+	}
+
+	if _, err := ec2.New(parentCtx.AWSSession).UnassignPrivateIpAddressesWithContext(parentCtx, unassignPrivateIPAddressesInput); err != nil {
+		return err
+	}
+
+	if !mgr.ipsFreed(parentCtx, oldIPList, deallocationList) {
+		parentCtx.Logger.Warning("IP Refresh failed on GC")
 	}
 
 	return nil

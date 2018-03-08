@@ -52,14 +52,16 @@ func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
 		return err
 	}
 
-	for _, networkInterface := range interfaces {
+	parentCtx.Logger.Debug("Examining interfaces: ", interfaces)
 
-		ctx := parentCtx.WithField("interface", networkInterface.InterfaceID)
-		err = doGcInterface(ctx, gracePeriod, &networkInterface)
+	for _, iface := range interfaces {
+		ctx := parentCtx.WithField("interface", iface.InterfaceID)
+		err = doGcInterface(ctx, gracePeriod, &iface)
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -70,6 +72,7 @@ func doGcInterface(parentCtx *context.VPCContext, gracePeriod time.Duration, net
 		return nil
 	}
 
+	parentCtx.Logger.Debug("Running GC on this interface")
 	err := allocate.NewIPPoolManager(networkInterface).DoGc(parentCtx, gracePeriod)
 	if err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to GC interfaces", 1), err)
