@@ -87,6 +87,7 @@ var (
 	pidLimit                   int
 	prepareTimeout             time.Duration
 	startTimeout               time.Duration
+	debugAllocate              bool
 )
 
 // Flags are the configuration for the docker runtime package
@@ -138,6 +139,10 @@ var Flags = []cli.Flag{
 		Name:        "titus.executor.timeouts.start",
 		Value:       time.Minute * 10,
 		Destination: &startTimeout,
+	},
+	cli.BoolFlag{
+		Name:        "titus.executor.debugAllocate",
+		Destination: &debugAllocate,
 	},
 }
 
@@ -612,7 +617,12 @@ func prepareNetworkDriver(c *runtimeTypes.Container) error {
 		"--batch-size", strconv.Itoa(batchSize),
 	}
 
-	c.AllocationCommand = exec.Command("/apps/titus-executor/bin/titus-vpc-tool", args...) // nolint: gas
+	if debugAllocate {
+		args = append([]string{"-e", "trace=file,network,desc", "-e", "trace=!pselect6,futex,utimensat", "-s", "8192", "-tt", "-f", "-o", "allocate.trace", "/apps/titus-executor/bin/titus-vpc-tool"}, args...)
+		c.AllocationCommand = exec.Command("/usr/bin/strace", args...) // nolint: gas
+	} else {
+		c.AllocationCommand = exec.Command("/apps/titus-executor/bin/titus-vpc-tool", args...) // nolint: gas
+	}
 
 	stdoutPipe, err := c.AllocationCommand.StdoutPipe()
 	c.AllocationCommand.Stderr = os.Stderr
