@@ -33,6 +33,7 @@ var (
 func doSetupContainer(parentCtx *context.VPCContext, netnsfd, bandwidth int, burst bool, allocation types.Allocation) (netlink.Link, error) {
 	networkInterface, err := getInterfaceByIdx(parentCtx, allocation.DeviceIndex)
 	if err != nil {
+		parentCtx.Logger.Error("Cannot get interface by index: ", err)
 		return nil, err
 	}
 
@@ -63,6 +64,7 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd, bandwidth int, bur
 
 	err = netlink.LinkAdd(&ipvlan)
 	if err != nil {
+		parentCtx.Logger.Error("Could not add link: ", err)
 		return nil, err
 	}
 	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
@@ -70,6 +72,7 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd, bandwidth int, bur
 	parentCtx.Logger.Debugf("Added link: %+v ", ipvlan)
 	newLink, err := nsHandle.LinkByName(containerInterfaceName)
 	if err != nil {
+		parentCtx.Logger.Error("Could not find after adding link: ", err)
 		return nil, err
 	}
 
@@ -80,10 +83,12 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
+		parentCtx.Logger.Error("Unable to set link name: ", err)
 		return err
 	}
 	err = nsHandle.LinkSetUp(link)
 	if err != nil {
+		parentCtx.Logger.Error("Unable to set link up: ", err)
 		return err
 	}
 
@@ -104,6 +109,7 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 	}
 	err = nsHandle.AddrAdd(link, &newAddr)
 	if err != nil {
+		parentCtx.Logger.Error("Unable to add addr to link: ", err)
 		return err
 	}
 
@@ -115,6 +121,7 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 	}
 	err = nsHandle.RouteAdd(&newRoute)
 	if err != nil {
+		parentCtx.Logger.Error("Unable to add route to link: ", err)
 		return err
 	}
 
