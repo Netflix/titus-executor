@@ -30,7 +30,7 @@ var (
 	errLinkNotFound = errors.New("Link not found")
 )
 
-func doSetupContainer(parentCtx *context.VPCContext, netnsfd, bandwidth int, burst bool, allocation types.Allocation) (netlink.Link, error) {
+func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst bool, allocation types.Allocation) (netlink.Link, error) {
 	networkInterface, err := getInterfaceByIdx(parentCtx, allocation.DeviceIndex)
 	if err != nil {
 		parentCtx.Logger.Error("Cannot get interface by index: ", err)
@@ -79,7 +79,7 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd, bandwidth int, bur
 	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, burst, networkInterface, ip)
 }
 
-func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth int, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip net.IP) error {
+func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip net.IP) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -128,7 +128,7 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 	return setupIFBClasses(parentCtx, bandwidth, burst, ip)
 }
 
-func setupIFBClasses(parentCtx *context.VPCContext, bandwidth int, burst bool, ip net.IP) error {
+func setupIFBClasses(parentCtx *context.VPCContext, bandwidth uint64, burst bool, ip net.IP) error {
 	// The class is based on the last two parts of the IPv4 address
 	// The reasoning is that 0 and 1 of the subnet are reserved by Amazon, so we will never get those IPs
 	// and VPCs can never have subnets that are larger than /16. Each instance is scoped to a single subnet,
@@ -181,7 +181,7 @@ func setupIFBSubqdisc(parentCtx *context.VPCContext, ip net.IP, link netlink.Lin
 	return nil
 }
 
-func setupIFBClass(parentCtx *context.VPCContext, bandwidth int, burst bool, ip net.IP, link netlink.Link) error {
+func setupIFBClass(parentCtx *context.VPCContext, bandwidth uint64, burst bool, ip net.IP, link netlink.Link) error {
 	handle := ipaddressToHandle(ip)
 
 	classattrs := netlink.ClassAttrs{
@@ -191,12 +191,12 @@ func setupIFBClass(parentCtx *context.VPCContext, bandwidth int, burst bool, ip 
 		Handle: netlink.MakeHandle(1, handle),
 	}
 
-	ceil := uint64(bandwidth)
+	ceil := bandwidth
 	if burst {
 		ceil = vpc.GetMaxNetworkbps(parentCtx.InstanceType)
 	}
 	htbclassattrs := netlink.HtbClassAttrs{
-		Rate:    uint64(bandwidth),
+		Rate:    bandwidth,
 		Ceil:    ceil,
 		Buffer:  uint32(float64(bandwidth)/(hz*8) + float64(mtu)),
 		Cbuffer: uint32(float64(ceil)/(hz*8) + float64(mtu)),
