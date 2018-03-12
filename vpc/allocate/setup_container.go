@@ -20,7 +20,7 @@ var SetupContainer = cli.Command{ // nolint: golint
 			Name:  "netns",
 			Usage: "The File Descriptor # of the network namespace to setup",
 		},
-		cli.IntFlag{
+		cli.Uint64Flag{
 			Name:  "bandwidth",
 			Usage: "Bandwidth to allocate to the device, in bps",
 			Value: 128 * 1024 * 1024,
@@ -34,7 +34,7 @@ var SetupContainer = cli.Command{ // nolint: golint
 
 func setupContainer(parentCtx *context.VPCContext) error {
 	burst := parentCtx.CLIContext.Bool("burst")
-	bandwidth := parentCtx.CLIContext.Int("bandwidth")
+	bandwidth := parentCtx.CLIContext.Uint64("bandwidth")
 	netns := parentCtx.CLIContext.Int("netns")
 	if netns <= 0 {
 		return cli.NewExitError("netns required", 1)

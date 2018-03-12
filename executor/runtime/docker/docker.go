@@ -1350,13 +1350,13 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 }
 
 func setupNetworkingArgs(c *runtimeTypes.Container) []string {
-	bw := c.BandwidthLimitMbps * 1000 * 1000
+	bw := uint64(c.BandwidthLimitMbps) * 1000 * 1000
 	if bw == 0 {
 		bw = defaultNetworkBandwidth
 	}
 	args := []string{
 		"setup-container",
-		"--bandwidth", strconv.Itoa(int(bw)),
+		"--bandwidth", strconv.FormatUint(bw, 10),
 		"--netns", "3",
 	}
 	if burst {
