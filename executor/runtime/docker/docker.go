@@ -179,15 +179,16 @@ type ucred struct {
 
 // DockerRuntime implements the Runtime interface calling Docker Engine APIs
 type DockerRuntime struct { // nolint: golint
-	metrics           metrics.Reporter
-	registryAuthCfg   *types.AuthConfig
-	client            *docker.Client
-	gpuInfo           *nvidia.PluginInfo
-	awsRegion         string
-	tiniSocketDir     string
-	tiniEnabled       bool
-	storageOptEnabled bool
-	pidCgroupPath     string
+	metrics                       metrics.Reporter
+	registryAuthCfg               *types.AuthConfig
+	client                        *docker.Client
+	gpuInfo                       *nvidia.PluginInfo
+	awsRegion                     string
+	tiniSocketDir                 string
+	tiniEnabled                   bool
+	storageOptEnabled             bool
+	pidCgroupPath                 string
+	nestedContainerSeccompProfile []byte
 }
 
 type compositeError struct {
@@ -228,6 +229,12 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter) (runtimeT
 
 	dockerRuntime.gpuInfo, err = nvidia.NewNvidiaInfo(client)
 	if err != nil {
+		return nil, err
+	}
+
+	dockerRuntime.nestedContainerSeccompProfile, err = ioutil.ReadFile("/etc/titus-executor/nested-container.json")
+	if err != nil {
+		log.Error("Could not read nested container seccomp profile: ", err)
 		return nil, err
 	}
 
@@ -394,6 +401,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Hostname:   hostname,
 	}
 
+	useInit := true
 	hostCfg := &container.HostConfig{
 		AutoRemove: false,
 		Privileged: false,
@@ -402,6 +410,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Sysctls: map[string]string{
 			"net.ipv4.tcp_ecn": "1",
 		},
+		Init: &useInit,
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
 	hostCfg.PidsLimit = int64(pidLimit)
@@ -506,13 +515,25 @@ func netflixLoggerTempDir(c *runtimeTypes.Container) string {
 }
 
 func (r *DockerRuntime) setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
+	addedCapabilities := make(map[string]struct{})
 	// Set any additional capabilities for this container
 	if cap := c.TitusInfo.GetCapabilities(); cap != nil {
 		for _, add := range cap.GetAdd() {
+			addedCapabilities[add.String()] = struct{}{}
 			hostCfg.CapAdd = append(hostCfg.CapAdd, add.String())
 		}
 		for _, drop := range cap.GetDrop() {
 			hostCfg.CapDrop = append(hostCfg.CapDrop, drop.String())
+		}
+	}
+
+	// Privileged containers automaticaly deactivate seccomp and friends, no need to do this
+	if c.NestedContainersEnabled() && !config.PrivilegedContainersEnabled() {
+		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:docker-nested")
+		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(r.nestedContainerSeccompProfile)))
+
+		if _, ok := addedCapabilities["SYS_ADMIN"]; !ok {
+			hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
 		}
 	}
 }
@@ -1323,6 +1344,10 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return err
 	}
 
+	err = setupContainerNesting(parentCtx, c, cred)
+	if err != nil {
+		log.Error("Unable to setup container nesting: ", err)
+	}
 	/* This can be "broken" if the titus-executor crashes. The link will be dangling, and point to a
 	 * /proc/${PID}/fd/${FD}. It's not "bad", because Titus Task names should be unique
 	 */

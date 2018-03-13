@@ -33,3 +33,7 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cred 
 func getOwnCgroup(subsystem string) (string, error) {
 	return "", errUnsupported
 }
+
+func setupContainerNesting(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+	return nil
+}
