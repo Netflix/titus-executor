@@ -140,3 +140,17 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, required bool, taskI
 func getOwnCgroup(subsystem string) (string, error) {
 	return cgroups.GetOwnCgroup(subsystem)
 }
+
+func cleanupCgroups(cgroupPath string) error {
+	allCgroupMounts, err := cgroups.GetCgroupMounts(true)
+	if err != nil {
+		logrus.Error("Cannot get cgroup mounts: ", err)
+		return err
+	}
+	for _, mount := range allCgroupMounts {
+		path := filepath.Join(mount.Mountpoint, cgroupPath)
+		_ = os.RemoveAll(path)
+	}
+
+	return nil
+}
