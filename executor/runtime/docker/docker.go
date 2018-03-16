@@ -404,6 +404,10 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		},
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
+	c.RegisterRuntimeCleanup(func() error {
+		return cleanupCgroups(r.pidCgroupPath)
+	})
+
 	hostCfg.PidsLimit = int64(pidLimit)
 	hostCfg.Memory = c.Resources.Mem * MiB
 	hostCfg.MemorySwap = 0
