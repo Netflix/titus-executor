@@ -183,21 +183,22 @@ func getEnv() env {
 	return currentConfig.env
 }
 
-func GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem string, cpu string, disk string) map[string]string { // nolint: golint
+func GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string { // nolint: golint
 	env := getEnvHardcoded()
 	env = appendMap(env, getEnvFromHost())
-	env = appendMap(env, getEnvBasedOnTask(taskInfo, mem, cpu, disk))
+	env = appendMap(env, getEnvBasedOnTask(taskInfo, mem, cpu, disk, networkBandwidth))
 	env = appendMap(env, getUserProvided(taskInfo))
 	return env
 }
 
-func getEnvBasedOnTask(taskInfo *titus.ContainerInfo, mem string, cpu string, disk string) map[string]string {
+func getEnvBasedOnTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string {
 	env1 := make(map[string]string)
 
 	setClusterInfoBasedOnTask(taskInfo, env1)
 	env1["TITUS_NUM_MEM"] = mem
 	env1["TITUS_NUM_CPU"] = cpu
 	env1["TITUS_NUM_DISK"] = disk
+	env1["TITUS_NUM_NETWORK_BANDWIDTH"] = networkBandwidth
 
 	return env1
 }
