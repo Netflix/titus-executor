@@ -15,7 +15,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, constraints *ru
 		strconv.FormatInt(constraints.Mem, 10),
 		strconv.FormatInt(constraints.CPU, 10),
 		strconv.FormatUint(constraints.Disk, 10),
-	)
+		strconv.FormatUint(uint64(networkCfgParams.GetBandwidthLimitMbps()), 10))
 	labels["TITUS_TASK_INSTANCE_ID"] = env["TITUS_TASK_INSTANCE_ID"]
 
 	c := &runtimeTypes.Container{
