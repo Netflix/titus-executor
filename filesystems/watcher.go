@@ -101,16 +101,16 @@ type Watcher struct {
 }
 
 // NewWatcher returns a fully instantiated instance of Watcher, which will run until Stop is called.
-func NewWatcher(m metrics.Reporter, localDir, uploadDir, uploadRegexpStr string, uploaders *uploader.Uploaders) (*Watcher, error) {
+func NewWatcher(m metrics.Reporter, localDir, uploadDir, uploadRegexpStr string, uploaders *uploader.Uploaders, cfg config.Config) (*Watcher, error) {
 	watcher := &Watcher{
 		metrics:                  m,
 		localDir:                 localDir,
 		uploadDir:                uploadDir,
 		uploaders:                uploaders,
-		UploadCheckInterval:      config.LogUpload().LogUploadCheckInterval,
-		UploadThreshold:          config.LogUpload().LogUploadThresholdTime,
-		stdioLogCheckInterval:    config.LogUpload().StdioLogCheckInterval,
-		keepLocalFileAfterUpload: config.LogUpload().KeepLocalFileAfterUpload,
+		UploadCheckInterval:      cfg.LogUploadCheckInterval,
+		UploadThreshold:          cfg.LogUploadThresholdTime,
+		stdioLogCheckInterval:    cfg.StdioLogCheckInterval,
+		keepLocalFileAfterUpload: cfg.KeepLocalFileAfterUpload,
 	}
 
 	if uploadRegexpStr != "" {

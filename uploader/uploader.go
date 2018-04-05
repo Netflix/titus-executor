@@ -1,7 +1,6 @@
 package uploader
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -9,32 +8,35 @@ import (
 
 	"io"
 
+	"github.com/Netflix/titus-executor/config"
 	log "github.com/sirupsen/logrus"
 )
 
-// NewUploader creates a new instance of an uploader object
-func NewUploader(config map[string]string) (Uploader, error) {
-	var up Uploader
-	var err error
-	switch config["type"] {
-	case "copy":
-		if up, err = NewCopyUploader(config); err != nil {
-			return nil, err
-		}
-		return up, nil
-	case "s3":
-		if up, err = NewS3Uploader(log.StandardLogger(), config); err != nil {
-			return nil, err
-		}
-		return up, nil
-	case "noop":
-		if up, err = NewNoopUploader(config); err != nil {
-			return nil, err
-		}
-		return up, nil
-	default:
-		return nil, errors.New("invalid config type : " + config["type"])
+func collectCopyUploaders(cfg *config.Config) []Uploader {
+	copyUploaders := []Uploader{}
+	for _, uploaderArg := range cfg.CopyUploaders {
+		copyUploaders = append(copyUploaders, NewCopyUploader(uploaderArg))
 	}
+
+	return copyUploaders
+}
+
+func collectS3Uploaders(cfg *config.Config) []Uploader {
+	copyUploaders := []Uploader{}
+	for _, uploaderArg := range cfg.S3Uploaders {
+		copyUploaders = append(copyUploaders, NewS3Uploader(log.StandardLogger(), uploaderArg))
+	}
+
+	return copyUploaders
+}
+
+func collectNoopUploaders(cfg *config.Config) []Uploader {
+	copyUploaders := []Uploader{}
+	for range cfg.NoopUploaders {
+		copyUploaders = append(copyUploaders, NewNoopUploader())
+	}
+
+	return copyUploaders
 }
 
 // Uploaders is a slice wrapper that contains all of the
@@ -44,16 +46,13 @@ type Uploaders struct {
 }
 
 // NewUploaders creates a new instance of an Uploaders object
-func NewUploaders(configs []map[string]string) (*Uploaders, error) {
+func NewUploaders(config *config.Config) (*Uploaders, error) {
 	e := &Uploaders{}
-	var up Uploader
-	var err error
-	for _, uploader := range configs {
-		if up, err = NewUploader(uploader); err != nil {
-			return nil, err
-		}
-		e.uploaders = append(e.uploaders, up)
-	}
+
+	e.uploaders = append(e.uploaders, collectCopyUploaders(config)...)
+	e.uploaders = append(e.uploaders, collectS3Uploaders(config)...)
+	e.uploaders = append(e.uploaders, collectNoopUploaders(config)...)
+
 	return e, nil
 }
 

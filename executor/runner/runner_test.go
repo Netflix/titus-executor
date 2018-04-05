@@ -11,6 +11,7 @@ import (
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/launchguard/client"
 	"github.com/Netflix/titus-executor/launchguard/server"
@@ -119,11 +120,13 @@ func mocks(ctx context.Context, t *testing.T, killRequests chan<- chan<- struct{
 		ctx:         ctx,
 	}
 	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	e, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context) (runtimeTypes.Runtime, error) {
-		return r, nil
-	}, l, Config{
+	cfg := config.Config{
 		StatusCheckFrequency: time.Second,
-	})
+	}
+
+	e, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
+		return r, nil
+	}, l, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

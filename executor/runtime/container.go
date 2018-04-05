@@ -9,9 +9,10 @@ import (
 )
 
 // NewContainer allocates and initializes a new container struct object
-func NewContainer(taskID string, titusInfo *titus.ContainerInfo, constraints *runtimeTypes.Resources, labels map[string]string) *runtimeTypes.Container {
+func NewContainer(taskID string, titusInfo *titus.ContainerInfo, constraints *runtimeTypes.Resources, labels map[string]string, cfg config.Config) *runtimeTypes.Container {
 	networkCfgParams := titusInfo.GetNetworkConfigInfo()
-	env := config.GetNetflixEnvForTask(titusInfo,
+
+	env := cfg.GetNetflixEnvForTask(titusInfo,
 		strconv.FormatInt(constraints.Mem, 10),
 		strconv.FormatInt(constraints.CPU, 10),
 		strconv.FormatUint(constraints.Disk, 10),
@@ -26,6 +27,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, constraints *ru
 		Labels:             labels,
 		SecurityGroupIDs:   networkCfgParams.GetSecurityGroups(),
 		BandwidthLimitMbps: networkCfgParams.GetBandwidthLimitMbps(),
+		Config:             cfg,
 	}
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
 		titusENIIndex, err := strconv.Atoi(networkCfgParams.GetEniLabel())

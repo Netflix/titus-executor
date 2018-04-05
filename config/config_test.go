@@ -2,45 +2,32 @@ package config
 
 import (
 	"testing"
-	"time"
 
 	titusproto "github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/golang/protobuf/proto"
+	"github.com/stretchr/testify/assert"
 )
 
+func GetDefaultConfiguration(t *testing.T, args []string) *Config {
+	cfg, err := GenerateConfiguration(args)
+	assert.NoError(t, err)
+
+	return cfg
+}
+
 func TestDefaultLogDir(t *testing.T) {
-	Load("with-log-upload-config.json")
-
-	if logDirTempVal := LogsTmpDir(); logDirTempVal != "/var/lib/titus-container-logs" {
-		t.Fatal("Log dir set to unexpected value: ", logDirTempVal)
-	}
+	//cfg := Load("with-log-upload-config.json")
+	cfg := GetDefaultConfiguration(t, nil)
+	assert.Equal(t, cfg.LogsTmpDir, "/var/lib/titus-container-logs", "Log dir set to unexpected value")
 }
+
 func TestDefaultDurations(t *testing.T) {
-	Load("no-log-upload-config.json")
-	if Stack() == "" {
-		t.Fatalf("Stack empty")
-	}
-	if LogUpload().LogUploadThresholdTime != 6*time.Hour {
-		t.Fatalf("LogUploadThresholdTime default incorrect")
-	}
+	cfg := GetDefaultConfiguration(t, nil)
 
-	if LogUpload().LogUploadCheckInterval != 15*time.Minute {
-		t.Fatalf("LogUploadCheckInterval default incorrect")
-	}
-}
+	assert.Equal(t, cfg.Stack, "mainvpc")
+	assert.Equal(t, cfg.LogUploadThresholdTime, defaultLogUploadThreshold)
+	assert.Equal(t, cfg.LogUploadCheckInterval, defaultLogUploadCheckInterval)
 
-func TestConfiguredDurations(t *testing.T) {
-	Load("with-log-upload-config.json")
-	if Stack() == "" {
-		t.Fatalf("Stack empty")
-	}
-	if LogUpload().LogUploadThresholdTime != 1*time.Millisecond {
-		t.Fatalf("LogUploadThresholdTime should be 0")
-	}
-
-	if LogUpload().LogUploadCheckInterval != 10*time.Second {
-		t.Fatalf("LogUploadCheckInterval should be %v", 10*time.Second)
-	}
 }
 
 func TestClusterName(t *testing.T) {
@@ -88,6 +75,18 @@ func TestClusterName(t *testing.T) {
 	}
 }
 
+func TestHardCodedEnvironment(t *testing.T) {
+	cfg := GetDefaultConfiguration(t, nil)
+	assert.Contains(t, cfg.HardCodedEnv, "EC2_DOMAIN=amazonaws.com")
+}
+
+func TestHardCodedEnvironment2(t *testing.T) {
+	cfg := GetDefaultConfiguration(t, []string{"--hard-coded-env", "FOO=BAR", "--hard-coded-env", "BAZ=QUUX"})
+	assert.Contains(t, cfg.HardCodedEnv, "FOO=BAR")
+	assert.Contains(t, cfg.HardCodedEnv, "BAZ=QUUX")
+
+}
+
 func TestEnvBasedOnTaskInfo(t *testing.T) {
 	type input struct {
 		info                             *titusproto.ContainerInfo
@@ -95,7 +94,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 	}
 	check := func(input input, want map[string]string) func(*testing.T) {
 		return func(t *testing.T) {
-			got := getEnvBasedOnTask(input.info, input.mem, input.cpu, input.disk, input.networkBandwidth)
+			cfg := GetDefaultConfiguration(t, nil)
+			got := cfg.getEnvBasedOnTask(input.info, input.mem, input.cpu, input.disk, input.networkBandwidth)
 			if len(got) != len(want) {
 				t.Fatalf("expected: %+v, got: %+v", want, got)
 			}

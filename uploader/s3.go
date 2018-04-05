@@ -29,21 +29,15 @@ type S3Uploader struct {
 }
 
 // NewS3Uploader creates a new instance of an S3 uploader
-func NewS3Uploader(log logrus.FieldLogger, config map[string]string) (Uploader, error) {
-	log.Printf("s3 : init from config: %v", config)
-
-	// verify config
-	if config["bucket"] == "" {
-		return nil, errors.New("no bucket specified")
-	}
+func NewS3Uploader(log logrus.FieldLogger, bucket string) Uploader {
 	region, err := getEC2Region()
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
 	u := &S3Uploader{
 		log:        log,
-		bucketName: config["bucket"],
+		bucketName: bucket,
 	}
 
 	session, err := session.NewSession(&aws.Config{
@@ -51,13 +45,13 @@ func NewS3Uploader(log logrus.FieldLogger, config map[string]string) (Uploader, 
 		Region: &region,
 	})
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 	u.s3Uploader = s3manager.NewUploader(session, func(u *s3manager.Uploader) {
 		u.PartSize = defaultS3PartSize
 	})
 
-	return u, nil
+	return u
 }
 
 func getEC2Region() (string, error) {

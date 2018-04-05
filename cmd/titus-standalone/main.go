@@ -38,8 +38,10 @@ func main() {
 	app.Name = "titus-standalone"
 	defer time.Sleep(1 * time.Second)
 	// avoid os.Exit as much as possible to let deferred functions run
+	cfg, cfgFlags := config.NewConfig()
+
 	app.Action = func(c *cli.Context) error {
-		return cli.NewExitError(mainWithError(c, &options), 1)
+		return cli.NewExitError(mainWithError(c, cfg, &options), 1)
 	}
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -74,13 +76,14 @@ func main() {
 		},
 	}
 	app.Flags = append(app.Flags, docker.Flags...)
+	app.Flags = append(app.Flags, cfgFlags...)
 
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
 }
 
-func mainWithError(c *cli.Context, options *cliOptions) error { // nolint: gocyclo
+func mainWithError(c *cli.Context, cfg *config.Config, options *cliOptions) error { // nolint: gocyclo
 	defer log.Info("titus executor terminated")
 
 	switch options.logLevel {
@@ -96,10 +99,9 @@ func mainWithError(c *cli.Context, options *cliOptions) error { // nolint: gocyc
 	defer cancel()
 	var err error
 	// Don't specify a file so config loads with the default JSON config
-	config.Load("")
 
 	var m metrics.Reporter
-	switch config.DevWorkspace().DisableMetrics {
+	switch cfg.DisableMetrics {
 	case true:
 		m = metrics.Discard
 	default:
@@ -119,15 +121,11 @@ func mainWithError(c *cli.Context, options *cliOptions) error { // nolint: gocyc
 
 	// Create the Titus executor
 	var logUploaders *uploader.Uploaders
-	if logUploaders, err = uploader.NewUploaders(config.Uploaders().Log); err != nil {
+	if logUploaders, err = uploader.NewUploaders(cfg); err != nil {
 		return fmt.Errorf("Cannot create log uploaders: %v", err)
 	}
 
-	runner, err := runner.New(ctx, m, logUploaders, runner.Config{
-		StatusCheckFrequency:        config.StatusCheckFrequency(),
-		MetatronEnabled:             config.MetatronEnabled(),
-		DevWorkspaceMockMetaronCred: config.DevWorkspace().MockMetatronCreds,
-	})
+	runner, err := runner.New(ctx, m, logUploaders, *cfg)
 	if err != nil {
 		return fmt.Errorf("Cannot create Titus executor: %v", err)
 	}

@@ -55,12 +55,16 @@ var flags = []cli.Flag{
 func main() {
 	app := cli.NewApp()
 	app.Name = "titus-executor"
-	defer time.Sleep(1 * time.Second)
 	// avoid os.Exit as much as possible to let deferred functions run
-	app.Action = func(c *cli.Context) error {
-		return cli.NewExitError(mainWithError(c), 1)
-	}
+	defer time.Sleep(1 * time.Second)
+
 	app.Flags = append(flags, docker.Flags...)
+
+	cfg, cfgFlags := config.NewConfig()
+	app.Flags = append(app.Flags, cfgFlags...)
+	app.Action = func(c *cli.Context) error {
+		return cli.NewExitError(mainWithError(c, cfg), 1)
+	}
 
 	altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource("disable-quitelite", "quitelite-url"))
 	if err := app.Run(os.Args); err != nil {
@@ -68,19 +72,18 @@ func main() {
 	}
 }
 
-func mainWithError(c *cli.Context) error {
+func mainWithError(c *cli.Context, cfg *config.Config) error {
 	defer log.Info("titus executor terminated")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var err error
 	// Don't specify a file so config loads with the default JSON config
-	config.Load("")
 
 	go setupLogging()
 
 	var m metrics.Reporter
-	switch config.DevWorkspace().DisableMetrics {
+	switch cfg.DisableMetrics {
 	case true:
 		m = metrics.Discard
 	default:
@@ -90,15 +93,11 @@ func mainWithError(c *cli.Context) error {
 
 	// Create the Titus executor
 	var logUploaders *uploader.Uploaders
-	if logUploaders, err = uploader.NewUploaders(config.Uploaders().Log); err != nil {
+	if logUploaders, err = uploader.NewUploaders(cfg); err != nil {
 		return fmt.Errorf("Cannot create log uploaders: %v", err)
 	}
 
-	runner, err := runner.New(ctx, m, logUploaders, runner.Config{
-		StatusCheckFrequency:        config.StatusCheckFrequency(),
-		MetatronEnabled:             config.MetatronEnabled(),
-		DevWorkspaceMockMetaronCred: config.DevWorkspace().MockMetatronCreds,
-	})
+	runner, err := runner.New(ctx, m, logUploaders, *cfg)
 	if err != nil {
 		return fmt.Errorf("Cannot create Titus executor: %v", err)
 	}

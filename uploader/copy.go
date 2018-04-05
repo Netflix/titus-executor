@@ -17,15 +17,8 @@ type CopyUploader struct {
 }
 
 // NewCopyUploader creates a new instance of a copy uploader
-func NewCopyUploader(config map[string]string) (Uploader, error) {
-	log.Printf("copy : init from config: %v", config)
-
-	// verify config
-	if config["directory"] == "" {
-		return nil, errors.New("no directory specified")
-	}
-
-	return &CopyUploader{Dir: config["directory"]}, nil
+func NewCopyUploader(directory string) *CopyUploader {
+	return &CopyUploader{Dir: directory}
 }
 
 // Upload copies a single file only!

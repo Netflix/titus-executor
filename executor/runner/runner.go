@@ -20,6 +20,7 @@ import (
 	"os"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/metatron"
 	"github.com/Netflix/titus-executor/filesystems"
@@ -37,11 +38,6 @@ var (
 )
 
 // Config is runner config
-type Config struct {
-	StatusCheckFrequency        time.Duration
-	MetatronEnabled             bool
-	DevWorkspaceMockMetaronCred bool
-}
 
 type task struct {
 	taskID    string
@@ -57,7 +53,7 @@ type Runner struct { // nolint: maligned
 	metrics     metrics.Reporter
 	runtime     runtimeTypes.Runtime
 	launchGuard *launchguardClient.LaunchGuardClient
-	config      *Config
+	config      config.Config
 	logger      *logrus.Entry
 
 	container *runtimeTypes.Container
@@ -78,18 +74,18 @@ type Runner struct { // nolint: maligned
 }
 
 // RuntimeProvider is a factory function for runtime implementations. It is called only once by WithRuntime
-type RuntimeProvider func(context.Context) (runtimeTypes.Runtime, error)
+type RuntimeProvider func(context.Context, config.Config) (runtimeTypes.Runtime, error)
 
 // New constructs a new Executor object with the default (docker) runtime
-func New(ctx context.Context, m metrics.Reporter, logUploaders *uploader.Uploaders, cfg Config) (*Runner, error) {
-	dockerRuntime := func(ctx context.Context) (runtimeTypes.Runtime, error) {
-		return docker.NewDockerRuntime(ctx, m)
+func New(ctx context.Context, m metrics.Reporter, logUploaders *uploader.Uploaders, cfg config.Config) (*Runner, error) {
+	dockerRuntime := func(ctx context.Context, cfg config.Config) (runtimeTypes.Runtime, error) {
+		return docker.NewDockerRuntime(ctx, m, cfg)
 	}
 	return WithRuntime(ctx, m, dockerRuntime, logUploaders, cfg)
 }
 
 // WithRuntime builds an Executor using the provided Runtime factory func
-func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.Uploaders, cfg Config) (*Runner, error) {
+func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.Uploaders, cfg config.Config) (*Runner, error) {
 	lgc, err := launchguardClient.NewLaunchGuardClient(m, "http://localhost:8006")
 	if err != nil {
 		return nil, err // nolint: vet
@@ -100,7 +96,7 @@ func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, lo
 		metrics:      m,
 		logUploaders: logUploaders,
 		launchGuard:  lgc,
-		config:       &cfg,
+		config:       cfg,
 		taskChan:     make(chan task, 1),
 		killChan:     make(chan struct{}),
 		UpdatesChan:  make(chan Update, 10),
@@ -191,7 +187,7 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 		CPU:  taskConfig.cpu,
 		Disk: taskConfig.disk,
 	}
-	r.container = runtime.NewContainer(taskConfig.taskID, taskConfig.titusInfo, resources, labels)
+	r.container = runtime.NewContainer(taskConfig.taskID, taskConfig.titusInfo, resources, labels, r.config)
 
 	// TODO: Wire up cleanup callback
 	var le launchguardCore.LaunchEvent = &launchguardCore.NoopLaunchEvent{}
@@ -454,7 +450,7 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 
 	uploadDir := r.container.UploadDir("logs")
 	uploadRegex := r.container.TitusInfo.GetLogUploadRegexp()
-	r.watcher, err = filesystems.NewWatcher(r.metrics, logDir, uploadDir, uploadRegex, r.logUploaders)
+	r.watcher, err = filesystems.NewWatcher(r.metrics, logDir, uploadDir, uploadRegex, r.logUploaders, r.config)
 	if err != nil {
 		return err
 	}
@@ -465,7 +461,7 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 // setupMetatron returns a Docker formatted string bind mount for a container for a directory that will contain
 // TODO(fabio): create a type for Binds
 func (r *Runner) setupMetatron() (*metatron.CredentialsConfig, error) {
-	if r.config.DevWorkspaceMockMetaronCred {
+	if r.config.MockMetatronCreds {
 		// Make up some creds for local testing
 		testAppMetadata := "type=titus&version=1&app=myApp&stack=myStack&imageName=myImage&imageVersion=latest&entry=myEntryPoint&t=1481328000"
 		testAppSignature := "keyID=10&sAlg=SHA256withRSAandMGF1&sig=RGVjb2RlIGJhc2U2NCBzdHJpbmdzIChiYXNlNjQgc3RyaW5nIGxvb2tzIGxpa2UgWVRNME5ab21JekkyT1RzbUl6TTBOVHVlWVE9PSkNCkRlY29kZSBhIGJhc2U2NCBlbmNvZGVkIGZpbGUgKGZvciBleGFtcGxlIElDTyBmaWxlcyBvciBmaWxlcyB"
@@ -533,7 +529,7 @@ func (r *Runner) setupRunner(ctx context.Context, rp RuntimeProvider) error {
 		}
 	}
 
-	r.runtime, err = rp(ctx)
+	r.runtime, err = rp(ctx, r.config)
 	return err
 }
 
