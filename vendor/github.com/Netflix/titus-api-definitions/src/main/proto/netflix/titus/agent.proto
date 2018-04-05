@@ -1,0 +1,231 @@
+syntax = "proto2";
+
+package messages;
+
+option java_package = "io.titanframework.messages";
+option java_outer_classname = "TitanProtos";
+
+option go_package = "titus";
+
+message TaskStatusData {
+    required int64 timestamp = 1;
+}
+
+message StateUpdate {
+    optional string id = 1;
+    optional string state = 2;
+    optional string message = 3;
+    optional string timestamp = 4;
+}
+
+message StateUpdates {
+    repeated StateUpdate stateUpdate = 1;
+}
+
+message TaskInfo {
+
+    optional string containerId = 1;
+
+    optional string taskId = 2;
+
+    optional string hostName = 3;
+
+    optional string slaveId = 4;
+
+    enum Status {
+        RUNNING = 0;
+        FAILED = 1;
+        STOPPED = 2;
+    }
+
+    optional Status status = 5;
+
+    optional string message = 6;
+
+    message EnvironmentVariable {
+        optional string name = 1;
+        optional string value = 2;
+    }
+
+    repeated EnvironmentVariable environmentVariable = 7;
+}
+
+message ContainerInfo {
+
+    optional string imageName = 1;
+
+    optional string command = 2; // deprecated. replaced by entrypointCmd.
+
+    optional string containerPorts = 3;
+
+    optional string version = 4 [default = "latest"];
+
+    // deprecated: use userProvidedEnv and titusProvidedEnv instead
+    message EnvironmentVariable {
+        optional string name = 1;
+        optional string value = 2;
+    }
+
+    // deprecated: use userProvidedEnv and titusProvidedEnv instead
+    repeated EnvironmentVariable environmentVariable = 5 [deprecated = true];
+
+    optional string jobId = 6;
+
+    optional string logUploadRegexp = 7;
+
+    optional uint32 maxHealthFailures = 8;
+
+    repeated string healthCheckCmd = 9;
+
+    enum SnapshotPolicy {
+        NEVER = 0;
+        ERROR_ONLY = 1;
+        SUCCESS_ONLY = 2;
+        ALWAYS = 3;
+    }
+
+    optional SnapshotPolicy snapshotPolicy = 10;
+
+    repeated string entrypointCmd = 11; // Deprecated. Use entrypointStr instead.
+
+    optional bool allocateIpAddress = 12 [default = false];
+
+    optional string entrypointStr = 13;
+
+    optional string appName = 14;
+
+    optional string jobGroupStack = 15;
+
+    optional string jobGroupDetail = 16;
+
+    optional string iamProfile = 17;
+
+    message NetworkConfigInfo {
+        // deprecated: use eniLabel instead
+        required string eniLablel = 1 [deprecated = true];
+        // this should be required, but it was added later (typo fix) and is optional for backwards compatibility
+        optional string eniLabel = 5;
+        optional bool allocateIpAddress = 2 [default = false];
+        repeated string securityGroups = 3;
+        optional uint32 bandwidthLimitMbps = 4; // In Mbps
+    }
+
+    optional NetworkConfigInfo networkConfigInfo = 18;
+
+    optional string jobGroupSequence = 19;
+
+    optional uint32 numGpus = 20;
+
+    message EfsConfigInfo {
+        enum MountPerms {
+            RW = 1;
+            RO = 2;
+            WO = 3;
+        }
+        required string efsFsId = 1;
+        required string mountPoint = 2;
+        optional MountPerms mntPerms = 3; // Defaults to first enum value
+        optional string efsFsRelativeMntPoint = 4;
+    }
+
+    repeated EfsConfigInfo efsConfigInfo = 21;
+
+    message Capabilities {
+
+        // Taken from include/uapi/linux/capability.h
+        // #define _LINUX_CAPABILITY_VERSION_3  0x20080522
+        enum Capability {
+            CHOWN = 0;
+            DAC_OVERRIDE = 1;
+            DAC_READ_SEARCH = 2;
+            FOWNER = 3;
+            FSETID = 4;
+            KILL = 5;
+            SETGID = 6;
+            SETUID = 7;
+            SETPCAP = 8;
+            LINUX_IMMUTABLE = 9;
+            NET_BIND_SERVICE = 10;
+            NET_BROADCAST = 11;
+            NET_ADMIN = 12;
+            NET_RAW = 13;
+            IPC_LOCK = 14;
+            IPC_OWNER = 15;
+            SYS_MODULE = 16;
+            SYS_RAWIO = 17;
+            SYS_CHROOT = 18;
+            SYS_PTRACE = 19;
+            SYS_PACCT = 20;
+            SYS_ADMIN = 21;
+            SYS_BOOT = 22;
+            SYS_NICE = 23;
+            SYS_RESOURCE = 24;
+            SYS_TIME = 25;
+            SYS_TTY_CONFIG = 26;
+            MKNOD = 27;
+            LEASE = 28;
+            AUDIT_WRITE = 29;
+            AUDIT_CONTROL = 30;
+            SETFCAP = 31;
+            MAC_OVERRIDE = 32;
+            MAC_ADMIN = 33;
+            SYSLOG = 34;
+            WAKE_ALARM = 35;
+            BLOCK_SUSPEND = 36;
+            AUDIT_READ = 37;
+        }
+
+        repeated Capability add = 1;
+        repeated Capability drop = 2;
+    }
+
+    optional Capabilities capabilities = 22;
+
+    message MetatronCreds {
+        required string appMetadata = 1; // An encoded description of the task's job metadata
+        required string metadataSig = 2; // An encoded description of the metadata signature
+    }
+
+    optional MetatronCreds metatronCreds = 23;
+
+    map<string, string> userProvidedEnv = 24;
+
+    map<string, string> titusProvidedEnv = 25;
+
+    // imageDigest has precedence over version
+    optional string imageDigest = 26;
+
+    optional bool allowNetworkBursting = 27;
+
+    // Number of seconds to wait before killing the container
+    // otherwise, it will use the dockerd default
+    optional uint32 killWaitSeconds = 28;
+
+    // If the engine that is using this agent supports the
+    // killinitiated state, this should be set to true.
+    // That way, when this container is killed, as well as
+    // when it is launched, the launchguard will be ignored.
+    optional bool ignoreLaunchGuard = 29;
+
+    // Should we allow this container to run privileged enough
+    // to run internal container runtimes?
+    optional bool allowNestedContainers = 30;
+
+    // The image name with the registry
+    optional string fullyQualifiedImage = 31;
+
+    // Should this container be allowed to excceed its CPU cap?
+    optional bool allowCpuBursting = 32;
+
+    // Should this be tagged sched_batch? Does it prefer bigger chunks
+    // of CPU, less frequently?
+    optional bool batch = 33;
+
+    // The s3 log location used when uploading logs
+    message S3LogLocation {
+        required string bucket = 1; // The bucket to use for all uploads
+        required string prefix = 2; // The prefix to use for all object keys. e.g. foo/bar
+    }
+
+    repeated S3LogLocation s3LogLocations = 34;
+}

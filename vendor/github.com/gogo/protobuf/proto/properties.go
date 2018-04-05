@@ -1,7 +1,7 @@
-// Protocol Buffers for Go with Gadgets
+// Extensions for Protocol Buffers to create more go like structures.
 //
-// Copyright (c) 2013, The GoGo Authors. All rights reserved.
-// http://github.com/gogo/protobuf
+// Copyright (c) 2013, Vastech SA (PTY) LTD. All rights reserved.
+// http://github.com/gogo/protobuf/gogoproto
 //
 // Go support for Protocol Buffers - Google's data interchange format
 //
@@ -42,7 +42,6 @@ package proto
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"reflect"
 	"sort"
@@ -89,15 +88,6 @@ type decoder func(p *Buffer, prop *Properties, base structPointer) error
 
 // A valueDecoder decodes a single integer in a particular encoding.
 type valueDecoder func(o *Buffer) (x uint64, err error)
-
-// A oneofMarshaler does the marshaling for all oneof fields in a message.
-type oneofMarshaler func(Message, *Buffer) error
-
-// A oneofUnmarshaler does the unmarshaling for a oneof field in a message.
-type oneofUnmarshaler func(Message, int, int, *Buffer) (bool, error)
-
-// A oneofSizer does the sizing for all oneof fields in a message.
-type oneofSizer func(Message) int
 
 // tagMap is an optimization over map[int]int for typical protocol buffer
 // use-cases. Encoded protocol buffers are often in tag order with small tag
@@ -147,22 +137,6 @@ type StructProperties struct {
 	order            []int          // list of struct field numbers in tag order
 	unrecField       field          // field id of the XXX_unrecognized []byte field
 	extendable       bool           // is this an extendable proto
-
-	oneofMarshaler   oneofMarshaler
-	oneofUnmarshaler oneofUnmarshaler
-	oneofSizer       oneofSizer
-	stype            reflect.Type
-
-	// OneofTypes contains information about the oneof fields in this message.
-	// It is keyed by the original name of a field.
-	OneofTypes map[string]*OneofProperties
-}
-
-// OneofProperties represents information about a specific field in a oneof.
-type OneofProperties struct {
-	Type  reflect.Type // pointer to generated struct type for this oneof field
-	Field int          // struct field number of the containing oneof in the message
-	Prop  *Properties
 }
 
 // Implement the sorting interface so we can sort the fields in tag order, as recommended by the spec.
@@ -178,7 +152,6 @@ func (sp *StructProperties) Swap(i, j int) { sp.order[i], sp.order[j] = sp.order
 type Properties struct {
 	Name     string // name of the field, for error messages
 	OrigName string // original name before protocol compiler (always set)
-	JSONName string // name to use for JSON; determined by protoc
 	Wire     string
 	WireType int
 	Tag      int
@@ -188,14 +161,11 @@ type Properties struct {
 	Packed   bool   // relevant for repeated primitives only
 	Enum     string // set for enum types only
 	proto3   bool   // whether this is known to be a proto3 field; set for []byte only
-	oneof    bool   // whether this is a oneof field
 
-	Default     string // default value
-	HasDefault  bool   // whether an explicit default was provided
-	CustomType  string
-	CastType    string
-	StdTime     bool
-	StdDuration bool
+	Default    string // default value
+	HasDefault bool   // whether an explicit default was provided
+	CustomType string
+	def_uint64 uint64
 
 	enc           encoder
 	valEnc        valueEncoder // set for bool and numeric types only
@@ -240,15 +210,11 @@ func (p *Properties) String() string {
 	if p.Packed {
 		s += ",packed"
 	}
-	s += ",name=" + p.OrigName
-	if p.JSONName != p.OrigName {
-		s += ",json=" + p.JSONName
+	if p.OrigName != p.Name {
+		s += ",name=" + p.OrigName
 	}
 	if p.proto3 {
 		s += ",proto3"
-	}
-	if p.oneof {
-		s += ",oneof"
 	}
 	if len(p.Enum) > 0 {
 		s += ",enum=" + p.Enum
@@ -322,14 +288,10 @@ func (p *Properties) Parse(s string) {
 			p.Packed = true
 		case strings.HasPrefix(f, "name="):
 			p.OrigName = f[5:]
-		case strings.HasPrefix(f, "json="):
-			p.JSONName = f[5:]
 		case strings.HasPrefix(f, "enum="):
 			p.Enum = f[5:]
 		case f == "proto3":
 			p.proto3 = true
-		case f == "oneof":
-			p.oneof = true
 		case strings.HasPrefix(f, "def="):
 			p.HasDefault = true
 			p.Default = f[4:] // rest of string
@@ -342,12 +304,6 @@ func (p *Properties) Parse(s string) {
 			p.OrigName = strings.Split(f, "=")[1]
 		case strings.HasPrefix(f, "customtype="):
 			p.CustomType = strings.Split(f, "=")[1]
-		case strings.HasPrefix(f, "casttype="):
-			p.CastType = strings.Split(f, "=")[1]
-		case f == "stdtime":
-			p.StdTime = true
-		case f == "stdduration":
-			p.StdDuration = true
 		}
 	}
 }
@@ -363,19 +319,8 @@ func (p *Properties) setEncAndDec(typ reflect.Type, f *reflect.StructField, lock
 	p.enc = nil
 	p.dec = nil
 	p.size = nil
-	isMap := typ.Kind() == reflect.Map
-	if len(p.CustomType) > 0 && !isMap {
+	if len(p.CustomType) > 0 {
 		p.setCustomEncAndDec(typ)
-		p.setTag(lockGetProp)
-		return
-	}
-	if p.StdTime && !isMap {
-		p.setTimeEncAndDec(typ)
-		p.setTag(lockGetProp)
-		return
-	}
-	if p.StdDuration && !isMap {
-		p.setDurationEncAndDec(typ)
 		p.setTag(lockGetProp)
 		return
 	}
@@ -561,13 +506,17 @@ func (p *Properties) setEncAndDec(typ reflect.Type, f *reflect.StructField, lock
 			p.dec = (*Buffer).dec_slice_int64
 			p.packedDec = (*Buffer).dec_slice_packed_int64
 		case reflect.Uint8:
+			p.enc = (*Buffer).enc_slice_byte
 			p.dec = (*Buffer).dec_slice_byte
-			if p.proto3 {
+			p.size = size_slice_byte
+			// This is a []byte, which is either a bytes field,
+			// or the value of a map field. In the latter case,
+			// we always encode an empty []byte, so we should not
+			// use the proto3 enc/size funcs.
+			// f == nil iff this is the key/value of a map field.
+			if p.proto3 && f != nil {
 				p.enc = (*Buffer).enc_proto3_slice_byte
 				p.size = size_proto3_slice_byte
-			} else {
-				p.enc = (*Buffer).enc_slice_byte
-				p.size = size_slice_byte
 			}
 		case reflect.Float32, reflect.Float64:
 			switch t2.Bits() {
@@ -649,10 +598,6 @@ func (p *Properties) setEncAndDec(typ reflect.Type, f *reflect.StructField, lock
 			// so we need encoders for the pointer to this type.
 			vtype = reflect.PtrTo(vtype)
 		}
-
-		p.mvalprop.CustomType = p.CustomType
-		p.mvalprop.StdDuration = p.StdDuration
-		p.mvalprop.StdTime = p.StdTime
 		p.mvalprop.init(vtype, "Value", f.Tag.Get("protobuf_val"), nil, lockGetProp)
 	}
 	p.setTag(lockGetProp)
@@ -763,25 +708,18 @@ func getPropertiesLocked(t reflect.Type) *StructProperties {
 	propertiesMap[t] = prop
 
 	// build properties
-	prop.extendable = reflect.PtrTo(t).Implements(extendableProtoType) ||
-		reflect.PtrTo(t).Implements(extendableProtoV1Type) ||
-		reflect.PtrTo(t).Implements(extendableBytesType)
+	prop.extendable = reflect.PtrTo(t).Implements(extendableProtoType)
 	prop.unrecField = invalidField
 	prop.Prop = make([]*Properties, t.NumField())
 	prop.order = make([]int, t.NumField())
 
-	isOneofMessage := false
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		p := new(Properties)
 		name := f.Name
 		p.init(f.Type, name, f.Tag.Get("protobuf"), &f, false)
 
-		if f.Name == "XXX_InternalExtensions" { // special case
-			p.enc = (*Buffer).enc_exts
-			p.dec = nil // not needed
-			p.size = size_exts
-		} else if f.Name == "XXX_extensions" { // special case
+		if f.Name == "XXX_extensions" { // special case
 			if len(f.Tag.Get("protobuf")) > 0 {
 				p.enc = (*Buffer).enc_ext_slice_byte
 				p.dec = nil // not needed
@@ -791,14 +729,9 @@ func getPropertiesLocked(t reflect.Type) *StructProperties {
 				p.dec = nil // not needed
 				p.size = size_map
 			}
-		} else if f.Name == "XXX_unrecognized" { // special case
-			prop.unrecField = toField(&f)
 		}
-		oneof := f.Tag.Get("protobuf_oneof") // special case
-		if oneof != "" {
-			isOneofMessage = true
-			// Oneof fields don't use the traditional protobuf tag.
-			p.OrigName = oneof
+		if f.Name == "XXX_unrecognized" { // special case
+			prop.unrecField = toField(&f)
 		}
 		prop.Prop[i] = p
 		prop.order[i] = i
@@ -809,48 +742,13 @@ func getPropertiesLocked(t reflect.Type) *StructProperties {
 			}
 			print("\n")
 		}
-		if p.enc == nil && !strings.HasPrefix(f.Name, "XXX_") && oneof == "" {
+		if p.enc == nil && !strings.HasPrefix(f.Name, "XXX_") {
 			fmt.Fprintln(os.Stderr, "proto: no encoder for", f.Name, f.Type.String(), "[GetProperties]")
 		}
 	}
 
 	// Re-order prop.order.
 	sort.Sort(prop)
-
-	type oneofMessage interface {
-		XXX_OneofFuncs() (func(Message, *Buffer) error, func(Message, int, int, *Buffer) (bool, error), func(Message) int, []interface{})
-	}
-	if om, ok := reflect.Zero(reflect.PtrTo(t)).Interface().(oneofMessage); isOneofMessage && ok {
-		var oots []interface{}
-		prop.oneofMarshaler, prop.oneofUnmarshaler, prop.oneofSizer, oots = om.XXX_OneofFuncs()
-		prop.stype = t
-
-		// Interpret oneof metadata.
-		prop.OneofTypes = make(map[string]*OneofProperties)
-		for _, oot := range oots {
-			oop := &OneofProperties{
-				Type: reflect.ValueOf(oot).Type(), // *T
-				Prop: new(Properties),
-			}
-			sft := oop.Type.Elem().Field(0)
-			oop.Prop.Name = sft.Name
-			oop.Prop.Parse(sft.Tag.Get("protobuf"))
-			// There will be exactly one interface field that
-			// this new value is assignable to.
-			for i := 0; i < t.NumField(); i++ {
-				f := t.Field(i)
-				if f.Type.Kind() != reflect.Interface {
-					continue
-				}
-				if !oop.Type.AssignableTo(f.Type) {
-					continue
-				}
-				oop.Field = i
-				break
-			}
-			prop.OneofTypes[oop.Prop.OrigName] = oop
-		}
-	}
 
 	// build required counts
 	// build tags
@@ -915,57 +813,3 @@ func RegisterEnum(typeName string, unusedNameMap map[int32]string, valueMap map[
 	}
 	enumStringMaps[typeName] = unusedNameMap
 }
-
-// EnumValueMap returns the mapping from names to integers of the
-// enum type enumType, or a nil if not found.
-func EnumValueMap(enumType string) map[string]int32 {
-	return enumValueMaps[enumType]
-}
-
-// A registry of all linked message types.
-// The string is a fully-qualified proto name ("pkg.Message").
-var (
-	protoTypes    = make(map[string]reflect.Type)
-	revProtoTypes = make(map[reflect.Type]string)
-)
-
-// RegisterType is called from generated code and maps from the fully qualified
-// proto name to the type (pointer to struct) of the protocol buffer.
-func RegisterType(x Message, name string) {
-	if _, ok := protoTypes[name]; ok {
-		// TODO: Some day, make this a panic.
-		log.Printf("proto: duplicate proto type registered: %s", name)
-		return
-	}
-	t := reflect.TypeOf(x)
-	protoTypes[name] = t
-	revProtoTypes[t] = name
-}
-
-// MessageName returns the fully-qualified proto name for the given message type.
-func MessageName(x Message) string {
-	type xname interface {
-		XXX_MessageName() string
-	}
-	if m, ok := x.(xname); ok {
-		return m.XXX_MessageName()
-	}
-	return revProtoTypes[reflect.TypeOf(x)]
-}
-
-// MessageType returns the message type (pointer to struct) for a named message.
-func MessageType(name string) reflect.Type { return protoTypes[name] }
-
-// A registry of all linked proto files.
-var (
-	protoFiles = make(map[string][]byte) // file name => fileDescriptor
-)
-
-// RegisterFile is called from generated code and maps from the
-// full file name of a .proto file to its compressed FileDescriptorProto.
-func RegisterFile(filename string, fileDescriptor []byte) {
-	protoFiles[filename] = fileDescriptor
-}
-
-// FileDescriptor returns the compressed FileDescriptorProto for a .proto file.
-func FileDescriptor(filename string) []byte { return protoFiles[filename] }

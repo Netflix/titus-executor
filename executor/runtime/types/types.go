@@ -14,6 +14,8 @@ import (
 	"context"
 	"path/filepath"
 
+	// The purpose of this is to tell gometalinter to keep vendoring this package
+	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 )
 

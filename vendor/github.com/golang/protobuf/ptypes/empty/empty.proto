@@ -1,5 +1,6 @@
-// Copyright (c) 2013, Vastech SA (PTY) LTD. All rights reserved.
-// http://github.com/gogo/protobuf/gogoproto
+// Protocol Buffers - Google's data interchange format
+// Copyright 2008 Google Inc.  All rights reserved.
+// https://developers.google.com/protocol-buffers/
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -11,6 +12,9 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
+//     * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
 //
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -24,41 +28,25 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package proto
+syntax = "proto3";
 
-import (
-	"fmt"
-	"os"
-	"reflect"
-)
+package google.protobuf;
 
-func (p *Properties) setCustomEncAndDec(typ reflect.Type) {
-	p.ctype = typ
-	if p.Repeated {
-		p.enc = (*Buffer).enc_custom_slice_bytes
-		p.dec = (*Buffer).dec_custom_slice_bytes
-		p.size = size_custom_slice_bytes
-	} else if typ.Kind() == reflect.Ptr {
-		p.enc = (*Buffer).enc_custom_bytes
-		p.dec = (*Buffer).dec_custom_bytes
-		p.size = size_custom_bytes
-	} else {
-		p.enc = (*Buffer).enc_custom_ref_bytes
-		p.dec = (*Buffer).dec_custom_ref_bytes
-		p.size = size_custom_ref_bytes
-	}
-}
+option csharp_namespace = "Google.Protobuf.WellKnownTypes";
+option go_package = "github.com/golang/protobuf/ptypes/empty";
+option java_package = "com.google.protobuf";
+option java_outer_classname = "EmptyProto";
+option java_multiple_files = true;
+option objc_class_prefix = "GPB";
+option cc_enable_arenas = true;
 
-func (p *Properties) setSliceOfNonPointerStructs(typ reflect.Type) {
-	t2 := typ.Elem()
-	p.sstype = typ
-	p.stype = t2
-	p.isMarshaler = isMarshaler(t2)
-	p.isUnmarshaler = isUnmarshaler(t2)
-	p.enc = (*Buffer).enc_slice_ref_struct_message
-	p.dec = (*Buffer).dec_slice_ref_struct_message
-	p.size = size_slice_ref_struct_message
-	if p.Wire != "bytes" {
-		fmt.Fprintf(os.Stderr, "proto: no ptr oenc for %T -> %T \n", typ, t2)
-	}
-}
+// A generic empty message that you can re-use to avoid defining duplicated
+// empty messages in your APIs. A typical example is to use it as the request
+// or the response type of an API method. For instance:
+//
+//     service Foo {
+//       rpc Bar(google.protobuf.Empty) returns (google.protobuf.Empty);
+//     }
+//
+// The JSON representation for `Empty` is empty JSON object `{}`.
+message Empty {}

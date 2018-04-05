@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package com.netflix.titus;
+
+import "google/protobuf/any.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "TitusBase";
+
+option go_package = "titus";
+
+// ----------------------------------------------------------------------------
+// Supplementary data structures
+
+/// Caller's identity, and their security context.
+message UserIdentity {
+    /// (Required) A unique user identifier. Depending on user type (a person or an application), the format
+    // of the id may be different. For example a person's id could be encoded as 'person:<email-address>', and
+    // application id as 'app:<aws-account-id>:<app-name>:<app-stack>'.
+    string id = 1;
+
+    /// (Optional) Security context data associated with the user (for example user roles). The following names are
+    // reserved, and should be used if applicable:
+    // * name - caller's name
+    // * email - caller's email address
+    map<string, string> securityContext = 2;
+}
+
+/// An entity representing single page of a collection. Either pageNumber or cursor must be set on requests.
+message Page {
+    /// (Optional) Requested page number, starting from 0 (defaults to 0 if not specified).
+    int32 pageNumber = 1;
+
+    /// (Required) Requested page size (if not specified, default size is operation specific).
+    int32 pageSize = 2;
+
+    /// (Optional) The position in the collection from which the next page should be returned. If the cursor value is set, it is
+    // always used, irrespective of the page number set.
+    string cursor = 3;
+}
+
+/// An entity representing pagination information returned to a client iterating over its elements.
+// It includes current page that the client requested, and the total collection size.
+// As not always pageCount * pageSize == itemCount, the item count is included as well.
+message Pagination {
+    /// (Required) Requested page details.
+    Page currentPage = 1;
+
+    /// Are there any more items to return.
+    bool hasMore = 2;
+
+    /// Total number of pages.
+    int32 totalPages = 3;
+
+    /// Total number of items.
+    int32 totalItems = 4;
+
+    /// The last retrieved item's position in the collection. The cursor value can be sent on a subsequent request to
+    // get the next page of items. Using cursors, instead of page numbers, will guarantee that all items are
+    // retrieved with a potential of items being duplicated.
+    string cursor = 5;
+
+    /// Position of the cursor relative to totalItems. It can be used to determine what pageNumber would overlap with a
+    // cursor, or to provide an idea of progress when walking all pages. Valid values are [0, totalItems-1].
+    int32 cursorPosition = 6;
+}
+
+/// Retry polices.
+message RetryPolicy {
+    /// Re-run immediately.
+    message Immediate {
+        /// Maximum number of retries.
+        uint32 retries = 1;
+    }
+
+    /// Re-run after a given delay.
+    message Delayed {
+        /// Initial delay in milliseconds.
+        uint64 initialDelayMs = 1;
+
+        /// Subsequenet delays in milliseconds.
+        uint64 delayMs = 2;
+
+        /// Maximum number of retries.
+        uint32 retries = 3;
+    }
+
+    /// Exponential back-off retry policy.
+    message ExponentialBackOff {
+        /// Initial delay in milliseconds.
+        uint64 initialDelayMs = 1;
+
+        /// Upper bound on delay interval.
+        uint64 maxDelayIntervalMs = 2;
+
+        /// Maximum number of retries.
+        uint32 retries = 3;
+    }
+
+    /// (Required) Retry policy.
+    oneof Policy {
+        Immediate immediate = 1;
+        Delayed delayed = 2;
+        ExponentialBackOff exponentialBackOff = 3;
+    }
+}
+
+/// Titus scheduler tier (see Titus scheduler documentation for more information).
+enum Tier {
+    /// Tier for running latency insensitive batch workloads.
+    Flex = 0;
+
+    /// Tier for running latency sensitive workloads.
+    Critical = 1;
+}
+
+/// Disk mount permission mask
+enum MountPerm {
+    /// Read only
+    RO = 0;
+
+    // Write only
+    WO = 1;
+
+    // Read/write
+    RW = 2;
+}
+
+/// Instance resource dimensions
+message ResourceDimension {
+    uint32 cpu = 1;
+
+    uint32 gpu = 2;
+
+    uint32 memoryMB = 3;
+
+    uint32 diskMB = 4;
+
+    uint32 networkMbps = 5;
+}

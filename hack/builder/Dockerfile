@@ -36,21 +36,6 @@ RUN curl -fsSL $LIBNL_DOWNLOAD_URL -o libnl.tar.gz \
 	&& tar -xf libnl.tar.gz && cd libnl-3.4.0 && ./configure \
 	&& make && make install
 
-### protobuf
-ARG PROTOC_VERSION=3.4.0
-RUN cd /tmp ;\
-    curl -L -O https://github.com/google/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip &&\
-    unzip protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local ;\
-    rm -f protoc-${PROTOC_VERSION}-linux-x86_64.zip
-RUN chmod a+x /usr/local/bin/protoc
-RUN go get -u google.golang.org/grpc
-RUN go get -u github.com/gogo/protobuf/proto
-RUN go get -u github.com/gogo/protobuf/protoc-gen-gogo
-RUN go get -u github.com/gogo/protobuf/gogoproto
-RUN go get -u github.com/gogo/protobuf/protoc-gen-gogofast
-RUN go get -u github.com/gogo/protobuf/protoc-gen-gogoslick
-###
-
 RUN go get -u github.com/kardianos/govendor
 RUN go get -u golang.org/x/tools/cmd/goimports
 RUN go get -u github.com/mitchellh/gox
