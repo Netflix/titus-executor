@@ -312,6 +312,11 @@ message InstanceGroupLifecycleStateUpdate {
     string detail = 3;
 }
 
+message InstanceGroupAttributesUpdate {
+    string instanceGroupId = 1;
+    map<string, string> attributes = 2;
+}
+
 message InstanceOverrideStateUpdate {
     string agentInstanceId = 1;
     InstanceOverrideState overrideState = 2;
@@ -343,8 +348,12 @@ service AgentManagementService {
     rpc UpdateAutoScalingRule (AutoScalingRuleUpdate) returns (google.protobuf.Empty) {
     }
 
-    /// Change lifecycle state of an agent server group.
+    /// Change lifecycle state of an agent instance group.
     rpc UpdateInstanceGroupLifecycleState (InstanceGroupLifecycleStateUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Update the attributes of an instance group. The old attributes will be replaced completely.
+    rpc UpdateInstanceGroupAttributes (InstanceGroupAttributesUpdate) returns (google.protobuf.Empty) {
     }
 
     /// Change override state of an agent instance.

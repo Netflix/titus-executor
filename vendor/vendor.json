@@ -39,10 +39,12 @@
 			"revisionTime": "2017-10-19T18:51:21Z"
 		},
 		{
-			"checksumSHA1": "hyVAKD5EeNJCBGXDiQTgK5Qq3xE=",
+			"checksumSHA1": "NvehXhIFWCkMYuPVopAMoHLLKKs=",
 			"path": "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus",
-			"revision": "e5ab8ad9eb79b52ffe04676ba4e9fa6253e3420d",
-			"revisionTime": "2018-04-05T18:47:40Z"
+			"revision": "9c69a889db2879326cb23eeed480439d37ce3600",
+			"revisionTime": "2018-04-05T19:38:32Z",
+			"version": "master",
+			"versionExact": "master"
 		},
 		{
 			"checksumSHA1": "7eAIWei337IlBYIfzA3HyOEV9WE=",
