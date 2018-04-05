@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+// Titus Scheduler API specification.
+
+package com.netflix.titus;
+
+import "google/protobuf/empty.proto";
+import "netflix/titus/titus_base.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "SchedulerProto";
+
+option go_package = "titus";
+
+// ----------------------------------------------------------------------------
+// Scheduler data structures
+
+/// An operator to match scheduling criteria based on an expression
+message Match {
+    /// An expression evaluated to determine whether or not the selector is applied
+    string selectExpression = 1;
+
+    /// An expression that should return true in order to alter placement behavior and false to not be applied
+    string matchExpression = 2;
+}
+
+/// The selector type to alter placement as a best effort using the given operator
+message Should {
+    oneof Operator {
+        Match match = 1;
+    }
+}
+
+/// The selector type to force placement using the given operator. Note that this type will prevent placement.
+message Must {
+    oneof Operator {
+        Match match = 1;
+    }
+}
+
+/// A mechanism to alter placement behavior by providing operators to the scheduler that are evaluated at schedling time
+message SystemSelector {
+    /// The unique id
+    string id = 1;
+
+    /// Description of the seletor's purpose and intended behavior
+    string description = 2;
+
+    // Whether or not the selector should be applied
+    bool enabled = 4;
+
+    /// The priority of the selector in order to determine the order of the evaluations. Higher is evaluated first.
+    uint32 priority = 5;
+
+    /// The reason of who and why the selector was updated
+    string reason = 6;
+
+    /// Time when the selector was last updated
+    uint64 timestamp = 7;
+
+    /// The type of selector
+    oneof Type {
+        Should should = 8;
+        Must must = 9;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Services
+//
+// The data structures below are envelope data structures that are not part of the
+// core data model.
+
+message SystemSelectorId {
+    string id = 1;
+}
+
+message SystemSelectors {
+    repeated SystemSelector systemSelectors = 1;
+}
+
+message SystemSelectorUpdate {
+    string id = 1;
+    SystemSelector systemSelector = 2;
+}
+
+service SchedulerService {
+    /// Get all system selectors
+    rpc GetSystemSelectors (google.protobuf.Empty) returns (SystemSelectors) {
+    }
+
+    /// Get a system selector with a specific id
+    rpc GetSystemSelector (SystemSelectorId) returns (SystemSelector) {
+    }
+
+    /// Create a system selector
+    rpc CreateSystemSelector (SystemSelector) returns (google.protobuf.Empty) {
+    }
+
+    /// Update a system selector
+    rpc UpdateSystemSelector (SystemSelectorUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Delete a system selector
+    rpc DeleteSystemSelector (SystemSelectorId) returns (google.protobuf.Empty) {
+    }
+}

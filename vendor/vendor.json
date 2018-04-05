@@ -39,6 +39,14 @@
 			"revisionTime": "2017-10-19T18:51:21Z"
 		},
 		{
+			"checksumSHA1": "NvehXhIFWCkMYuPVopAMoHLLKKs=",
+			"path": "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus",
+			"revision": "9c69a889db2879326cb23eeed480439d37ce3600",
+			"revisionTime": "2018-04-05T19:38:32Z",
+			"version": "master",
+			"versionExact": "master"
+		},
+		{
 			"checksumSHA1": "7eAIWei337IlBYIfzA3HyOEV9WE=",
 			"path": "github.com/apparentlymart/go-cidr/cidr",
 			"revision": "2bd8b58cf4275aeb086ade613de226773e29e853",
@@ -511,10 +519,10 @@
 			"revisionTime": "2017-09-18T23:46:06Z"
 		},
 		{
-			"checksumSHA1": "wn2shNJMwRZpvuvkf1s7h0wvqHI=",
+			"checksumSHA1": "znR3RjWMKejAC0QlkpoHRYc8ZxM=",
 			"path": "github.com/gogo/protobuf/proto",
-			"revision": "0c5dcd73e6fd1ac6c452a68ec7f8d463d111be66",
-			"revisionTime": "2017-10-09T08:55:52Z"
+			"revision": "5ba1012ef3868db1b9ff374280a558c1bfff39c3",
+			"revisionTime": "2015-07-20T08:39:25Z"
 		},
 		{
 			"checksumSHA1": "J0gl11i6ZmxYXMIHsx5dC0vcc8Y=",
@@ -527,6 +535,18 @@
 			"path": "github.com/golang/protobuf/proto",
 			"revision": "130e6b02ab059e7b717a096f397c5b60111cae74",
 			"revisionTime": "2017-09-20T22:06:47Z"
+		},
+		{
+			"checksumSHA1": "Z4RIWIXH05QItZqVbmbONO9mWig=",
+			"path": "github.com/golang/protobuf/ptypes/any",
+			"revision": "5a0f697c9ed9d68fef0116532c6e05cfeae00e55",
+			"revisionTime": "2017-06-01T23:02:30Z"
+		},
+		{
+			"checksumSHA1": "kGENkjYJ18VCC+pILfHdT/twU60=",
+			"path": "github.com/golang/protobuf/ptypes/empty",
+			"revision": "5a0f697c9ed9d68fef0116532c6e05cfeae00e55",
+			"revisionTime": "2017-06-01T23:02:30Z"
 		},
 		{
 			"checksumSHA1": "g/V4qrXjUGG9B+e3hB+4NAYJ5Gs=",

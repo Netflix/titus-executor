@@ -316,7 +316,14 @@ func getSortedEnvArray(env map[string]string) []string {
 }
 
 func maybeSetCFSBandwidth(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
-	logEntry := log.WithField("taskID", c.TaskID).WithField("bandwidthMode", cfsBandwidthMode)
+	cpuBurst := c.TitusInfo.GetAllowNetworkBursting()
+	logEntry := log.WithField("taskID", c.TaskID).WithField("bandwidthMode", cfsBandwidthMode).WithField("cpuBurst", cpuBurst)
+
+	if cpuBurst {
+		logEntry.Info("Falling back to shares since CPU bursting is enabled")
+		setShares(logEntry, c, hostCfg)
+		return
+	}
 
 	switch cfsBandwidthMode {
 	case bandwidthMode:
@@ -1363,7 +1370,7 @@ func setupNetworkingArgs(c *runtimeTypes.Container) []string {
 		"--bandwidth", strconv.FormatUint(bw, 10),
 		"--netns", "3",
 	}
-	if burst {
+	if burst || c.TitusInfo.GetAllowNetworkBursting() {
 		args = append(args, "--burst")
 	}
 	return args

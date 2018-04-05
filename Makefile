@@ -18,10 +18,6 @@ TEST_FLAGS            ?= -v -parallel 32
 TEST_OUTPUT           ?= test.xml
 TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
 
-ifeq ($(PROTO_SNAPSHOT), true)
-GRADLE_FLAGS += -PdependencyLock.ignore=true -PuseMavenLocal
-endif
-
 SHORT_CIRCUIT_QUITELITE := true
 
 .PHONY: all
@@ -112,30 +108,15 @@ titus-agent: build
 
 ## Protobuf and source code generation
 
+PROTOS := vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/titus_base.proto vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/titus_agent_api.proto vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/agent.proto
 .PHONY: protogen
-protogen: build/lib/netflix/titus/agent.proto | $(clean) $(clean_proto_defs)
+protogen:  $(PROTOS) | $(clean) $(clean_proto_defs)
 	mkdir -p api
-	$(DOCKER_RUN) -u $(UID):$(GID) -v $(PWD):/go/src/$(GO_PKG) -w /go/src/$(GO_PKG) titusoss/titus-executor-builder \
-	protoc -I./build/lib -I/go/src:/go/src/github.com/gogo/protobuf/protobuf --gogofast_out=\
-	Mgoogle/protobuf/empty.proto=github.com/gogo/protobuf/types,\
-	Mgoogle/protobuf/any.proto=github.com/gogo/protobuf/types,\
-	Mgoogle/protobuf/duration.proto=github.com/gogo/protobuf/types,\
-	Mgoogle/protobuf/struct.proto=github.com/gogo/protobuf/types,\
-	Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types,\
-	Mgoogle/protobuf/wrappers.proto=github.com/gogo/protobuf/types,\
-	plugins=grpc:api build/lib/netflix/titus/agent.proto
-
-# Allow this to be cached so it can be modified during dev
-build/lib/netflix/titus/agent.proto:
-	./gradlew extract $(GRADLE_FLAGS)
-
-.PHONY: bump-proto-defs-version
-bump-proto-defs-version:
-	./gradlew updateLock saveLock
+	protoc -Ivendor/github.com/Netflix/titus-api-definitions/src/main/proto/ --go_out=api/ $(PROTOS)
 
 .PHONY: clean-proto-defs
 clean-proto-defs: | $(clean)
-	rm -rf build/lib/netflix/titus
+	rm -rf api/netflix/titus
 
 
 ## Binary dependencies

@@ -1,0 +1,366 @@
+syntax = "proto3";
+
+// Titus system management API specification.
+//
+
+package com.netflix.titus;
+
+import "google/protobuf/empty.proto";
+import "netflix/titus/titus_base.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "AgentProto";
+
+option go_package = "titus";
+
+// ----------------------------------------------------------------------------
+// Agent cluster management data structures
+
+/// Agent instance deployment state.
+enum InstanceLifecycleState {
+    // Initial state of an agent, set when first discovered.
+    StartInitiated = 0;
+
+    /// An agent instance can move to this state only from the 'StartInitiated' state. This happens as soon as all
+    //  healthcheck indicators for the agent are ok. At this point, the agent can accept containers, provided
+    //  that other criteria are fullfiled.
+    Started = 1;
+
+    /// An agent instance is terminating. No new work is accepted.
+    KillInitiated = 2;
+
+    /// An agent instance is not running anymore.
+    Stopped = 3;
+}
+
+/// Agent instance deployment status.
+message InstanceLifecycleStatus {
+    /// Agent instance state.
+    InstanceLifecycleState state = 1;
+
+    /// Instance launch timestamp (EC2 API provides only launch time, with no information about time of subsequent state changes).
+    uint64 launchTimestamp = 3;
+}
+
+/// Administrator override state for an agent. The primary reason for this state is to alter task placement decisions.
+enum InstanceOverrideState {
+    /// No override.
+    NotOverriden = 0;
+
+    /// An agent instance is in the quarantined mode and is not accepting any traffic, unless a job directly requests
+    //  to be placed there.
+    Quarantined = 1;
+}
+
+/// Agent instance override status.
+message InstanceOverrideStatus {
+    /// Override state.
+    InstanceOverrideState state = 1;
+
+    /// A reason for which an override was made.
+    string detail = 2;
+
+    /// Time when the override was done.
+    uint64 timestamp = 3;
+}
+
+/// An agent health state.
+enum HealthState {
+    /// Health state is unknown.
+    Unknown = 0;
+
+    /// An agent is healthy.
+    Healthy = 1;
+
+    /// An agent is unhealthy.
+    Unhealthy = 2;
+}
+
+/// Agent health status.
+message HealthStatus {
+    /// Source id
+    string sourceId = 1;
+
+    /// Agent health state.
+    HealthState state = 2;
+
+    /// If agent is in bad state, contains more information about the problem.
+    string detail = 3;
+
+    /// Time at which an agent went into the given state.
+    uint64 timestamp = 4;
+
+    /// Health status from individual components, which this state aggregates.
+    repeated HealthStatus components = 5;
+}
+
+/// Agent server group lifecycle state.
+enum InstanceGroupLifecycleState {
+    /// Server group is not accepting any traffic or auto-scale actions.
+    Inactive = 0;
+
+    /// Server group is open for traffic, and auto-scaling.
+    Active = 1;
+
+    /// Server group is open for traffic, and auto-scaling, but other server groups are preferred.
+    PhasedOut = 2;
+
+    /// Server group is not accepting any traffic. All idle instances will be terminated.
+    Removable = 3;
+}
+
+/// Agent server group status.
+message InstanceGroupLifecycleStatus {
+    /// Lifecycle state.
+    InstanceGroupLifecycleState state = 1;
+
+    /// A reason for moving into this state.
+    string detail = 2;
+
+    /// Time at which agent server group went into the given state.
+    uint64 timestamp = 3;
+}
+
+/// An agent server.
+message AgentInstance {
+    /// A unique id of the agent server.
+    string id = 1;
+
+    /// A server group, to which the agent belongs to.
+    string instanceGroupId = 2;
+
+    /// IP address of the agent.
+    string ipAddress = 3;
+
+    /// Hostname of the agent.
+    string hostname = 4;
+
+    /// Current deployment status.
+    InstanceLifecycleStatus lifecycleStatus = 5;
+
+    /// Current override status.
+    InstanceOverrideStatus overrideStatus = 6;
+
+    /// Current health status.
+    HealthStatus healthStatus = 7;
+
+    /// Arbitrary set of key/value pairs. Keys starting with 'titus' prefix are reserved for Titus.
+    map<string, string> attributes = 8;
+}
+
+/// Auto scaling rule associated with an agent server group.
+message AutoScaleRule {
+    /// Minimum number of agents in the server group.
+    uint32 min = 1;
+
+    /// Maximum number of agents in the server group.
+    uint32 max = 2;
+
+    /// Minimum number of idle agent instances to keep.
+    uint32 minIdleToKeep = 3;
+
+    /// Maximum number of idle agent instances to keep.
+    uint32 maxIdleToKeep = 4;
+
+    /// Minimum interval between auto-scale actions.
+    uint64 coolDownSec = 5;
+
+    /// Agent server group auto-scale priority. Server groups with higher priority are scaled up first, and scaled down last.
+    uint32 priority = 6;
+
+    /// The factor to adjust shortfall.
+    uint32 shortfallAdjustingFactor = 7;
+}
+
+/// An agent instance group.
+message AgentInstanceGroup {
+    /// A unique id of the server group.
+    string id = 1;
+
+    /// An id of the server type (for example AWS instance type id).
+    string instanceType = 2;
+
+    /// Instance resources (cpu, memory, etc).
+    ResourceDimension instanceResources = 3;
+
+    /// Tier to which the given server group is attached.
+    Tier tier = 4;
+
+    /// Minimum number of servers in the server group.
+    uint32 min = 5;
+
+    /// Desired number of servers in the server group.
+    uint32 desired = 6;
+
+    /// Current number of servers in the server group.
+    uint32 current = 7;
+
+    /// Maximum number of servers in the server group.
+    uint32 max = 8;
+
+    /// Set to true, if a new servers can be started in this server group.
+    bool isLaunchEnabled = 9;
+
+    /// Set to true, if servers can be terminated in this server group.
+    bool isTerminateEnabled = 10;
+
+    /// Auto scaling rule associated with this server group.
+    AutoScaleRule autoScaleRule = 11;
+
+    /// Current lifecycle state.
+    InstanceGroupLifecycleStatus lifecycleStatus = 12;
+
+    /// Time at wich the server group was created.
+    uint64 launchTimestamp = 13;
+
+    /// Arbitrary set of key/value pairs. Keys starting with 'titus' prefix are reserved for Titus.
+    map<string, string> attributes = 14;
+}
+
+/// Events emitted for agent topology changes (new ASG created, new instance launched, etc).
+message AgentChangeEvent {
+    /// Sent whenever 'AgentInstanceGroup' state changes, excluding agent instances.
+    message InstanceGroupUpdate {
+        AgentInstanceGroup instanceGroup = 1;
+    }
+
+    /// Sent whenever 'AgentInstanceGroup' is removed.
+    message InstanceGroupRemoved {
+        string instanceGroupId = 1;
+    }
+
+    /// Sent whenever 'AgentInstance' state changes, including initial (add)/final (terminate) updates.
+    message InstanceUpdate {
+        AgentInstance instance = 1;
+    }
+
+    /// Sent whenever 'AgentInstance' is removed.
+    message InstanceRemoved {
+        string instanceId = 1;
+    }
+
+    /// A marker notification, indicating that all known agent state was streamed to the client.
+    message SnapshotEnd {
+    }
+
+    oneof Event {
+        InstanceGroupUpdate instanceGroupUpdate = 1;
+        InstanceGroupRemoved instanceGroupRemoved = 2;
+        InstanceUpdate agentInstanceUpdate = 3;
+        InstanceRemoved agentInstanceRemoved = 4;
+        SnapshotEnd snapshotEnd = 5;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Services
+//
+// The data structures below are envelope data structures that are not part of the
+// core data model.
+
+message AgentQuery {
+    /// (Required) Requested page number/size.
+    Page page = 1;
+
+    // ---------------------------------------------------
+    // Filtering criteria
+
+    /// (Optional) Collection of fields and their values for filtering.
+    // Available query criteria:
+    // instanceIds - list of agent instance ids
+    // instanceGroupIds - list of server group ids
+    // deploymentState - agent deployment state
+    // overrideState - override state of an agent
+    // healthState - current agent health state
+    map<string, string> filteringCriteria = 2;
+
+    // ---------------------------------------------------
+    // Output
+
+    /// (Optional) If set, only field values explicitly given in this parameter will be returned
+    // This does not include certain attributes like 'id', 'instanceGroupId' which are always returned.
+    // If nested field value is provided, only the explicitly listed nested fields will be returned.
+    repeated string fields = 5;
+}
+
+message Id {
+    string id = 1;
+}
+
+message AgentInstanceGroups {
+    repeated AgentInstanceGroup agentInstanceGroups = 1;
+}
+
+message AgentInstances {
+    repeated AgentInstance agentInstances = 1;
+}
+
+message TierUpdate {
+    string instanceGroupId = 1;
+    Tier tier = 2;
+}
+
+message AutoScalingRuleUpdate {
+    string instanceGroupId = 1;
+    AutoScaleRule autoScaleRule = 2;
+}
+
+message InstanceGroupLifecycleStateUpdate {
+    string instanceGroupId = 1;
+    InstanceGroupLifecycleState lifecycleState = 2;
+    string detail = 3;
+}
+
+message InstanceGroupAttributesUpdate {
+    string instanceGroupId = 1;
+    map<string, string> attributes = 2;
+}
+
+message InstanceOverrideStateUpdate {
+    string agentInstanceId = 1;
+    InstanceOverrideState overrideState = 2;
+    string detail = 3;
+}
+
+service AgentManagementService {
+    /// Return all known Titus agent server groups.
+    rpc GetInstanceGroups (google.protobuf.Empty) returns (AgentInstanceGroups) {
+    }
+
+    /// Return an agent server group with the given id.
+    rpc GetInstanceGroup (Id) returns (AgentInstanceGroup) {
+    }
+
+    /// Return an agent instance with the given id.
+    rpc GetAgentInstance (Id) returns (AgentInstance) {
+    }
+
+    /// Return all agents matching the provided query criteria.
+    rpc FindAgentInstances (AgentQuery) returns (AgentInstances) {
+    }
+
+    /// Update tier assignment of an agent instance group.
+    rpc UpdateInstanceGroupTier (TierUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Update an auto scaling rule in an agent server group. The previously assigned rule is discarded.
+    rpc UpdateAutoScalingRule (AutoScalingRuleUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Change lifecycle state of an agent instance group.
+    rpc UpdateInstanceGroupLifecycleState (InstanceGroupLifecycleStateUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Update the attributes of an instance group. The old attributes will be replaced completely.
+    rpc UpdateInstanceGroupAttributes (InstanceGroupAttributesUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Change override state of an agent instance.
+    rpc UpdateInstanceOverrideState (InstanceOverrideStateUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Sends first current snapshot of the agent topology, and next an event for each topology change.
+    rpc ObserveAgents (google.protobuf.Empty) returns (stream AgentChangeEvent) {
+    }
+}
