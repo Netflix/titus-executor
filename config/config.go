@@ -88,6 +88,11 @@ func NewConfig() (*Config, []cli.Flag) {
 			Destination: &cfg.PrivilegedContainersEnabled,
 		},
 		cli.BoolFlag{
+			Name:        "use-new-network-driver",
+			EnvVar:      "USE_NEW_NETWORK_DRIVER",
+			Destination: &cfg.UseNewNetworkDriver,
+		},
+		cli.BoolFlag{
 			Name:        "disable-metrics",
 			EnvVar:      "DISABLE_METRICS,SHORT_CIRCUIT_QUITELITE",
 			Destination: &cfg.DisableMetrics,

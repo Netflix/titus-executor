@@ -29,6 +29,7 @@ log_bucket=${TITUS_LOG_BUCKET}
 export NETFLIX_STACK
 export DOCKER_REGISTRY=${TITUS_REGISTRY}
 export PRIVILEGED_CONTAINERS_ENABLED=false
+export USE_NEW_NETWORK_DRIVER=true
 
 # If this is an MCE account then enable privileged containers.
 if [[ "${NETFLIX_ACCOUNT}" == "mce"* ]]; then
