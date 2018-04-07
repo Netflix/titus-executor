@@ -43,7 +43,7 @@ mv build/inject-metadataproxy/titus-inject-metadataproxy build/bin/linux-amd64
 install -t root/apps/titus-executor/bin build/bin/linux-amd64/*
 
 
-## Build the deb package
+## Setup the environment the environment
 
 outdir="$(mktemp -d)"
 git_sha=$(git rev-parse --verify HEAD)
@@ -57,6 +57,14 @@ if [[ -n "${BUILD_NUMBER:-}" ]]; then
     version="${last_tag}-h${BUILD_NUMBER}.${git_sha_short}"
     unset iteration
 fi
+
+# Build a tarball
+mkdir build/tarball
+install -t build/tarball build/bin/linux-amd64/*
+install -t build/tarball root/apps/titus-executor/bin/run
+tar  -czv -C build/tarball -f ${outdir}/titus-executor-${version}.tar.gz .
+
+## Build the deb package
 
 MAYBE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
