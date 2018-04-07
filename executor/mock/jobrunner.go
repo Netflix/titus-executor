@@ -115,20 +115,22 @@ type JobRunner struct {
 // in the background and the test driver configured to use it.
 func NewJobRunner() *JobRunner {
 	// Load a specific config for testing and disable metrics
-	config.Load("../config.json")
+	cfg, err := config.GenerateConfiguration([]string{"--copy-uploader", "/var/tmp/titus-executor/tests"})
+	if err != nil {
+		panic(err)
+	}
+	cfg.StatusCheckFrequency = time.Second * 1
+	cfg.KeepLocalFileAfterUpload = true
+	cfg.MetatronEnabled = false
 
 	// Create an executor
-	logUploaders, err := uploader.NewUploaders(config.Uploaders().Log)
+	logUploaders, err := uploader.NewUploaders(cfg)
 	if err != nil {
 		log.Fatalf("cannot create log uploaders: %s", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	// TODO: Replace this config mechanism
-	r, err := runner.New(ctx, metrics.Discard, logUploaders, runner.Config{
-		StatusCheckFrequency:        time.Second * 1,
-		MetatronEnabled:             config.MetatronEnabled(),
-		DevWorkspaceMockMetaronCred: config.DevWorkspace().MockMetatronCreds,
-	})
+	r, err := runner.New(ctx, metrics.Discard, logUploaders, *cfg)
 	if err != nil {
 		log.Fatalf("cannot create executor : %s", err)
 	}

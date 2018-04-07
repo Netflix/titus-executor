@@ -83,6 +83,8 @@ type Container struct { // nolint: maligned
 
 	AllocationCommand *exec.Cmd
 	SetupCommand      *exec.Cmd
+
+	Config config.Config
 }
 
 // QualifiedImageName appends the registry and version to the Image name
@@ -91,7 +93,7 @@ func (c *Container) QualifiedImageName() string {
 		return ""
 	}
 	image := c.TitusInfo.GetImageName()
-	baseRef := config.Docker().Registry + "/" + image
+	baseRef := c.Config.DockerRegistry + "/" + image
 	if digest := c.TitusInfo.GetImageDigest(); digest != "" {
 		// digest has precedence
 		return baseRef + "@" + digest
@@ -123,7 +125,7 @@ func (c *Container) ImageTagForMetrics() map[string]string {
 
 // UploadDir hold files that will by uploaded by log uploaders
 func (c *Container) UploadDir(namespace string) string {
-	return filepath.Join("titan", config.Stack(), namespace, c.TaskID)
+	return filepath.Join("titan", c.Config.Stack, namespace, c.TaskID)
 }
 
 // GetEntrypointFromProto is a helper function to a parse the Protobuf entrypoint definition

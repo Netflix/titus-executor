@@ -8,9 +8,9 @@ import (
 type NoopUploader struct{}
 
 // NewNoopUploader creates a new instance of a NoopUploader
-func NewNoopUploader(config map[string]string) (Uploader, error) {
+func NewNoopUploader() Uploader {
 	u := new(NoopUploader)
-	return u, nil
+	return u
 }
 
 // Upload does nothing (i.e., noop)

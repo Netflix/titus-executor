@@ -1,200 +1,193 @@
 package config
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	log "github.com/sirupsen/logrus"
+	"gopkg.in/urfave/cli.v1"
 )
 
 const (
-	defaultConfigFile             = "/etc/titus-executor/config.json"
-	defaultStatusCheckFrequency   = 10 * time.Second
+	defaultStatusCheckFrequency   = 5 * time.Second
 	defaultLogUploadThreshold     = 6 * time.Hour
 	defaultLogUploadCheckInterval = 15 * time.Minute
 	defaultStdioLogCheckInterval  = 1 * time.Minute
 	defaultLogsTmpDir             = "/var/lib/titus-container-logs"
 )
 
-// Synchronizes access and modification to config variables
-var configLock sync.RWMutex
+// Config contains the executor configuration
+type Config struct { // nolint: maligned
+	// MetatronEnabled returns if Metatron is enabled
+	MetatronEnabled bool
+	// PrivilegedContainersEnabled returns whether to give tasks CAP_SYS_ADMIN
+	PrivilegedContainersEnabled bool
+	// UseNewNetworkDriver returns which network driver to use
+	UseNewNetworkDriver bool
+	// DisableMetrics makes it so we don't send metrics to Atlas
+	DisableMetrics bool
+	// MockMetatronCreds makes the executor use fake metatron creds
+	MockMetatronCreds bool
+	// LogUpload returns settings about the log uploader
+	//LogUpload logUpload
+	// StatusCheckFrequency returns duration between the periods the executor will poll Dockerd
+	StatusCheckFrequency time.Duration
+	LogsTmpDir           string
+	// Stack returns the stack configuration variable
+	Stack string
+	// Docker returns the Docker-specific configuration settings
+	DockerHost     string
+	DockerRegistry string
 
-// WTF go!? why do I have to do this bullshit?
-type duration time.Duration
-
-func (d duration) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + time.Duration(d).String() + "\""), nil
-}
-
-func (d *duration) UnmarshalJSON(in []byte) error {
-	if len(in) < 2 || in[0] != byte('"') || in[len(in)-1] != byte('"') {
-		return errors.New("invalid duration")
-	}
-	dur, err := time.ParseDuration(string(in[1 : len(in)-1]))
-	if err != nil {
-		return err
-	}
-	*d = duration(dur)
-	return nil
-}
-
-func (d duration) duration() time.Duration {
-	return time.Duration(d)
-}
-
-type uploaders struct {
-	Log  []map[string]string `json:"log"`
-	Noop []map[string]string `json:"noop"`
-}
-
-type devWorkspace struct {
-	DisableMetrics    bool `json:"disableMetrics"`
-	MockMetatronCreds bool `json:"mockMetatronCreds"`
-}
-
-// This mirrors the logUploadJSON structure, but using standard types (i.e. time.Duration over duration)
-type logUpload struct {
 	KeepLocalFileAfterUpload bool
 	LogUploadThresholdTime   time.Duration
 	LogUploadCheckInterval   time.Duration
 	StdioLogCheckInterval    time.Duration
+
+	// CopiedFromHost indicates which environment variables to lift from the current config
+	copiedFromHostEnv cli.StringSlice
+	hardCodedEnv      cli.StringSlice
+
+	CopyUploaders cli.StringSlice
+	S3Uploaders   cli.StringSlice
+	NoopUploaders cli.StringSlice
 }
 
-// logUploadJSON is used for deserialization, the actual config variable is of type logUpload, using time.Duration -- We copy over the values
-type logUploadJSON struct {
-	LogUploadThresholdTime   duration `json:"logUploadThresholdTime"`
-	LogUploadCheckInterval   duration `json:"logUploadCheckInterval"`
-	KeepLocalFileAfterUpload bool     `json:"keepLocalFileAfterUpload"`
-	StdioLogCheckInterval    duration `json:"stdioLogCheckInterval"`
+// NewConfig generates a configuration and a set of flags to passed to urfave/cli
+func NewConfig() (*Config, []cli.Flag) {
+	cfg := &Config{
+		copiedFromHostEnv: []string{
+			"NETFLIX_ENVIRONMENT",
+			"NETFLIX_ACCOUNT",
+			"NETFLIX_STACK",
+			"EC2_INSTANCE_ID",
+			"EC2_REGION",
+			"EC2_AVAILABILITY_ZONE",
+			"EC2_OWNER_ID",
+			"EC2_VPC_ID",
+			"EC2_RESERVATION_ID",
+		},
+		hardCodedEnv: []string{
+			"NETFLIX_APPUSER=appuser",
+			"EC2_DOMAIN=amazonaws.com",
+		},
+	}
+
+	flags := []cli.Flag{
+		cli.BoolTFlag{
+			Name:        "metatron-enabled",
+			EnvVar:      "METATRON_ENABLED",
+			Destination: &cfg.MetatronEnabled,
+		},
+		cli.BoolFlag{
+			Name:        "privileged-containers-enabled",
+			EnvVar:      "PRIVILEGED_CONTAINERS_ENABLED",
+			Destination: &cfg.PrivilegedContainersEnabled,
+		},
+		cli.BoolFlag{
+			Name:        "use-new-network-driver",
+			EnvVar:      "USE_NEW_NETWORK_DRIVER",
+			Destination: &cfg.UseNewNetworkDriver,
+		},
+		cli.BoolFlag{
+			Name:        "disable-metrics",
+			EnvVar:      "DISABLE_METRICS,SHORT_CIRCUIT_QUITELITE",
+			Destination: &cfg.DisableMetrics,
+		},
+		cli.BoolFlag{
+			Name:        "mock-metatron-creds",
+			Destination: &cfg.MockMetatronCreds,
+		},
+		cli.DurationFlag{
+			Name:        "status-check-frequency",
+			Destination: &cfg.StatusCheckFrequency,
+			Value:       defaultStatusCheckFrequency,
+		},
+		cli.StringFlag{
+			Name:        "logs-tmp-dir",
+			Value:       defaultLogsTmpDir,
+			EnvVar:      "LOGS_TMP_DIR",
+			Destination: &cfg.LogsTmpDir,
+		},
+		cli.StringFlag{
+			Name:        "stack",
+			Value:       "mainvpc",
+			EnvVar:      "STACK,NETFLIX_STACK",
+			Destination: &cfg.Stack,
+		},
+		cli.StringFlag{
+			Name: "docker-host",
+			// In prod this is tcp://127.0.0.1:4243
+			Value:       "unix:///var/run/docker.sock",
+			Destination: &cfg.DockerHost,
+			EnvVar:      "DOCKER_HOST",
+		},
+		cli.StringFlag{
+			Name:        "docker-registry",
+			Value:       "docker.io",
+			Destination: &cfg.DockerRegistry,
+			EnvVar:      "DOCKER_REGISTRY",
+		},
+		cli.BoolFlag{
+			Name:        "keep-local-file-after-upload",
+			Destination: &cfg.KeepLocalFileAfterUpload,
+		},
+		cli.DurationFlag{
+			Name:        "log-upload-threshold-time",
+			Value:       defaultLogUploadThreshold,
+			Destination: &cfg.LogUploadThresholdTime,
+		},
+		cli.DurationFlag{
+			Name:        "log-upload-check-interval",
+			Value:       defaultLogUploadCheckInterval,
+			Destination: &cfg.LogUploadCheckInterval,
+		},
+		cli.DurationFlag{
+			Name:        "stdio-check-interval",
+			Value:       defaultStdioLogCheckInterval,
+			Destination: &cfg.StdioLogCheckInterval,
+		},
+		cli.StringSliceFlag{
+			Name:  "copied-from-host-env",
+			Value: &cfg.copiedFromHostEnv,
+		},
+		cli.StringSliceFlag{
+			Name:  "hard-coded-env",
+			Value: &cfg.hardCodedEnv,
+		},
+
+		cli.StringSliceFlag{
+			Name:  "s3-uploader",
+			Value: &cfg.S3Uploaders,
+		},
+		cli.StringSliceFlag{
+			Name:  "copy-uploader",
+			Value: &cfg.CopyUploaders,
+		},
+		cli.StringSliceFlag{
+			Name:  "noop-uploaders",
+			Value: &cfg.NoopUploaders,
+		},
+	}
+
+	return cfg, flags
 }
 
-type docker struct {
-	Host     string `json:"host"`
-	Registry string `json:"registry"`
-}
-
-type env struct {
-	CopiedFromHost []string          `json:"copiedFromHost"`
-	HardCoded      map[string]string `json:"hardCoded"`
-}
-
-var currentConfig struct {
-	metatronEnabled             bool
-	privilegedContainersEnabled bool
-	useNewNetworkDriver         bool
-	devWorkspace                devWorkspace
-	logUpload                   logUpload
-	statusCheckFrequency        time.Duration
-	logsTmpDir                  string
-	stack                       string
-	docker                      docker
-	env                         env
-	uploaders                   uploaders
-}
-
-// Load loads the configuration from the given file
-func Load(configFilePath string) {
-	configLock.Lock()
-	defer configLock.Unlock()
-	if configFilePath == "" {
-		configFilePath = defaultConfigFile
-	}
-	f, err := os.Open(configFilePath)
-	if err != nil {
-		log.Fatal("config : " + err.Error())
-	}
-	defer func() {
-		if err := f.Close(); err != nil {
-			log.Printf("Failed to close %s: %s", f.Name(), err)
-		}
-	}()
-
-	var c struct {
-		Stack                string        `json:"stack"`
-		Zone                 string        `json:"zone"`
-		Docker               docker        `json:"docker"`
-		Uploaders            uploaders     `json:"uploaders"`
-		Env                  env           `json:"env"`
-		StatusCheckFrequency duration      `json:"statusCheckFrequency"`
-		LogUpload            logUploadJSON `json:"logUpload"`
-		DevWorkspace         devWorkspace  `json:"dev"`
-		UseNewNetworkDriver  bool          `json:"useNewNetworkDriver"`
-		UsePrivilegedTasks   bool          `json:"usePrivilegedTasks"`
-		UseMetatron          bool          `json:"useMetatron"`
-		LogsTmpDir           string        `json:"logsTmpDir"`
-	}
-	if err := json.NewDecoder(f).Decode(&c); err != nil {
-		log.Fatal("config : " + err.Error())
-	}
-
-	currentConfig.stack = c.Stack
-	currentConfig.docker = c.Docker
-	currentConfig.uploaders = c.Uploaders
-	currentConfig.env = c.Env
-	currentConfig.devWorkspace = c.DevWorkspace
-	currentConfig.useNewNetworkDriver = c.UseNewNetworkDriver
-	currentConfig.privilegedContainersEnabled = c.UsePrivilegedTasks
-	currentConfig.metatronEnabled = c.UseMetatron
-	currentConfig.logsTmpDir = c.LogsTmpDir
-
-	currentConfig.statusCheckFrequency = c.StatusCheckFrequency.duration()
-	if currentConfig.statusCheckFrequency == 0 {
-		currentConfig.statusCheckFrequency = defaultStatusCheckFrequency
-	}
-
-	currentConfig.logUpload.LogUploadCheckInterval = c.LogUpload.LogUploadCheckInterval.duration()
-	currentConfig.logUpload.KeepLocalFileAfterUpload = c.LogUpload.KeepLocalFileAfterUpload
-	currentConfig.logUpload.LogUploadThresholdTime = c.LogUpload.LogUploadThresholdTime.duration()
-	currentConfig.logUpload.StdioLogCheckInterval = c.LogUpload.StdioLogCheckInterval.duration()
-
-	if currentConfig.logUpload.LogUploadThresholdTime == 0 {
-		log.Printf("Default LogUploadThresholdTime %v\n", defaultLogUploadThreshold)
-		currentConfig.logUpload.LogUploadThresholdTime = defaultLogUploadThreshold
-	}
-
-	if currentConfig.logUpload.LogUploadCheckInterval == 0 {
-		log.Printf("Default LogUploadCheckInterval %v\n", defaultLogUploadCheckInterval)
-		currentConfig.logUpload.LogUploadCheckInterval = defaultLogUploadCheckInterval
-	}
-
-	if currentConfig.logUpload.StdioLogCheckInterval == 0 {
-		log.Printf("Default StdioLogCheckInterval %v\n", defaultStdioLogCheckInterval)
-		currentConfig.logUpload.StdioLogCheckInterval = defaultStdioLogCheckInterval
-	}
-
-	if currentConfig.logsTmpDir == "" {
-		log.WithField("defaultLogsTmpDir", defaultLogsTmpDir).Debug("Setting default config value")
-		currentConfig.logsTmpDir = defaultLogsTmpDir
-	}
-
-	log.Debugf("LOG Uploader Configuration %+v\n", currentConfig.logUpload)
-}
-
-func getEnv() env {
-	configLock.RLock()
-	defer configLock.RUnlock()
-	return currentConfig.env
-}
-
-func GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string { // nolint: golint
-	env := getEnvHardcoded()
-	env = appendMap(env, getEnvFromHost())
-	env = appendMap(env, getEnvBasedOnTask(taskInfo, mem, cpu, disk, networkBandwidth))
-	env = appendMap(env, getUserProvided(taskInfo))
+func (c *Config) GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string { // nolint: golint
+	env := c.getEnvHardcoded()
+	env = appendMap(env, c.getEnvFromHost())
+	env = appendMap(env, c.getEnvBasedOnTask(taskInfo, mem, cpu, disk, networkBandwidth))
+	env = appendMap(env, c.getUserProvided(taskInfo))
 	return env
 }
 
-func getEnvBasedOnTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string {
+func (c *Config) getEnvBasedOnTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string {
 	env1 := make(map[string]string)
 
-	setClusterInfoBasedOnTask(taskInfo, env1)
+	c.setClusterInfoBasedOnTask(taskInfo, env1)
 	env1["TITUS_NUM_MEM"] = mem
 	env1["TITUS_NUM_CPU"] = cpu
 	env1["TITUS_NUM_DISK"] = disk
@@ -204,7 +197,7 @@ func getEnvBasedOnTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBan
 }
 
 // Sets cluster info based on provided task info.
-func setClusterInfoBasedOnTask(taskInfo *titus.ContainerInfo, env map[string]string) {
+func (c *Config) setClusterInfoBasedOnTask(taskInfo *titus.ContainerInfo, env map[string]string) {
 	// TODO(Andrew L): Remove this check once appName is required
 	appName := taskInfo.GetAppName()
 	if appName == "" {
@@ -227,10 +220,10 @@ func setClusterInfoBasedOnTask(taskInfo *titus.ContainerInfo, env map[string]str
 	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
 }
 
-func getEnvFromHost() map[string]string {
+func (c *Config) getEnvFromHost() map[string]string {
 	fromHost := make(map[string]string)
 
-	for _, hostKey := range getEnv().CopiedFromHost {
+	for _, hostKey := range c.copiedFromHostEnv {
 		if hostKey == "NETFLIX_STACK" {
 			// Add agent's stack as TITUS_STACK so platform libraries can
 			// determine agent stack, if needed
@@ -250,7 +243,7 @@ func addElementFromHost(addTo map[string]string, hostEnvVarName string, containe
 }
 
 // Merge user and titus provided ENV vars
-func getUserProvided(taskInfo *titus.ContainerInfo) map[string]string {
+func (c *Config) getUserProvided(taskInfo *titus.ContainerInfo) map[string]string {
 	var (
 		userProvided  = taskInfo.GetUserProvidedEnv()
 		titusProvided = taskInfo.GetTitusProvidedEnv()
@@ -316,12 +309,31 @@ func getAppName(imageName string) string {
 	return appName
 }
 
-func getEnvHardcoded() map[string]string {
+func (c *Config) getEnvHardcoded() map[string]string {
 	env1 := make(map[string]string)
 
-	for k, v := range getEnv().HardCoded {
-		env1[k] = v
+	for _, line := range c.hardCodedEnv {
+		kv := strings.SplitN(line, "=", 2)
+		env1[kv[0]] = kv[1]
 	}
 
 	return env1
+}
+
+// GenerateConfiguration is only meant to validate the behaviour of parsing command line arguments
+func GenerateConfiguration(args []string) (*Config, error) {
+	cfg, flags := NewConfig()
+
+	app := cli.NewApp()
+	app.Flags = flags
+	app.Action = func(c *cli.Context) error {
+		return nil
+	}
+	if args == nil {
+		args = []string{}
+	}
+
+	args = append([]string{"fakename"}, args...)
+
+	return cfg, app.Run(args)
 }

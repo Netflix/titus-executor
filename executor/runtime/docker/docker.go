@@ -188,6 +188,7 @@ type DockerRuntime struct { // nolint: golint
 	tiniEnabled       bool
 	storageOptEnabled bool
 	pidCgroupPath     string
+	cfg               config.Config
 }
 
 type compositeError struct {
@@ -199,9 +200,9 @@ func (e *compositeError) Error() string {
 }
 
 // NewDockerRuntime provides a Runtime implementation on Docker
-func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter) (runtimeTypes.Runtime, error) {
-	log.Info("New Docker client, to host ", config.Docker().Host)
-	client, err := docker.NewClient(config.Docker().Host, "1.26", nil, map[string]string{})
+func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, cfg config.Config) (runtimeTypes.Runtime, error) {
+	log.Info("New Docker client, to host ", cfg.DockerHost)
+	client, err := docker.NewClient(cfg.DockerHost, "1.26", nil, map[string]string{})
 
 	if err != nil {
 		return nil, err
@@ -217,6 +218,7 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter) (runtimeT
 		metrics:         m,
 		registryAuthCfg: nil, // we don't need registry authentication yet
 		client:          client,
+		cfg:             cfg,
 	}
 
 	dockerRuntime.pidCgroupPath, err = getOwnCgroup("pids")
@@ -294,7 +296,7 @@ func setupLoggingInfra(dockerRuntime *DockerRuntime) error {
 		return err
 	}
 
-	err = os.Mkdir(config.LogsTmpDir(), 0777) // nolint: gas
+	err = os.Mkdir(dockerRuntime.cfg.LogsTmpDir, 0777) // nolint: gas
 	if err != nil && !os.IsExist(err) {
 		return err
 	}
@@ -446,7 +448,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	r.setupAdditionalCapabilities(c, hostCfg)
 
-	if config.PrivilegedContainersEnabled() {
+	if r.cfg.PrivilegedContainersEnabled {
 		// Note: ATM, this is used to enable MCE to use FUSE within a container and
 		// is expected to only be used in their account. So these are the only capabilities
 		// we allow.
@@ -469,7 +471,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	// TODO(fabio): find a way to avoid regenerating the env map
 	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address
 
-	if config.UseNewNetworkDriver() {
+	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
@@ -512,8 +514,8 @@ func tiniSocketFileName(c *runtimeTypes.Container) string {
 	return fmt.Sprintf("%s.socket", c.TaskID)
 }
 
-func netflixLoggerTempDir(c *runtimeTypes.Container) string {
-	return filepath.Join(config.LogsTmpDir(), c.TaskID)
+func netflixLoggerTempDir(cfg config.Config, c *runtimeTypes.Container) string {
+	return filepath.Join(cfg.LogsTmpDir, c.TaskID)
 }
 
 func (r *DockerRuntime) setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
@@ -722,7 +724,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		return nil
 	})
 
-	if config.UseNewNetworkDriver() {
+	if r.cfg.UseNewNetworkDriver {
 		group.Go(func() error {
 			return prepareNetworkDriver(c)
 		})
@@ -842,7 +844,7 @@ func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
 }
 
 func (r *DockerRuntime) logDir(c *runtimeTypes.Container) string {
-	return filepath.Join(netflixLoggerTempDir(c), "logs")
+	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
 
 func metatronTarWalk(tw *tar.Writer, c *runtimeTypes.Container) error {
@@ -1322,7 +1324,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 }
 
 func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx context.Context, c *runtimeTypes.Container, cred ucred, rootFile *os.File) error {
-	if config.UseNewNetworkDriver() && c.Allocation.IPV4Address != "" {
+	if r.cfg.UseNewNetworkDriver && c.Allocation.IPV4Address != "" {
 		err := setupNetworking(c, cred)
 		if err != nil {
 			return err
@@ -1339,7 +1341,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	 */
 	pid := os.Getpid()
 	logsRoot := filepath.Join("/proc", strconv.Itoa(pid), "fd", strconv.Itoa(int(rootFile.Fd())))
-	darionRoot := netflixLoggerTempDir(c)
+	darionRoot := netflixLoggerTempDir(r.cfg, c)
 	err = os.Symlink(logsRoot, darionRoot)
 	if err != nil {
 		log.Warning("Unable to setup symlink for darion: ", err)
