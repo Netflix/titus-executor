@@ -2,26 +2,6 @@
 
 package docker
 
-/*
-#include <linux/quota.h>
-#include <sys/quota.h>
-#include <linux/dqblk_xfs.h>
-#include <errno.h>
-
-#include <stdio.h>
-
-int has_project_quota_enabled(const char *special) {
-        struct dqinfo dqinfo;
-        int err;
-
-        if(quotactl(QCMD(Q_GETINFO, PRJQUOTA), special, 0, (caddr_t)&dqinfo))
-                return -errno;
-
-        return 1;
-}
-*/
-import "C"
-
 import (
 	"fmt"
 	"io/ioutil"
@@ -29,9 +9,39 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"runtime"
+	"unsafe"
+
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
+
+/*
+struct dqinfo
+  {
+    __uint64_t dqi_bgrace;
+    __uint64_t dqi_igrace;
+    __uint32_t dqi_flags;
+    __uint32_t dqi_valid;
+  };
+*/
+
+const q_getinfo = 0x800005 // nolint
+const prjquota = 2
+
+const subcmdshift = 8
+const subcmdmask = 0x00ff
+
+type dqinfo struct { // nolint
+	dqi_bgrace uint64 // nolint
+	dqi_igrace uint64 // nolint
+	dqi_flags  uint32 // nolint
+	dqi_valid  uint32 // nolint
+}
+
+func qcmd(_cmd, _type int) int {
+	return (((_cmd) << subcmdshift) | ((_type) & subcmdmask))
+}
 
 func hasProjectQuotasEnabled(rootDir string) bool {
 	tempdir, err := ioutil.TempDir("", "docker-quota-detector")
@@ -48,12 +58,22 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 	if err != nil {
 		panic(err)
 	}
-	val := C.has_project_quota_enabled(C.CString(dev))
 
-	if val == 1 {
+	var dqi dqinfo
+
+	devcstr := []byte(dev + "\x00")                        // This is to cast it into a cstr
+	devcstrPointer := uintptr(unsafe.Pointer(&devcstr[0])) // nolint: gas
+	dqiPointer := uintptr(unsafe.Pointer(&dqi))            // nolint: gas
+
+	r1, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, uintptr(qcmd(q_getinfo, prjquota)), devcstrPointer, 0, dqiPointer, 0, 0)
+
+	runtime.KeepAlive(devcstr)
+	runtime.KeepAlive(dqi)
+
+	if errno == syscall.Errno(0) && int(r1) != -1 {
 		return true
 	}
-	errno := syscall.Errno(-val)
+
 	if errno != unix.ESRCH {
 		log.WithField("rootDir", rootDir).Warning("Got unexpected error: ", errno)
 	}
