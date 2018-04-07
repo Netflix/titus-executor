@@ -180,9 +180,9 @@ func (ctx *VPCContext) setupEC2() error {
 			WithLogger(newAWSLogger).
 			WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries | aws.LogDebugWithHTTPBody)
 
-		if session, err2 := session.NewSession(awsConfig); err2 == nil {
-			ctx.AWSSession = session
-			ctx.EC2metadataClientWrapper = ec2wrapper.NewEC2MetadataClientWrapper(session, ctx.Logger)
+		if awsSession, err2 := session.NewSession(awsConfig); err2 == nil {
+			ctx.AWSSession = awsSession
+			ctx.EC2metadataClientWrapper = ec2wrapper.NewEC2MetadataClientWrapper(awsSession, ctx.Logger)
 		} else {
 			return cli.NewMultiError(cli.NewExitError("Unable to create AWS Session", 1), err2)
 		}

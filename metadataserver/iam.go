@@ -58,7 +58,7 @@ type roleAccessedNotification struct {
 /* This sets up an iam "proxy" and sets up the routes under /{apiVersion}/meta-data/iam/... */
 func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInstanceID string) {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
-	arn, err := arn.Parse(iamArn)
+	parsedArn, err := arn.Parse(iamArn)
 	if err != nil {
 		log.Fatal("Unable to parse ARN: ", err)
 	}
@@ -68,7 +68,7 @@ func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInsta
 		ctx:                 ctx,
 		titusTaskInstanceID: titusTaskInstanceID,
 		awsSession:          s,
-		arn:                 arn,
+		arn:                 parsedArn,
 		sts:                 sts.New(s),
 		// This is intentionally >0, so it doesn't explicitly block, allowing the first actor which hits the endpoint
 		// to progress and run startRoleAssumer(),
