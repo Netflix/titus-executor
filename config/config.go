@@ -48,8 +48,8 @@ type Config struct { // nolint: maligned
 	StdioLogCheckInterval    time.Duration
 
 	// CopiedFromHost indicates which environment variables to lift from the current config
-	CopiedFromHostEnv cli.StringSlice
-	HardCodedEnv      cli.StringSlice
+	copiedFromHostEnv cli.StringSlice
+	hardCodedEnv      cli.StringSlice
 
 	CopyUploaders cli.StringSlice
 	S3Uploaders   cli.StringSlice
@@ -59,7 +59,7 @@ type Config struct { // nolint: maligned
 // NewConfig generates a configuration and a set of flags to passed to urfave/cli
 func NewConfig() (*Config, []cli.Flag) {
 	cfg := &Config{
-		CopiedFromHostEnv: []string{
+		copiedFromHostEnv: []string{
 			"NETFLIX_ENVIRONMENT",
 			"NETFLIX_ACCOUNT",
 			"NETFLIX_STACK",
@@ -70,7 +70,7 @@ func NewConfig() (*Config, []cli.Flag) {
 			"EC2_VPC_ID",
 			"EC2_RESERVATION_ID",
 		},
-		HardCodedEnv: []string{
+		hardCodedEnv: []string{
 			"NETFLIX_APPUSER=appuser",
 			"EC2_DOMAIN=amazonaws.com",
 		},
@@ -147,11 +147,11 @@ func NewConfig() (*Config, []cli.Flag) {
 		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",
-			Value: &cfg.CopiedFromHostEnv,
+			Value: &cfg.copiedFromHostEnv,
 		},
 		cli.StringSliceFlag{
 			Name:  "hard-coded-env",
-			Value: &cfg.HardCodedEnv,
+			Value: &cfg.hardCodedEnv,
 		},
 
 		cli.StringSliceFlag{
@@ -218,7 +218,7 @@ func (c *Config) setClusterInfoBasedOnTask(taskInfo *titus.ContainerInfo, env ma
 func (c *Config) getEnvFromHost() map[string]string {
 	fromHost := make(map[string]string)
 
-	for _, hostKey := range c.CopiedFromHostEnv {
+	for _, hostKey := range c.copiedFromHostEnv {
 		if hostKey == "NETFLIX_STACK" {
 			// Add agent's stack as TITUS_STACK so platform libraries can
 			// determine agent stack, if needed
@@ -307,9 +307,9 @@ func getAppName(imageName string) string {
 func (c *Config) getEnvHardcoded() map[string]string {
 	env1 := make(map[string]string)
 
-	for _, line := range c.HardCodedEnv {
+	for _, line := range c.hardCodedEnv {
 		kv := strings.SplitN(line, "=", 2)
-		env1[kv[0]] = env1[kv[1]]
+		env1[kv[0]] = kv[1]
 	}
 
 	return env1

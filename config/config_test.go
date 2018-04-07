@@ -77,13 +77,15 @@ func TestClusterName(t *testing.T) {
 
 func TestHardCodedEnvironment(t *testing.T) {
 	cfg := GetDefaultConfiguration(t, nil)
-	assert.Contains(t, cfg.HardCodedEnv, "EC2_DOMAIN=amazonaws.com")
+	assert.Contains(t, cfg.hardCodedEnv, "EC2_DOMAIN=amazonaws.com")
+	assert.Equal(t, cfg.getEnvHardcoded()["EC2_DOMAIN"], "amazonaws.com")
+
 }
 
 func TestHardCodedEnvironment2(t *testing.T) {
 	cfg := GetDefaultConfiguration(t, []string{"--hard-coded-env", "FOO=BAR", "--hard-coded-env", "BAZ=QUUX"})
-	assert.Contains(t, cfg.HardCodedEnv, "FOO=BAR")
-	assert.Contains(t, cfg.HardCodedEnv, "BAZ=QUUX")
+	assert.Contains(t, cfg.hardCodedEnv, "FOO=BAR")
+	assert.Contains(t, cfg.hardCodedEnv, "BAZ=QUUX")
 
 }
 
