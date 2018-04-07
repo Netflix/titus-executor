@@ -7,11 +7,12 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
 
 RUN gem install --no-ri --no-rdoc fpm
 
-### FROM golang:1.9.1
-ENV GOLANG_VERSION 1.9.1
+### FROM golang:1.10.1
+# see: https://github.com/docker-library/golang/blob/906e04de73168f643c5c2b40dca0877a14d2377c/1.10/alpine3.7/Dockerfile
+ENV GOLANG_VERSION 1.10.1
 
 RUN set -eux; \
-    goRelSha256='07d81c6b6b4c2dcf1b5ef7c27aaebd3691cdb40548500941f92b221147c5d9c7'; \
+    goRelSha256='72d820dec546752e5a8303b33b009079c15c2390ce76d67cf514991646c6127b'; \
 	url="https://golang.org/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz"; \
 	wget -O go.tgz "$url"; \
 	echo "${goRelSha256} *go.tgz" | sha256sum -c -; \
