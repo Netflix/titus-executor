@@ -21,7 +21,7 @@ steps:
 
               make clean
               make --output-sync -j16 builder all 2>&1 | tee build.log
-    artifact_paths: "*.log;build/distributions/*.deb,build/distributions/*.tar,build/distributions/*.tar.gz"
+    artifact_paths: "*.log;build/distributions/*.deb;build/distributions/*.tar;build/distributions/*.tar.gz"
   - wait
   - trigger: titus-upload-debs
     async: false
