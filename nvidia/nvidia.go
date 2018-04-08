@@ -258,6 +258,20 @@ func createVolume(parentCtx context.Context, dockerClient *docker.Client, vcb vo
 	return err
 }
 
+func iterOverDevices(devices []string) chan string {
+	retChan := make(chan string)
+	offset := rand.Int() // nolint: gas
+
+	go func() {
+		defer close(retChan)
+		for idx := range devices {
+			newIdx := (idx + offset) % len(devices)
+			retChan <- devices[newIdx]
+		}
+	}()
+	return retChan
+}
+
 // AllocDevices allocates GPU device names from the free device list for the given task ID.
 // Returns an error if no devices are available. If an error is returned,
 // the allocation change must not be applied.
@@ -270,13 +284,9 @@ func (n *PluginInfo) AllocDevices(taskID string, numDevs int) ([]string, error) 
 
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
-	offset := rand.Int() // nolint: gas
 
 	n.perTaskAllocatedDevices[taskID] = make(map[string]*fslocker.ExclusiveLock)
-	for idx := range n.nvidiaDevices {
-		newIdx := idx + offset%len(n.nvidiaDevices)
-
-		device := n.nvidiaDevices[newIdx]
+	for device := range iterOverDevices(n.nvidiaDevices) {
 		lock, err = n.fsLocker.ExclusiveLock(device, &zeroTimeout)
 		if err == nil && lock != nil {
 			n.perTaskAllocatedDevices[taskID][device] = lock
