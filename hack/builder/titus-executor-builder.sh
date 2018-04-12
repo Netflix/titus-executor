@@ -59,7 +59,7 @@ if [[ -n "${BUILD_NUMBER:-}" ]]; then
 fi
 
 # Build a tarball
-mkdir build/tarball
+mkdir -p build/tarball
 install -t build/tarball build/bin/linux-amd64/*
 install -t build/tarball root/apps/titus-executor/bin/run
 tar  -czv -C build/tarball -f ${outdir}/titus-executor-${version}.tar.gz .

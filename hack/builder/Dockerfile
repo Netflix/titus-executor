@@ -49,6 +49,7 @@ VOLUME /tmp
 VOLUME /src
 VOLUME /dist
 
+RUN chmod -R a+rw /go/src
 COPY titus-executor-builder.sh /usr/local/bin/build
 
 CMD ["/usr/local/bin/build"]
