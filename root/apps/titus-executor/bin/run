@@ -40,4 +40,4 @@ if [ -z "${LIBPROCESS_IP}" ]; then
   export LIBPROCESS_IP="${EC2_LOCAL_IPV4}"
 fi
 
-exec /apps/titus-executor/bin/titus-executor --s3-uploader=$log_bucket
+exec $(dirname $0)/titus-executor --s3-uploader=$log_bucket
