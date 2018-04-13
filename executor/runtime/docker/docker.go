@@ -227,11 +227,7 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, cfg confi
 	}
 
 	dockerRuntime.awsRegion = os.Getenv("EC2_REGION")
-
-	dockerRuntime.gpuInfo, err = nvidia.NewNvidiaInfo(client)
-	if err != nil {
-		return nil, err
-	}
+	dockerRuntime.gpuInfo = nvidia.NewNvidiaInfo(client)
 
 	err = setupLoggingInfra(dockerRuntime)
 	if err != nil {
@@ -1447,21 +1443,29 @@ func launchTini(conn *net.UnixConn) error {
 
 // setupGPU overrides the volume driver in the provided configuration when there are GPUs to be added to the Container.
 func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
-	// Setup GPU
 	if c.TitusInfo.GetNumGpus() <= 0 {
 		return nil
 	}
+
 	// Use nvidia volume plugin that will mount the appropriate
 	// libraries/binaries into the container based on host nvidia driver.
 
-	for _, volume := range r.gpuInfo.Volumes {
+	volumes, err := r.gpuInfo.Volumes()
+	if err != nil {
+		return err
+	}
+	for _, volume := range volumes {
 		parts := strings.Split(volume, ":")
 		dockerCfg.Volumes[parts[1]] = struct{}{}
 		hostCfg.Binds = append(hostCfg.Binds, volume)
 	}
 
 	// Add control devices to container.
-	for _, ctrlDevice := range r.gpuInfo.GetCtrlDevices() {
+	ctrlDevices, err := r.gpuInfo.GetCtrlDevices()
+	if err != nil {
+		return err
+	}
+	for _, ctrlDevice := range ctrlDevices {
 		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{
 			PathOnHost:        ctrlDevice,
 			PathInContainer:   ctrlDevice,
@@ -1565,7 +1569,7 @@ func (r *DockerRuntime) dockerStatus(c *runtimeTypes.Container) (runtimeTypes.St
 }
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
-func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
+func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error { // nolint: gocyclo
 	log.Infof("Killing %s", c.TaskID)
 
 	var errs []error
@@ -1619,7 +1623,10 @@ stopped:
 	// Note: Since the executor doesn't persist task->GPU device mappings
 	// we expect the executor to remove existing containers on startup
 	// to make sure the allocated state is correct.
-	numDealloc := r.gpuInfo.DeallocDevice(c.TaskID)
+	numDealloc, err := r.gpuInfo.DeallocDevice(c.TaskID)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	log.Infof("Deallocated %d GPU devices for task %s", numDealloc, c.TaskID)
 
 	if len(errs) > 0 {
