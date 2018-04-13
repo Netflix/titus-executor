@@ -66,12 +66,13 @@ type gpuInfo struct {
 
 // PluginInfo represents host NVIDIA GPU info
 type PluginInfo struct {
+	initOnce                sync.Once
 	ctrlDevices             []string
 	nvidiaDevices           []string
 	dockerClient            *docker.Client
 	mutex                   sync.Mutex
 	fsLocker                *fslocker.FSLocker
-	Volumes                 []string
+	volumes                 []string
 	perTaskAllocatedDevices map[string]map[string]*fslocker.ExclusiveLock
 }
 
@@ -81,15 +82,22 @@ type nvidiaDockerCli struct {
 	Devices      []string `json:"Devices"`
 }
 
-// NewNvidiaInfo allocates and initializes NVIDIA info
-func NewNvidiaInfo(client *docker.Client) (*PluginInfo, error) {
-	n := new(PluginInfo)
-	n.ctrlDevices = make([]string, 0)
-	n.nvidiaDevices = make([]string, 0)
-	n.dockerClient = client
-	n.perTaskAllocatedDevices = make(map[string]map[string]*fslocker.ExclusiveLock)
+// NewNvidiaInfo allocates a PluginInfo for NVIDIA. Initialization is done lazily when public methods are called for the
+// first time
+func NewNvidiaInfo(client *docker.Client) *PluginInfo {
+	return &PluginInfo{
+		ctrlDevices:             make([]string, 0),
+		nvidiaDevices:           make([]string, 0),
+		dockerClient:            client,
+		perTaskAllocatedDevices: make(map[string]map[string]*fslocker.ExclusiveLock),
+	}
+}
 
-	return n, n.initHostGpuInfo()
+func (n *PluginInfo) init() (err error) {
+	n.initOnce.Do(func() {
+		err = n.initHostGpuInfo()
+	})
+	return
 }
 
 func isGPUInstance() (bool, error) {
@@ -198,7 +206,7 @@ func (n *PluginInfo) populateAndWireUpvolumes(client *http.Client) ([]string, er
 		return nil, fmt.Errorf("Invalid Nvidia Docker Plugin! Got %s, expected %s", nvidiaDockerCliResp.VolumeDriver, nvidiaPluginName)
 	}
 
-	n.Volumes = nvidiaDockerCliResp.Volumes
+	n.volumes = nvidiaDockerCliResp.Volumes
 
 	return nvidiaDockerCliResp.Devices, n.wireUpDockerVolume(nvidiaDockerCliResp.VolumeDriver)
 }
@@ -207,7 +215,7 @@ func (n *PluginInfo) populateAndWireUpvolumes(client *http.Client) ([]string, er
 func (n *PluginInfo) wireUpDockerVolume(volumeDriver string) error {
 	// Fetch the volumes to create from the nVidia Daemon
 	volumesToCreate := make(map[string]struct{})
-	for _, vol := range n.Volumes {
+	for _, vol := range n.volumes {
 		volumesToCreate[strings.Split(vol, ":")[0]] = struct{}{}
 	}
 
@@ -276,6 +284,10 @@ func iterOverDevices(devices []string) chan string {
 // Returns an error if no devices are available. If an error is returned,
 // the allocation change must not be applied.
 func (n *PluginInfo) AllocDevices(taskID string, numDevs int) ([]string, error) {
+	if err := n.init(); err != nil {
+		return nil, err
+	}
+
 	var lock *fslocker.ExclusiveLock
 	var err error
 	zeroTimeout := time.Duration(0)
@@ -316,7 +328,11 @@ fail:
 }
 
 // DeallocDevice deallocate a task's device.
-func (n *PluginInfo) DeallocDevice(taskID string) int {
+func (n *PluginInfo) DeallocDevice(taskID string) (int, error) {
+	if err := n.init(); err != nil {
+		return 0, err
+	}
+
 	i := 0
 	for _, lock := range n.perTaskAllocatedDevices[taskID] {
 		lock.Unlock()
@@ -324,13 +340,22 @@ func (n *PluginInfo) DeallocDevice(taskID string) int {
 	}
 	delete(n.perTaskAllocatedDevices, taskID)
 
-	return i
+	return i, nil
 }
 
 // GetCtrlDevices returns the control devices.
-func (n *PluginInfo) GetCtrlDevices() []string {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
+func (n *PluginInfo) GetCtrlDevices() ([]string, error) {
+	if err := n.init(); err != nil {
+		return nil, err
+	}
 
-	return n.ctrlDevices
+	return n.ctrlDevices, nil
+}
+
+// Volumes returns volumes from the nvidia driver
+func (n *PluginInfo) Volumes() ([]string, error) {
+	if err := n.init(); err != nil {
+		return nil, err
+	}
+	return n.volumes, nil
 }
