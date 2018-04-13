@@ -103,8 +103,11 @@ push-builder: builder
 .PHONY: titus-agent
 titus-agent: build
 	@echo '---> Building Titus Agent Docker-in-Docker image'
-	@$(DOCKER_BUILD) -t tn/titus-agent -f hack/agent/Dockerfile .
+	@$(DOCKER_BUILD) -t titusoss/titus-agent -f hack/agent/Dockerfile .
 
+.PHONY: push-titus-agent
+push-titus-agent: titus-agent
+	$(DOCKER) push titusoss/titus-agent
 
 ## Protobuf and source code generation
 
