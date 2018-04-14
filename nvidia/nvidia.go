@@ -14,6 +14,7 @@ import (
 
 	"math/rand"
 
+	"github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -66,13 +67,12 @@ type gpuInfo struct {
 
 // PluginInfo represents host NVIDIA GPU info
 type PluginInfo struct {
-	ctrlDevices             []string
-	nvidiaDevices           []string
-	dockerClient            *docker.Client
-	mutex                   sync.Mutex
-	fsLocker                *fslocker.FSLocker
-	Volumes                 []string
-	perTaskAllocatedDevices map[string]map[string]*fslocker.ExclusiveLock
+	ctrlDevices   []string
+	nvidiaDevices []string
+	dockerClient  *docker.Client
+	mutex         sync.Mutex
+	fsLocker      *fslocker.FSLocker
+	Volumes       []string
 }
 
 type nvidiaDockerCli struct {
@@ -87,7 +87,6 @@ func NewNvidiaInfo(client *docker.Client) (*PluginInfo, error) {
 	n.ctrlDevices = make([]string, 0)
 	n.nvidiaDevices = make([]string, 0)
 	n.dockerClient = client
-	n.perTaskAllocatedDevices = make(map[string]map[string]*fslocker.ExclusiveLock)
 
 	return n, n.initHostGpuInfo()
 }
@@ -275,23 +274,21 @@ func iterOverDevices(devices []string) chan string {
 // AllocDevices allocates GPU device names from the free device list for the given task ID.
 // Returns an error if no devices are available. If an error is returned,
 // the allocation change must not be applied.
-func (n *PluginInfo) AllocDevices(taskID string, numDevs int) ([]string, error) {
+func (n *PluginInfo) AllocDevices(numDevs int) (types.GPUContainer, error) {
 	var lock *fslocker.ExclusiveLock
 	var err error
 	zeroTimeout := time.Duration(0)
-	devices := make([]string, numDevs)
-	i := 0
 
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 
-	n.perTaskAllocatedDevices[taskID] = make(map[string]*fslocker.ExclusiveLock)
+	allocatedDevices := make(map[string]*fslocker.ExclusiveLock, numDevs)
 	for device := range iterOverDevices(n.nvidiaDevices) {
 		lock, err = n.fsLocker.ExclusiveLock(device, &zeroTimeout)
 		if err == nil && lock != nil {
-			n.perTaskAllocatedDevices[taskID][device] = lock
+			allocatedDevices[device] = lock
 		}
-		if len(n.perTaskAllocatedDevices[taskID]) == numDevs {
+		if len(allocatedDevices) == numDevs {
 			goto success
 		}
 	}
@@ -299,32 +296,15 @@ func (n *PluginInfo) AllocDevices(taskID string, numDevs int) ([]string, error) 
 	goto fail
 
 success:
-	for dev := range n.perTaskAllocatedDevices[taskID] {
-		devices[i] = dev
-		i++
-	}
-	return devices, nil
+	return &nvidiaGPUContainer{allocatedDevices: allocatedDevices}, nil
 
 fail:
 	// Deallocate devices
-	for _, lock := range n.perTaskAllocatedDevices[taskID] {
+	for _, lock := range allocatedDevices {
 		lock.Unlock()
 	}
-	delete(n.perTaskAllocatedDevices, taskID)
 
-	return []string{}, err
-}
-
-// DeallocDevice deallocate a task's device.
-func (n *PluginInfo) DeallocDevice(taskID string) int {
-	i := 0
-	for _, lock := range n.perTaskAllocatedDevices[taskID] {
-		lock.Unlock()
-		i++
-	}
-	delete(n.perTaskAllocatedDevices, taskID)
-
-	return i
+	return nil, err
 }
 
 // GetCtrlDevices returns the control devices.
@@ -333,4 +313,24 @@ func (n *PluginInfo) GetCtrlDevices() []string {
 	defer n.mutex.Unlock()
 
 	return n.ctrlDevices
+}
+
+type nvidiaGPUContainer struct {
+	allocatedDevices map[string]*fslocker.ExclusiveLock
+}
+
+func (c *nvidiaGPUContainer) Devices() []string {
+	devices := make([]string, 0, len(c.allocatedDevices))
+	for key := range c.allocatedDevices {
+		devices = append(devices, key)
+	}
+	return devices
+}
+
+func (c *nvidiaGPUContainer) Deallocate() int {
+	allocatedCount := len(c.allocatedDevices)
+	for _, lock := range c.allocatedDevices {
+		lock.Unlock()
+	}
+	return allocatedCount
 }
