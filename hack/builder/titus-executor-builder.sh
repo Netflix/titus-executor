@@ -123,7 +123,7 @@ lintian --suppress-tags statically-linked-binary,unstripped-binary-or-object,deb
   --no-tag-display-limit "${outdir}/${filename}"
 
 mv "${outdir}"/titus-executor_"${version}"*.deb /dist
-
+cp ${outdir}/titus-executor-${version}.tar.gz /dist
 echo "## Updating the symlink: titus-executor_latest.deb -> ${filename}" >&2
 ln -sf "$filename" /dist/titus-executor_latest.deb
 
