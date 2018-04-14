@@ -55,6 +55,12 @@ func (e *InvalidSecurityGroupError) Error() string {
 // CleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
 type CleanupFunc func() error
 
+// GPUContainer manages the GPUs for a container, and frees them
+type GPUContainer interface {
+	Devices() []string
+	Deallocate() int
+}
+
 // Container contains config state for a container.
 // It is not safe to be used concurrently, synchronization and locking needs to be handled externally.
 type Container struct { // nolint: maligned
@@ -80,6 +86,9 @@ type Container struct { // nolint: maligned
 	Allocation         vpcTypes.Allocation
 	NormalizedENIIndex int
 	BandwidthLimitMbps uint32
+
+	// GPU devices
+	GPUInfo GPUContainer
 
 	AllocationCommand *exec.Cmd
 	SetupCommand      *exec.Cmd

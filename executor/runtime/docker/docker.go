@@ -34,6 +34,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
@@ -182,7 +183,6 @@ type DockerRuntime struct { // nolint: golint
 	metrics           metrics.Reporter
 	registryAuthCfg   *types.AuthConfig
 	client            *docker.Client
-	gpuInfo           *nvidia.PluginInfo
 	awsRegion         string
 	tiniSocketDir     string
 	tiniEnabled       bool
@@ -227,11 +227,6 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, cfg confi
 	}
 
 	dockerRuntime.awsRegion = os.Getenv("EC2_REGION")
-
-	dockerRuntime.gpuInfo, err = nvidia.NewNvidiaInfo(client)
-	if err != nil {
-		return nil, err
-	}
 
 	err = setupLoggingInfra(dockerRuntime)
 	if err != nil {
@@ -1451,17 +1446,22 @@ func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container
 	if c.TitusInfo.GetNumGpus() <= 0 {
 		return nil
 	}
+
+	gpuInfo, err := nvidia.NewNvidiaInfo(r.client)
+	if err != nil {
+		return err
+	}
 	// Use nvidia volume plugin that will mount the appropriate
 	// libraries/binaries into the container based on host nvidia driver.
 
-	for _, volume := range r.gpuInfo.Volumes {
+	for _, volume := range gpuInfo.Volumes {
 		parts := strings.Split(volume, ":")
 		dockerCfg.Volumes[parts[1]] = struct{}{}
 		hostCfg.Binds = append(hostCfg.Binds, volume)
 	}
 
 	// Add control devices to container.
-	for _, ctrlDevice := range r.gpuInfo.GetCtrlDevices() {
+	for _, ctrlDevice := range gpuInfo.GetCtrlDevices() {
 		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{
 			PathOnHost:        ctrlDevice,
 			PathInContainer:   ctrlDevice,
@@ -1470,12 +1470,13 @@ func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container
 	}
 
 	// Allocate a specific GPU to add to the container
-	gpuDevicePaths, err := r.gpuInfo.AllocDevices(c.TaskID, int(c.TitusInfo.GetNumGpus()))
+	c.GPUInfo, err = gpuInfo.AllocDevices(int(c.TitusInfo.GetNumGpus()))
 	if err != nil {
 		return fmt.Errorf("Cannot allocate %d requested GPU device: %v", c.TitusInfo.GetNumGpus(), err)
 	}
-	log.Printf("Allocated %d GPU devices %s for task %s", c.TitusInfo.GetNumGpus(), gpuDevicePaths, c.TaskID)
-	for _, gpuDevicePath := range gpuDevicePaths {
+
+	log.Printf("Allocated %d GPU devices %s for task %s", c.TitusInfo.GetNumGpus(), c.GPUInfo, c.TaskID)
+	for _, gpuDevicePath := range c.GPUInfo.Devices() {
 		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{
 			PathOnHost:        gpuDevicePath,
 			PathInContainer:   gpuDevicePath,
@@ -1568,7 +1569,8 @@ func (r *DockerRuntime) dockerStatus(c *runtimeTypes.Container) (runtimeTypes.St
 func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
 	log.Infof("Killing %s", c.TaskID)
 
-	var errs []error
+	var errs *multierror.Error
+
 	containerStopTimeout := time.Second * time.Duration(c.TitusInfo.GetKillWaitSeconds())
 	if containerStopTimeout == 0 {
 		containerStopTimeout = defaultKillWait
@@ -1578,7 +1580,7 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
 		goto stopped
 	} else if err != nil {
 		log.Error("Failed to inspect container: ", err)
-		errs = append(errs, err)
+		errs = multierror.Append(errs, err)
 		// There could be a race condition here, where if the container is killed before it is started, it could go into a wonky state
 	} else if !containerJSON.State.Running {
 		goto stopped
@@ -1587,7 +1589,7 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
 	if err := r.client.ContainerStop(context.TODO(), c.ID, &containerStopTimeout); err != nil {
 		r.metrics.Counter("titus.executor.dockerStopContainerError", 1, nil)
 		log.Errorf("container %s : stop %v", c.TaskID, err)
-		errs = append(errs, err)
+		errs = multierror.Append(errs, err)
 	} else {
 		goto stopped
 	}
@@ -1595,7 +1597,7 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
 	if err := r.client.ContainerKill(context.TODO(), c.ID, "SIGKILL"); err != nil {
 		r.metrics.Counter("titus.executor.dockerKillContainerError", 1, nil)
 		log.Errorf("container %s : kill %v", c.TaskID, err)
-		errs = append(errs, err)
+		errs = multierror.Append(errs, err)
 	}
 
 stopped:
@@ -1615,17 +1617,12 @@ stopped:
 		log.WithField("taskId", c.TaskID).Info("No need to deallocate, no allocation command")
 	}
 
-	// Deallocate any GPU device assigned to the container
-	// Note: Since the executor doesn't persist task->GPU device mappings
-	// we expect the executor to remove existing containers on startup
-	// to make sure the allocated state is correct.
-	numDealloc := r.gpuInfo.DeallocDevice(c.TaskID)
-	log.Infof("Deallocated %d GPU devices for task %s", numDealloc, c.TaskID)
-
-	if len(errs) > 0 {
-		return &compositeError{errs}
+	if c.TitusInfo.GetNumGpus() > 0 {
+		numDealloc := c.GPUInfo.Deallocate()
+		log.Infof("Deallocated %d GPU devices for task %s", numDealloc, c.TaskID)
 	}
-	return nil
+
+	return errs.ErrorOrNil()
 }
 
 // Cleanup runs the registered callbacks for a container
