@@ -36,10 +36,14 @@ tini/src:
 .PHONY: build
 build: tini/src | $(clean) $(builder)
 	mkdir -p $(PWD)/build/distributions
-	$(DOCKER_RUN) -v $(PWD):/src -v $(PWD)/build/distributions:/dist -u $(UID):$(GID) \
+	$(DOCKER_RUN) -v $(PWD):$(PWD) -u $(UID):$(GID) \
 	-e "BUILD_HOST=$(JENKINS_URL)" -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e BUILDKITE_BRANCH \
-	-e ENABLE_DEV \
+	-e ENABLE_DEV -e GOPATH \
 	titusoss/titus-executor-builder
+
+.PHONY: build-standalone
+build-standalone: tini/src
+	hack/builder/titus-executor-builder.sh
 
 .PHONY: test
 test: test-local test-standalone build-tests-darwin
@@ -72,7 +76,7 @@ validate: metalinter
 
 .PHONY: validate-docker
 validate-docker: | $(builder)
-	$(DOCKER_RUN) -v $(PWD):/go/src/$(GO_PKG) -w /go/src/$(GO_PKG) titusoss/titus-executor-builder make -j validate
+	$(DOCKER_RUN) -v $(PWD):$(PWD) -e GOPATH -w $(PWD) titusoss/titus-executor-builder make -j validate
 
 .PHONY: fmt
 fmt: goimports govendor

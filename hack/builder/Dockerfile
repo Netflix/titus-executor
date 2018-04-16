@@ -45,10 +45,6 @@ RUN gometalinter --install
 
 RUN go get -u github.com/jteeuwen/go-bindata/...
 
-VOLUME /tmp
-VOLUME /src
-VOLUME /dist
-
 RUN chmod -R a+rw /go/src
 COPY titus-executor-builder.sh /usr/local/bin/build
 

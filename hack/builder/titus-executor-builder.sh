@@ -3,10 +3,7 @@
 set -eu -o pipefail
 
 go_pkg="${GO_PACKAGE:-github.com/Netflix/titus-executor}"
-go_src_path="/go/src/$go_pkg"
-
-mkdir -p "$(dirname "$go_src_path")"
-ln -sf /src "$go_src_path"
+go_src_path=${GOPATH:-/go}/src/${go_pkg}
 
 pushd "$go_src_path"
 
@@ -73,6 +70,7 @@ if [[ ${BUILDKITE_BRANCH:-$MAYBE_BRANCH} != "master" && "${ENABLE_DEV:-true}" ==
 fi
 
 cat <<-EOF >/tmp/post-install.sh
+#!/bin/bash
 systemctl enable titus-darion.service
 systemctl enable titus-launchguard.service
 systemctl enable titus-reaper.service
@@ -82,7 +80,7 @@ EOF
 chmod +x /tmp/post-install.sh
 
 
-fpm -t deb -s dir -C /src/root \
+fpm -t deb -s dir -C root \
   -a amd64 \
   -n titus-executor \
   --maintainer titus-developers@netflix.com \
@@ -115,16 +113,20 @@ if [[ $num_debs -ne 1 ]]; then
     exit 1
 fi
 
-filename=$(basename "$(find "$outdir" -iname "*.deb" | head -n 1)")
+filename=${outdir}/*.deb
 
 # TODO: only run the linter on the file above
 # see: nebula/src/main/groovy/netflix/nebula/ospackage/NebulaOsPackageDebRepositoryPublish.groovy
 lintian --suppress-tags statically-linked-binary,unstripped-binary-or-object,debian-changelog-file-missing-or-wrong-name,no-copyright-file,extended-description-is-empty,python-script-but-no-python-dep,non-standard-toplevel-dir,maintainer-name-missing,maintainer-address-malformed,maintainer-script-should-not-use-adduser-system-without-home \
-  --no-tag-display-limit "${outdir}/${filename}"
+  --no-tag-display-limit ${filename}
 
-mv "${outdir}"/titus-executor_"${version}"*.deb /dist
-cp ${outdir}/titus-executor-${version}.tar.gz /dist
+mkdir -p build/distributions
+mv ${filename} build/distributions
+mv ${outdir}/titus-executor-${version}.tar.gz build/distributions
+
 echo "## Updating the symlink: titus-executor_latest.deb -> ${filename}" >&2
-ln -sf "$filename" /dist/titus-executor_latest.deb
+pushd build/distributions
+ln -sf $(basename ${filename}) titus-executor_latest.deb
+popd >/dev/null
 
 popd >/dev/null
