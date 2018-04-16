@@ -1,4 +1,10 @@
 sudo: required
 
-services:
-  - docker
+language: go
+
+go:
+  - "1.10.x"
+
+script:
+  - make metalinter
+  - make test-local
