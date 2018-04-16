@@ -404,7 +404,10 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Binds:      binds,
 		ExtraHosts: []string{fmt.Sprintf("%s:%s", hostname, c.Allocation.IPV4Address)},
 		Sysctls: map[string]string{
-			"net.ipv4.tcp_ecn": "1",
+			"net.ipv4.tcp_ecn":                   "1",
+			"net.ipv6.conf.all.disable_ipv6":     "0",
+			"net.ipv6.conf.default.disable_ipv6": "0",
+			"net.ipv6.conf.lo.disable_ipv6":      "0",
 		},
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
