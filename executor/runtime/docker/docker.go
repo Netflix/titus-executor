@@ -89,6 +89,7 @@ var (
 	prepareTimeout             time.Duration
 	startTimeout               time.Duration
 	debugAllocate              bool
+	bumpTiniSchedPriority      bool
 )
 
 // Flags are the configuration for the docker runtime package
@@ -144,6 +145,15 @@ var Flags = []cli.Flag{
 	cli.BoolFlag{
 		Name:        "titus.executor.debugAllocate",
 		Destination: &debugAllocate,
+	},
+	// Allow the usage of a realtime scheduling policy to be optional on systems that don't have it properly configured
+	// by default, i.e.: docker-for-mac.
+	cli.BoolTFlag{
+		Name:        "titus.executor.tiniSchedPriority",
+		Destination: &bumpTiniSchedPriority,
+		Usage: "enable a realtime scheduling priority for tini (PID=1), so it can always reap processes on contended " +
+			"systems. Kernels with CONFIG_RT_GROUP_SCHED=y require all cgroups in the hierarchy to have some " +
+			"cpu.rt_runtime_us allocated to each one of them",
 	},
 }
 
@@ -1323,15 +1333,15 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 
 func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx context.Context, c *runtimeTypes.Container, cred ucred, rootFile *os.File) error {
 	if r.cfg.UseNewNetworkDriver && c.Allocation.IPV4Address != "" {
-		err := setupNetworking(c, cred)
-		if err != nil {
+		if err := setupNetworking(c, cred); err != nil {
 			return err
 		}
 	}
 
-	err := setupScheduler(cred)
-	if err != nil {
-		return err
+	if bumpTiniSchedPriority {
+		if err := setupScheduler(cred); err != nil {
+			return err
+		}
 	}
 
 	/* This can be "broken" if the titus-executor crashes. The link will be dangling, and point to a
@@ -1340,8 +1350,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	pid := os.Getpid()
 	logsRoot := filepath.Join("/proc", strconv.Itoa(pid), "fd", strconv.Itoa(int(rootFile.Fd())))
 	darionRoot := netflixLoggerTempDir(r.cfg, c)
-	err = os.Symlink(logsRoot, darionRoot)
-	if err != nil {
+	if err := os.Symlink(logsRoot, darionRoot); err != nil {
 		log.Warning("Unable to setup symlink for darion: ", err)
 		return err
 	}
@@ -1351,12 +1360,10 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return os.Remove(darionRoot)
 	})
 
-	err = setupSystemPods(parentCtx, c, cred)
-	if err != nil {
+	if err := setupSystemPods(parentCtx, c, cred); err != nil {
 		log.Warning("Unable to launch pod: ", err)
 		return err
 	}
-
 	return nil
 }
 
