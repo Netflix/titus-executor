@@ -45,7 +45,7 @@ AWS specific features (VPC integration, metadata service proxy, GPU, EFS, ...) a
 make protogen
 ```
 
-### Force the protobuf definiition to be re-fetched and Go code re-generated
+### Force the protobuf definition to be re-fetched and Go code re-generated
 
 ```sh-session
 make clean-proto-defs && make protogen
