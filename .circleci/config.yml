@@ -44,6 +44,9 @@ jobs:
       - run:
           name: Local tests
           command: make test-local
+      - run:
+          name: Validate local
+          command: make validate
   build:
     docker:
       - image: titusoss/titus-executor-builder
