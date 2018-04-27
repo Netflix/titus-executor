@@ -77,6 +77,8 @@ func TestStandalone(t *testing.T) {
 	}
 	testFunctions := []func(*testing.T){
 		testSimpleJob,
+		testSimpleJobWithBadEnvironment,
+		testTmpfsAtRun,
 		testNoCapPtraceByDefault,
 		testCanAddCapabilities,
 		testDefaultCapabilities,
@@ -94,7 +96,6 @@ func TestStandalone(t *testing.T) {
 		testCancelPullBigImage,
 		testMetadataProxyInjection,
 		testMetdataProxyDefaultRoute,
-		testSimpleJobWithBadEnvironment,
 		testTerminateTimeout,
 	}
 	for _, fun := range testFunctions {
@@ -133,6 +134,17 @@ func testSimpleJobWithBadEnvironment(t *testing.T) {
 			"BAD":     `"`,
 			"AlsoBAD": "",
 		},
+	}
+	if !mock.RunJobExpectingSuccess(ji, false) {
+		t.Fail()
+	}
+}
+
+func testTmpfsAtRun(t *testing.T) {
+	ji := &mock.JobInput{
+		ImageName:  alpine.name,
+		Version:    alpine.tag,
+		Entrypoint: "/bin/sh -c '/bin/df -m -T /run | grep tmpfs | grep 200'",
 	}
 	if !mock.RunJobExpectingSuccess(ji, false) {
 		t.Fail()
