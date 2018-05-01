@@ -57,15 +57,13 @@ build-tests-darwin: govendor | $(clean)
 	$(RM) -r "$(TESTS_BUILD_DIR)"
 
 .PHONY: test-local
-test-local: govendor go-junit-report | $(clean)
+test-local: govendor | $(clean)
 	govendor test $(TEST_FLAGS) +local \
-	| tee /dev/stderr \
-	| tee test-local.log \
-	| go-junit-report > $(TEST_OUTPUT)
+	| tee /dev/stderr > test-local.log
 
 # run standalone tests against the docker container runtime
 .PHONY: test-standalone
-test-standalone: titus-agent go-junit-report | $(clean) $(builder)
+test-standalone: titus-agent | $(clean) $(builder)
 	./hack/tests-with-dind.sh
 
 
@@ -144,6 +142,3 @@ gometalinter:
 testdeps: govendor gometalinter
 	govendor install +local
 
-.PHONY: go-junit-report
-go-junit-report:
-	go get github.com/jstemmer/go-junit-report
