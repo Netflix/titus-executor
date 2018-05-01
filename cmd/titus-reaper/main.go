@@ -13,13 +13,11 @@ import (
 var dockerHost string
 var debug bool
 
-func init() {
+func main() {
 	flag.StringVar(&dockerHost, "docker-host", "unix:///var/run/docker.sock", "Docker Daemon URI")
 	flag.BoolVar(&debug, "debug", false, "Turn on debug logging")
 	flag.Parse()
-}
 
-func main() {
 	logsutil.MaybeSetupLoggerIfUnderSystemd()
 	if debug {
 		log.SetLevel(log.DebugLevel)

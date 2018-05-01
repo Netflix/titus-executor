@@ -46,7 +46,7 @@ build-standalone: tini/src
 	hack/builder/titus-executor-builder.sh
 
 .PHONY: test
-test: test-local test-standalone build-tests-darwin
+test: test-local test-standalone
 
 .PHONY: build-tests-darwin
 build-tests-darwin: govendor | $(clean)
@@ -58,7 +58,7 @@ build-tests-darwin: govendor | $(clean)
 
 .PHONY: test-local
 test-local: govendor | $(clean)
-	govendor test $(TEST_FLAGS) +local \
+	govendor test $(TEST_FLAGS) -covermode=count -coverprofile=coverage-local.out -coverpkg=github.com/Netflix/... +local \
 	| tee /dev/stderr > test-local.log
 
 # run standalone tests against the docker container runtime

@@ -58,12 +58,13 @@ func main() {
 	// avoid os.Exit as much as possible to let deferred functions run
 	defer time.Sleep(1 * time.Second)
 
-	app.Flags = append(flags, docker.Flags...)
+	dockerCfg, dockerCfgFlags := docker.NewConfig()
+	app.Flags = append(flags, dockerCfgFlags...)
 
 	cfg, cfgFlags := config.NewConfig()
 	app.Flags = append(app.Flags, cfgFlags...)
 	app.Action = func(c *cli.Context) error {
-		return cli.NewExitError(mainWithError(c, cfg), 1)
+		return cli.NewExitError(mainWithError(c, dockerCfg, cfg), 1)
 	}
 
 	altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource("disable-quitelite", "quitelite-url"))
@@ -72,7 +73,7 @@ func main() {
 	}
 }
 
-func mainWithError(c *cli.Context, cfg *config.Config) error {
+func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config) error {
 	defer log.Info("titus executor terminated")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,7 +98,7 @@ func mainWithError(c *cli.Context, cfg *config.Config) error {
 		return fmt.Errorf("Cannot create log uploaders: %v", err)
 	}
 
-	runner, err := runner.New(ctx, m, logUploaders, *cfg)
+	runner, err := runner.New(ctx, m, logUploaders, *cfg, *dockerCfg)
 	if err != nil {
 		return fmt.Errorf("Cannot create Titus executor: %v", err)
 	}

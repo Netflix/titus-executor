@@ -40,9 +40,6 @@ func main() {
 	// avoid os.Exit as much as possible to let deferred functions run
 	cfg, cfgFlags := config.NewConfig()
 
-	app.Action = func(c *cli.Context) error {
-		return cli.NewExitError(mainWithError(c, cfg, &options), 1)
-	}
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "container-info",
@@ -75,15 +72,21 @@ func main() {
 			Destination: &options.logLevel,
 		},
 	}
-	app.Flags = append(app.Flags, docker.Flags...)
 	app.Flags = append(app.Flags, cfgFlags...)
+
+	dockerCfg, dockerCfgFlags := docker.NewConfig()
+	app.Flags = append(app.Flags, dockerCfgFlags...)
+
+	app.Action = func(c *cli.Context) error {
+		return cli.NewExitError(mainWithError(c, dockerCfg, cfg, &options), 1)
+	}
 
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
 }
 
-func mainWithError(c *cli.Context, cfg *config.Config, options *cliOptions) error { // nolint: gocyclo
+func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config, options *cliOptions) error { // nolint: gocyclo
 	defer log.Info("titus executor terminated")
 
 	switch options.logLevel {
@@ -125,7 +128,7 @@ func mainWithError(c *cli.Context, cfg *config.Config, options *cliOptions) erro
 		return fmt.Errorf("Cannot create log uploaders: %v", err)
 	}
 
-	runner, err := runner.New(ctx, m, logUploaders, *cfg)
+	runner, err := runner.New(ctx, m, logUploaders, *cfg, *dockerCfg)
 	if err != nil {
 		return fmt.Errorf("Cannot create Titus executor: %v", err)
 	}

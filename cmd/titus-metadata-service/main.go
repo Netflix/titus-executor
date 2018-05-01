@@ -23,13 +23,6 @@ var listenPort int
 var debug bool
 var backingMetadataServer string
 
-func init() {
-	flag.StringVar(&backingMetadataServer, "backing-metadata-server", "http://169.254.169.254/", "The URI of the AWS metadata server you want to use")
-	flag.Int64Var(&listenerFd, "listener-fd", -1, "Use a specific fd for listening on")
-	flag.IntVar(&listenPort, "listener-port", defaultListeningPort, "Use specific port to listen on")
-	flag.BoolVar(&debug, "debug", false, "Set to true to debug logging")
-}
-
 /* Either returns a listener, or logs a fatal error */
 func getListener() net.Listener {
 	if listenerFd != -1 && listenPort != defaultListeningPort {
@@ -71,6 +64,11 @@ func getEnv(key string) string {
 }
 
 func main() {
+	flag.StringVar(&backingMetadataServer, "backing-metadata-server", "http://169.254.169.254/", "The URI of the AWS metadata server you want to use")
+	flag.Int64Var(&listenerFd, "listener-fd", -1, "Use a specific fd for listening on")
+	flag.IntVar(&listenPort, "listener-port", defaultListeningPort, "Use specific port to listen on")
+	flag.BoolVar(&debug, "debug", false, "Set to true to debug logging")
+
 	flag.Parse()
 	if debug {
 		log.SetLevel(log.DebugLevel)

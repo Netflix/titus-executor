@@ -1,27 +1,6 @@
 steps:
-  - command: |
-              #!/bin/bash
-
-              set -uex -o pipefail
-
-              export GOPATH="${HOME}/go"
-              export PATH="/usr/local/go/bin:$$GOPATH/bin:$$PATH"
-
-              echo "Cleaning gopath"
-
-              rm -rf $$GOPATH
-              mkdir -p $$GOPATH/src/github.com/Netflix/
-              ln -s $$BUILDKITE_BUILD_CHECKOUT_PATH $$GOPATH/src/github.com/Netflix/titus-executor
-
-              pushd $$GOPATH/src/github.com/Netflix/titus-executor
-
-              go get -u github.com/alecthomas/gometalinter
-              gometalinter --install
-              go get -u github.com/kardianos/govendor
-
-              make clean
-              make --output-sync -j16 builder all 2>&1 | tee build.log
-    artifact_paths: "*.log;build/distributions/*.deb;build/distributions/*.tar;build/distributions/*.tar.gz"
+  - command: ./.buildkite/build.sh
+    artifact_paths: "src/github.com/Netflix/titus-executor/*.log;src/github.com/Netflix/titus-executor/build/distributions/*.deb;src/github.com/Netflix/titus-executor/build/distributions/*.tar;src/github.com/Netflix/titus-executor/build/distributions/*.tar.gz;src/github.com/Netflix/titus-executor/*.out"
   - wait
   - trigger: titus-upload-debs
     async: false
@@ -30,5 +9,6 @@ steps:
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"
         CALLER_JOB_ID: "${BUILDKITE_JOB_ID}"
-        CALLER_UPLOAD_DEB: "build/distributions/titus-executor_latest.deb"
+        CALLER_UPLOAD_DEB: "src/github.com/Netflix/titus-executor/build/distributions/titus-executor_latest.deb"
         CALLER_PACKAGE_NAME: "titus-executor"
+        BUILDKITE_CLEAN_CHECKOUT: "true"

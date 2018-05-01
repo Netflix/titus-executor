@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/Netflix/titus-executor/uploader"
 	protobuf "github.com/golang/protobuf/proto"
 	"github.com/pborman/uuid"
@@ -123,6 +124,11 @@ func NewJobRunner() *JobRunner {
 	cfg.KeepLocalFileAfterUpload = true
 	cfg.MetatronEnabled = false
 
+	dockerCfg, err := docker.GenerateConfiguration(nil)
+	if err != nil {
+		panic(err)
+	}
+
 	// Create an executor
 	logUploaders, err := uploader.NewUploaders(cfg)
 	if err != nil {
@@ -130,7 +136,7 @@ func NewJobRunner() *JobRunner {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	// TODO: Replace this config mechanism
-	r, err := runner.New(ctx, metrics.Discard, logUploaders, *cfg)
+	r, err := runner.New(ctx, metrics.Discard, logUploaders, *cfg, *dockerCfg)
 	if err != nil {
 		log.Fatalf("cannot create executor : %s", err)
 	}

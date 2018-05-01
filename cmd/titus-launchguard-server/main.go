@@ -13,12 +13,10 @@ import (
 
 var debug bool
 
-func init() {
+func main() {
 	flag.BoolVar(&debug, "debug", false, "Turn on debug logging")
 	flag.Parse()
-}
 
-func main() {
 	ctx := context.Background()
 	logsutil.MaybeSetupLoggerIfUnderSystemd()
 	if debug {
