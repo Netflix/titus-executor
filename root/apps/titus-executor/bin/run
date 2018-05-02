@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e -o pipefail
+set -euo pipefail
 
 if [[ -e /etc/profile.d/netflix_environment.sh ]]; then
   . /etc/profile.d/netflix_environment.sh
@@ -10,19 +10,13 @@ fi
 # Resolve Titus environment
 ###############################################################################
 
-# Only override for dev stack, we do not want to support other registries
-if [ "${NETFLIX_STACK}" = "dev" ]; then
-  BOOT_OPTS="--test-registry"
-fi
-
-source /apps/titus-python-tools/bin/activate
-titus-bootstrap resolve ${BOOT_OPTS} | sudo tee /etc/profile.d/titus_environment.sh
-
 if [[ -e /etc/profile.d/titus_environment.sh ]]; then
   . /etc/profile.d/titus_environment.sh
 fi
 
-export ZKHOSTS=${TITUS_ZK}
+if [[ -e /etc/titus-executor/config.sh ]]; then
+  . /etc/titus-executor/config.sh
+fi
 
 log_bucket=${TITUS_LOG_BUCKET}
 
@@ -36,7 +30,7 @@ if [[ "${NETFLIX_ACCOUNT}" == "mce"* ]]; then
   export PRIVILEGED_CONTAINERS_ENABLED=true
 fi
 
-if [ -z "${LIBPROCESS_IP}" ]; then
+if [[ ! -v LIBPROCESS_IP ]]; then
   export LIBPROCESS_IP="${EC2_LOCAL_IPV4}"
 fi
 
