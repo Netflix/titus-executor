@@ -115,7 +115,7 @@ push-titus-agent: titus-agent
 
 PROTOS := vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/titus_base.proto vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/titus_agent_api.proto vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/agent.proto
 .PHONY: protogen
-protogen:  $(PROTOS) | $(clean) $(clean_proto_defs)
+protogen:  $(PROTOS) | $(clean) $(clean-proto-defs)
 	mkdir -p api
 	protoc -Ivendor/github.com/Netflix/titus-api-definitions/src/main/proto/ --go_out=api/ $(PROTOS)
 
