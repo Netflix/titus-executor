@@ -77,9 +77,9 @@ type Runner struct { // nolint: maligned
 type RuntimeProvider func(context.Context, config.Config) (runtimeTypes.Runtime, error)
 
 // New constructs a new Executor object with the default (docker) runtime
-func New(ctx context.Context, m metrics.Reporter, logUploaders *uploader.Uploaders, cfg config.Config) (*Runner, error) {
+func New(ctx context.Context, m metrics.Reporter, logUploaders *uploader.Uploaders, cfg config.Config, dockerCfg docker.Config) (*Runner, error) {
 	dockerRuntime := func(ctx context.Context, cfg config.Config) (runtimeTypes.Runtime, error) {
-		return docker.NewDockerRuntime(ctx, m, cfg)
+		return docker.NewDockerRuntime(ctx, m, dockerCfg, cfg)
 	}
 	return WithRuntime(ctx, m, dockerRuntime, logUploaders, cfg)
 }

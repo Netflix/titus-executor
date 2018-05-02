@@ -17,6 +17,25 @@ jobs:
       - run:
           name: Push builder image
           command: docker push titusoss/titus-executor-builder
+  # We don't build big image because it takes an hour+ to build on Circle CI infra
+  test-images:
+    docker:
+      - image: docker:17.05.0-ce-git
+    resource_class: xlarge
+    working_directory: /go/src/github.com/Netflix/titus-executor/hack/test-images
+    steps:
+      - checkout:
+          path: /go/src/github.com/Netflix/titus-executor
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Login into Docker hub
+          command: docker login -u $DOCKER_USER -p $DOCKER_PASS
+      - run: ./build.sh ubuntu
+      - run: ./build.sh ubuntu-systemd-bionic
+      - run: ./build.sh ubuntu-systemd-xenial
+      - run: ./build.sh no-entrypoint
+      - run: ./build.sh ignore-signals
   ci-builder:
     docker:
       - image: docker:17.05.0-ce-git
@@ -45,8 +64,17 @@ jobs:
           name: Local tests
           command: make test-local
       - run:
+          name: Upload code coverage result to coveralls
+          command: goveralls -coverprofile=coverage-local.out -service=circle-ci -repotoken $COVERALLS_TOKEN
+      - run:
+          name: Upload code coverage reports to codecov.io
+          command: bash <(curl -s https://codecov.io/bash)
+      - run:
           name: Validate local
           command: make validate
+      - run:
+          name: Validate tests build on darwin
+          command: make build-tests-darwin
   build:
     docker:
       - image: titusoss/titus-executor-builder
@@ -61,13 +89,13 @@ jobs:
       - store_artifacts:
           path: /go/src/github.com/Netflix/titus-executor/build/distributions
 
-
 workflows:
   version: 2
   build_and_test:
     jobs:
       - builder
       - ci-builder
+      - test-images
       - build:
           requires:
             - builder

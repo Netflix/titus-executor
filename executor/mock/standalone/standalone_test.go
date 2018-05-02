@@ -12,15 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"io/ioutil"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/mock"
-	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/urfave/cli.v1"
 )
 
 var standalone bool
@@ -31,10 +27,6 @@ func init() {
 	}
 	flag.BoolVar(&standalone, "standalone", false, "Enable standalone tests")
 	flag.Parse()
-	app := cli.NewApp()
-	app.Flags = docker.Flags
-	app.Writer = ioutil.Discard
-	_ = app.Run(os.Args)
 }
 
 type testImage struct {
@@ -43,14 +35,16 @@ type testImage struct {
 }
 
 var (
+	// TODO: Determine how this got built, and add it to the auto image builders?
 	alpine = testImage{
 		name: "titusoss/alpine",
 		tag:  "3.5",
 	}
 	ubuntu = testImage{
-		name: "titusoss/ubuntu-test",
-		tag:  "20171025-1508915634",
+		name: "titusoss/ubuntu",
+		tag:  "20180501-1525157359",
 	}
+	// TODO: Determine how this got built, and add it to the auto image builders?
 	byDigest = testImage{
 		name: "titusoss/by-digest",
 		tag:  "latest",
@@ -60,21 +54,18 @@ var (
 		tag:  "20171025-1508900976",
 	}
 	noEntrypoint = testImage{
-		name: "titusoss/no-entrypoint-test",
-		tag:  "20171109-1510275133",
+		name: "titusoss/no-entrypoint",
+		tag:  "20180501-1525157430",
 	}
 	ignoreSignals = testImage{
 		name: "titusoss/ignore-signals",
-		tag:  "20180122-1516662139",
+		tag:  "20180501-1525157636",
 	}
 )
 
 // This file still uses log as opposed to using the testing library's built-in logging framework.
 // Since we do not configure Logrus, we will just log to stderr.
 func TestStandalone(t *testing.T) {
-	if !standalone {
-		t.Skipf("Standalone tests are not enabled! Activate with the -standalone cmdline flag.")
-	}
 	testFunctions := []func(*testing.T){
 		testSimpleJob,
 		testSimpleJobWithBadEnvironment,
@@ -102,13 +93,24 @@ func TestStandalone(t *testing.T) {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
 		splitName := strings.Split(fullName, ".")
 		funName := splitName[len(splitName)-1]
-		t.Run(strings.Title(funName), makeTestParallel(fun))
+		testName := strings.Title(funName)
+		t.Run(testName, wrapTestStandalone(makeTestParallel(fun)))
 	}
 }
 
 func makeTestParallel(f func(*testing.T)) func(*testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
+		f(t)
+	}
+}
+
+func wrapTestStandalone(f func(*testing.T)) func(*testing.T) {
+	return func(t *testing.T) {
+		// TODO: Add logic to pull in config.flags, and docker.flags
+		if !standalone {
+			t.Skip("Standalone tests are not enabled! Activate with the -standalone cmdline flag")
+		}
 		f(t)
 	}
 }
