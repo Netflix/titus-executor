@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,6 +24,7 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/runtime/docker/seccomp"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/nvidia"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
@@ -60,6 +60,7 @@ const (
 	titusEnvironments       = "/var/lib/titus-environments"
 	defaultNetworkBandwidth = 128 * MB
 	defaultKillWait         = 10 * time.Second
+	trueString              = "true"
 )
 
 const envFileTemplateStr = `
@@ -223,14 +224,6 @@ type DockerRuntime struct { // nolint: golint
 	dockerCfg         Config
 }
 
-type compositeError struct {
-	errors []error
-}
-
-func (e *compositeError) Error() string {
-	return fmt.Sprintf("%#v", e.errors)
-}
-
 // NewDockerRuntime provides a Runtime implementation on Docker
 func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config) (runtimeTypes.Runtime, error) {
 	log.Info("New Docker client, to host ", cfg.DockerHost)
@@ -259,8 +252,8 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, dockerCfg
 		return nil, err
 	}
 
+	// TODO: Check
 	dockerRuntime.awsRegion = os.Getenv("EC2_REGION")
-
 	err = setupLoggingInfra(dockerRuntime)
 	if err != nil {
 		return nil, err
@@ -330,19 +323,6 @@ func setupLoggingInfra(dockerRuntime *DockerRuntime) error {
 	}
 
 	return nil
-}
-
-func getSortedEnvArray(env map[string]string) []string {
-	retEnv := make([]string, 0, len(env))
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		retEnv = append(retEnv, key+"="+env[key])
-	}
-	return retEnv
 }
 
 func maybeSetCFSBandwidth(cfsBandwidthMode string, cfsBandwidthPeriod uint64, c *runtimeTypes.Container, hostCfg *container.HostConfig) {
@@ -425,12 +405,12 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Image:      c.QualifiedImageName(),
 		Entrypoint: entrypoint,
 		Cmd:        nil, // We pass all arguments in the entrypoint array.
-		Env:        getSortedEnvArray(c.Env),
 		Labels:     c.Labels,
 		Volumes:    map[string]struct{}{},
 		Hostname:   hostname,
 	}
 
+	useInit := true
 	hostCfg := &container.HostConfig{
 		AutoRemove: false,
 		Privileged: false,
@@ -456,6 +436,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 				},
 			},
 		},
+		Init: &useInit,
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
 	c.RegisterRuntimeCleanup(func() error {
@@ -491,8 +472,6 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	// This is just factored out mutation of these objects to make the code cleaner.
 	r.setupLogs(c, containerCfg, hostCfg)
 
-	r.setupAdditionalCapabilities(c, hostCfg)
-
 	if r.cfg.PrivilegedContainersEnabled {
 		// Note: ATM, this is used to enable MCE to use FUSE within a container and
 		// is expected to only be used in their account. So these are the only capabilities
@@ -507,6 +486,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		// Note: This is only needed in Docker 1.10 and 1.11. In 1.12 the default
 		// seccomp profile will automatically adjust based on the capabilities.
 		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
+	} else {
+		r.setupAdditionalCapabilities(c, hostCfg)
 	}
 
 	// label is necessary for metadata proxy compatibility
@@ -520,7 +501,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
-	containerCfg.Env = getSortedEnvArray(c.Env)
+	// This must got after all setup
+	containerCfg.Env = c.GetSortedEnvArray()
 
 	return containerCfg, hostCfg, nil
 }
@@ -540,13 +522,10 @@ func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, containerCfg *conta
 	c.Env["TITUS_REDIRECT_STDOUT"] = "/logs/stdout"
 	c.Env["TITUS_UNIX_CB_PATH"] = filepath.Join("/titus-executor-sockets/", socketFileName)
 	/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
-	c.Env["TITUS_CONFIRM"] = "true"
+	c.Env["TITUS_CONFIRM"] = trueString
 	if r.dockerCfg.tiniVerbosity > 0 {
 		c.Env["TINI_VERBOSITY"] = strconv.Itoa(r.dockerCfg.tiniVerbosity)
 	}
-
-	// We should probably just add the getSortedEnvArray method to the Config struct
-	containerCfg.Env = getSortedEnvArray(c.Env)
 }
 
 func (r *DockerRuntime) hostOSPathToTiniSocket(c *runtimeTypes.Container) string {
@@ -564,15 +543,34 @@ func netflixLoggerTempDir(cfg config.Config, c *runtimeTypes.Container) string {
 }
 
 func (r *DockerRuntime) setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
+	addedCapabilities := make(map[string]struct{})
+
 	// Set any additional capabilities for this container
 	if cap := c.TitusInfo.GetCapabilities(); cap != nil {
 		for _, add := range cap.GetAdd() {
+			addedCapabilities[add.String()] = struct{}{}
 			hostCfg.CapAdd = append(hostCfg.CapAdd, add.String())
 		}
 		for _, drop := range cap.GetDrop() {
 			hostCfg.CapDrop = append(hostCfg.CapDrop, drop.String())
 		}
 	}
+
+	// Privileged containers automaticaly deactivate seccomp and friends, no need to do this
+	if c.TitusInfo.GetAllowNestedContainers() {
+		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:docker-nested")
+
+		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(seccomp.MustAsset("nested-container.json"))))
+
+		if _, ok := addedCapabilities["SYS_ADMIN"]; !ok {
+			hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
+		}
+		c.Env["TINI_HANDOFF"] = trueString
+		c.Env["TINI_UNSHARE"] = trueString
+	} else {
+		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(seccomp.MustAsset("default.json"))))
+	}
+
 }
 
 func sleepWithCtx(parentCtx context.Context, d time.Duration) error {
@@ -1381,6 +1379,10 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		}
 	}
 
+	if err := setupContainerNesting(parentCtx, c, cred); err != nil {
+		log.Error("Unable to setup container nesting: ", err)
+		return err
+	}
 	/* This can be "broken" if the titus-executor crashes. The link will be dangling, and point to a
 	 * /proc/${PID}/fd/${FD}. It's not "bad", because Titus Task names should be unique
 	 */
@@ -1674,7 +1676,8 @@ stopped:
 
 // Cleanup runs the registered callbacks for a container
 func (r *DockerRuntime) Cleanup(c *runtimeTypes.Container) error {
-	errs := []error{}
+	var errs *multierror.Error
+
 	cro := types.ContainerRemoveOptions{
 		RemoveVolumes: true,
 		RemoveLinks:   false,
@@ -1684,16 +1687,12 @@ func (r *DockerRuntime) Cleanup(c *runtimeTypes.Container) error {
 	if err := r.client.ContainerRemove(context.TODO(), c.ID, cro); err != nil {
 		r.metrics.Counter("titus.executor.dockerRemoveContainerError", 1, nil)
 		log.Errorf("Failed to remove container '%s' with ID: %s: %v", c.TaskID, c.ID, err)
-		errs = append(errs, err)
+		errs = multierror.Append(errs, err)
 	}
 
-	errs = append(errs, c.RuntimeCleanup()...)
+	errs = multierror.Append(errs, c.RuntimeCleanup()...)
 
-	if len(errs) > 0 {
-		return &compositeError{errs}
-	}
-
-	return nil
+	return errs.ErrorOrNil()
 }
 
 // reportDockerImageSizeMetric reports a metric that represents the container image's size

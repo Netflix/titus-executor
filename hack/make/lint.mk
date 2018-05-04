@@ -19,5 +19,9 @@ else
 CHECKSTYLE :=
 endif
 
-GOMETALINTER := gometalinter --vendor --tests --vendored-linters $(CHECKSTYLE) --disable=gotype --enable=unused --enable=goimports --enable=gofmt --concurrency=$(NPROCS) --deadline=600s --exclude=api/netflix/titus --exclude=vpc/bpf/filter --exclude=/usr/local/go/src
-
+GOMETALINTER := gometalinter --vendor --tests --vendored-linters $(CHECKSTYLE) --disable=gotype --enable=unused --enable=goimports --enable=gofmt \
+    --concurrency=$(NPROCS) --deadline=600s \
+    --exclude=api/netflix/titus \
+    --exclude=vpc/bpf/filter \
+    --exclude=executor/runtime/docker/seccomp \
+    --exclude=/usr/local/go/src

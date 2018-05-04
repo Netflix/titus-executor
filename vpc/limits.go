@@ -151,6 +151,45 @@ var interfaceLimits = map[string]map[string]limits{
 			networkThroughput:        20000,
 		},
 	},
+	"c5": {
+		"large": limits{
+			interfaces:               3,
+			ipAddressesPerInterface:  10,
+			ip6AddressesPerInterface: 10,
+			// Maybe?
+			networkThroughput: 1000,
+		},
+		"xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  15,
+			ip6AddressesPerInterface: 15,
+			networkThroughput:        2000,
+		},
+		"2xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  15,
+			ip6AddressesPerInterface: 15,
+			networkThroughput:        2000,
+		},
+		"4xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  30,
+			ip6AddressesPerInterface: 30,
+			networkThroughput:        4000,
+		},
+		"9xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  30,
+			ip6AddressesPerInterface: 30,
+			networkThroughput:        10000,
+		},
+		"18xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  50,
+			ip6AddressesPerInterface: 50,
+			networkThroughput:        23000,
+		},
+	},
 }
 
 // This function will panic if the instance type is unknown

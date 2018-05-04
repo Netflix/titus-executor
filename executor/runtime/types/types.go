@@ -3,17 +3,15 @@ package types
 import "fmt"
 
 import (
-	"github.com/Netflix/titus-executor/config"
-
+	"context"
 	"os/exec"
+	"path/filepath"
+	"sort"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/metatron"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
-
-	"context"
-	"path/filepath"
-
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
@@ -63,7 +61,8 @@ type GPUContainer interface {
 
 // Container contains config state for a container.
 // It is not safe to be used concurrently, synchronization and locking needs to be handled externally.
-type Container struct { // nolint: maligned
+type Container struct {
+	// nolint: maligned
 	ID        string
 	Pid       int
 	TaskID    string
@@ -161,6 +160,21 @@ func (c *Container) GetEntrypointFromProto() ([]string, error) {
 	}
 
 	return cmd, nil
+}
+
+// GetSortedEnvArray returns the list of environment variables set for the container as a sorted Key=Value list
+func (c *Container) GetSortedEnvArray() []string {
+	retEnv := make([]string, 0, len(c.Env))
+	keys := make([]string, 0, len(c.Env))
+	for k := range c.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		retEnv = append(retEnv, key+"="+c.Env[key])
+	}
+	return retEnv
+
 }
 
 // Resources specify constraints to be applied to a Container
