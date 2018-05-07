@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
 func init() {
@@ -99,6 +100,23 @@ func TestReadBaseVirtualFileLogs(t *testing.T) {
 	testReadLogs(verifyFunc, "/logs/Titus-fake-container?f=subdir/otherlogfile", t)
 }
 
+func TestReadBaseVirtualFileLogsRange(t *testing.T) {
+	verifyFunc := func(resp *http.Response, t *testing.T) {
+		dataStr := verifyHelper(resp, t)
+		if !strings.HasSuffix(dataStr, "\n") {
+			t.Fatal("Output truncated")
+		}
+		if len(dataStr) < 800 {
+			t.Fatal("Output truncated")
+		}
+		if strings.Count(dataStr, "z") != 800 {
+			t.Fatalf("Unexpected number of zs found: %s", dataStr)
+		}
+	}
+
+	testReadLogsRange(verifyFunc, "/logs/Titus-fake-container?f=subdir/otherlogfile", "bytes=200-", t)
+}
+
 func TestReadVirtualFileLogs(t *testing.T) {
 	verifyFunc := func(resp *http.Response, t *testing.T) {
 		dataStr := verifyHelper(resp, t)
@@ -114,6 +132,23 @@ func TestReadVirtualFileLogs(t *testing.T) {
 	}
 
 	testReadLogs(verifyFunc, "/logs/Titus-fake-container?f=subdir/otherlogfile.testsuffix", t)
+}
+
+func TestReadVirtualFileLogsRange(t *testing.T) {
+	verifyFunc := func(resp *http.Response, t *testing.T) {
+		dataStr := verifyHelper(resp, t)
+		if !strings.HasSuffix(dataStr, "\n") {
+			t.Fatal("Output truncated")
+		}
+		if len(dataStr) < 437 {
+			t.Fatal("Output truncated")
+		}
+		if strings.Count(dataStr, "a") != 437 {
+			t.Fatal("Unexpected number of as found")
+		}
+	}
+
+	testReadLogsRange(verifyFunc, "/logs/Titus-fake-container?f=subdir/otherlogfile.testsuffix", "bytes=200-", t)
 }
 
 func TestReadMissingVirtualFileLogs(t *testing.T) {
@@ -138,6 +173,28 @@ func TestReadMissingVirtualFileLogs(t *testing.T) {
 
 func TestReadLogs(t *testing.T) {
 	testReadLogs(verifyStdout, "/logs/Titus-fake-container?f=stdout", t)
+}
+
+func TestReadLogsRange(t *testing.T) {
+	verifyFunc := func(resp *http.Response, t *testing.T) {
+		dataStr := verifyHelper(resp, t)
+		if !strings.HasSuffix(dataStr, "\n") {
+			t.Fatal("Output truncated")
+		}
+		if len(dataStr) != 15 {
+			t.Fatalf("Output wrong length")
+		}
+	}
+	testReadLogsRange(verifyFunc, "/logs/Titus-fake-container?f=stdout", "bytes=5-", t)
+}
+
+func TestReadLogsOutOfRange(t *testing.T) {
+	verifyFunc := func(resp *http.Response, t *testing.T) {
+		if resp.StatusCode != 416 {
+			t.Fatal("Received non-416 return code: ", resp.StatusCode)
+		}
+	}
+	testReadLogsRange(verifyFunc, "/logs/Titus-fake-container?f=stdout", "bytes=100000-", t)
 }
 
 func TestReadLogsDefaultFile(t *testing.T) {
@@ -168,7 +225,7 @@ func verifyHelper(resp *http.Response, t *testing.T) string {
 		t.Fatal("Could not read response body: ", err)
 	}
 	dataStr := string(data)
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != 200 && resp.StatusCode != 206 {
 		t.Fatalf("Received non-200 return code (%d), with error: %s", resp.StatusCode, dataStr)
 	}
 	return string(data)
@@ -184,20 +241,30 @@ func verifyStdout(resp *http.Response, t *testing.T) {
 	}
 }
 
-func testReadLogs(verifyFunc func(resp *http.Response, t *testing.T), path string, t *testing.T) {
+func testReadLogsRange(verifyFunc func(resp *http.Response, t *testing.T), path string, rangeHeader string, t *testing.T) {
 	conf.ContainersHome = "testdata"
 	r := http.NewServeMux()
 	r.HandleFunc("/logs/", LogHandler)
 	server := httptest.NewServer(r)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + path)
-	if err != nil {
-		t.Fatal("Unexpected error")
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", server.URL+path, nil)
+	assert.NoError(t, err)
+
+	if rangeHeader != "" {
+		req.Header.Add("Range", rangeHeader)
 	}
+
+	resp, e := client.Do(req)
+	assert.NoError(t, e)
 	defer mustClose(resp.Body)
 
 	verifyFunc(resp, t)
+}
+
+func testReadLogs(verifyFunc func(resp *http.Response, t *testing.T), path string, t *testing.T) {
+	testReadLogsRange(verifyFunc, path, "", t)
 }
 
 func mustClose(f io.Closer) {
