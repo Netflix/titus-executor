@@ -1,4 +1,4 @@
-FROM ubuntu:xenial
+FROM ubuntu:artful
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
     apt-get install -y build-essential make cmake g++ gcc libc6-dev pkg-config \

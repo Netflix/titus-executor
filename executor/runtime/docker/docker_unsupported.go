@@ -36,3 +36,7 @@ func getOwnCgroup(subsystem string) (string, error) {
 func cleanupCgroups(cgroupPath string) error {
 	return errUnsupported
 }
+
+func setupContainerNesting(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+	return errUnsupported
+}

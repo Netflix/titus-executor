@@ -13,8 +13,12 @@ import (
 	"time"
 	"unsafe"
 
+	"io/ioutil"
+	"strings"
+
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/coreos/go-systemd/dbus"
+	"github.com/hashicorp/go-multierror"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -39,6 +43,7 @@ const (
 	metadataServiceSystemdUnit = "titus-metadata-proxy"
 	metricStartTimeout         = time.Minute
 	umountNoFollow             = 0x8
+	sysFsCgroup                = "/sys/fs/cgroup"
 )
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
@@ -153,4 +158,36 @@ func cleanupCgroups(cgroupPath string) error {
 	}
 
 	return nil
+}
+
+func setupContainerNesting(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+	if !c.TitusInfo.GetAllowNestedContainers() {
+		return nil
+	}
+	cgroupPath := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10), "cgroup")
+	cgroups, err := ioutil.ReadFile(cgroupPath)
+	if err != nil {
+		return err
+	}
+	var ret error
+	for _, line := range strings.Split(string(cgroups), "\n") {
+		cgroupInfo := strings.Split(strings.TrimSpace(line), ":")
+		if len(cgroupInfo) != 3 {
+			continue
+		}
+		controllerType := cgroupInfo[1]
+		if len(controllerType) == 0 {
+			continue
+		}
+		// This is to handle the name=systemd cgroup, we should probably parse /proc/mounts, but this is a little bit easier
+		controllerType = strings.TrimPrefix(controllerType, "name=")
+		controllerPath := cgroupInfo[2]
+		fsPath := filepath.Join(sysFsCgroup, controllerType, controllerPath)
+		err = os.Chown(fsPath, int(cred.uid), int(cred.gid))
+		if err != nil {
+			ret = multierror.Append(ret, err)
+		}
+	}
+
+	return ret
 }
