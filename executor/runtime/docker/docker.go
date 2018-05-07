@@ -408,6 +408,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Labels:     c.Labels,
 		Volumes:    map[string]struct{}{},
 		Hostname:   hostname,
+		Tty:        true,
 	}
 
 	useInit := true
