@@ -61,6 +61,10 @@ var (
 		name: "titusoss/ignore-signals",
 		tag:  "20180501-1525157636",
 	}
+	pty = testImage{
+		name: "titusoss/pty",
+		tag:  "20180507-1525733149",
+	}
 )
 
 // This file still uses log as opposed to using the testing library's built-in logging framework.
@@ -88,6 +92,7 @@ func TestStandalone(t *testing.T) {
 		testMetadataProxyInjection,
 		testMetdataProxyDefaultRoute,
 		testTerminateTimeout,
+		testMakesPTY,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -201,6 +206,18 @@ func testDefaultCapabilities(t *testing.T, jobID string) {
 		Version:   ubuntu.tag,
 		// Older kernels (3.13 on jenkins) have a different bitmask, so we check both the new and old formats
 		Entrypoint: `/bin/bash -c 'cat /proc/self/status | tee /logs/capabilities.log | egrep "CapEff:\s+(00000020a80425fb|00000000a80425fb)"'`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji, false) {
+		t.Fail()
+	}
+}
+
+func testMakesPTY(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  pty.name,
+		Version:    pty.tag,
+		Entrypoint: "/bin/bash -c '/usr/bin/unbuffer /usr/bin/tty | grep /dev/pts'",
 		JobID:      jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji, false) {

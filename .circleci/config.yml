@@ -36,6 +36,7 @@ jobs:
       - run: ./build.sh ubuntu-systemd-xenial
       - run: ./build.sh no-entrypoint
       - run: ./build.sh ignore-signals
+      - run: ./build.sh pty
   ci-builder:
     docker:
       - image: docker:17.05.0-ce-git
