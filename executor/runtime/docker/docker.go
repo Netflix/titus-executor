@@ -31,7 +31,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
@@ -231,7 +230,7 @@ type DockerRuntime struct { // nolint: golint
 // NewDockerRuntime provides a Runtime implementation on Docker
 func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config) (runtimeTypes.Runtime, error) {
 	log.Info("New Docker client, to host ", cfg.DockerHost)
-	client, err := docker.NewClient(cfg.DockerHost, "1.26", nil, map[string]string{})
+	client, err := docker.NewClient(cfg.DockerHost, "1.37", nil, map[string]string{})
 
 	if err != nil {
 		return nil, err
@@ -415,6 +414,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	}
 
 	useInit := true
+
+	tmpFsMountString := fmt.Sprintf("rw,nosuid,nodev,noexec,relatime,size=%dk", (c.Resources.Mem/2)*KiB)
 	hostCfg := &container.HostConfig{
 		AutoRemove: false,
 		Privileged: false,
@@ -426,20 +427,25 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv6.conf.default.disable_ipv6": "0",
 			"net.ipv6.conf.lo.disable_ipv6":      "0",
 		},
-		Mounts: []mount.Mount{
-			{
-				Type:     mount.TypeTmpfs,
-				Target:   "/run",
-				ReadOnly: false,
-				TmpfsOptions: &mount.TmpfsOptions{
-					// we set a size mostly so processes get ENOSPACE instead of being shot by the cgroup OOM killer
-					// 50% of the container memory limit by default to leave some room for other things, tmpfs mounts
-					// by default on most distros have a size that is half of the host memory
-					SizeBytes: (c.Resources.Mem / 2) * MiB,
-					Mode:      01777,
-				},
-			},
+		Tmpfs: map[string]string{
+			"/run": tmpFsMountString,
 		},
+
+		//
+		//Mounts: []mount.Mount{
+		//	{
+		//		Type:     mount.TypeTmpfs,
+		//		Target:   "/run",
+		//		ReadOnly: false,
+		//		TmpfsOptions: &mount.TmpfsOptions{
+		//			// we set a size mostly so processes get ENOSPACE instead of being shot by the cgroup OOM killer
+		//			// 50% of the container memory limit by default to leave some room for other things, tmpfs mounts
+		//			// by default on most distros have a size that is half of the host memory
+		//			SizeBytes: (c.Resources.Mem / 2) * MiB,
+		//			Mode:      01777,
+		//		},
+		//	},
+		//},
 		Init: &useInit,
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
