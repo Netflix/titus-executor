@@ -459,18 +459,7 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 }
 
 // setupMetatron returns a Docker formatted string bind mount for a container for a directory that will contain
-// TODO(fabio): create a type for Binds
 func (r *Runner) setupMetatron() (*metatron.CredentialsConfig, error) {
-	if r.config.MockMetatronCreds {
-		// Make up some creds for local testing
-		testAppMetadata := "type=titus&version=1&app=myApp&stack=myStack&imageName=myImage&imageVersion=latest&entry=myEntryPoint&t=1481328000"
-		testAppSignature := "keyID=10&sAlg=SHA256withRSAandMGF1&sig=RGVjb2RlIGJhc2U2NCBzdHJpbmdzIChiYXNlNjQgc3RyaW5nIGxvb2tzIGxpa2UgWVRNME5ab21JekkyT1RzbUl6TTBOVHVlWVE9PSkNCkRlY29kZSBhIGJhc2U2NCBlbmNvZGVkIGZpbGUgKGZvciBleGFtcGxlIElDTyBmaWxlcyBvciBmaWxlcyB"
-		r.container.TitusInfo.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: &testAppMetadata,
-			MetadataSig: &testAppSignature,
-		}
-	}
-
 	if r.container.TitusInfo.GetMetatronCreds() == nil {
 		return nil, nil
 	}
