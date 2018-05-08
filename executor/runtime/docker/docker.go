@@ -31,7 +31,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
@@ -74,6 +73,10 @@ const (
 	bandwidthMode = "bandwidth"
 	nanocpusMode  = "nanocpus"
 	sharesMode    = "shares"
+)
+
+var (
+	errorMetatronSansTini = errors.New("Metatron cannot be used without tini")
 )
 
 // Config represents the configuration for the Docker titus runtime
@@ -227,7 +230,7 @@ type DockerRuntime struct { // nolint: golint
 // NewDockerRuntime provides a Runtime implementation on Docker
 func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config) (runtimeTypes.Runtime, error) {
 	log.Info("New Docker client, to host ", cfg.DockerHost)
-	client, err := docker.NewClient(cfg.DockerHost, "1.26", nil, map[string]string{})
+	client, err := docker.NewClient(cfg.DockerHost, "1.37", nil, map[string]string{})
 
 	if err != nil {
 		return nil, err
@@ -411,6 +414,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	}
 
 	useInit := true
+
+	tmpFsMountString := fmt.Sprintf("rw,nosuid,nodev,noexec,relatime,size=%dk", (c.Resources.Mem/2)*KiB)
 	hostCfg := &container.HostConfig{
 		AutoRemove: false,
 		Privileged: false,
@@ -422,20 +427,25 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv6.conf.default.disable_ipv6": "0",
 			"net.ipv6.conf.lo.disable_ipv6":      "0",
 		},
-		Mounts: []mount.Mount{
-			{
-				Type:     mount.TypeTmpfs,
-				Target:   "/run",
-				ReadOnly: false,
-				TmpfsOptions: &mount.TmpfsOptions{
-					// we set a size mostly so processes get ENOSPACE instead of being shot by the cgroup OOM killer
-					// 50% of the container memory limit by default to leave some room for other things, tmpfs mounts
-					// by default on most distros have a size that is half of the host memory
-					SizeBytes: (c.Resources.Mem / 2) * MiB,
-					Mode:      01777,
-				},
-			},
+		Tmpfs: map[string]string{
+			"/run": tmpFsMountString,
 		},
+
+		//
+		//Mounts: []mount.Mount{
+		//	{
+		//		Type:     mount.TypeTmpfs,
+		//		Target:   "/run",
+		//		ReadOnly: false,
+		//		TmpfsOptions: &mount.TmpfsOptions{
+		//			// we set a size mostly so processes get ENOSPACE instead of being shot by the cgroup OOM killer
+		//			// 50% of the container memory limit by default to leave some room for other things, tmpfs mounts
+		//			// by default on most distros have a size that is half of the host memory
+		//			SizeBytes: (c.Resources.Mem / 2) * MiB,
+		//			Mode:      01777,
+		//		},
+		//	},
+		//},
 		Init: &useInit,
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
@@ -747,6 +757,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 
+	if c.MetatronConfig != nil && !r.tiniEnabled {
+		err = errorMetatronSansTini
+		goto error
+	}
+
 	group.Go(func() error {
 		if pullErr := r.dockerPull(errGroupCtx, c); pullErr != nil {
 			return pullErr
@@ -806,12 +821,6 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 	log.WithField("containerID", c.ID).Debug("Container successfully created")
-
-	err = r.pushMetatron(parentCtx, c)
-	if err != nil {
-		goto error
-	}
-	log.Debug("Metatron pushed")
 
 	err = r.createTitusEnvironmentFile(c)
 	if err != nil {
@@ -1181,6 +1190,12 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 			return "", err
 		}
 		err = r.setupEFSMounts(ctx, c, rootFile, containerCred, efsMountInfos)
+		if err != nil {
+			return "", err
+		}
+
+		// We push this credentials here before the workload actually starts, but after mounts are setup
+		err = r.pushMetatron(parentCtx, c)
 		if err != nil {
 			return "", err
 		}
