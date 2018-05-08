@@ -13,18 +13,21 @@ option go_package = "titus";
 // ----------------------------------------------------------------------------
 // Supplementary data structures
 
-/// Caller's identity, and their security context.
-message UserIdentity {
-    /// (Required) A unique user identifier. Depending on user type (a person or an application), the format
-    // of the id may be different. For example a person's id could be encoded as 'person:<email-address>', and
+/// Call metadata (caller's identity, call path).
+message CallMetadata {
+    /// (Required) The original caller identifier. Depending on the user identity (a user or an application), the format
+    // of the id may be different. For example a user's id could be encoded as 'user:<email-address>', and
     // application id as 'app:<aws-account-id>:<app-name>:<app-stack>'.
-    string id = 1;
+    string callerId = 1;
 
-    /// (Optional) Security context data associated with the user (for example user roles). The following names are
-    // reserved, and should be used if applicable:
-    // * name - caller's name
-    // * email - caller's email address
-    map<string, string> securityContext = 2;
+    /// (Optional) The reason why a call was made.
+    string callReason = 2;
+
+    /// (Optional) The list of intermediaries via which a call was relayed.
+    repeated string callPath = 3;
+
+    /// (Optional) If set to true, a diagnostic information is provided if a request fails.
+    bool debug = 4;
 }
 
 /// An entity representing single page of a collection. Either pageNumber or cursor must be set on requests.
