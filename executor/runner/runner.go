@@ -201,9 +201,8 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 		le = r.launchGuard.NewLaunchEvent(ctx, r.container.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
 	}
 	if r.config.MetatronEnabled {
-		r.updateStatus(ctx, titusdriver.Starting, "creating_metatron")
 		// TODO: Teach metatron about context
-		r.container.MetatronConfig, err = r.setupMetatron()
+		r.container.MetatronConfig, err = r.setupMetatron(ctx)
 		defer func() {
 			// Remove any Metatron credential stored for the task since they will
 			// get copied into the container.
@@ -459,9 +458,16 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 }
 
 // setupMetatron returns a Docker formatted string bind mount for a container for a directory that will contain
-func (r *Runner) setupMetatron() (*metatron.CredentialsConfig, error) {
+func (r *Runner) setupMetatron(ctx context.Context) (*metatron.CredentialsConfig, error) {
 	if r.container.TitusInfo.GetMetatronCreds() == nil {
 		return nil, nil
+	}
+
+	r.updateStatus(ctx, titusdriver.Starting, "creating_metatron")
+
+	mts, err := metatron.InitMetatronTruststore()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to initialize Metatron trust store: %s", err)
 	}
 
 	envMap := r.container.TitusInfo.GetUserProvidedEnv()
@@ -480,7 +486,7 @@ func (r *Runner) setupMetatron() (*metatron.CredentialsConfig, error) {
 		LaunchTime:   (time.Now().UnixNano() / int64(time.Millisecond)),
 	}
 
-	metatronConfig, err := metatron.GetPassports(
+	metatronConfig, err := mts.GetPassports(
 		r.container.TitusInfo.MetatronCreds.AppMetadata,
 		r.container.TitusInfo.MetatronCreds.MetadataSig,
 		r.container.TaskID,
@@ -511,12 +517,6 @@ func (r *Runner) waitForTask(parentCtx, ctx context.Context) (*task, error) {
 
 func (r *Runner) setupRunner(ctx context.Context, rp RuntimeProvider) error {
 	var err error
-	if r.config.MetatronEnabled {
-		err = metatron.InitMetatronTruststore()
-		if err != nil {
-			return fmt.Errorf("Failed to initialize Metatron trust store: %s", err)
-		}
-	}
 
 	r.runtime, err = rp(ctx, r.config)
 	return err
