@@ -73,7 +73,6 @@ func TestStandalone(t *testing.T) {
 	testFunctions := []func(*testing.T, string){
 		testSimpleJob,
 		testSimpleJobWithBadEnvironment,
-		testTmpfsAtRun,
 		testNoCapPtraceByDefault,
 		testCanAddCapabilities,
 		testDefaultCapabilities,
@@ -150,18 +149,6 @@ func testSimpleJobWithBadEnvironment(t *testing.T, jobID string) {
 			"AlsoBAD": "",
 		},
 		JobID: jobID,
-	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
-		t.Fail()
-	}
-}
-
-func testTmpfsAtRun(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
-		ImageName:  alpine.name,
-		Version:    alpine.tag,
-		Entrypoint: "/bin/sh -c '/bin/df -m -T /run | grep tmpfs | grep 200'",
-		JobID:      jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji, false) {
 		t.Fail()
