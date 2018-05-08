@@ -464,6 +464,11 @@ func (r *Runner) setupMetatron() (*metatron.CredentialsConfig, error) {
 		return nil, nil
 	}
 
+	mts, err := metatron.InitMetatronTruststore()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to initialize Metatron trust store: %s", err)
+	}
+
 	envMap := r.container.TitusInfo.GetUserProvidedEnv()
 	if envMap == nil {
 		envMap = make(map[string]string)
@@ -480,7 +485,7 @@ func (r *Runner) setupMetatron() (*metatron.CredentialsConfig, error) {
 		LaunchTime:   (time.Now().UnixNano() / int64(time.Millisecond)),
 	}
 
-	metatronConfig, err := metatron.GetPassports(
+	metatronConfig, err := mts.GetPassports(
 		r.container.TitusInfo.MetatronCreds.AppMetadata,
 		r.container.TitusInfo.MetatronCreds.MetadataSig,
 		r.container.TaskID,
@@ -511,13 +516,6 @@ func (r *Runner) waitForTask(parentCtx, ctx context.Context) (*task, error) {
 
 func (r *Runner) setupRunner(ctx context.Context, rp RuntimeProvider) error {
 	var err error
-	if r.config.MetatronEnabled {
-		err = metatron.InitMetatronTruststore()
-		if err != nil {
-			return fmt.Errorf("Failed to initialize Metatron trust store: %s", err)
-		}
-	}
-
 	r.runtime, err = rp(ctx, r.config)
 	return err
 }

@@ -76,6 +76,10 @@ const (
 	sharesMode    = "shares"
 )
 
+var (
+	errorMetatronSansTini = errors.New("Metatron cannot be used without tini")
+)
+
 // Config represents the configuration for the Docker titus runtime
 type Config struct { // nolint: maligned
 	userNamespaceFDEnabled     bool
@@ -747,6 +751,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 
+	if c.MetatronConfig != nil && !r.tiniEnabled {
+		err = errorMetatronSansTini
+		goto error
+	}
+
 	group.Go(func() error {
 		if pullErr := r.dockerPull(errGroupCtx, c); pullErr != nil {
 			return pullErr
@@ -806,12 +815,6 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 	log.WithField("containerID", c.ID).Debug("Container successfully created")
-
-	err = r.pushMetatron(parentCtx, c)
-	if err != nil {
-		goto error
-	}
-	log.Debug("Metatron pushed")
 
 	err = r.createTitusEnvironmentFile(c)
 	if err != nil {
@@ -1181,6 +1184,12 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 			return "", err
 		}
 		err = r.setupEFSMounts(ctx, c, rootFile, containerCred, efsMountInfos)
+		if err != nil {
+			return "", err
+		}
+
+		// We push this credentials here before the workload actually starts, but after mounts are setup
+		err = r.pushMetatron(parentCtx, c)
 		if err != nil {
 			return "", err
 		}
