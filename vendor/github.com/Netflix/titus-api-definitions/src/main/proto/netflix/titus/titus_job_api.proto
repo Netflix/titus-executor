@@ -18,10 +18,9 @@ option go_package = "titus";
 // ----------------------------------------------------------------------------
 // Job specification core data structures
 
-/// An owner of a job. If this value is not provided explicitly, a caller's email address
-// from the security context is used. If the security context does not contain this information, the request is rejected.
+/// An owner of a job.
 message Owner {
-    /// (Optional) An owner's email address. If not set directly, the email address is read from the caller's security context.
+    /// (Required) An owner's email address.
     string teamEmail = 1;
 }
 

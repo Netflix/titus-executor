@@ -73,9 +73,9 @@ message ContainerInfo {
 
     optional string logUploadRegexp = 7;
 
-    optional uint32 maxHealthFailures = 8;
+    optional uint32 maxHealthFailures = 8 [deprecated = true];
 
-    repeated string healthCheckCmd = 9;
+    repeated string healthCheckCmd = 9 [deprecated = true];
 
     enum SnapshotPolicy {
         NEVER = 0;
@@ -84,11 +84,9 @@ message ContainerInfo {
         ALWAYS = 3;
     }
 
-    optional SnapshotPolicy snapshotPolicy = 10;
+    optional SnapshotPolicy snapshotPolicy = 10 [deprecated = true];
 
     repeated string entrypointCmd = 11; // Deprecated. Use entrypointStr instead.
-
-    optional bool allocateIpAddress = 12 [default = false];
 
     optional string entrypointStr = 13;
 
@@ -101,11 +99,9 @@ message ContainerInfo {
     optional string iamProfile = 17;
 
     message NetworkConfigInfo {
-        // deprecated: use eniLabel instead
-        required string eniLablel = 1 [deprecated = true];
-        // this should be required, but it was added later (typo fix) and is optional for backwards compatibility
+        // should this be required?
+        // it was added later (typo fix)
         optional string eniLabel = 5;
-        optional bool allocateIpAddress = 2 [default = false];
         repeated string securityGroups = 3;
         optional uint32 bandwidthLimitMbps = 4; // In Mbps
     }
@@ -114,6 +110,7 @@ message ContainerInfo {
 
     optional string jobGroupSequence = 19;
 
+    // TODO(Sargun): Remove, and use the Mesos resource info instead
     optional uint32 numGpus = 20;
 
     message EfsConfigInfo {
