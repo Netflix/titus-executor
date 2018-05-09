@@ -154,13 +154,19 @@ func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bi
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, error) {
+func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, error) {
 	r.t.Log("runtimeMock.Start", c.TaskID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	close(r.startCalled)
 	r.startCalled = make(chan<- struct{}) // reset subscription
-	return "", nil
+	details := &runtimeTypes.Details{
+		IPAddresses: make(map[string]string),
+		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
+			IsRoutableIP: false,
+		},
+	}
+	return "", details, nil
 }
 
 func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
@@ -187,16 +193,6 @@ func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
 	r.t.Log("runtimeMock.Cleanup", c.TaskID)
 	return nil
-}
-
-func (r *runtimeMock) Details(c *runtimeTypes.Container) (*runtimeTypes.Details, error) {
-	r.t.Log("runtimeMock.Details", c.TaskID)
-	return &runtimeTypes.Details{
-		IPAddresses: make(map[string]string),
-		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
-			IsRoutableIP: false,
-		},
-	}, nil
 }
 
 func (r *runtimeMock) Status(c *runtimeTypes.Container) (runtimeTypes.Status, error) {

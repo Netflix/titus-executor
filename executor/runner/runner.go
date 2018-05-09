@@ -280,7 +280,7 @@ no_launchguard:
 	}
 
 	r.updateStatus(ctx, titusdriver.Starting, "starting")
-	logDir, err := r.runtime.Start(ctx, r.container)
+	logDir, details, err := r.runtime.Start(ctx, r.container)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		r.logger.Info("start container: ", err)
@@ -308,14 +308,8 @@ no_launchguard:
 		r.logger.Info("Not starting external logger")
 	}
 
-	// TODO(fabio): Start should return Details
-	details, err := r.runtime.Details(r.container)
-	if err != nil {
-		r.logger.Error("Error fetching details for task: ", err)
-		r.updateStatus(ctx, titusdriver.Lost, err.Error())
-		return
-	} else if details == nil {
-		r.logger.Error("Unable to fetch task details")
+	if details == nil {
+		r.logger.Fatal("Unable to fetch task details")
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
 	r.updateStatusWithDetails(ctx, titusdriver.Running, "running", details)
