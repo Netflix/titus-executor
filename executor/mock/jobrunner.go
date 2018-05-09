@@ -41,6 +41,8 @@ type JobInput struct {
 	IgnoreLaunchGuard bool
 	// StopTimeoutSeconds is the duration we wait after SIGTERM for the container to exit
 	KillWaitSeconds uint32
+	// BaseContainerInfo is used to derive the job from, if it is set, otherwise the containerinfo will be generated from scratch
+	BaseContainerInfo *titus.ContainerInfo
 }
 
 // JobRunResponse returned from RunJob
@@ -183,20 +185,24 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 		env[k] = v
 	}
 
-	ci := &titus.ContainerInfo{
-		ImageName:     protobuf.String(jobInput.ImageName),
-		Version:       protobuf.String(jobInput.Version),
-		EntrypointStr: protobuf.String(jobInput.Entrypoint),
-		JobId:         protobuf.String(jobID),
-		AppName:       protobuf.String("myapp"),
-		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
-			EniLabel: protobuf.String("1"),
-		},
-		IamProfile:        protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-		Capabilities:      jobInput.Capabilities,
-		TitusProvidedEnv:  env,
-		IgnoreLaunchGuard: protobuf.Bool(jobInput.IgnoreLaunchGuard),
+	ci := &titus.ContainerInfo{}
+
+	if jobInput.BaseContainerInfo != nil {
+		ci = jobInput.BaseContainerInfo
 	}
+
+	ci.ImageName = protobuf.String(jobInput.ImageName)
+	ci.Version = protobuf.String(jobInput.Version)
+	ci.EntrypointStr = protobuf.String(jobInput.Entrypoint)
+	ci.JobId = protobuf.String(jobID)
+	ci.AppName = protobuf.String("myapp")
+	ci.NetworkConfigInfo = &titus.ContainerInfo_NetworkConfigInfo{
+		EniLabel: protobuf.String("1"),
+	}
+	ci.IamProfile = protobuf.String("arn:aws:iam::0:role/DefaultContainerRole")
+	ci.Capabilities = jobInput.Capabilities
+	ci.TitusProvidedEnv = env
+	ci.IgnoreLaunchGuard = protobuf.Bool(jobInput.IgnoreLaunchGuard)
 
 	if jobInput.KillWaitSeconds > 0 {
 		ci.KillWaitSeconds = protobuf.Uint32(jobInput.KillWaitSeconds)
