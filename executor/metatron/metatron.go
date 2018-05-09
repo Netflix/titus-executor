@@ -36,21 +36,29 @@ func (legacySymlinkFileinfo) Sys() interface{}   { return nil }
 
 var whitelistDirs = map[string]bool{"/metatron": true, "/metatron/certificates": true}
 
-var truststoreTarBuf *bytes.Buffer
+// TrustStore encapsulates the state of metatron
+type TrustStore struct {
+	truststoreTarBuf *bytes.Buffer
+}
 
 // InitMetatronTruststore initializes cached trust store data
-func InitMetatronTruststore() error {
+func InitMetatronTruststore() (*TrustStore, error) {
+	mts := &TrustStore{}
+	mts.truststoreTarBuf = new(bytes.Buffer)
 	// Create and cache trust store tar bytes for Docker. These certs are
 	// baked into the AMI and are meant to be long lived.
-	truststoreTarBuf = new(bytes.Buffer)
-	truststoreTW := tar.NewWriter(truststoreTarBuf)
+	truststoreTW := tar.NewWriter(mts.truststoreTarBuf)
 	defer func() {
 		if err := truststoreTW.Close(); err != nil {
 			log.Fatal("Failed to close tar writer while creating Metatron trust store tar: ", err)
 		}
 	}()
 
-	return walkTruststore(truststoreTW)
+	if err := walkTruststore(truststoreTW); err != nil {
+		return nil, err
+	}
+
+	return mts, nil
 }
 
 func walkTruststore(tw *tar.Writer) error { // nolint: gocyclo
@@ -154,15 +162,6 @@ func getMetatronOutputPath(taskID string) string {
 	return getPassportHostPath(taskID) + metatronPath
 }
 
-// GetBinds returns a Docker formatted bind string to
-// use for Metatron credential storage
-func GetBinds(taskID string) string {
-	return fmt.Sprintf("%s:%s:%s",
-		getMetatronOutputPath(taskID),
-		metatronPath,
-		"ro")
-}
-
 // CreatePassportDir creates a directory to store a task's Metatron
 // credentials on the host
 func createPassportDir(taskID string) error {
@@ -180,7 +179,7 @@ func RemovePassports(taskID string) error {
 
 // GetPassports gets Metatron passports for a container/task and stores
 // them in a file system location.
-func GetPassports(encodedAppMetadata *string, encodedAppSig *string, taskID string, titusMetadata TitusMetadata) (*CredentialsConfig, error) {
+func (mts *TrustStore) GetPassports(encodedAppMetadata *string, encodedAppSig *string, taskID string, titusMetadata TitusMetadata) (*CredentialsConfig, error) {
 	var err error
 	// Create a writeable directory path for the passports to go
 	if err = createPassportDir(taskID); err != nil {
@@ -241,6 +240,6 @@ func GetPassports(encodedAppMetadata *string, encodedAppSig *string, taskID stri
 	return &CredentialsConfig{
 		HostCredentialsPath:   outputPath,
 		HostCredentialsPrefix: getPassportHostPath(taskID),
-		TruststoreTarBuf:      truststoreTarBuf,
+		TruststoreTarBuf:      mts.truststoreTarBuf,
 	}, nil
 }

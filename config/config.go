@@ -29,8 +29,6 @@ type Config struct { // nolint: maligned
 	UseNewNetworkDriver bool
 	// DisableMetrics makes it so we don't send metrics to Atlas
 	DisableMetrics bool
-	// MockMetatronCreds makes the executor use fake metatron creds
-	MockMetatronCreds bool
 	// LogUpload returns settings about the log uploader
 	//LogUpload logUpload
 	// StatusCheckFrequency returns duration between the periods the executor will poll Dockerd
@@ -96,10 +94,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "disable-metrics",
 			EnvVar:      "DISABLE_METRICS,SHORT_CIRCUIT_QUITELITE",
 			Destination: &cfg.DisableMetrics,
-		},
-		cli.BoolFlag{
-			Name:        "mock-metatron-creds",
-			Destination: &cfg.MockMetatronCreds,
 		},
 		cli.DurationFlag{
 			Name:        "status-check-frequency",
