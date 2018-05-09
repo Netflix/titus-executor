@@ -647,6 +647,7 @@ func doDockerPull(ctx context.Context, metrics metrics.Reporter, client *docker.
 	}
 }
 
+// This will setup c.Allocation
 func prepareNetworkDriver(cfg Config, c *runtimeTypes.Container) error {
 	log.Printf("Configuring VPC network for %s", c.TaskID)
 
@@ -758,9 +759,14 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		})
 	} else {
 		// Don't call out to network driver for local development
-		mockIP := "1.2.3.4"
-		log.Printf("Mocking networking configuration in dev mode to IP %s", mockIP)
-		c.Allocation.IPV4Address = mockIP
+		c.Allocation = vpcTypes.Allocation{
+			IPV4Address: "1.2.3.4",
+			DeviceIndex: 1,
+			Success:     true,
+			Error:       "",
+			ENI:         "eni-cat-dog",
+		}
+		log.Print("Mocking networking configuration in dev mode to IP: ", c.Allocation)
 	}
 
 	err = group.Wait()
@@ -1125,24 +1131,25 @@ func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountI
 }
 
 // Start runs an already created container. A watcher is created that monitors container state
-func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Container) (string, error) {
+func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)
 	defer cancel()
 	var err error
 	var listener *net.UnixListener
+	var details *runtimeTypes.Details
 
 	entry := log.WithField("taskID", c.TaskID)
 	entry.Info("Starting")
 	efsMountInfos, err := r.processEFSMounts(c)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// This sets up the tini listener. It will autoclose whenever the
 	if r.tiniEnabled {
 		listener, err = r.setupPreStartTini(ctx, c)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 	} else {
 		entry.Warning("Starting Without Tini, no logging (globally disabled)")
@@ -1154,32 +1161,48 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 		entry.Error("Error starting: ", err)
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
 		// Check if bad entry point and return specific error
-		return "", maybeConvertIntoBadEntryPointError(err)
+		return "", nil, maybeConvertIntoBadEntryPointError(err)
 	}
 
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), c.ImageTagForMetrics())
+
+	if c.Allocation.IPV4Address == "" {
+		log.Fatal("IP allocation unset")
+	}
+	details = &runtimeTypes.Details{
+		IPAddresses: map[string]string{
+			"nfvpc": c.Allocation.IPV4Address,
+		},
+		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
+			IsRoutableIP: true,
+			IPAddress:    c.Allocation.IPV4Address,
+			EniIPAddress: c.Allocation.IPV4Address,
+			EniID:        c.Allocation.ENI,
+			ResourceID:   fmt.Sprintf("resource-eni-%d", c.Allocation.DeviceIndex-1),
+		},
+	}
 
 	if r.tiniEnabled {
 		// This can block for up the the full ctx timeout
 		logDir, containerCred, rootFile, unixConn, err := r.setupPostStartLogDirTini(ctx, listener, c)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		err = r.setupEFSMounts(ctx, c, rootFile, containerCred, efsMountInfos)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		err = launchTini(unixConn)
 		if err != nil {
 			shouldClose(unixConn)
-			return "", err
+			return "", nil, err
 		}
-		return logDir, nil
+		return logDir, details, nil
 	}
 	// We already logged above that we aren't using Tini
 	// This means that the log watcher is not started
-	return "", nil
+	return "", details, nil
 }
 
 const (
@@ -1518,38 +1541,6 @@ func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container
 		})
 	}
 	return nil
-}
-
-// Details gets additional network info about a container
-func (r *DockerRuntime) Details(c *runtimeTypes.Container) (*runtimeTypes.Details, error) {
-	details := &runtimeTypes.Details{
-		IPAddresses: make(map[string]string),
-	}
-
-	if c.Allocation.IPV4Address != "" {
-		details.IPAddresses["nfvpc"] = c.Allocation.IPV4Address
-		details.NetworkConfiguration = &runtimeTypes.NetworkConfigurationDetails{
-			IsRoutableIP: true,
-			IPAddress:    c.Allocation.IPV4Address,
-			EniIPAddress: c.Allocation.IPV4Address,
-			EniID:        c.Allocation.ENI,
-			ResourceID:   fmt.Sprintf("resource-eni-%d", c.Allocation.DeviceIndex-1),
-		}
-	} else {
-		ci, err := r.client.ContainerInspect(context.TODO(), c.ID)
-		if err != nil {
-			return details, err
-		}
-
-		// reading ip addresses infos
-		if ci.NetworkSettings != nil {
-			for name, settings := range ci.NetworkSettings.Networks {
-				details.IPAddresses[name] = settings.IPAddress
-			}
-		}
-	}
-
-	return details, nil
 }
 
 // Status returns the status of a running container

@@ -211,13 +211,11 @@ type Runtime interface {
 	// NOT per-operation
 	Prepare(containerCtx context.Context, c *Container, bindMounts []string) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
-	Start(containerCtx context.Context, c *Container) (string, error)
+	Start(containerCtx context.Context, c *Container) (string, *Details, error)
 	// Kill a container
 	Kill(*Container) error
 	// Cleanup can be called to tear down resources after a container has been Killed
 	Cleanup(*Container) error
-	// Details that are not returned by Start
-	Details(*Container) (*Details, error)
 	// Status of a Container
 	Status(*Container) (Status, error)
 }
