@@ -280,7 +280,7 @@ no_launchguard:
 	}
 
 	r.updateStatus(ctx, titusdriver.Starting, "starting")
-	logDir, details, err := r.runtime.Start(ctx, r.container)
+	logDir, details, statusChan, err := r.runtime.Start(ctx, r.container)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		r.logger.Info("start container: ", err)
@@ -312,26 +312,35 @@ no_launchguard:
 		r.logger.Fatal("Unable to fetch task details")
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
-	r.updateStatusWithDetails(ctx, titusdriver.Running, "running", details)
 
-	// report metrics for startup time, docker image size
-	r.metrics.Timer("titus.executor.containerStartTime", time.Since(startTime), r.container.ImageTagForMetrics())
+	r.monitorContainer(ctx, startTime, statusChan, details)
+}
 
-	ticks := time.NewTicker(r.config.StatusCheckFrequency)
-	defer ticks.Stop()
+func (r *Runner) monitorContainer(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, details *runtimeTypes.Details) {
+	lastMessage := ""
+	runningSent := false
 
 	for {
 		select {
-		case <-ticks.C:
-			status, err := r.runtime.Status(r.container)
-			if err != nil {
-				r.logger.Error("Status result error: ", err)
-			}
-			shouldQuit, titusTaskStatus, msg := parseStatus(status, err)
-			if shouldQuit {
-				r.logger.Info("Status: ", titusTaskStatus.String())
-				// TODO: Generate Update
-				r.updateStatus(ctx, titusTaskStatus, msg)
+		case statusMessage := <-statusChan:
+			msg := statusMessage.Msg
+			r.logger.WithField("statusMessage", statusMessage).Info("Processing msg")
+
+			switch statusMessage.Status {
+			case runtimeTypes.StatusRunning:
+				r.handleTaskRunningMessage(ctx, msg, &lastMessage, &runningSent, startTime, details)
+				// Error code 0
+			case runtimeTypes.StatusFinished:
+				if msg == "" {
+					msg = "finished"
+				}
+				r.updateStatus(ctx, titusdriver.Finished, msg)
+				return
+			case runtimeTypes.StatusFailed:
+				r.updateStatus(ctx, titusdriver.Failed, msg)
+				return
+			default:
+				r.updateStatus(ctx, titusdriver.Lost, msg)
 				return
 			}
 		case <-r.killChan:
@@ -341,6 +350,27 @@ no_launchguard:
 			return
 		}
 	}
+}
+
+func (r *Runner) handleTaskRunningMessage(ctx context.Context, msg string, lastMessage *string, runningSent *bool, startTime time.Time, details *runtimeTypes.Details) {
+	// no need to Update the status if task is running and the message is the same as the last one
+	// The first time this is called *runningSent should be false, so it'll always trigger
+	if msg == *lastMessage && *runningSent {
+		return
+	}
+
+	// The msg for the first runningSent will always be "running"
+	if !(*runningSent) {
+		if msg == "" {
+			msg = "running"
+		}
+		r.metrics.Timer("titus.executor.containerStartTime", time.Since(startTime), r.container.ImageTagForMetrics())
+	}
+
+	r.updateStatusWithDetails(ctx, titusdriver.Running, msg, details)
+	*runningSent = true
+	*lastMessage = msg
+
 }
 
 func (r *Runner) handleShutdown(ctx context.Context) { // nolint: gocyclo
@@ -420,21 +450,6 @@ func (r *Runner) wasKilled() bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func parseStatus(status runtimeTypes.Status, err error) (bool, titusdriver.TitusTaskState, string) {
-
-	switch status {
-	case runtimeTypes.StatusRunning:
-		// no need to Update the status if task is running
-		return false, titusdriver.Running, ""
-	case runtimeTypes.StatusFinished:
-		return true, titusdriver.Finished, "finished"
-	case runtimeTypes.StatusFailed:
-		return true, titusdriver.Failed, err.Error()
-	default:
-		return true, titusdriver.Lost, err.Error()
 	}
 }
 
@@ -523,9 +538,6 @@ func (r *Runner) updateStatus(ctx context.Context, status titusdriver.TitusTaskS
 func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver.TitusTaskState, msg string, details *runtimeTypes.Details) {
 	r.lastStatus = status
 	l := r.logger.WithField("msg", msg).WithField("taskStatus", status)
-	if details != nil {
-		l = l.WithField("details", details)
-	}
 	select {
 	case r.UpdatesChan <- Update{
 		TaskID:  r.container.TaskID,
