@@ -17,7 +17,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"text/template"
 	"time"
 
@@ -31,6 +30,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
@@ -1130,38 +1131,53 @@ func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountI
 	return efsMountInfos, nil
 }
 
-// Start runs an already created container. A watcher is created that monitors container state
-func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, error) {
+// Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
+// valid if err == nil, otherwise it will block indefinitely.
+func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)
 	defer cancel()
 	var err error
 	var listener *net.UnixListener
 	var details *runtimeTypes.Details
+	statusMessageChan := make(chan runtimeTypes.StatusMessage, 10)
 
 	entry := log.WithField("taskID", c.TaskID)
 	entry.Info("Starting")
 	efsMountInfos, err := r.processEFSMounts(c)
 	if err != nil {
-		return "", nil, err
+		return "", nil, statusMessageChan, err
 	}
 
 	// This sets up the tini listener. It will autoclose whenever the
 	if r.tiniEnabled {
 		listener, err = r.setupPreStartTini(ctx, c)
 		if err != nil {
-			return "", nil, err
+			return "", nil, statusMessageChan, err
 		}
 	} else {
 		entry.Warning("Starting Without Tini, no logging (globally disabled)")
 	}
 
 	dockerStartStartTime := time.Now()
+	eventCtx, eventCancel := context.WithCancel(context.Background())
+	filters := filters.NewArgs()
+	filters.Add("container", c.ID)
+	filters.Add("type", "container")
+
+	eventOptions := types.EventsOptions{
+		Filters: filters,
+	}
+
+	// 1. We need to establish a event channel
+	eventChan, eventErrChan := r.client.Events(eventCtx, eventOptions)
+
 	err = r.client.ContainerStart(ctx, c.ID, types.ContainerStartOptions{})
 	if err != nil {
 		entry.Error("Error starting: ", err)
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
 		// Check if bad entry point and return specific error
-		return "", nil, maybeConvertIntoBadEntryPointError(err)
+		eventCancel()
+		return "", nil, statusMessageChan, maybeConvertIntoBadEntryPointError(err)
 	}
 
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), c.ImageTagForMetrics())
@@ -1186,23 +1202,117 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 		// This can block for up the the full ctx timeout
 		logDir, containerCred, rootFile, unixConn, err := r.setupPostStartLogDirTini(ctx, listener, c)
 		if err != nil {
-			return "", nil, err
+			eventCancel()
+			return "", nil, statusMessageChan, err
 		}
 		err = r.setupEFSMounts(ctx, c, rootFile, containerCred, efsMountInfos)
 		if err != nil {
-			return "", nil, err
+			eventCancel()
+			return "", nil, statusMessageChan, err
 		}
 
 		err = launchTini(unixConn)
 		if err != nil {
 			shouldClose(unixConn)
-			return "", nil, err
+			eventCancel()
+			return "", nil, statusMessageChan, err
 		}
-		return logDir, details, nil
+		go r.statusMonitor(eventCancel, c, eventChan, eventErrChan, statusMessageChan)
+		return logDir, details, statusMessageChan, nil
 	}
+	go r.statusMonitor(eventCancel, c, eventChan, eventErrChan, statusMessageChan)
 	// We already logged above that we aren't using Tini
 	// This means that the log watcher is not started
-	return "", details, nil
+	return "", details, statusMessageChan, nil
+}
+
+func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c *runtimeTypes.Container, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
+	defer close(statusMessageChan)
+	defer cancel()
+
+	// This context should be tied to the lifetime of the container -- it wille get significantly less broken
+	// when we tear out the launchguard code
+
+	for {
+		// 3. If the current state of the container is terminal, send it, and bail
+		// 4. Else, keep sending messages until we bail
+		select {
+		case err := <-errChan:
+			log.Fatal("Got error while listening for events, bailing: ", err)
+		case event := <-eventChan:
+			log.Info("Got event: ", event)
+			if handleEvent(c, event, statusMessageChan) {
+				log.Info("Terminating docker status monitor")
+				return
+			}
+		}
+	}
+}
+
+// return true to exit
+func handleEvent(c *runtimeTypes.Container, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
+	validateMessage(c, message)
+	l := log.WithFields(
+		map[string]interface{}{
+			"action":  message.Action,
+			"status":  message.Status,
+			"id":      message.ID,
+			"from":    message.From,
+			"type":    message.Type,
+			"actorId": message.Actor.ID,
+		})
+	for k, v := range message.Actor.Attributes {
+		l = l.WithField(fmt.Sprintf("actor.attributes.%s", k), v)
+	}
+	l.Info("Processing message")
+	switch message.Action {
+	case "start":
+		statusMessageChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+		}
+		return false
+	case "die":
+		if exitCode := message.Actor.Attributes["exitCode"]; exitCode == "0" {
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusFinished,
+			}
+		} else {
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusFailed,
+				Msg:    fmt.Sprintf("exited with code %s", exitCode),
+			}
+		}
+	case "health_status":
+		statusMessageChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+		}
+		return false
+	case "kill":
+		statusMessageChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusFailed,
+			Msg:    fmt.Sprintf("killed with signal %s", message.Actor.Attributes["signal"]),
+		}
+	case "oom":
+		statusMessageChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusFailed,
+			Msg:    fmt.Sprintf("%s exited due to OOMKilled", c.TaskID),
+		}
+	default:
+		log.WithField("taskID", c.ID).Info("Received unexpected event: ", message)
+		return false
+	}
+
+	return true
+}
+
+// The only purpose of this is to test the sanity of our filters, and Docker
+func validateMessage(c *runtimeTypes.Container, message events.Message) {
+	if c.ID != message.ID {
+		panic(fmt.Sprint("c.ID != message.ID: ", message))
+	}
+	if message.Type != "container" {
+		panic(fmt.Sprint("message.Type != container: ", message))
+	}
 }
 
 const (
@@ -1541,53 +1651,6 @@ func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container
 		})
 	}
 	return nil
-}
-
-// Status returns the status of a running container
-func (r *DockerRuntime) Status(c *runtimeTypes.Container) (runtimeTypes.Status, error) {
-	if c.Pid == 0 {
-		return r.dockerStatus(c)
-	}
-
-	process, err := os.FindProcess(c.Pid)
-	if err != nil {
-		// Never happens on Unix:
-		// https://golang.org/src/os/exec_unix.go?s=1364:1375#L70
-		return runtimeTypes.StatusUnknown, err
-	}
-
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		// Performs error checks to see if process exited.
-		if status, err := r.dockerStatus(c); status != runtimeTypes.StatusRunning {
-			return status, err
-		}
-	}
-
-	return runtimeTypes.StatusRunning, nil
-}
-
-func (r *DockerRuntime) dockerStatus(c *runtimeTypes.Container) (runtimeTypes.Status, error) {
-	ci, err := r.client.ContainerInspect(context.TODO(), c.ID)
-	if err != nil {
-		return runtimeTypes.StatusUnknown, err
-	}
-
-	// TODO(fabio): stop mutating the container here
-	c.Pid = ci.State.Pid
-
-	if ci.State.Running {
-		return runtimeTypes.StatusRunning, nil
-	}
-
-	log.Printf("container %s : not running : %#v", c.TaskID, ci.State)
-	if ci.State.OOMKilled {
-		return runtimeTypes.StatusFailed, fmt.Errorf("%s exited due to OOMKilled", c.TaskID)
-	} else if ci.State.Error != "" {
-		return runtimeTypes.StatusFailed, errors.New(ci.State.Error)
-	} else if ci.State.ExitCode == 0 {
-		return runtimeTypes.StatusFinished, nil
-	}
-	return runtimeTypes.StatusFailed, fmt.Errorf("exited with code %d", ci.State.ExitCode)
 }
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking

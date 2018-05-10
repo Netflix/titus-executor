@@ -64,7 +64,6 @@ type GPUContainer interface {
 type Container struct {
 	// nolint: maligned
 	ID        string
-	Pid       int
 	TaskID    string
 	Env       map[string]string
 	Labels    map[string]string
@@ -211,13 +210,11 @@ type Runtime interface {
 	// NOT per-operation
 	Prepare(containerCtx context.Context, c *Container, bindMounts []string) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
-	Start(containerCtx context.Context, c *Container) (string, *Details, error)
+	Start(containerCtx context.Context, c *Container) (string, *Details, <-chan StatusMessage, error)
 	// Kill a container
 	Kill(*Container) error
 	// Cleanup can be called to tear down resources after a container has been Killed
 	Cleanup(*Container) error
-	// Status of a Container
-	Status(*Container) (Status, error)
 }
 
 // Status represent a containers state
@@ -230,3 +227,9 @@ const (
 	StatusFinished
 	StatusFailed
 )
+
+// StatusMessage encapsulated the message code + string to send back to the master
+type StatusMessage struct {
+	Status Status
+	Msg    string
+}
