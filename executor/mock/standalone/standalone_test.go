@@ -479,13 +479,14 @@ func waitForSystemUp(t *testing.T, jobRunner *mock.JobRunner, jobResponse *mock.
 	for time.Since(begin) < time.Second*15 {
 		data, err := ioutil.ReadFile(isRunningFile)
 		if err != nil {
-			log.Error("Unable to read running file")
+			log.Error("Unable to read running file: ", isRunningFile)
 		}
 		dataStr := strings.TrimSpace(string(data))
 		if dataStr == "running" {
 			// Success!
 			return
 		}
+		time.Sleep(time.Second)
 	}
 	t.Fail()
 }
