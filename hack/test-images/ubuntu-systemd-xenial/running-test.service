@@ -4,7 +4,7 @@ Description=Is Systemd Up and Running
 [Service]
 Type=oneshot
 RemainAfterExit=true
-ExecStart=/bin/bash -c '/usr/local/bin/retry --tries 100 --max=1 systemctl is-system-running > /logs/is-system-running.log'
+ExecStart=/bin/bash -c '/usr/local/bin/retry --tries 100 --max=1 systemctl is-system-running > /logs/is-system-running-stdout.log 2> /logs/is-system-running-stderr.log'
 
 [Install]
 WantedBy=multi-user.target
