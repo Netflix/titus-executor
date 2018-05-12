@@ -68,7 +68,7 @@ var (
 	}
 	xenialSystemd = testImage{
 		name: "titusoss/ubuntu-systemd-xenial",
-		tag:  "20180512-1526115794",
+		tag:  "20180512-1526117963",
 	}
 )
 
