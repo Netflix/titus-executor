@@ -71,7 +71,7 @@ var (
 	}
 	xenialSystemd = testImage{
 		name: "titusoss/ubuntu-systemd-xenial",
-		tag:  "20180512-1526120053",
+		tag:  "20180512-1526121425",
 	}
 )
 
@@ -486,7 +486,7 @@ func waitForSystemUp(t *testing.T, jobRunner *mock.JobRunner, jobResponse *mock.
 			// Success!
 			return
 		}
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 500)
 	}
 	t.Fail()
 }
