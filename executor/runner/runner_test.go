@@ -123,9 +123,7 @@ func mocks(ctx context.Context, t *testing.T, killRequests chan<- chan<- struct{
 		statusChan:  make(chan runtimeTypes.StatusMessage, 10),
 	}
 	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	cfg := config.Config{
-		StatusCheckFrequency: time.Second,
-	}
+	cfg := config.Config{}
 
 	e, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
