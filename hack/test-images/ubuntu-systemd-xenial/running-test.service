@@ -1,0 +1,10 @@
+[Unit]
+Description=Is Systemd Up and Running
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/bin/bash -c '/usr/local/bin/retry --max=1 systemctl is-system-running > /logs/is-system-running.log'
+
+[Install]
+WantedBy=multi-user.target

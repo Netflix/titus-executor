@@ -25,6 +25,6 @@ RUN find /etc/systemd/system \
 RUN systemctl set-default multi-user.target
 
 STOPSIGNAL SIGRTMIN+3
-HEALTHCHECK --interval=3s CMD /bin/systemctl is-system-running
+curl https://raw.githubusercontent.com/kadwanev/retry/master/retry -o /usr/local/bin/retry && chmod +x /usr/local/bin/retry
 
 CMD ["/lib/systemd/systemd", "--log-level=debug", "--log-target=journal"]
