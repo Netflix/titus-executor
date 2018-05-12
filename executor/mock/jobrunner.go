@@ -235,7 +235,7 @@ func (jobRunner *JobRunner) KillTask() error {
 }
 
 // RunJobExpectingSuccess is similar to RunJob but returns true when the task completes successfully.
-func RunJobExpectingSuccess(jobInput *JobInput, startHTTPServer bool) bool {
+func RunJobExpectingSuccess(jobInput *JobInput) bool {
 	jobRunner := NewJobRunner()
 	defer jobRunner.StopExecutor()
 
@@ -244,7 +244,7 @@ func RunJobExpectingSuccess(jobInput *JobInput, startHTTPServer bool) bool {
 }
 
 // RunJob runs a single Titus task based on provided JobInput
-func RunJob(jobInput *JobInput, startHTTPServer bool) (string, error) {
+func RunJob(jobInput *JobInput) (string, error) {
 	jobRunner := NewJobRunner()
 	defer jobRunner.StopExecutor()
 

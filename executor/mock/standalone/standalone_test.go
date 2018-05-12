@@ -133,7 +133,7 @@ func testSimpleJob(t *testing.T, jobID string) {
 		Entrypoint: "echo Hello Titus",
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -150,7 +150,7 @@ func testSimpleJobWithBadEnvironment(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -162,7 +162,7 @@ func testNoCapPtraceByDefault(t *testing.T, jobID string) {
 		Entrypoint: "/bin/sh -c '! (/sbin/capsh --print | tee /logs/no-ptrace.log | grep sys_ptrace')",
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -179,7 +179,7 @@ func testCanAddCapabilities(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -195,7 +195,7 @@ func testDefaultCapabilities(t *testing.T, jobID string) {
 		Entrypoint: `/bin/bash -c 'cat /proc/self/status | tee /logs/capabilities.log | egrep "CapEff:\s+(00000020a80425fb|00000000a80425fb)"'`,
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -207,7 +207,7 @@ func testMakesPTY(t *testing.T, jobID string) {
 		Entrypoint: "/bin/bash -c '/usr/bin/unbuffer /usr/bin/tty | grep /dev/pts'",
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -221,7 +221,7 @@ func testStdoutGoesToLogFile(t *testing.T, jobID string) {
 		Entrypoint: cmd,
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -235,7 +235,7 @@ func testStderrGoesToLogFile(t *testing.T, jobID string) {
 		Entrypoint: cmd,
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -249,7 +249,7 @@ func testImageByDigest(t *testing.T, jobID string) {
 		Entrypoint:  cmd,
 		JobID:       jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -267,7 +267,7 @@ func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
 		Entrypoint:  cmd,
 		JobID:       jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -281,7 +281,7 @@ func testImageInvalidDigestFails(t *testing.T, jobID string) {
 		Entrypoint:  fmt.Sprintf(`/bin/true`),
 		JobID:       jobID,
 	}
-	status, err := mock.RunJob(ji, false)
+	status, err := mock.RunJob(ji)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func testImageNonExistingDigestFails(t *testing.T, jobID string) {
 		Entrypoint:  fmt.Sprintf(`/bin/true`),
 		JobID:       jobID,
 	}
-	status, err := mock.RunJob(ji, false)
+	status, err := mock.RunJob(ji)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func testImagePullError(t *testing.T, jobID string) {
 		Entrypoint: "/usr/bin/true",
 		JobID:      jobID,
 	}
-	status, err := mock.RunJob(ji, false)
+	status, err := mock.RunJob(ji)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func testBadEntrypoint(t *testing.T, jobID string) {
 		JobID:      jobID,
 	}
 	// We expect this to fail
-	if mock.RunJobExpectingSuccess(ji, false) {
+	if mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -384,7 +384,7 @@ func testNoEntrypoint(t *testing.T, jobID string) {
 		Version:   noEntrypoint.tag,
 	}
 	// We expect this to fail
-	if mock.RunJobExpectingSuccess(ji, false) {
+	if mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -398,7 +398,7 @@ func testCanWriteInLogsAndSubDirs(t *testing.T, jobID string) {
 		Entrypoint: cmd,
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -447,7 +447,7 @@ func testMetadataProxyInjection(t *testing.T, jobID string) {
 		Entrypoint: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/local-ipv4 | grep 1.2.3.4'",
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
@@ -459,7 +459,7 @@ func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
 		Entrypoint: `/bin/bash -c 'curl -sf --interface $(ip route get 4.2.2.2|grep -E -o "src [0-9.]+"|cut -f2 -d" ") http://169.254.169.254/latest/meta-data/local-ipv4'`,
 		JobID:      jobID,
 	}
-	if !mock.RunJobExpectingSuccess(ji, false) {
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
