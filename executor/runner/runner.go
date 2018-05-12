@@ -288,10 +288,10 @@ no_launchguard:
 		switch err.(type) {
 		case *runtimeTypes.BadEntryPointError:
 			r.logger.Info("Returning TaskState_TASK_FAILED for task: ", err)
-			r.updateStatus(ctx, titusdriver.Failed, err.Error())
+			r.updateStatusWithDetails(ctx, titusdriver.Failed, err.Error(), details)
 		default:
 			r.logger.Info("Returning TASK_LOST for task: ", err)
-			r.updateStatus(ctx, titusdriver.Lost, err.Error())
+			r.updateStatusWithDetails(ctx, titusdriver.Lost, err.Error(), details)
 		}
 		return
 	}
@@ -301,7 +301,7 @@ no_launchguard:
 		err = r.maybeSetupExternalLogger(ctx, logDir)
 		if err != nil {
 			r.logger.Error("Unable to setup logging for container: ", err)
-			r.updateStatus(ctx, titusdriver.Lost, err.Error())
+			r.updateStatusWithDetails(ctx, titusdriver.Lost, err.Error(), details)
 			return
 		}
 	} else {
@@ -338,13 +338,13 @@ func (r *Runner) monitorContainer(ctx context.Context, startTime time.Time, stat
 				if msg == "" {
 					msg = "finished"
 				}
-				r.updateStatus(ctx, titusdriver.Finished, msg)
+				r.updateStatusWithDetails(ctx, titusdriver.Finished, msg, details)
 				return
 			case runtimeTypes.StatusFailed:
-				r.updateStatus(ctx, titusdriver.Failed, msg)
+				r.updateStatusWithDetails(ctx, titusdriver.Failed, msg, details)
 				return
 			default:
-				r.updateStatus(ctx, titusdriver.Lost, msg)
+				r.updateStatusWithDetails(ctx, titusdriver.Lost, msg, details)
 				return
 			}
 		case <-r.killChan:
