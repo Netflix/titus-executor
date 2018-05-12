@@ -120,7 +120,6 @@ func NewJobRunner() *JobRunner {
 	if err != nil {
 		panic(err)
 	}
-	cfg.StatusCheckFrequency = time.Second * 1
 	cfg.KeepLocalFileAfterUpload = true
 	cfg.MetatronEnabled = false
 
