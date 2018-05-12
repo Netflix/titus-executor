@@ -12,8 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"io/ioutil"
+	"path/filepath"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/mock"
+	"github.com/gogo/protobuf/proto"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
@@ -65,6 +69,10 @@ var (
 		name: "titusoss/pty",
 		tag:  "20180507-1525733149",
 	}
+	xenialSystemd = testImage{
+		name: "titusoss/ubuntu-systemd-xenial",
+		tag:  "20180512-1526121425",
+	}
 )
 
 // This file still uses log as opposed to using the testing library's built-in logging framework.
@@ -92,6 +100,7 @@ func TestStandalone(t *testing.T) {
 		testMetdataProxyDefaultRoute,
 		testTerminateTimeout,
 		testMakesPTY,
+		testSystemdXenial,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -462,6 +471,64 @@ func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
 	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
+}
+
+func waitForSystemUp(t *testing.T, jobRunner *mock.JobRunner, jobResponse *mock.JobRunResponse) {
+	isRunningFile := filepath.Join(jobRunner.Config.LogsTmpDir, jobResponse.TaskID, "logs/is-system-running.log")
+	begin := time.Now()
+	for time.Since(begin) < time.Second*15 {
+		data, err := ioutil.ReadFile(isRunningFile)
+		if err != nil {
+			log.Error("Unable to read running file: ", isRunningFile)
+		}
+		dataStr := strings.TrimSpace(string(data))
+		if dataStr == "running" {
+			// Success!
+			return
+		}
+		time.Sleep(time.Millisecond * 500)
+	}
+	t.Fail()
+}
+
+func testSystemdXenial(t *testing.T, jobID string) {
+	// Start the executor
+	jobRunner := mock.NewJobRunner()
+	defer jobRunner.StopExecutorAsync()
+
+	// Submit a job that runs for a long time and does
+	// NOT exit on SIGTERM
+	ji := &mock.JobInput{
+		BaseContainerInfo: &titus.ContainerInfo{
+			AllowNestedContainers: proto.Bool(true),
+		},
+		ImageName: xenialSystemd.name,
+		Version:   xenialSystemd.tag,
+		JobID:     jobID,
+	}
+	jobResponse := jobRunner.StartJob(ji)
+
+	// Wait until the task is running
+	for {
+		status := <-jobResponse.UpdateChan
+		if status.State.String() == "TASK_RUNNING" {
+			waitForSystemUp(t, jobRunner, jobResponse)
+			break
+		}
+	}
+
+	if err := jobRunner.KillTask(); err != nil {
+		t.Fail()
+	}
+
+	for status := range jobResponse.UpdateChan {
+
+		if mock.IsTerminalState(status.State) {
+			t.Log("Terminated in terminal state: ", status.State)
+			return
+		}
+	}
+	t.Fail()
 }
 
 func testTerminateTimeout(t *testing.T, jobID string) {

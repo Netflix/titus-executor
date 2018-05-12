@@ -4,7 +4,7 @@ ENV container docker
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update && \
-    apt-get install -y dbus systemd locales && \
+    apt-get install -y dbus systemd locales curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -25,5 +25,7 @@ RUN find /etc/systemd/system \
 RUN systemctl set-default multi-user.target
 
 STOPSIGNAL SIGRTMIN+3
+COPY running-test.service /lib/systemd/system
+RUN systemctl enable running-test.service
 
 CMD ["/lib/systemd/systemd", "--log-level=debug", "--log-target=journal"]

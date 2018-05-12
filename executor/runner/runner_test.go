@@ -39,6 +39,8 @@ type runtimeMock struct {
 	mu sync.Mutex
 	// subscription for one call to StartTask gets reset after each call
 	startCalled chan<- struct{}
+
+	statusChan chan runtimeTypes.StatusMessage
 }
 
 // test the launchGuard, it has caused too many deadlocks.
@@ -118,11 +120,10 @@ func mocks(ctx context.Context, t *testing.T, killRequests chan<- chan<- struct{
 		startCalled: make(chan<- struct{}),
 		kills:       killRequests,
 		ctx:         ctx,
+		statusChan:  make(chan runtimeTypes.StatusMessage, 10),
 	}
 	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	cfg := config.Config{
-		StatusCheckFrequency: time.Second,
-	}
+	cfg := config.Config{}
 
 	e, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
@@ -154,17 +155,31 @@ func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bi
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, error) {
+func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	r.t.Log("runtimeMock.Start", c.TaskID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	close(r.startCalled)
 	r.startCalled = make(chan<- struct{}) // reset subscription
-	return "", nil
+	details := &runtimeTypes.Details{
+		IPAddresses: make(map[string]string),
+		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
+			IsRoutableIP: false,
+		},
+	}
+
+	status := runtimeTypes.StatusMessage{
+		Status: runtimeTypes.StatusRunning,
+	}
+
+	// We can do this because it's buffered.
+	r.statusChan <- status
+	return "", details, r.statusChan, nil
 }
 
 func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, c.TaskID)
+	defer close(r.statusChan)
 	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
 	// send a kill request and wait for a grant
 	req := make(chan struct{}, 1)
@@ -187,20 +202,4 @@ func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
 	r.t.Log("runtimeMock.Cleanup", c.TaskID)
 	return nil
-}
-
-func (r *runtimeMock) Details(c *runtimeTypes.Container) (*runtimeTypes.Details, error) {
-	r.t.Log("runtimeMock.Details", c.TaskID)
-	return &runtimeTypes.Details{
-		IPAddresses: make(map[string]string),
-		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
-			IsRoutableIP: false,
-		},
-	}, nil
-}
-
-func (r *runtimeMock) Status(c *runtimeTypes.Container) (runtimeTypes.Status, error) {
-	r.t.Log("runtimeMock.Status", c.TaskID)
-	// always running is fine for these tests
-	return runtimeTypes.StatusRunning, nil
 }

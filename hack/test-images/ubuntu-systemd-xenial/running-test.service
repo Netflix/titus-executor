@@ -1,0 +1,8 @@
+[Unit]
+Description=Is Systemd Up and Running
+
+[Service]
+ExecStart=/bin/bash -c 'while true; do systemctl is-system-running &> /logs/is-system-running.log; sleep 1; done'
+
+[Install]
+WantedBy=multi-user.target
