@@ -7,6 +7,10 @@ echo "Building ${image_name}"
 
 tag=$(date +%Y%m%d-%s)
 image="titusoss/${image_name}:${tag}"
+if [[ -v DOCKER_CUSTOM_REGISTRY ]]; then
+	image="${DOCKER_CUSTOM_REGISTRY}/${image}"
+fi
+
 echo "Image name with tag: ${image}"
 
 docker build -t $image ${image_name}/
