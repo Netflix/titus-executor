@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"io/ioutil"
+	"path/filepath"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/mock"
 	"github.com/gogo/protobuf/proto"
@@ -68,7 +71,7 @@ var (
 	}
 	xenialSystemd = testImage{
 		name: "titusoss/ubuntu-systemd-xenial",
-		tag:  "20180512-1526117963",
+		tag:  "20180512-1526120053",
 	}
 )
 
@@ -470,6 +473,23 @@ func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
 	}
 }
 
+func waitForSystemUp(t *testing.T, jobRunner *mock.JobRunner, jobResponse *mock.JobRunResponse) {
+	isRunningFile := filepath.Join(jobRunner.Config.LogsTmpDir, jobResponse.TaskID, "logs/is-system-running.log")
+	begin := time.Now()
+	for time.Since(begin) < time.Second*15 {
+		data, err := ioutil.ReadFile(isRunningFile)
+		if err != nil {
+			log.Error("Unable to read running file")
+		}
+		dataStr := strings.TrimSpace(string(data))
+		if dataStr == "running" {
+			// Success!
+			return
+		}
+	}
+	t.Fail()
+}
+
 func testSystemdXenial(t *testing.T, jobID string) {
 	// Start the executor
 	jobRunner := mock.NewJobRunner()
@@ -491,11 +511,10 @@ func testSystemdXenial(t *testing.T, jobID string) {
 	for {
 		status := <-jobResponse.UpdateChan
 		if status.State.String() == "TASK_RUNNING" {
+			waitForSystemUp(t, jobRunner, jobResponse)
 			break
 		}
 	}
-
-	time.Sleep(15 * time.Second)
 
 	if err := jobRunner.KillTask(); err != nil {
 		t.Fail()

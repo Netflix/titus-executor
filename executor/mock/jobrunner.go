@@ -112,6 +112,7 @@ type JobRunner struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	shutdownChannel chan struct{}
+	Config          *config.Config
 }
 
 // NewJobRunner creates a new JobRunner with its executor started
@@ -146,6 +147,7 @@ func NewJobRunner() *JobRunner {
 		ctx: ctx, cancel: cancel,
 		runner:          r,
 		shutdownChannel: make(chan struct{}),
+		Config:          cfg,
 	}
 
 	return jobRunner
