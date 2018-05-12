@@ -495,6 +495,8 @@ func testSystemdXenial(t *testing.T, jobID string) {
 		}
 	}
 
+	time.Sleep(15 * time.Second)
+
 	if err := jobRunner.KillTask(); err != nil {
 		t.Fail()
 	}

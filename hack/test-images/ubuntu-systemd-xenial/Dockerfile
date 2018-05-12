@@ -25,5 +25,6 @@ RUN find /etc/systemd/system \
 RUN systemctl set-default multi-user.target
 
 STOPSIGNAL SIGRTMIN+3
+HEALTHCHECK --interval=3s CMD /bin/systemctl is-system-running
 
 CMD ["/lib/systemd/systemd", "--log-level=debug", "--log-target=journal"]
