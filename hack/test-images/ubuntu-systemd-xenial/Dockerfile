@@ -25,7 +25,6 @@ RUN find /etc/systemd/system \
 RUN systemctl set-default multi-user.target
 
 STOPSIGNAL SIGRTMIN+3
-RUN curl https://raw.githubusercontent.com/kadwanev/retry/master/retry -o /usr/local/bin/retry && chmod +x /usr/local/bin/retry
 COPY running-test.service /lib/systemd/system
 RUN systemctl enable running-test.service
 
