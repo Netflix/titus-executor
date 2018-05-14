@@ -205,7 +205,19 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	// When Create() returns the host may have been modified to create storage and pull the image.
 	// These steps may or may not have completed depending on if/where a failure occurred.
 	bindMounts := []string{}
+
+	prepareCtx, prepareCancel := context.WithCancel(ctx)
+	defer prepareCancel()
+
+	go func() {
+		select {
+		case <-r.killChan:
+			prepareCancel()
+		case <-prepareCtx.Done():
+		}
+	}()
 	err = r.runtime.Prepare(ctx, r.container, bindMounts)
+	prepareCancel()
 	if err != nil {
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		r.logger.Error("task failed to create container: ", err)
