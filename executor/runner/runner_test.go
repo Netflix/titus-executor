@@ -7,16 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"net/http/httptest"
-
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/Netflix/titus-executor/launchguard/client"
-	"github.com/Netflix/titus-executor/launchguard/server"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,114 +38,132 @@ type runtimeMock struct {
 	mu sync.Mutex
 	// subscription for one call to StartTask gets reset after each call
 	startCalled chan<- struct{}
+
+	statusChan chan runtimeTypes.StatusMessage
 }
 
-// test the launchGuard, it has caused too many deadlocks.
-func TestHoldsLaunchesUntilStopFinishes(t *testing.T) { // nolint: gocyclo
+func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var (
-		taskID   = "Titus-123-worker-0-2"
-		image    = "titusops/alpine"
-		taskInfo = &titus.ContainerInfo{
-			ImageName: &image,
-		}
-		kills1    = make(chan chan<- struct{}, 1)
-		launched1 = make(chan struct{})
-		_, e1     = mocks(ctx, t, kills1, launched1)
-
-		kills2    = make(chan chan<- struct{}, 1)
-		launched2 = make(chan struct{})
-		_, e2     = mocks(ctx, t, kills2, launched2)
-	)
-
-	defer func() {
-		<-e1.StoppedChan
-		<-e2.StoppedChan
-
-	}()
-	// one task is running
-	if err := e1.StartTask(taskID, taskInfo, 512, 1, 1024); err != nil {
-		t.Fatal(err)
+	taskID := "Titus-123-worker-0-2"
+	image := "titusops/alpine"
+	taskInfo := &titus.ContainerInfo{
+		ImageName:         &image,
+		IgnoreLaunchGuard: proto.Bool(true),
 	}
+	kills := make(chan chan<- struct{}, 1)
 
-	// wait for it to be up
-	select {
-	case <-time.After(5 * time.Second):
-		t.Fatalf("Task %s not RUNNING after 5s", taskID)
-	case <-launched1: // OK
-	}
-
-	// a pending Kill hangs until we tell it to proceed
-	go e1.Kill()
-	// wait for the Kill to begin
-	var killReq chan<- struct{}
-
-	select {
-	case killReq = <-kills1:
-	case <-time.After(5 * time.Second):
-		t.Fatal("The Kill operation has not started yet after 5s")
-	}
-
-	go func() {
-		if err := e2.StartTask("A-New-Task", taskInfo, 512, 1, 1024); err != nil {
-			t.Error(err)
-		}
-	}()
-
-	select {
-	case <-launched2:
-		t.Fatal("Executor must wait until the pending kill finish before launching tasks")
-	default: // OK, expected
-	}
-
-	close(killReq) // let the kill finish
-	select {
-	case <-launched2: // OK, expected
-	case <-time.After(5 * time.Second):
-		t.Fatal("Executor did not launch pending task within 5s after all kills finished")
-	}
-	cancel()
-}
-
-func mocks(ctx context.Context, t *testing.T, killRequests chan<- chan<- struct{}, taskLaunched chan struct{}) (*runtimeMock, *Runner) {
-	lgs := httptest.NewServer(server.NewLaunchGuardServer(metrics.Discard))
-
+	statusChan := make(chan runtimeTypes.StatusMessage, 10)
 	r := &runtimeMock{
 		t:           t,
 		startCalled: make(chan<- struct{}),
-		kills:       killRequests,
+		kills:       kills,
 		ctx:         ctx,
-	}
-	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	cfg := config.Config{
-		StatusCheckFrequency: time.Second,
+		statusChan:  statusChan,
 	}
 
-	e, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
+	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
+	cfg := config.Config{}
+
+	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
 	}, l, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	e.launchGuard, err = client.NewLaunchGuardClient(metrics.Discard, lgs.URL)
 	require.NoError(t, err)
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 
-	go drain(t, e, taskLaunched)
-	return r, e
-}
+	killTimeout := time.NewTimer(15 * time.Second)
+	defer killTimeout.Stop()
 
-// drain the status channel allow others to be notified when particular Tasks are RUNNING
-func drain(t *testing.T, e *Runner, taskLaunched chan struct{}) {
-	for status := range e.UpdatesChan {
-		t.Logf("Reported status: %+v", status)
-		if status.State.String() == "TASK_RUNNING" {
-			close(taskLaunched)
+	var lastUpdate Update
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			lastUpdate = update
+			if update.State == titusdriver.Running {
+				goto running
+			}
+		case <-killTimeout.C:
+			t.Fatal("Kill timeout received")
 		}
 	}
-	t.Log("Drain complete")
+running:
+	// We'll kill the task after a few seconds
+	time.AfterFunc(5*time.Second, func() {
+		// This should be idempotent
+		t.Log("Killing task")
+		executor.Kill()
+		executor.Kill()
+		executor.Kill()
+	})
+
+	// Ensure we're in a "good" state
+	assert.Equal(t, lastUpdate.State, titusdriver.Running)
+	assert.Equal(t, lastUpdate.Mesg, "running")
+
+	go func() {
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running2",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running2",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running2",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running3",
+		}
+	}()
+
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			assert.Equal(t, update.State, titusdriver.Running)
+			assert.Equal(t, update.Mesg, "running2")
+			goto running2
+		case <-killTimeout.C:
+			t.Fatal("Kill timeout received")
+		}
+	}
+
+running2:
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			assert.Equal(t, update.State, titusdriver.Running)
+			assert.Equal(t, update.Mesg, "running3")
+			goto done
+		case <-killTimeout.C:
+			t.Fatal("Kill timeout received")
+		}
+	}
+done:
+
+	// This will release the kill
+	go func() {
+		kill := <-kills
+		close(kill)
+	}()
+	executor.Kill()
+	select {
+	case update := <-executor.UpdatesChan:
+		assert.Equal(t, update.State, titusdriver.Killed)
+	case <-killTimeout.C:
+		t.Fatal("Kill timeout received")
+	}
 }
 
 func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string) error {
@@ -154,17 +171,32 @@ func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bi
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, error) {
+func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	r.t.Log("runtimeMock.Start", c.TaskID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	close(r.startCalled)
 	r.startCalled = make(chan<- struct{}) // reset subscription
-	return "", nil
+	details := &runtimeTypes.Details{
+		IPAddresses: make(map[string]string),
+		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
+			IsRoutableIP: false,
+		},
+	}
+
+	status := runtimeTypes.StatusMessage{
+		Status: runtimeTypes.StatusRunning,
+		Msg:    "running",
+	}
+
+	// We can do this because it's buffered.
+	r.statusChan <- status
+	return "", details, r.statusChan, nil
 }
 
 func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, c.TaskID)
+	defer close(r.statusChan)
 	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
 	// send a kill request and wait for a grant
 	req := make(chan struct{}, 1)
@@ -187,20 +219,4 @@ func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
 	r.t.Log("runtimeMock.Cleanup", c.TaskID)
 	return nil
-}
-
-func (r *runtimeMock) Details(c *runtimeTypes.Container) (*runtimeTypes.Details, error) {
-	r.t.Log("runtimeMock.Details", c.TaskID)
-	return &runtimeTypes.Details{
-		IPAddresses: make(map[string]string),
-		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
-			IsRoutableIP: false,
-		},
-	}, nil
-}
-
-func (r *runtimeMock) Status(c *runtimeTypes.Container) (runtimeTypes.Status, error) {
-	r.t.Log("runtimeMock.Status", c.TaskID)
-	// always running is fine for these tests
-	return runtimeTypes.StatusRunning, nil
 }
