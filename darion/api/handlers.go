@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Netflix/titus-executor/darion/conf"
 	"github.com/Netflix/titus-executor/filesystems"
@@ -90,7 +91,7 @@ func buildVirtualFileMapping(containerID, uriFileName string) map[string]virtual
 	return virtualFilemapping
 }
 
-func maybeVirtualFileStdioLogHandler(w io.Writer, r *http.Request, containerID, uriFileName string) error {
+func maybeVirtualFileStdioLogHandler(w http.ResponseWriter, r *http.Request, containerID, uriFileName string) error {
 	virtualFilemapping := buildVirtualFileMapping(containerID, uriFileName)
 
 	mapping, ok := virtualFilemapping[path.Base(uriFileName)]
@@ -112,50 +113,37 @@ func maybeVirtualFileStdioLogHandler(w io.Writer, r *http.Request, containerID, 
 		return err
 	}
 
-	_, err = fout.Seek(offset, io.SeekStart)
-	if err != nil {
-		log.Errorf("Error seeking in %s because: %v", fout.Name(), err)
-		return err
-	}
-
-	_, err = io.CopyN(w, fout, length)
-	if err != nil {
-		log.Errorf("Error writing %s because: %v", fout.Name(), err)
-		return err
-	}
-
+	csr := io.NewSectionReader(fout, offset, length)
+	http.ServeContent(w, r, fout.Name(), time.Now(), csr)
 	return nil
 }
 
-func logHandlerWithFile(w io.Writer, r *http.Request, fout *os.File) error {
+func logHandlerWithFile(w http.ResponseWriter, r *http.Request, fout *os.File) error {
 
 	if filesystems.CheckFDForStdio(fout) {
 		return stdioLogHandlerWithFile(w, r, fout)
 	}
-	_, err := io.Copy(w, fout)
-	if err != nil {
-		log.Errorf("Error writing %s because: %v", fout.Name(), err)
-	}
-
+	http.ServeContent(w, r, fout.Name(), time.Now(), fout)
 	return nil
 }
 
-func stdioLogHandlerWithFile(w io.Writer, r *http.Request, fout *os.File) error {
+func stdioLogHandlerWithFile(w http.ResponseWriter, r *http.Request, fout *os.File) error {
 	// Do stdio handler path
 	currentOffset, err := filesystems.GetCurrentOffset(fout)
 	if err != nil {
 		log.Errorf("Error getting current offest for %s because %v", fout.Name(), err)
 		return err
 	}
-	_, err = fout.Seek(currentOffset, io.SeekStart)
-	if err != nil {
-		log.Errorf("Error seeking in %s because: %v", fout.Name(), err)
+
+	size, e := fout.Seek(0, io.SeekEnd)
+	if e != nil {
+		log.Errorf("Error getting size for %s because %v", fout.Name(), e)
 		return err
 	}
-	_, err = io.Copy(w, fout)
-	if err != nil {
-		log.Errorf("Error writing %s because: %v", fout.Name(), err)
-	}
+
+	size = size - currentOffset
+	csr := io.NewSectionReader(fout, currentOffset, size)
+	http.ServeContent(w, r, fout.Name(), time.Now(), csr)
 	return nil
 }
 
