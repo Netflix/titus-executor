@@ -12,11 +12,14 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/launchguard/client"
 	"github.com/Netflix/titus-executor/launchguard/server"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,6 +44,130 @@ type runtimeMock struct {
 	startCalled chan<- struct{}
 
 	statusChan chan runtimeTypes.StatusMessage
+}
+
+func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	taskID := "Titus-123-worker-0-2"
+	image := "titusops/alpine"
+	taskInfo := &titus.ContainerInfo{
+		ImageName:         &image,
+		IgnoreLaunchGuard: proto.Bool(true),
+	}
+	kills := make(chan chan<- struct{}, 1)
+
+	statusChan := make(chan runtimeTypes.StatusMessage, 10)
+	r := &runtimeMock{
+		t:           t,
+		startCalled: make(chan<- struct{}),
+		kills:       kills,
+		ctx:         ctx,
+		statusChan:  statusChan,
+	}
+
+	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
+	cfg := config.Config{}
+
+	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
+		return r, nil
+	}, l, cfg)
+	require.NoError(t, err)
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
+
+	killTimeout := time.NewTimer(15 * time.Second)
+	defer killTimeout.Stop()
+
+	var lastUpdate Update
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			lastUpdate = update
+			if update.State == titusdriver.Running {
+				goto running
+			}
+		case <-killTimeout.C:
+			t.Fatal("Kill timeout received")
+		}
+	}
+running:
+	// We'll kill the task after a few seconds
+	time.AfterFunc(5*time.Second, func() {
+		// This should be idempotent
+		t.Log("Killing task")
+		executor.Kill()
+		executor.Kill()
+		executor.Kill()
+	})
+
+	// Ensure we're in a "good" state
+	assert.Equal(t, lastUpdate.State, titusdriver.Running)
+	assert.Equal(t, lastUpdate.Mesg, "running")
+
+	go func() {
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running2",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running2",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running2",
+		}
+		statusChan <- runtimeTypes.StatusMessage{
+			Status: runtimeTypes.StatusRunning,
+			Msg:    "running3",
+		}
+	}()
+
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			assert.Equal(t, update.State, titusdriver.Running)
+			assert.Equal(t, update.Mesg, "running2")
+			goto running2
+		case <-killTimeout.C:
+			t.Fatal("Kill timeout received")
+		}
+	}
+
+running2:
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			assert.Equal(t, update.State, titusdriver.Running)
+			assert.Equal(t, update.Mesg, "running3")
+			goto done
+		case <-killTimeout.C:
+			t.Fatal("Kill timeout received")
+		}
+	}
+done:
+
+	// This will release the kill
+	go func() {
+		kill := <-kills
+		close(kill)
+	}()
+	executor.Kill()
+	select {
+	case update := <-executor.UpdatesChan:
+		assert.Equal(t, update.State, titusdriver.Killed)
+	case <-killTimeout.C:
+		t.Fatal("Kill timeout received")
+	}
 }
 
 // test the launchGuard, it has caused too many deadlocks.
@@ -170,6 +297,7 @@ func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (str
 
 	status := runtimeTypes.StatusMessage{
 		Status: runtimeTypes.StatusRunning,
+		Msg:    "running",
 	}
 
 	// We can do this because it's buffered.
