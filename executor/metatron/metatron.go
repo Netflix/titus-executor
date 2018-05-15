@@ -3,6 +3,7 @@ package metatron
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -179,7 +180,7 @@ func RemovePassports(taskID string) error {
 
 // GetPassports gets Metatron passports for a container/task and stores
 // them in a file system location.
-func (mts *TrustStore) GetPassports(encodedAppMetadata *string, encodedAppSig *string, taskID string, titusMetadata TitusMetadata) (*CredentialsConfig, error) {
+func (mts *TrustStore) GetPassports(ctx context.Context, encodedAppMetadata *string, encodedAppSig *string, taskID string, titusMetadata TitusMetadata) (*CredentialsConfig, error) {
 	var err error
 	// Create a writeable directory path for the passports to go
 	if err = createPassportDir(taskID); err != nil {
@@ -202,7 +203,7 @@ func (mts *TrustStore) GetPassports(encodedAppMetadata *string, encodedAppSig *s
 		return nil, err
 	}
 
-	cmd := exec.Command(passportScript) // nolint: gas
+	cmd := exec.CommandContext(ctx, passportScript) // nolint: gas
 
 	var stdin io.WriteCloser
 	if stdin, err = cmd.StdinPipe(); err != nil {
