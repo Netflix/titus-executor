@@ -46,6 +46,61 @@ type runtimeMock struct {
 	statusChan chan runtimeTypes.StatusMessage
 }
 
+func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string) error {
+	r.t.Log("runtimeMock.Prepare", c.TaskID)
+	return nil
+}
+
+func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+	r.t.Log("runtimeMock.Start", c.TaskID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	close(r.startCalled)
+	r.startCalled = make(chan<- struct{}) // reset subscription
+	details := &runtimeTypes.Details{
+		IPAddresses: make(map[string]string),
+		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
+			IsRoutableIP: false,
+		},
+	}
+
+	status := runtimeTypes.StatusMessage{
+		Status: runtimeTypes.StatusRunning,
+		Msg:    "running",
+	}
+
+	// We can do this because it's buffered.
+	r.statusChan <- status
+	return "", details, r.statusChan, nil
+}
+
+func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
+	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, c.TaskID)
+	defer close(r.statusChan)
+	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
+	// send a kill request and wait for a grant
+	req := make(chan struct{}, 1)
+	select {
+	case r.kills <- req:
+	case <-r.ctx.Done():
+		logrus.Info("runtimeMock.Kill canceled")
+		return errors.New("runtimeMock.Kill canceled")
+	}
+	select {
+	case <-req:
+	case <-r.ctx.Done():
+		logrus.Info("runtimeMock.Kill canceled")
+
+		return errors.New("runtimeMock.Kill canceled")
+	}
+	return nil
+}
+
+func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
+	r.t.Log("runtimeMock.Cleanup", c.TaskID)
+	return nil
+}
+
 func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -275,59 +330,4 @@ func drain(t *testing.T, e *Runner, taskLaunched chan struct{}) {
 		}
 	}
 	t.Log("Drain complete")
-}
-
-func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string) error {
-	r.t.Log("runtimeMock.Prepare", c.TaskID)
-	return nil
-}
-
-func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
-	r.t.Log("runtimeMock.Start", c.TaskID)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	close(r.startCalled)
-	r.startCalled = make(chan<- struct{}) // reset subscription
-	details := &runtimeTypes.Details{
-		IPAddresses: make(map[string]string),
-		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
-			IsRoutableIP: false,
-		},
-	}
-
-	status := runtimeTypes.StatusMessage{
-		Status: runtimeTypes.StatusRunning,
-		Msg:    "running",
-	}
-
-	// We can do this because it's buffered.
-	r.statusChan <- status
-	return "", details, r.statusChan, nil
-}
-
-func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
-	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, c.TaskID)
-	defer close(r.statusChan)
-	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
-	// send a kill request and wait for a grant
-	req := make(chan struct{}, 1)
-	select {
-	case r.kills <- req:
-	case <-r.ctx.Done():
-		logrus.Info("runtimeMock.Kill canceled")
-		return errors.New("runtimeMock.Kill canceled")
-	}
-	select {
-	case <-req:
-	case <-r.ctx.Done():
-		logrus.Info("runtimeMock.Kill canceled")
-
-		return errors.New("runtimeMock.Kill canceled")
-	}
-	return nil
-}
-
-func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
-	r.t.Log("runtimeMock.Cleanup", c.TaskID)
-	return nil
 }
