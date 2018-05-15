@@ -44,10 +44,15 @@ type runtimeMock struct {
 	startCalled chan<- struct{}
 
 	statusChan chan runtimeTypes.StatusMessage
+
+	prepareCallback func(context.Context) error
 }
 
 func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string) error {
 	r.t.Log("runtimeMock.Prepare", c.TaskID)
+	if r.prepareCallback != nil {
+		return r.prepareCallback(ctx)
+	}
 	return nil
 }
 
@@ -99,6 +104,71 @@ func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
 	r.t.Log("runtimeMock.Cleanup", c.TaskID)
 	return nil
+}
+
+func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	taskID := "TestCancelDuringPrepare"
+	image := "titusops/alpine"
+	taskInfo := &titus.ContainerInfo{
+		ImageName:         &image,
+		IgnoreLaunchGuard: proto.Bool(true),
+	}
+	kills := make(chan chan<- struct{}, 1)
+
+	statusChan := make(chan runtimeTypes.StatusMessage, 10)
+	r := &runtimeMock{
+		t:           t,
+		startCalled: make(chan<- struct{}),
+		kills:       kills,
+		ctx:         ctx,
+		statusChan:  statusChan,
+	}
+
+	r.prepareCallback = func(c context.Context) error {
+		<-c.Done()
+		return c.Err()
+	}
+
+	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
+	cfg := config.Config{}
+
+	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
+		return r, nil
+	}, l, cfg)
+	require.NoError(t, err)
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
+
+	once := sync.Once{}
+
+	testFailed := make(chan struct{})
+	time.AfterFunc(30*time.Second, func() {
+		close(testFailed)
+	})
+
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			logrus.Debug("Got update: ", update)
+			switch update.State {
+			case titusdriver.Starting:
+				once.Do(func() {
+					executor.Kill()
+					logrus.Debug("Killing task, now that it's entered starting")
+				})
+			case titusdriver.Lost:
+				return
+			default:
+				t.Fatal("Unknown state: ", update)
+			}
+		case <-testFailed:
+			panic("Test Failed, executor didn't yield when killed in prepare")
+		case <-ctx.Done():
+			t.Fatal("Context complete?")
+		}
+	}
 }
 
 func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
