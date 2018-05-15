@@ -72,7 +72,7 @@ type Container struct {
 	Resources *Resources
 
 	// Metatron fields
-	MetatronConfig *metatron.CredentialsConfig
+	GetMetatronConfig func(ctx context.Context, c *Container) (*metatron.CredentialsConfig, error)
 
 	// cleanup callbacks that runtime implementations can register to do cleanup
 	// after a launchGuard on the taskID has been lifted
