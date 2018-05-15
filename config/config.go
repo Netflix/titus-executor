@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	defaultStatusCheckFrequency   = 5 * time.Second
 	defaultLogUploadThreshold     = 6 * time.Hour
 	defaultLogUploadCheckInterval = 15 * time.Minute
 	defaultStdioLogCheckInterval  = 1 * time.Minute
@@ -31,9 +30,7 @@ type Config struct { // nolint: maligned
 	DisableMetrics bool
 	// LogUpload returns settings about the log uploader
 	//LogUpload logUpload
-	// StatusCheckFrequency returns duration between the periods the executor will poll Dockerd
-	StatusCheckFrequency time.Duration
-	LogsTmpDir           string
+	LogsTmpDir string
 	// Stack returns the stack configuration variable
 	Stack string
 	// Docker returns the Docker-specific configuration settings
@@ -94,11 +91,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "disable-metrics",
 			EnvVar:      "DISABLE_METRICS,SHORT_CIRCUIT_QUITELITE",
 			Destination: &cfg.DisableMetrics,
-		},
-		cli.DurationFlag{
-			Name:        "status-check-frequency",
-			Destination: &cfg.StatusCheckFrequency,
-			Value:       defaultStatusCheckFrequency,
 		},
 		cli.StringFlag{
 			Name:        "logs-tmp-dir",
