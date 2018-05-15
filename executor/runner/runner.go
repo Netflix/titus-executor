@@ -260,10 +260,19 @@ no_launchguard:
 	}
 	r.updateStatus(ctx, titusdriver.Starting, "creating")
 
+	prepareCtx, prepareCancel := context.WithCancel(ctx)
+	defer prepareCancel()
+	go func() {
+		select {
+		case <-r.killChan:
+			prepareCancel()
+		case <-prepareCtx.Done():
+		}
+	}()
 	// When Create() returns the host may have been modified to create storage and pull the image.
 	// These steps may or may not have completed depending on if/where a failure occurred.
 	bindMounts := []string{}
-	err = r.runtime.Prepare(ctx, r.container, bindMounts)
+	err = r.runtime.Prepare(prepareCtx, r.container, bindMounts)
 	if err != nil {
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		r.logger.Error("task failed to create container: ", err)
@@ -279,6 +288,8 @@ no_launchguard:
 		return
 	}
 
+	// By this point, we should have no more dependence on the prepare context
+	prepareCancel()
 	r.updateStatus(ctx, titusdriver.Starting, "starting")
 	logDir, details, statusChan, err := r.runtime.Start(ctx, r.container)
 	if err != nil { // nolint: vetshadow
@@ -551,7 +562,7 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 	}:
 		l.Info("Updating task status")
 	case <-ctx.Done():
-		l.Info("Not sending update")
+		l.Warn("Not sending update, because UpdatesChan Blocked, (or closed), and context completed")
 	}
 }
 
