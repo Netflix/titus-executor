@@ -661,6 +661,8 @@ func prepareNetworkDriver(cfg Config, c *runtimeTypes.Container) error {
 		"--batch-size", strconv.Itoa(cfg.batchSize),
 	}
 
+	// We intentionally don't use context here, because context only KILLs.
+	// Instead we rely on the idea of the cleanup function below.
 	if cfg.debugAllocate {
 		args = append([]string{"-e", "trace=file,network,desc", "-e", "trace=!pselect6,futex,utimensat", "-s", "8192", "-tt", "-f", "-o", "allocate.trace", "/apps/titus-executor/bin/titus-vpc-tool"}, args...)
 		c.AllocationCommand = exec.Command("/usr/bin/strace", args...) // nolint: gas
