@@ -731,6 +731,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	var hostCfg *container.HostConfig
 	var size int64
 
+	l := log.WithField("taskID", c.TaskID)
+
 	group, errGroupCtx := errgroup.WithContext(ctx)
 	err := r.validateEFSMounts(c)
 	if err != nil {
@@ -744,7 +746,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 
 		imageInfo, _, inspectErr := r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
 		if inspectErr != nil {
-			log.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
+			l.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
 			return inspectErr
 		}
 
@@ -770,7 +772,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			Error:       "",
 			ENI:         "eni-cat-dog",
 		}
-		log.Print("Mocking networking configuration in dev mode to IP: ", c.Allocation)
+		l.Info("Mocking networking configuration in dev mode to IP: ", c.Allocation)
 	}
 
 	err = group.Wait()
@@ -789,7 +791,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 
-	log.Infof("container %s: create with Docker config %#v and Host config: %#v", c.TaskID, *dockerCfg, *hostCfg)
+	l.Infof("create with Docker config %#v and Host config: %#v", *dockerCfg, *hostCfg)
 
 	containerCreateBody, err = r.client.ContainerCreate(ctx, dockerCfg, hostCfg, nil, c.TaskID)
 	c.ID = containerCreateBody.ID
@@ -800,7 +802,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	if err != nil {
 		goto error
 	}
-	log.WithField("containerID", c.ID).Debug("Container successfully created")
+	l = l.WithField("containerID", c.ID)
+	l.Info("Container successfully created")
 
 	// pushMetatron MUST be called after setting up the network driver, because it relies on
 	// c.Allocation being set
@@ -808,21 +811,22 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	if err != nil {
 		goto error
 	}
-	log.Debug("Metatron pushed")
+	l.Info("Metatron pushed")
 
 	err = r.createTitusEnvironmentFile(c)
 	if err != nil {
 		goto error
 	}
-	log.Debug("Titus environment pushed")
+	l.Info("Titus environment pushed")
 
 	err = r.createTitusContainerConfigFile(c)
 	if err != nil {
 		goto error
 	}
-	log.Debug("Titus Configuration pushed")
+	l.Info("Titus Configuration pushed")
 
 	err = r.pushEnvironment(c)
+	l.Info("Titus environment pushed")
 
 error:
 	if err != nil {
