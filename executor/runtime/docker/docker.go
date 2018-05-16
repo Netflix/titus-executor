@@ -23,6 +23,7 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/metatron"
 	"github.com/Netflix/titus-executor/executor/runtime/docker/seccomp"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/nvidia"
@@ -660,6 +661,8 @@ func prepareNetworkDriver(cfg Config, c *runtimeTypes.Container) error {
 		"--batch-size", strconv.Itoa(cfg.batchSize),
 	}
 
+	// We intentionally don't use context here, because context only KILLs.
+	// Instead we rely on the idea of the cleanup function below.
 	if cfg.debugAllocate {
 		args = append([]string{"-e", "trace=file,network,desc", "-e", "trace=!pselect6,futex,utimensat", "-s", "8192", "-tt", "-f", "-o", "allocate.trace", "/apps/titus-executor/bin/titus-vpc-tool"}, args...)
 		c.AllocationCommand = exec.Command("/usr/bin/strace", args...) // nolint: gas
@@ -799,6 +802,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 	log.WithField("containerID", c.ID).Debug("Container successfully created")
 
+	// pushMetatron MUST be called after setting up the network driver, because it relies on
+	// c.Allocation being set
 	err = r.pushMetatron(parentCtx, c)
 	if err != nil {
 		goto error
@@ -882,9 +887,9 @@ func (r *DockerRuntime) logDir(c *runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
 
-func metatronTarWalk(tw *tar.Writer, c *runtimeTypes.Container) error {
+func metatronTarWalk(tw *tar.Writer, mcc *metatron.CredentialsConfig) error {
 	// Iterate the Metatron credentials path and add contents to the tar
-	if err := filepath.Walk(c.MetatronConfig.HostCredentialsPath, func(path string, fileInfo os.FileInfo, inErr error) error {
+	if err := filepath.Walk(mcc.HostCredentialsPath, func(path string, fileInfo os.FileInfo, inErr error) error {
 		var (
 			data    []byte
 			written int
@@ -899,7 +904,7 @@ func metatronTarWalk(tw *tar.Writer, c *runtimeTypes.Container) error {
 			return err
 		}
 		// Add full path name to header, not base name
-		if header.Name, err = filepath.Rel(c.MetatronConfig.HostCredentialsPrefix, path); err != nil {
+		if header.Name, err = filepath.Rel(mcc.HostCredentialsPrefix, path); err != nil {
 			return err
 		}
 
@@ -926,7 +931,7 @@ func metatronTarWalk(tw *tar.Writer, c *runtimeTypes.Container) error {
 
 		return nil
 	}); err != nil {
-		return fmt.Errorf("Walking Metatron host credentials path %s failed: %s", c.MetatronConfig.HostCredentialsPath, err)
+		return fmt.Errorf("Walking Metatron host credentials path %s failed: %s", mcc.HostCredentialsPath, err)
 	}
 
 	return nil
@@ -934,19 +939,26 @@ func metatronTarWalk(tw *tar.Writer, c *runtimeTypes.Container) error {
 
 // pushMetatron adds Metatron credentials to the container
 func (r *DockerRuntime) pushMetatron(parentCtx context.Context, c *runtimeTypes.Container) error {
-	if c.MetatronConfig == nil {
+	if c.GetMetatronConfig == nil {
 		return nil
 	}
 
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 
+	mcc, err := c.GetMetatronConfig(ctx, c)
+	if err != nil {
+		return err
+	}
+
 	cco := types.CopyToContainerOptions{
 		AllowOverwriteDirWithFile: true,
 	}
 
+	// TODO: Collapse these two into one tarball extract / copy, and not two
+
 	// Push trust store tar
-	if err := r.client.CopyToContainer(ctx, c.ID, "/", bytes.NewReader(c.MetatronConfig.TruststoreTarBuf.Bytes()), cco); err != nil {
+	if err := r.client.CopyToContainer(ctx, c.ID, "/", bytes.NewReader(mcc.TruststoreTarBuf.Bytes()), cco); err != nil {
 		return err
 	}
 
@@ -964,7 +976,7 @@ func (r *DockerRuntime) pushMetatron(parentCtx context.Context, c *runtimeTypes.
 		}
 	}()
 
-	if err := metatronTarWalk(tw, c); err != nil {
+	if err := metatronTarWalk(tw, mcc); err != nil {
 		return err
 	}
 

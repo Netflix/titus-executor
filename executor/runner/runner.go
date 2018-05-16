@@ -201,22 +201,10 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 		le = r.launchGuard.NewLaunchEvent(ctx, r.container.TitusInfo.GetNetworkConfigInfo().GetEniLabel())
 	}
 	if r.config.MetatronEnabled {
-		// TODO: Teach metatron about context
-		r.container.MetatronConfig, err = r.setupMetatron(ctx)
-		defer func() {
-			// Remove any Metatron credential stored for the task since they will
-			// get copied into the container.
-			if err = metatron.RemovePassports(r.container.TaskID); err != nil {
-				r.logger.Errorf("Failed to remove Metatron passport dir: %v", err)
-			} else {
-				r.logger.Infoln("Removed Metadata host passport dir")
-			}
-		}()
+		err = r.setupMetatron()
 		if err != nil {
-			// We are expecting executor container cleanup to remove
-			// any files created during the process
-			r.logger.Errorf("Failed to acquire Metatron certificates: %s", err)
 			r.err = err
+			r.logger.Error("Failed to acquire Metatron certificates: ", err)
 			r.updateStatus(ctx, titusdriver.Lost, err.Error())
 			return
 		}
@@ -481,46 +469,50 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 	return r.watcher.Watch(ctx)
 }
 
-// setupMetatron returns a Docker formatted string bind mount for a container for a directory that will contain
-func (r *Runner) setupMetatron(ctx context.Context) (*metatron.CredentialsConfig, error) {
-	if r.container.TitusInfo.GetMetatronCreds() == nil {
-		return nil, nil
+// mkGetMetatronConfigFunc is broken out into its own function to prevent accidentally capturing environment we shouldn't.
+func mkGetMetatronConfigFunc(mts *metatron.TrustStore) func(ctx context.Context, c *runtimeTypes.Container) (*metatron.CredentialsConfig, error) {
+	return func(ctx context.Context, c *runtimeTypes.Container) (*metatron.CredentialsConfig, error) {
+		envMap := c.TitusInfo.GetUserProvidedEnv()
+		if envMap == nil {
+			envMap = make(map[string]string)
+		}
+		titusMetadata := metatron.TitusMetadata{
+			App:          c.TitusInfo.GetAppName(),
+			Stack:        c.TitusInfo.GetJobGroupStack(),
+			ImageName:    c.TitusInfo.GetImageName(),
+			ImageVersion: c.TitusInfo.GetVersion(),
+			Entrypoint:   c.TitusInfo.GetEntrypointStr(),
+			IPAddress:    c.Allocation.IPV4Address,
+			Env:          envMap,
+			TaskID:       c.TaskID,
+			LaunchTime:   (time.Now().UnixNano() / int64(time.Millisecond)),
+		}
+
+		metatronConfig, err := mts.GetPassports(
+			ctx,
+			c.TitusInfo.MetatronCreds.AppMetadata,
+			c.TitusInfo.MetatronCreds.MetadataSig,
+			c.TaskID,
+			titusMetadata)
+		if err != nil {
+			return nil, fmt.Errorf("Get Metatron Passport credentials failed: %s", err.Error())
+		}
+		return metatronConfig, nil
 	}
+}
 
-	r.updateStatus(ctx, titusdriver.Starting, "creating_metatron")
-
+// setupMetatron returns a Docker formatted string bind mount for a container for a directory that will contain
+func (r *Runner) setupMetatron() error {
+	if r.container.TitusInfo.GetMetatronCreds() == nil {
+		return nil
+	}
 	mts, err := metatron.InitMetatronTruststore()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to initialize Metatron trust store: %s", err)
+		return fmt.Errorf("Failed to initialize Metatron trust store: %s", err)
 	}
 
-	envMap := r.container.TitusInfo.GetUserProvidedEnv()
-	if envMap == nil {
-		envMap = make(map[string]string)
-	}
-
-	titusMetadata := metatron.TitusMetadata{
-		App:          r.container.TitusInfo.GetAppName(),
-		Stack:        r.container.TitusInfo.GetJobGroupStack(),
-		ImageName:    r.container.TitusInfo.GetImageName(),
-		ImageVersion: r.container.TitusInfo.GetVersion(),
-		Entrypoint:   r.container.TitusInfo.GetEntrypointStr(),
-		Env:          envMap,
-		TaskID:       r.container.TaskID,
-		LaunchTime:   (time.Now().UnixNano() / int64(time.Millisecond)),
-	}
-
-	metatronConfig, err := mts.GetPassports(
-		r.container.TitusInfo.MetatronCreds.AppMetadata,
-		r.container.TitusInfo.MetatronCreds.MetadataSig,
-		r.container.TaskID,
-		titusMetadata)
-	if err != nil {
-		r.logger.Error("Get Metatron Passport credentials failed: ", err)
-		return nil, err
-	}
-	r.logger.Info("Retrieved Metatron Passport credentials")
-	return metatronConfig, nil
+	r.container.GetMetatronConfig = mkGetMetatronConfigFunc(mts)
+	return nil
 }
 
 func (r *Runner) waitForTask(parentCtx, ctx context.Context) (*task, error) {
