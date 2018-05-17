@@ -191,3 +191,15 @@ func setupContainerNesting(parentCtx context.Context, c *runtimeTypes.Container,
 
 	return ret
 }
+
+func setupOOMAdj(cred ucred) error {
+	pid := strconv.FormatInt(int64(cred.pid), 10)
+	oomScoreAdjPath := filepath.Join("/proc", pid, "oom_score_adj")
+	file, err := os.OpenFile(oomScoreAdjPath, os.O_RDWR, 0000)
+	if err != nil {
+		return err
+	}
+	defer shouldClose(file)
+	_, err = file.WriteString("1000\n")
+	return err
+}

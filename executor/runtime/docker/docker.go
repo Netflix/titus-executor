@@ -1514,6 +1514,10 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		}
 	}
 
+	if err := setupOOMAdj(cred); err != nil {
+		return err
+	}
+
 	if err := setupContainerNesting(parentCtx, c, cred); err != nil {
 		log.Error("Unable to setup container nesting: ", err)
 		return err
