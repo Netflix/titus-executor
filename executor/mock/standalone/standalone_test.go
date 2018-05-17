@@ -94,6 +94,7 @@ func TestStandalone(t *testing.T) {
 		testTerminateTimeout,
 		testMakesPTY,
 		testTerminateTimeoutNotTooSlow,
+		testOOMAdj,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -529,5 +530,17 @@ func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
 	// 20 is 15 with some buffer?
 	if killTime > time.Second*time.Duration(20) {
 		t.Fatalf("Task wasn't killed quickly enough, in %s", killTime.String())
+	}
+}
+
+func testOOMAdj(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `/bin/bash -c 'cat /proc/1/oom_score | grep 999'`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
 	}
 }
