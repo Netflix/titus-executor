@@ -92,6 +92,7 @@ func TestStandalone(t *testing.T) {
 		testMetdataProxyDefaultRoute,
 		testTerminateTimeout,
 		testMakesPTY,
+		testOOMAdj,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -508,4 +509,16 @@ func testTerminateTimeout(t *testing.T, jobID string) {
 		}
 	}
 	t.Fail()
+}
+
+func testOOMAdj(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `/bin/bash -c 'cat /proc/1/oom_score | grep 999'`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
 }
