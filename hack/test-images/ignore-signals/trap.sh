@@ -1,4 +1,5 @@
 #!/bin/bash
 trap '' SIGINT SIGTERM
-sleep 120
+touch /tmp/foo
+sleep 30
 echo completed normally
