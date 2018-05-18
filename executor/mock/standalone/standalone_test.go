@@ -59,7 +59,7 @@ var (
 	}
 	ignoreSignals = testImage{
 		name: "titusoss/ignore-signals",
-		tag:  "20180501-1525157636",
+		tag:  "latest",
 	}
 	pty = testImage{
 		name: "titusoss/pty",
@@ -94,6 +94,7 @@ func TestStandalone(t *testing.T) {
 		testMakesPTY,
 		testOOMAdj,
 		testOOMKill,
+		testTerminateTimeoutNotTooFast,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -476,40 +477,57 @@ func testTerminateTimeout(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
 		ImageName:       ignoreSignals.name,
 		Version:         ignoreSignals.tag,
-		KillWaitSeconds: 20,
+		KillWaitSeconds: 15,
 		JobID:           jobID,
 	}
 	jobResponse := jobRunner.StartJob(ji)
 
 	// Wait until the task is running
-	for {
-		status := <-jobResponse.UpdateChan
-		if status.State.String() == "TASK_RUNNING" {
+	for status := range jobResponse.UpdateChan {
+		if mock.IsTerminalState(status.State) {
+			t.Fatal("Task exited prematurely (before becoming healthy)")
+		}
+		log.Infof("Received status update %+v", status)
+		if status.State.String() == "TASK_RUNNING" && strings.Contains(status.Mesg, "health_status: healthy") {
 			break
 		}
 	}
 
 	// Submit a request to kill the job. Since the
 	// job does not exit on SIGTERM we expect the kill
-	// to take at least 20 seconds
+	// to take at least some seconds
 	killTime := time.Now()
 	if err := jobRunner.KillTask(); err != nil {
 		t.Fail()
 	}
 
 	for status := range jobResponse.UpdateChan {
-
 		if mock.IsTerminalState(status.State) {
 			if status.State.String() != "TASK_KILLED" {
 				t.Fail()
 			}
-			if time.Since(killTime) < 20*time.Second {
-				t.Fatal("Task was killed too quickly")
+
+			killTime := time.Since(killTime)
+			if killTime < time.Second*time.Duration(ji.KillWaitSeconds) {
+				t.Fatalf("Task was killed too quickly, in %s", killTime.String())
 			}
 			return
 		}
 	}
-	t.Fail()
+}
+
+func testTerminateTimeoutNotTooFast(t *testing.T, jobID string) {
+	// Submit a job that runs for a long time and does
+	// NOT exit on SIGTERM
+	ji := &mock.JobInput{
+		ImageName:       ignoreSignals.name,
+		Version:         ignoreSignals.tag,
+		KillWaitSeconds: 35,
+		JobID:           jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
 }
 
 func testOOMAdj(t *testing.T, jobID string) {
