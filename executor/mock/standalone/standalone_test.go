@@ -43,7 +43,7 @@ var (
 	}
 	ubuntu = testImage{
 		name: "titusoss/ubuntu",
-		tag:  "20180501-1525157359",
+		tag:  "20180518-1526605880",
 	}
 	// TODO: Determine how this got built, and add it to the auto image builders?
 	byDigest = testImage{
@@ -95,6 +95,7 @@ func TestStandalone(t *testing.T) {
 		testMakesPTY,
 		testTerminateTimeoutNotTooSlow,
 		testOOMAdj,
+		testOOMKill,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -543,4 +544,34 @@ func testOOMAdj(t *testing.T, jobID string) {
 	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
+}
+
+func testOOMKill(t *testing.T, jobID string) {
+	// Start the executor
+	jobRunner := mock.NewJobRunner()
+	defer jobRunner.StopExecutorAsync()
+
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `stress --vm 100 --vm-keep --vm-hang 100`,
+		JobID:      jobID,
+	}
+	jobResponse := jobRunner.StartJob(ji)
+
+	// Wait until the task is running
+
+	for status := range jobResponse.UpdateChan {
+
+		if mock.IsTerminalState(status.State) {
+			if status.State.String() != "TASK_FAILED" {
+				t.Fail()
+			}
+			if !strings.Contains(status.Mesg, "OOMKilled") {
+				t.Fatal("Task killed due to: ", status.Mesg)
+			}
+			return
+		}
+	}
+	t.Fail()
 }
