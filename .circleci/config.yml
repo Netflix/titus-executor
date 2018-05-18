@@ -20,7 +20,7 @@ jobs:
   # We don't build big image because it takes an hour+ to build on Circle CI infra
   test-images:
     docker:
-      - image: docker:17.05.0-ce-git
+      - image: docker:stable-git
     resource_class: xlarge
     working_directory: /go/src/github.com/Netflix/titus-executor/hack/test-images
     steps:
