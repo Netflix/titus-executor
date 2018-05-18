@@ -1268,20 +1268,23 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c *runtimeTypes
 // return true to exit
 func handleEvent(c *runtimeTypes.Container, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
 	validateMessage(c, message)
+	action := strings.Split(message.Action, " ")[0]
+	action = strings.TrimRight(action, ":")
 	l := log.WithFields(
 		map[string]interface{}{
-			"action":  message.Action,
-			"status":  message.Status,
-			"id":      message.ID,
-			"from":    message.From,
-			"type":    message.Type,
-			"actorId": message.Actor.ID,
+			"action.prefix": action,
+			"action":        message.Action,
+			"status":        message.Status,
+			"id":            message.ID,
+			"from":          message.From,
+			"type":          message.Type,
+			"actorId":       message.Actor.ID,
 		})
 	for k, v := range message.Actor.Attributes {
 		l = l.WithField(fmt.Sprintf("actor.attributes.%s", k), v)
 	}
 	l.Info("Processing message")
-	switch message.Action {
+	switch action {
 	case "start":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusRunning,
@@ -1314,6 +1317,9 @@ func handleEvent(c *runtimeTypes.Container, message events.Message, statusMessag
 			Status: runtimeTypes.StatusFailed,
 			Msg:    fmt.Sprintf("%s exited due to OOMKilled", c.TaskID),
 		}
+		// Ignore exec events entirely
+	case "exec_create", "exec_start", "exec_die":
+		return false
 	default:
 		log.WithField("taskID", c.ID).Info("Received unexpected event: ", message)
 		return false
@@ -1512,6 +1518,10 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		if err := setupScheduler(cred); err != nil {
 			return err
 		}
+	}
+
+	if err := setupOOMAdj(cred); err != nil {
+		return err
 	}
 
 	if err := setupContainerNesting(parentCtx, c, cred); err != nil {
