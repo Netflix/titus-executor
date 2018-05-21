@@ -14,6 +14,7 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/mock"
+	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
@@ -59,7 +60,7 @@ var (
 	}
 	ignoreSignals = testImage{
 		name: "titusoss/ignore-signals",
-		tag:  "20180501-1525157636",
+		tag:  "latest",
 	}
 	pty = testImage{
 		name: "titusoss/pty",
@@ -92,6 +93,7 @@ func TestStandalone(t *testing.T) {
 		testMetdataProxyDefaultRoute,
 		testTerminateTimeout,
 		testMakesPTY,
+		testTerminateTimeoutNotTooSlow,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -464,7 +466,7 @@ func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
 	}
 }
 
-func testTerminateTimeout(t *testing.T, jobID string) {
+func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uint32) (*runner.Update, time.Duration) {
 	// Start the executor
 	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutorAsync()
@@ -474,38 +476,58 @@ func testTerminateTimeout(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
 		ImageName:       ignoreSignals.name,
 		Version:         ignoreSignals.tag,
-		KillWaitSeconds: 20,
+		KillWaitSeconds: killWaitSeconds,
 		JobID:           jobID,
 	}
 	jobResponse := jobRunner.StartJob(ji)
 
 	// Wait until the task is running
-	for {
-		status := <-jobResponse.UpdateChan
-		if status.State.String() == "TASK_RUNNING" {
+	for status := range jobResponse.UpdateChan {
+		if mock.IsTerminalState(status.State) {
+			t.Fatal("Task exited prematurely (before becoming healthy)")
+		}
+		log.Infof("Received status update %+v", status)
+		if status.State.String() == "TASK_RUNNING" && strings.Contains(status.Mesg, "health_status: healthy") {
 			break
 		}
 	}
 
 	// Submit a request to kill the job. Since the
 	// job does not exit on SIGTERM we expect the kill
-	// to take at least 20 seconds
+	// to take at least some seconds
 	killTime := time.Now()
 	if err := jobRunner.KillTask(); err != nil {
 		t.Fail()
 	}
 
 	for status := range jobResponse.UpdateChan {
-
 		if mock.IsTerminalState(status.State) {
-			if status.State.String() != "TASK_KILLED" {
-				t.Fail()
-			}
-			if time.Since(killTime) < 20*time.Second {
-				t.Fatal("Task was killed too quickly")
-			}
-			return
+			killTime := time.Since(killTime)
+			return &status, killTime
 		}
 	}
+
 	t.Fail()
+	return nil, 0
+}
+
+func testTerminateTimeout(t *testing.T, jobID string) {
+	status, killTime := testTerminateTimeoutWrapped(t, jobID, 15)
+	if status.State.String() != "TASK_KILLED" {
+		t.Fail()
+	}
+	if killTime < time.Second*time.Duration(15) {
+		t.Fatalf("Task was killed too quickly, in %s", killTime.String())
+	}
+}
+
+func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
+	status, killTime := testTerminateTimeoutWrapped(t, jobID, 15)
+	if status.State.String() != "TASK_KILLED" {
+		t.Fail()
+	}
+	// 20 is 15 with some buffer?
+	if killTime > time.Second*time.Duration(20) {
+		t.Fatalf("Task wasn't killed quickly enough, in %s", killTime.String())
+	}
 }
