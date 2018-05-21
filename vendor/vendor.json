@@ -39,12 +39,12 @@
 			"revisionTime": "2017-10-19T18:51:21Z"
 		},
 		{
-			"checksumSHA1": "EBkLjtdY7+E2a8JPpKweleTNgaM=",
+			"checksumSHA1": "Y9xS2Hfc7zLnM3CsFtQkVlP9f0g=",
 			"path": "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus",
-			"revision": "0354642c5c334476a9ee093c2a6f3f9881dcb52f",
-			"revisionTime": "2018-05-08T22:00:19Z",
-			"version": "frozen-agent-version-20180508.0",
-			"versionExact": "frozen-agent-version-20180508.0"
+			"revision": "c433c9c05ccdff3513b54f04013069098f2385b4",
+			"revisionTime": "2018-05-02T23:07:09Z",
+			"version": "frozen-agent-version-20180521.0",
+			"versionExact": "frozen-agent-version-20180521.0"
 		},
 		{
 			"checksumSHA1": "7eAIWei337IlBYIfzA3HyOEV9WE=",

@@ -56,7 +56,7 @@ message ContainerInfo {
 
     optional string command = 2; // deprecated. replaced by entrypointCmd.
 
-    optional string containerPorts = 3;
+    optional string containerPorts = 3 [deprecated = true];
 
     optional string version = 4 [default = "latest"];
 
@@ -225,4 +225,32 @@ message ContainerInfo {
     }
 
     repeated S3LogLocation s3LogLocations = 34;
+
+    // This influences the value of oom_score_adj for the PID 1 (tini) of the container
+    //
+    // The value of /proc/<pid>/oom_score_adj is added to the badness score before it
+    // is used to determine which task to kill.  Acceptable values range from -1000
+    // (OOM_SCORE_ADJ_MIN) to +1000 (OOM_SCORE_ADJ_MAX).  This allows userspace to
+    // polarize the preference for oom killing either by always preferring a certain
+    // task or completely disabling it.  The lowest possible value, -1000, is
+    // equivalent to disabling oom killing entirely for that task since it will always
+    // report a badness score of 0.
+    //
+    // If this value is unset, it will be set to +1000 as default.
+    optional int32 oomScoreAdj = 35;
+
+    // Borrowed from Kubernetes
+    enum ImagePullPolicy {
+        // Always pull the tag / digest
+        Always = 0;
+        // Only pull if we don't have an image with that given tag / digest (guarantees freshness, as it requires digest)
+        IfNotPresent = 1;
+        // Only pull if we don't have an image with that given tag
+        IfLabelPresent = 2;
+    }
+    // If omitted, Always is the default
+    optional ImagePullPolicy imagePullPolicy = 36;
+
+    // passthrough attributes are an arbitrary set of key / value pairs that are passed from API to executor
+    map<string, string> passthroughAttributes = 37;
 }

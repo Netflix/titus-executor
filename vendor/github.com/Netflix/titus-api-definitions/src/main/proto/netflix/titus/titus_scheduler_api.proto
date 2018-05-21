@@ -85,6 +85,31 @@ message SystemSelectorUpdate {
     SystemSelector systemSelector = 2;
 }
 
+message SchedulingResultRequest {
+    string taskId = 1;
+}
+
+message SchedulingResultEvent {
+    message Success {
+        string message = 1;
+    }
+
+    message Failure {
+        string reason = 1;
+        int32 failureCount = 2;
+        repeated string agentIdSamples = 3;
+    }
+
+    message Failures {
+        repeated Failure failures = 1;
+    }
+
+    oneof Status {
+        Success success = 1;
+        Failures failures = 2;
+    }
+}
+
 service SchedulerService {
     /// Get all system selectors
     rpc GetSystemSelectors (google.protobuf.Empty) returns (SystemSelectors) {
@@ -104,5 +129,13 @@ service SchedulerService {
 
     /// Delete a system selector
     rpc DeleteSystemSelector (SystemSelectorId) returns (google.protobuf.Empty) {
+    }
+
+    /// Observe scheduling decisions for a task.
+    rpc ObserveSchedulingResults (SchedulingResultRequest) returns (stream SchedulingResultEvent) {
+    }
+
+    /// Get scheduling decisions for a task.
+    rpc GetSchedulingResult (SchedulingResultRequest) returns (SchedulingResultEvent) {
     }
 }

@@ -177,6 +177,9 @@ message BatchJobSpec {
 
     /// (Required) Task rescheduling policy in case of failure.
     RetryPolicy retryPolicy = 3;
+
+    /// true when the task should be restarted after being terminated due to runtime limit.
+    bool retryOnRuntimeLimit = 4;
 }
 
 /// Migration polices.
