@@ -1520,7 +1520,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		}
 	}
 
-	if err := setupOOMAdj(cred); err != nil {
+	if err := setupOOMAdj(c, cred); err != nil {
 		return err
 	}
 

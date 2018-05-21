@@ -41,6 +41,6 @@ func setupContainerNesting(parentCtx context.Context, c *runtimeTypes.Container,
 	return errUnsupported
 }
 
-func setupOOMAdj(cred ucred) error {
+func setupOOMAdj(c *runtimeTypes.Container, cred ucred) error {
 	return errUnsupported
 }
