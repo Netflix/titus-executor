@@ -43,7 +43,7 @@ var (
 	}
 	ubuntu = testImage{
 		name: "titusoss/ubuntu",
-		tag:  "20180501-1525157359",
+		tag:  "20180518-1526605880",
 	}
 	// TODO: Determine how this got built, and add it to the auto image builders?
 	byDigest = testImage{
@@ -94,6 +94,8 @@ func TestStandalone(t *testing.T) {
 		testTerminateTimeout,
 		testMakesPTY,
 		testTerminateTimeoutNotTooSlow,
+		testOOMAdj,
+		testOOMKill,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -530,4 +532,46 @@ func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
 	if killTime > time.Second*time.Duration(20) {
 		t.Fatalf("Task wasn't killed quickly enough, in %s", killTime.String())
 	}
+}
+
+func testOOMAdj(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `/bin/bash -c 'cat /proc/1/oom_score | grep 999'`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testOOMKill(t *testing.T, jobID string) {
+	// Start the executor
+	jobRunner := mock.NewJobRunner()
+	defer jobRunner.StopExecutorAsync()
+
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `stress --vm 100 --vm-keep --vm-hang 100`,
+		JobID:      jobID,
+	}
+	jobResponse := jobRunner.StartJob(ji)
+
+	// Wait until the task is running
+
+	for status := range jobResponse.UpdateChan {
+
+		if mock.IsTerminalState(status.State) {
+			if status.State.String() != "TASK_FAILED" {
+				t.Fail()
+			}
+			if !strings.Contains(status.Mesg, "OOMKilled") {
+				t.Fatal("Task killed due to: ", status.Mesg)
+			}
+			return
+		}
+	}
+	t.Fail()
 }
