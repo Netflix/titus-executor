@@ -51,10 +51,15 @@ var AllocateNetwork = cli.Command{ // nolint: golint
 			Usage: "How long to wait for security groups to converge, in seconds",
 			Value: 10 * time.Second,
 		},
+		cli.DurationFlag{
+			Name:  "wait-for-sg-lock-timeout",
+			Usage: "How long to wait for other users, if the SG is in use",
+			Value: 0 * time.Second,
+		},
 	},
 }
 
-func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]struct{}, batchSize, deviceIdx int, securityConvergenceTimeout time.Duration, retErr error) {
+func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]struct{}, batchSize, deviceIdx int, securityConvergenceTimeout, waitForSgLockTimeout time.Duration, retErr error) {
 	var err error
 
 	deviceIdx = parentCtx.CLIContext.Int("device-idx")
@@ -79,11 +84,19 @@ func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]st
 	batchSize = parentCtx.CLIContext.Int("batch-size")
 	if batchSize <= 0 {
 		retErr = cli.NewExitError("Invalid batchsize", 1)
+		return
 	}
 
 	securityConvergenceTimeout = parentCtx.CLIContext.Duration("security-convergence-timeout")
 	if securityConvergenceTimeout <= 0 {
 		retErr = cli.NewExitError("Invalid security convergence timeout", 1)
+		return
+	}
+
+	waitForSgLockTimeout = parentCtx.CLIContext.Duration("wait-for-sg-lock-timeout")
+	if securityConvergenceTimeout < 0 {
+		retErr = cli.NewExitError("Invalid securtity group lock timeout", 1)
+		return
 	}
 
 	return
@@ -92,7 +105,7 @@ func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]st
 func allocateNetwork(parentCtx *context.VPCContext) error {
 	var err error
 
-	securityGroups, batchSize, deviceIdx, securityConvergenceTimeout, err := getCommandLine(parentCtx)
+	securityGroups, batchSize, deviceIdx, securityConvergenceTimeout, waitForSgLockTimeout, err := getCommandLine(parentCtx)
 	if err != nil {
 		return err
 	}
@@ -102,9 +115,10 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 		"security-groups":            securityGroups,
 		"batch-size":                 batchSize,
 		"securityConvergenceTimeout": securityConvergenceTimeout,
+		"waitForSgLockTimeout":       waitForSgLockTimeout,
 	}).Debug()
 
-	allocation, err := doAllocateNetwork(parentCtx, deviceIdx, batchSize, securityGroups, securityConvergenceTimeout)
+	allocation, err := doAllocateNetwork(parentCtx, deviceIdx, batchSize, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
 	if err != nil {
 		errors := []error{cli.NewExitError("Unable to setup networking", 1), err}
 		err = json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
@@ -174,7 +188,7 @@ func getDefaultSecurityGroups(parentCtx *context.VPCContext) (map[string]struct{
 	return primaryInterface.SecurityGroupIds, nil
 }
 
-func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout time.Duration) (*allocation, error) {
+func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*allocation, error) {
 	// 1. Ensure security groups are setup
 	ctx, cancel := parentCtx.WithTimeout(5 * time.Minute)
 	defer cancel()
@@ -184,7 +198,7 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 		ctx.Logger.Warning("Unable to get interface by idx: ", err)
 		return nil, err
 	}
-	sharedSGLock, err := setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout)
+	sharedSGLock, err := setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
 	if err != nil {
 		ctx.Logger.Warning("Unable to setup security groups: ", err)
 		return nil, err
@@ -204,15 +218,29 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 	return allocation, nil
 }
 
-func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, securityGroups map[string]struct{}, sgConfigurationLock *fslocker.SharedLock, securityConvergenceTimeout time.Duration) (*fslocker.SharedLock, error) {
+func upgradeSecurityGroupLock(networkInterface *ec2wrapper.EC2NetworkInterface, sgConfigurationLock *fslocker.SharedLock, waitForSgLockTimeout time.Duration) (*fslocker.ExclusiveLock, error) {
+	sgReconfigurationLock, err := sgConfigurationLock.ToExclusiveLock(&waitForSgLockTimeout)
+	if err == nil {
+		return sgReconfigurationLock, nil
+	}
+
+	sgConfigurationLock.Unlock()
+	if err == unix.EWOULDBLOCK {
+		return nil, fmt.Errorf("Interface currently in use by other security groups: %v", networkInterface.SecurityGroupIds)
+	}
+
+	if err == unix.ETIMEDOUT {
+		// Now we fall back
+		return nil, fmt.Errorf("Interface currently in use by other security groups: %v, and timed out waiting for other user after %s", networkInterface.SecurityGroupIds, waitForSgLockTimeout.String())
+	}
+
+	return nil, err
+}
+
+func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, securityGroups map[string]struct{}, sgConfigurationLock *fslocker.SharedLock, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
 	// If we're supposed to reconfigure security groups, it means no one else should have a lock on the interface
-	lockFree := 0 * time.Second
-	sgReconfigurationLock, err := sgConfigurationLock.ToExclusiveLock(&lockFree)
+	sgExclusiveReconfigurationLock, err := upgradeSecurityGroupLock(networkInterface, sgConfigurationLock, waitForSgLockTimeout)
 	if err != nil {
-		sgConfigurationLock.Unlock()
-		if err == unix.EWOULDBLOCK {
-			return nil, fmt.Errorf("Interface currently in use by other security groups: %v", networkInterface.SecurityGroupIds)
-		}
 		return nil, err
 	}
 
@@ -229,20 +257,20 @@ func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wra
 	_, err = svc.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
 	if err != nil {
 		ctx.Logger.Warning("Unable to reconfigure security groups: ", err)
-		sgReconfigurationLock.Unlock()
+		sgExclusiveReconfigurationLock.Unlock()
 		return nil, err
 	}
 	err = waitForSecurityGroupToConverge(ctx, networkInterface, securityGroups, securityConvergenceTimeout)
 	if err != nil {
 		ctx.Logger.Warning("Security groups for interface not converged")
-		sgReconfigurationLock.Unlock()
+		sgExclusiveReconfigurationLock.Unlock()
 		return nil, err
 	}
 
-	return sgReconfigurationLock.ToSharedLock(), nil
+	return sgExclusiveReconfigurationLock.ToSharedLock(), nil
 }
 
-func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout time.Duration) (*fslocker.SharedLock, error) {
+func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
 	lockTimeout := time.Minute
 	maybeReconfigurationLockPath := filepath.Join(networkInterface.LockPath(), "security-group-reconfig")
 	maybeReconfigurationLock, err := ctx.FSLocker.ExclusiveLock(maybeReconfigurationLockPath, &lockTimeout)
@@ -260,6 +288,7 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.E
 		ctx.Logger.Warning("Unable to get security-group-current-config lock: ", err)
 		return nil, err
 	}
+	ctx.Logger.WithField("networkInterface.SecurityGroupIds", networkInterface.SecurityGroupIds).WithField("securityGroups", securityGroups).Debug("Checking security groups")
 	if reflect.DeepEqual(securityGroups, networkInterface.SecurityGroupIds) {
 		return sgConfigurationLock, nil
 	}
@@ -273,7 +302,7 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.E
 	}
 
 	ctx.Logger.Info("Reconfiguring security groups")
-	sharedLock, err := reconfigureSecurityGroups(ctx, networkInterface, securityGroups, sgConfigurationLock, securityConvergenceTimeout)
+	sharedLock, err := reconfigureSecurityGroups(ctx, networkInterface, securityGroups, sgConfigurationLock, securityConvergenceTimeout, waitForSgLockTimeout)
 	if err != nil {
 		return nil, err
 	}

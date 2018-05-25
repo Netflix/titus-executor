@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func durationPointer(duration time.Duration) *time.Duration {
@@ -110,9 +111,56 @@ func TestFSLockerOptimistic(t *testing.T) {
 	l1, err := locker.ExclusiveLock("test", durationPointer(0))
 	assert.NoError(t, err)
 	l2, err := locker.ExclusiveLock("test", durationPointer(0))
-	assert.Error(t, err)
+	assert.Equal(t, unix.EWOULDBLOCK, err)
+
 	l1.Unlock()
 	assert.Nil(t, l2)
+}
+
+func TestFSLockerPessimisticSuccess(t *testing.T) {
+	dir, err := ioutil.TempDir("", "fs-locker")
+	require.NoError(t, err)
+	defer removeAll(t, dir)
+
+	locker, err := NewFSLocker(dir)
+	assert.NoError(t, err)
+
+	l1, err := locker.ExclusiveLock("test", durationPointer(0))
+	assert.NoError(t, err)
+	start := time.Now()
+	go func() {
+		time.Sleep(1 * time.Second)
+		l1.Unlock()
+	}()
+
+	l2, err := locker.ExclusiveLock("test", durationPointer(5*time.Second))
+	assert.NoError(t, err)
+	assert.NotNil(t, l2)
+	defer l2.Unlock()
+	assert.True(t, time.Since(start) > 1*time.Second)
+}
+
+func TestFSLockerPessimisticFail(t *testing.T) {
+	dir, err := ioutil.TempDir("", "fs-locker")
+	require.NoError(t, err)
+	defer removeAll(t, dir)
+
+	locker, err := NewFSLocker(dir)
+	assert.NoError(t, err)
+
+	l1, err := locker.ExclusiveLock("test", durationPointer(0))
+	assert.NoError(t, err)
+	start := time.Now()
+	go func() {
+		time.Sleep(3 * time.Second)
+		l1.Unlock()
+	}()
+
+	l2, err := locker.ExclusiveLock("test", durationPointer(2*time.Second))
+	assert.Error(t, err)
+	assert.Equal(t, err, unix.ETIMEDOUT)
+	assert.Nil(t, l2)
+	assert.True(t, time.Since(start) > 2*time.Second)
 }
 
 func removeAll(t *testing.T, dir string) {

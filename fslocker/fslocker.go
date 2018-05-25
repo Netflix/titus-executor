@@ -64,6 +64,7 @@ type SharedLock struct {
 // ToExclusiveLock tries to upgrade a SharedLock into an ExclusiveLock.
 // If timeout is nil, then this function will be blocking, otherwise it will be non-blocking.
 // It will return unix.ETIMEDOUT if timeout occurs
+// If timeout is 0
 func (sl *SharedLock) ToExclusiveLock(timeout *time.Duration) (*ExclusiveLock, error) {
 	err := lockHelper(sl.file, int(exclusive), timeout)
 	if err != nil {
@@ -107,8 +108,9 @@ func NewFSLocker(path string) (*FSLocker, error) {
 }
 
 // ExclusiveLock tries to get an exclusive Lock on the path
-// If timeout is nil, then this function will be blocking, otherwise it will be non-blocking.
-// It will return unix.ETIMEDOUT if timeout occurs
+// If timeout is nil, then this function will be blocking until lock acquisition is successful
+// if timeout is 0, it will be non-blocking and return unix.EWOULDBLOCK if we cannot acquire the lock
+// if timeout is non-zero, and we timeout, it will return unix.ETIMEDOUT
 func (locker *FSLocker) ExclusiveLock(path string, timeout *time.Duration) (*ExclusiveLock, error) {
 	lock, err := locker.doLock(exclusive, path, timeout)
 	if err != nil {
@@ -118,8 +120,9 @@ func (locker *FSLocker) ExclusiveLock(path string, timeout *time.Duration) (*Exc
 }
 
 // SharedLock tries to get an exclusive Lock on the path
-// If timeout is nil, then this function will be blocking, otherwise it will be non-blocking.
-// It will return unix.ETIMEDOUT if timeout occurs
+// If timeout is nil, then this function will be blocking until lock acquisition is successful
+// if timeout is 0, it will be non-blocking and return unix.EWOULDBLOCK if we cannot acquire the lock
+// if timeout is non-zero, and we timeout, it will return unix.ETIMEDOUT
 func (locker *FSLocker) SharedLock(path string, timeout *time.Duration) (*SharedLock, error) {
 	lock, err := locker.doLock(shared, path, timeout)
 	if err != nil {
