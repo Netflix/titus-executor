@@ -46,3 +46,4 @@ RUN go get -u github.com/alecthomas/gometalinter
 RUN gometalinter --install
 RUN go get -u github.com/kardianos/govendor
 RUN go get github.com/mattn/goveralls
+RUN go get github.com/mitchellh/gox
