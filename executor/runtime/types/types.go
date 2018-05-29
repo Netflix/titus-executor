@@ -88,8 +88,10 @@ type Container struct {
 	// GPU devices
 	GPUInfo GPUContainer
 
-	AllocationCommand *exec.Cmd
-	SetupCommand      *exec.Cmd
+	AllocationCommand       *exec.Cmd
+	AllocationCommandStatus chan error
+	SetupCommand            *exec.Cmd
+	SetupCommandStatus      chan error
 
 	Config config.Config
 }

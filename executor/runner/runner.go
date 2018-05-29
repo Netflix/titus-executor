@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/hashicorp/go-multierror"
 	"github.com/sirupsen/logrus"
 
 	"context"
@@ -329,7 +330,7 @@ func (r *Runner) handleTaskRunningMessage(ctx context.Context, msg string, lastM
 
 func (r *Runner) handleShutdown(ctx context.Context) { // nolint: gocyclo
 	r.logger.Debug("Handling shutdown")
-	var cleanupErrs []error
+	var errs *multierror.Error
 
 	killStartTime := time.Now()
 	// Are we in a situation where the container exited gracefully, or less than gracefully?
@@ -342,31 +343,30 @@ func (r *Runner) handleShutdown(ctx context.Context) { // nolint: gocyclo
 		case titusdriver.Finished:
 		case titusdriver.Failed:
 		default:
-			cleanupErrs = append(cleanupErrs, err)
+			errs = multierror.Append(errs, err)
 		}
 	}
 
 	if r.watcher != nil {
 		if err := r.watcher.Stop(); err != nil {
 			r.logger.Error("Error while shutting down watcher for: ", err)
-			cleanupErrs = append(cleanupErrs, err)
+			errs = multierror.Append(errs, err)
 		}
 	}
 	if err := r.runtime.Cleanup(r.container); err != nil {
 		r.logger.Error("Cleanup failed: ", err)
-		cleanupErrs = append(cleanupErrs, err)
+		errs = multierror.Append(errs, err)
 	}
 	r.metrics.Counter("titus.executor.taskCleanupDone", 1, nil)
 	msg := ""
-	if len(cleanupErrs) > 0 {
-		msg = fmt.Sprintf("%+v", cleanupErrs)
+	if err := errs.ErrorOrNil(); err != nil {
+		msg = fmt.Sprintf("%+v", err)
 	}
 
 	if r.lastStatus == titusdriver.Finished {
 		// TODO(Andrew L): There may be leaked resources that are not being
 		// accounted for. Consider forceful cleanup or tracking leaked resources.
 		// If the task finished successfully, include any info about cleanup errors
-		msg = fmt.Sprintf("%+v", cleanupErrs)
 		r.updateStatus(ctx, r.lastStatus, msg)
 	} else if r.wasKilled() {
 		r.updateStatus(ctx, titusdriver.Killed, msg)
