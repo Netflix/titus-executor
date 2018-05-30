@@ -186,10 +186,11 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	}
 
 	updateChan := make(chan update, 10)
-	r.runContainer(ctx, startTime, updateChan)
+	go r.runContainer(ctx, startTime, updateChan)
 
 	var lastUpdate *update
 	for update := range updateChan {
+		r.logger.WithField("update", update).Debug("Processing update")
 		lastUpdate = &update
 		if update.status.IsTerminalStatus() {
 			break
@@ -199,15 +200,14 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 
 	if lastUpdate == nil {
 		r.updateStatusWithDetails(ctx, titusdriver.Lost, "Task run stopped without making any progress", nil)
+		return
 	}
 
 	r.doShutdown(ctx, *lastUpdate)
-
-	for update := range updateChan {
-		r.logger.WithField("update", update).Warn("Sending update after entering terminal state")
-		r.updateStatusWithDetails(ctx, update.status, update.msg, update.details)
+	badUpdate, ok := <-updateChan
+	if ok {
+		panic(fmt.Sprintf("Received update after task was in terminal status: %+v", badUpdate))
 	}
-
 }
 
 type update struct {
@@ -217,11 +217,13 @@ type update struct {
 }
 
 func (r *Runner) prepareContainer(ctx context.Context, updateChan chan update) update {
+	r.logger.Debug("Running prepare")
 	prepareCtx, prepareCancel := context.WithCancel(ctx)
 	defer prepareCancel()
 	go func() {
 		select {
 		case <-r.killChan:
+			r.logger.Debug("Got cancel in prepare")
 			prepareCancel()
 		case <-prepareCtx.Done():
 		}
@@ -263,6 +265,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 	prepareUpdate := r.prepareContainer(ctx, updateChan)
 	updateChan <- prepareUpdate
 	if prepareUpdate.status.IsTerminalStatus() {
+		r.logger.WithField("prepareUpdate", prepareUpdate).Debug("Prepare was terminal")
 		return
 	}
 
@@ -363,7 +366,7 @@ func (r *Runner) handleTaskRunningMessage(ctx context.Context, msg string, lastM
 }
 
 func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint: gocyclo
-	r.logger.Debug("Handling shutdown")
+	r.logger.WithField("lastUpdate", lastUpdate).WithField("wasKilled", r.wasKilled()).Debug("Handling shutdown")
 	var errs *multierror.Error
 
 	killStartTime := time.Now()
@@ -409,10 +412,11 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 		// while shutting down, it'll get stuck in weird world. Here, we will send a TASK_FINISHED result, over a TASK_KILLED.
 		// TODO(Sargun): Consider. Is this the right decision?
 		r.updateStatusWithDetails(ctx, titusdriver.Killed, msg, lastUpdate.details)
-	}
-	if !lastUpdate.status.IsTerminalStatus() {
+	} else if !lastUpdate.status.IsTerminalStatus() {
 		r.updateStatusWithDetails(ctx, titusdriver.Lost, "Container lost -- Unknown", lastUpdate.details)
 		r.logger.Error("Container killed while non-terminal!")
+	} else {
+		r.updateStatusWithDetails(ctx, lastUpdate.status, lastUpdate.msg, lastUpdate.details)
 	}
 
 	r.metrics.Timer("titus.executor.containerCleanupTime", time.Since(killStartTime), r.container.ImageTagForMetrics())

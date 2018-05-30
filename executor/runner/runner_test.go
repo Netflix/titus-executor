@@ -137,12 +137,11 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	require.NoError(t, err)
 	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 
-	once := sync.Once{}
-
 	testFailed := make(chan struct{})
 	time.AfterFunc(30*time.Second, func() {
 		close(testFailed)
 	})
+	defer time.Sleep(1 * time.Second)
 
 	for {
 		select {
@@ -150,17 +149,39 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 			logrus.Debug("Got update: ", update)
 			switch update.State {
 			case titusdriver.Starting:
-				once.Do(func() {
-					executor.Kill()
-					logrus.Debug("Killing task, now that it's entered starting")
-				})
-			case titusdriver.Lost:
+				logrus.Debug("Killing task, now that it's entered starting")
+				executor.Kill()
+				logrus.Debug("Killed task, now that it's entered starting")
+			case titusdriver.Killed:
 				return
 			default:
 				t.Fatal("Unknown state: ", update)
 			}
+		case kill := <-kills:
+			close(kill)
+			goto phase2
 		case <-testFailed:
 			panic("Test Failed, executor didn't yield when killed in prepare")
+		case <-ctx.Done():
+			t.Fatal("Context complete?")
+		}
+	}
+
+phase2:
+	for {
+		select {
+		case update := <-executor.UpdatesChan:
+			logrus.Debug("Got update: ", update)
+			switch update.State {
+			case titusdriver.Killed:
+				return
+			default:
+				t.Fatal("Received state other than killed: ", update)
+			}
+		case <-kills:
+			t.Fatal("Received another kill")
+		case <-testFailed:
+			panic("Test Failed, executor passed kill to runtime, but did not yield")
 		case <-ctx.Done():
 			t.Fatal("Context complete?")
 		}
