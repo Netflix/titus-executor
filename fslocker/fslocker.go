@@ -119,7 +119,7 @@ func (locker *FSLocker) ExclusiveLock(path string, timeout *time.Duration) (*Exc
 	return &ExclusiveLock{Lock: lock}, nil
 }
 
-// SharedLock tries to get an exclusive Lock on the path
+// SharedLock tries to get an shared Lock on the path
 // If timeout is nil, then this function will be blocking until lock acquisition is successful
 // if timeout is 0, it will be non-blocking and return unix.EWOULDBLOCK if we cannot acquire the lock
 // if timeout is non-zero, and we timeout, it will return unix.ETIMEDOUT
