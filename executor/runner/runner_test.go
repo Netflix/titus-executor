@@ -42,6 +42,8 @@ type runtimeMock struct {
 	statusChan chan runtimeTypes.StatusMessage
 
 	prepareCallback func(context.Context) error
+	cleanupCallback func(*runtimeTypes.Container) error
+	killCallback    func(c *runtimeTypes.Container) error
 }
 
 func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string) error {
@@ -77,6 +79,9 @@ func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (str
 
 func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, c.TaskID)
+	if r.killCallback != nil {
+		return r.killCallback(c)
+	}
 	defer close(r.statusChan)
 	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
 	// send a kill request and wait for a grant
@@ -99,10 +104,95 @@ func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 
 func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
 	r.t.Log("runtimeMock.Cleanup", c.TaskID)
+	if r.cleanupCallback != nil {
+		return r.cleanupCallback(c)
+	}
 	return nil
 }
 
+func TestSendTerminalStatusUntilCleanup(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	taskID := "TestSendTerminalStatusUntilCleanup"
+	image := "titusops/alpine"
+	taskInfo := &titus.ContainerInfo{
+		ImageName:         &image,
+		IgnoreLaunchGuard: proto.Bool(true),
+	}
+	kills := make(chan chan<- struct{}, 1)
+
+	statusChan := make(chan runtimeTypes.StatusMessage, 10)
+	r := &runtimeMock{
+		t:           t,
+		startCalled: make(chan<- struct{}),
+		kills:       kills,
+		ctx:         ctx,
+		statusChan:  statusChan,
+	}
+	cleanedup := false
+	killed := false
+	r.killCallback = func(c *runtimeTypes.Container) error {
+		logrus.WithField("container", c).Debug("Container being killed")
+		killed = true
+		return nil
+	}
+	r.cleanupCallback = func(c *runtimeTypes.Container) error {
+		assert.True(t, killed) // Make sure the service is killed before cleand up
+		logrus.WithField("container", c).Debug("Container being cleaned up")
+		cleanedup = true
+		return nil
+	}
+
+	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
+	cfg := config.Config{}
+
+	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
+		return r, nil
+	}, l, cfg)
+	require.NoError(t, err)
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
+
+	defer time.Sleep(1 * time.Second)
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	for {
+		select {
+		case update, ok := <-executor.UpdatesChan:
+			if !ok {
+				t.Fatal("Updates Chan Closed")
+				return
+			}
+			logrus.Debug("Got update: ", update)
+			switch update.State {
+			case titusdriver.Running:
+				logrus.Debug("Task Running, marking finished")
+				r.statusChan <- runtimeTypes.StatusMessage{
+					Status: runtimeTypes.StatusFinished,
+					Msg:    "running",
+				}
+				logrus.Debug("Task Running, marked finished")
+			case titusdriver.Finished:
+				logrus.Debug("Received finished, marked finished")
+				goto out
+			}
+		case <-timeout.C:
+			t.Fatal("Test timed out")
+		case <-ctx.Done():
+			t.Fatal("Context complete?")
+		}
+	}
+
+out:
+	assert.True(t, cleanedup)
+	assert.True(t, killed)
+
+}
+
 func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -145,7 +235,11 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 
 	for {
 		select {
-		case update := <-executor.UpdatesChan:
+		case update, ok := <-executor.UpdatesChan:
+			if !ok {
+				t.Fatal("Updates Chan Closed")
+				return
+			}
 			logrus.Debug("Got update: ", update)
 			switch update.State {
 			case titusdriver.Starting:
