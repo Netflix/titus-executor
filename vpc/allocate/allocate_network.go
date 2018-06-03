@@ -56,10 +56,15 @@ var AllocateNetwork = cli.Command{ // nolint: golint
 			Usage: "How long to wait for other users, if the SG is in use",
 			Value: 0 * time.Second,
 		},
+		cli.DurationFlag{
+			Name:  "ip-refresh-timeout",
+			Usage: "How long to wait for AWS to give us IP addresses",
+			Value: 10 * time.Second,
+		},
 	},
 }
 
-func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]struct{}, batchSize, deviceIdx int, securityConvergenceTimeout, waitForSgLockTimeout time.Duration, retErr error) {
+func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]struct{}, batchSize, deviceIdx int, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, retErr error) {
 	var err error
 
 	deviceIdx = parentCtx.CLIContext.Int("device-idx")
@@ -99,13 +104,19 @@ func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]st
 		return
 	}
 
+	ipRefreshTimeout = parentCtx.CLIContext.Duration("ip-refresh-timeout")
+	if ipRefreshTimeout < 1*time.Second {
+		retErr = cli.NewExitError("IP Refresh timeout must be at least 1 second", 1)
+		return
+	}
+
 	return
 }
 
 func allocateNetwork(parentCtx *context.VPCContext) error {
 	var err error
 
-	securityGroups, batchSize, deviceIdx, securityConvergenceTimeout, waitForSgLockTimeout, err := getCommandLine(parentCtx)
+	securityGroups, batchSize, deviceIdx, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout, err := getCommandLine(parentCtx)
 	if err != nil {
 		return err
 	}
@@ -116,9 +127,10 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 		"batch-size":                 batchSize,
 		"securityConvergenceTimeout": securityConvergenceTimeout,
 		"waitForSgLockTimeout":       waitForSgLockTimeout,
+		"ipRefreshTimeout":           ipRefreshTimeout,
 	}).Debug()
 
-	allocation, err := doAllocateNetwork(parentCtx, deviceIdx, batchSize, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
+	allocation, err := doAllocateNetwork(parentCtx, deviceIdx, batchSize, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout)
 	if err != nil {
 		errors := []error{cli.NewExitError("Unable to setup networking", 1), err}
 		err = json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
@@ -188,7 +200,7 @@ func getDefaultSecurityGroups(parentCtx *context.VPCContext) (map[string]struct{
 	return primaryInterface.SecurityGroupIds, nil
 }
 
-func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*allocation, error) {
+func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration) (*allocation, error) {
 	// 1. Ensure security groups are setup
 	ctx, cancel := parentCtx.WithTimeout(5 * time.Minute)
 	defer cancel()
@@ -204,7 +216,7 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 		return nil, err
 	}
 	// 2. Get a (free) IP
-	ip, ipLock, err := NewIPPoolManager(networkInterface).allocate(ctx, batchSize)
+	ip, ipLock, err := NewIPPoolManager(networkInterface).allocate(ctx, batchSize, ipRefreshTimeout)
 	if err != nil {
 		return nil, err
 	}

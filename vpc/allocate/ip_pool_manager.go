@@ -36,7 +36,7 @@ func (mgr *IPPoolManager) lockConfiguration(parentCtx *context.VPCContext) (*fsl
 	return parentCtx.FSLocker.ExclusiveLock(path, &timeout)
 }
 
-func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) error {
+func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) error {
 	if len(mgr.networkInterface.IPv4Addresses) >= vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
 		return errMaxIPAddressesAllocated
 	}
@@ -59,7 +59,8 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) 
 	}
 
 	originalIPCount := len(mgr.networkInterface.IPv4Addresses)
-	for i := 0; i < 10; i++ {
+	now := time.Now()
+	for time.Since(now) < ipRefreshTimeout {
 		err = mgr.networkInterface.Refresh()
 		if err != nil {
 			return err
@@ -75,7 +76,7 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) 
 	return errIPRefreshFailed
 }
 
-func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int) (string, *fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) (string, *fslocker.ExclusiveLock, error) {
 	configLock, err := mgr.lockConfiguration(ctx)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
@@ -98,7 +99,7 @@ func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int) (stri
 		return ip, lock, err
 	}
 
-	err = mgr.assignMoreIPs(ctx, batchSize)
+	err = mgr.assignMoreIPs(ctx, batchSize, ipRefreshTimeout)
 	if err != nil {
 		ctx.Logger.Warning("Unable assign more IPs: ", err)
 		return "", nil, err
