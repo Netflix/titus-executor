@@ -91,6 +91,7 @@ type Config struct { // nolint: maligned
 	startTimeout                    time.Duration
 	bumpTiniSchedPriority           bool
 	waitForSecurityGroupLockTimeout time.Duration
+	ipRefreshTimeout                time.Duration
 }
 
 // NewConfig generates a configuration, with a set of flags tied to it for the docker runtime
@@ -149,6 +150,11 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "titus.executor.waitForSecurityGroupLockTimeout",
 			Value:       time.Minute * 1,
 			Destination: &cfg.waitForSecurityGroupLockTimeout,
+		},
+		cli.DurationFlag{
+			Name:        "titus.executor.networking.ipRefreshTimeout",
+			Destination: &cfg.ipRefreshTimeout,
+			Value:       time.Second * 10,
 		},
 		// Allow the usage of a realtime scheduling policy to be optional on systems that don't have it properly configured
 		// by default, i.e.: docker-for-mac.
@@ -668,6 +674,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
 		"--security-convergence-timeout", cfg.securityConvergenceTimeout.String(),
+		"--ip-refresh-timeout", cfg.ipRefreshTimeout.String(),
 		"--batch-size", strconv.Itoa(cfg.batchSize),
 	}
 
