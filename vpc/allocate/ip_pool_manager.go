@@ -36,7 +36,7 @@ func (mgr *IPPoolManager) lockConfiguration(parentCtx *context.VPCContext) (*fsl
 	return parentCtx.FSLocker.ExclusiveLock(path, &timeout)
 }
 
-func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) error {
+func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) error {
 	if len(mgr.networkInterface.IPv4Addresses) >= vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
 		return errMaxIPAddressesAllocated
 	}
@@ -58,14 +58,20 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) 
 		return err
 	}
 
-	originalIPCount := len(mgr.networkInterface.IPv4Addresses)
-	for i := 0; i < 10; i++ {
+	originalIPSet := mgr.networkInterface.IPv4AddressesAsSet()
+
+	now := time.Now()
+	for time.Since(now) < ipRefreshTimeout {
 		err = mgr.networkInterface.Refresh()
 		if err != nil {
 			return err
 		}
-		if len(mgr.networkInterface.IPv4Addresses) > originalIPCount {
-			// Retry the allocation
+
+		newIPSet := mgr.networkInterface.IPv4AddressesAsSet()
+
+		if len(newIPSet.Difference(originalIPSet).ToSlice()) > 0 {
+			// Retry allocating an IP Address from the pool, now that the metadata service says that we have at
+			// least one more IP available from EC2
 			return nil
 		}
 		time.Sleep(time.Second)
@@ -75,7 +81,7 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int) 
 	return errIPRefreshFailed
 }
 
-func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int) (string, *fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) (string, *fslocker.ExclusiveLock, error) {
 	configLock, err := mgr.lockConfiguration(ctx)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
@@ -98,7 +104,7 @@ func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int) (stri
 		return ip, lock, err
 	}
 
-	err = mgr.assignMoreIPs(ctx, batchSize)
+	err = mgr.assignMoreIPs(ctx, batchSize, ipRefreshTimeout)
 	if err != nil {
 		ctx.Logger.Warning("Unable assign more IPs: ", err)
 		return "", nil, err

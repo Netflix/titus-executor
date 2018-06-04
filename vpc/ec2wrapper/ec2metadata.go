@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	set "github.com/deckarep/golang-set"
 	"github.com/sirupsen/logrus"
 )
 
@@ -175,4 +176,13 @@ func (ni *EC2NetworkInterface) Refresh() error {
 // LockPath returns the path you should use for locks on this interface
 func (ni *EC2NetworkInterface) LockPath() string {
 	return filepath.Join("interfaces", ni.MAC)
+}
+
+// IPv4AddressesAsSet returns a copy of the IPv4Addresses from this network interface as a set
+func (ni *EC2NetworkInterface) IPv4AddressesAsSet() set.Set {
+	s := set.NewThreadUnsafeSet()
+	for _, ip := range ni.IPv4Addresses {
+		s.Add(ip)
+	}
+	return s
 }
