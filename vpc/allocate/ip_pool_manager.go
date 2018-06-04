@@ -58,15 +58,20 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, 
 		return err
 	}
 
-	originalIPCount := len(mgr.networkInterface.IPv4Addresses)
+	originalIPSet := mgr.networkInterface.IPv4AddressesAsSet()
+
 	now := time.Now()
 	for time.Since(now) < ipRefreshTimeout {
 		err = mgr.networkInterface.Refresh()
 		if err != nil {
 			return err
 		}
-		if len(mgr.networkInterface.IPv4Addresses) > originalIPCount {
-			// Retry the allocation
+
+		newIPSet := mgr.networkInterface.IPv4AddressesAsSet()
+
+		if len(newIPSet.Difference(originalIPSet).ToSlice()) > 0 {
+			// Retry allocating an IP Address from the pool, now that the metadata service says that we have at
+			// least one more IP available from EC2
 			return nil
 		}
 		time.Sleep(time.Second)
