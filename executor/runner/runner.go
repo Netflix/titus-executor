@@ -311,11 +311,11 @@ func (r *Runner) monitorContainer(ctx context.Context, startTime time.Time, stat
 	for {
 		select {
 		case statusMessage, ok := <-statusChan:
-			msg := statusMessage.Msg
 			if !ok {
 				updateChan <- update{status: titusdriver.Lost, msg: "Lost connection to runtime driver", details: details}
 				return
 			}
+			msg := statusMessage.Msg
 			r.logger.WithField("statusMessage", statusMessage).Info("Processing msg")
 
 			switch statusMessage.Status {
