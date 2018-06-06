@@ -83,7 +83,7 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 				notify <- true
 				close(notify)
 				return
-			} else if IsTerminalState(status.State) {
+			} else if status.State.IsTerminalStatus() {
 				notify <- false
 				close(notify)
 				return
@@ -91,19 +91,6 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 		}
 	}()
 	return notify
-}
-
-// IsTerminalState returns true if the task status is a terminal state
-func IsTerminalState(rawTaskStatus titusdriver.TitusTaskState) bool {
-	switch rawTaskStatus {
-	case titusdriver.Finished:
-	case titusdriver.Failed:
-	case titusdriver.Killed:
-	case titusdriver.Lost:
-	default:
-		return false
-	}
-	return true
 }
 
 // JobRunner is the entrypoint struct to create an executor and run test jobs on it

@@ -427,7 +427,7 @@ func testShutdown(t *testing.T, jobID string) {
 			case status := <-testResult.UpdateChan:
 				if status.State.String() == "TASK_RUNNING" {
 					taskRunning <- true
-				} else if mock.IsTerminalState(status.State) {
+				} else if status.State.IsTerminalStatus() {
 					if status.State.String() != "TASK_KILLED" {
 						t.Errorf("Task %s not killed successfully, %s!", testResult.TaskID, status.State.String())
 					}
@@ -488,7 +488,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 
 	// Wait until the task is running
 	for status := range jobResponse.UpdateChan {
-		if mock.IsTerminalState(status.State) {
+		if status.State.IsTerminalStatus() {
 			t.Fatal("Task exited prematurely (before becoming healthy)")
 		}
 		log.Infof("Received status update %+v", status)
@@ -506,7 +506,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 	}
 
 	for status := range jobResponse.UpdateChan {
-		if mock.IsTerminalState(status.State) {
+		if status.State.IsTerminalStatus() {
 			killTime := time.Since(killTime)
 			return &status, killTime
 		}
@@ -565,8 +565,7 @@ func testOOMKill(t *testing.T, jobID string) {
 	// Wait until the task is running
 
 	for status := range jobResponse.UpdateChan {
-
-		if mock.IsTerminalState(status.State) {
+		if status.State.IsTerminalStatus() {
 			if status.State.String() != "TASK_FAILED" {
 				t.Fail()
 			}
