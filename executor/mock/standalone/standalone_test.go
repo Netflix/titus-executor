@@ -98,6 +98,7 @@ func TestStandalone(t *testing.T) {
 		testOOMKill,
 		testSchedBatch,
 		testSchedNormal,
+		testSchedIdle,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -584,7 +585,7 @@ func testSchedBatch(t *testing.T, jobID string) {
 		Version:    ubuntu.tag,
 		Entrypoint: `/bin/bash -c 'schedtool 0 | grep SCHED_BATCH | grep 19'`,
 		JobID:      jobID,
-		Batch:      true,
+		Batch:      "true",
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
@@ -597,6 +598,19 @@ func testSchedNormal(t *testing.T, jobID string) {
 		Version:    ubuntu.tag,
 		Entrypoint: `/bin/bash -c 'schedtool 0 | grep SCHED_NORMAL'`,
 		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testSchedIdle(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `/bin/bash -c 'schedtool 0 | grep SCHED_IDLE'`,
+		JobID:      jobID,
+		Batch:      "idle",
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
