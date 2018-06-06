@@ -495,6 +495,14 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
+	if c.TitusInfo.GetBatch() {
+		if c.TitusInfo.GetPassthroughAttributes()["titusParameter.agent.batchPriority"] == "idle" {
+			c.Env["TITUS_BATCH"] = "idle"
+		} else {
+			c.Env["TITUS_BATCH"] = "true"
+		}
+	}
+
 	// This must got after all setup
 	containerCfg.Env = c.GetSortedEnvArray()
 

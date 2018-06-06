@@ -39,6 +39,8 @@ type JobInput struct {
 	Environment map[string]string
 	// IgnoreLaunchGuard sets the V3 engine flag on the job
 	IgnoreLaunchGuard bool
+	// Batch sets batch mode on the task
+	Batch string
 	// StopTimeoutSeconds is the duration we wait after SIGTERM for the container to exit
 	KillWaitSeconds uint32
 }
@@ -192,10 +194,18 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
 			EniLabel: protobuf.String("1"),
 		},
-		IamProfile:        protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-		Capabilities:      jobInput.Capabilities,
-		TitusProvidedEnv:  env,
-		IgnoreLaunchGuard: protobuf.Bool(jobInput.IgnoreLaunchGuard),
+		IamProfile:            protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
+		Capabilities:          jobInput.Capabilities,
+		TitusProvidedEnv:      env,
+		IgnoreLaunchGuard:     protobuf.Bool(jobInput.IgnoreLaunchGuard),
+		PassthroughAttributes: make(map[string]string),
+	}
+
+	if jobInput.Batch != "" {
+		ci.Batch = protobuf.Bool(true)
+	}
+	if jobInput.Batch == "idle" {
+		ci.PassthroughAttributes["titusParameter.agent.batchPriority"] = "idle"
 	}
 
 	if jobInput.KillWaitSeconds > 0 {
