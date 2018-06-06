@@ -39,6 +39,20 @@ func (s TitusTaskState) String() string {
 	}
 }
 
+// IsTerminalStatus indicates whether or not a given status is the last status a task should end up in
+func (s TitusTaskState) IsTerminalStatus() bool {
+	// IsTerminalState returns true if the task status is a terminal state
+	switch s {
+	case Finished:
+	case Failed:
+	case Killed:
+	case Lost:
+	default:
+		return false
+	}
+	return true
+}
+
 // TitusDriver is the interface implemented by a generic Titus Executor Driver.
 type TitusDriver interface {
 	// ReportTitusTaskStatus is a callback function to notify the driver
