@@ -43,7 +43,7 @@ var (
 	}
 	ubuntu = testImage{
 		name: "titusoss/ubuntu",
-		tag:  "20180518-1526605880",
+		tag:  "20180606-1528275004",
 	}
 	// TODO: Determine how this got built, and add it to the auto image builders?
 	byDigest = testImage{
@@ -96,6 +96,8 @@ func TestStandalone(t *testing.T) {
 		testTerminateTimeoutNotTooSlow,
 		testOOMAdj,
 		testOOMKill,
+		testSchedBatch,
+		testSchedNormal,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -574,4 +576,29 @@ func testOOMKill(t *testing.T, jobID string) {
 		}
 	}
 	t.Fail()
+}
+
+func testSchedBatch(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `/bin/bash -c 'schedtool 0 | grep SCHED_BATCH | grep 19'`,
+		JobID:      jobID,
+		Batch:      true,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testSchedNormal(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `/bin/bash -c 'schedtool 0 | grep SCHED_NORMAL'`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
 }

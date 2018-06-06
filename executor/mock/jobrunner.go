@@ -39,6 +39,8 @@ type JobInput struct {
 	Environment map[string]string
 	// IgnoreLaunchGuard sets the V3 engine flag on the job
 	IgnoreLaunchGuard bool
+	// Batch sets batch mode on the task
+	Batch bool
 	// StopTimeoutSeconds is the duration we wait after SIGTERM for the container to exit
 	KillWaitSeconds uint32
 }
@@ -196,6 +198,7 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 		Capabilities:      jobInput.Capabilities,
 		TitusProvidedEnv:  env,
 		IgnoreLaunchGuard: protobuf.Bool(jobInput.IgnoreLaunchGuard),
+		Batch:             protobuf.Bool(jobInput.Batch),
 	}
 
 	if jobInput.KillWaitSeconds > 0 {
