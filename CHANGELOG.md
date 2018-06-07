@@ -1,7 +1,35 @@
 # Change Log
 
+## [20180516.2](https://github.com/Netflix/titus-executor/tree/HEAD)
+
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20180516.0...HEAD)
+
+**Closed issues:**
+
+- Make Generic Cancel Launch Test [\#117](https://github.com/Netflix/titus-executor/issues/117)
+
+**Merged pull requests:**
+
+- Sched batch [\#137](https://github.com/Netflix/titus-executor/pull/137) ([sargun](https://github.com/sargun))
+- Allow adjusting Ip refresh timeout [\#136](https://github.com/Netflix/titus-executor/pull/136) ([sargun](https://github.com/sargun))
+- Bump emergency shutdown window to 1 hour [\#135](https://github.com/Netflix/titus-executor/pull/135) ([sargun](https://github.com/sargun))
+- Wait to send kill [\#134](https://github.com/Netflix/titus-executor/pull/134) ([sargun](https://github.com/sargun))
+- Add gox to CI builder image [\#133](https://github.com/Netflix/titus-executor/pull/133) ([sargun](https://github.com/sargun))
+- Remove Launchguard [\#132](https://github.com/Netflix/titus-executor/pull/132) ([sargun](https://github.com/sargun))
+- Introduce OOM settings for containers [\#131](https://github.com/Netflix/titus-executor/pull/131) ([sargun](https://github.com/sargun))
+- Bump titus proto definitions [\#130](https://github.com/Netflix/titus-executor/pull/130) ([sargun](https://github.com/sargun))
+- Fix terminate timeout test [\#129](https://github.com/Netflix/titus-executor/pull/129) ([sargun](https://github.com/sargun))
+- Bump the version of the Docker client image in Circle CI [\#128](https://github.com/Netflix/titus-executor/pull/128) ([sargun](https://github.com/sargun))
+- Import executor/runtime/docker so it gets code coverage [\#127](https://github.com/Netflix/titus-executor/pull/127) ([sargun](https://github.com/sargun))
+
 ## [20180516.0](https://github.com/Netflix/titus-executor/tree/20180516.0) (2018-05-16)
-[Full Changelog](https://github.com/Netflix/titus-executor/compare/20180119.0...20180516.0)
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20180516.1...20180516.0)
+
+## [20180516.1](https://github.com/Netflix/titus-executor/tree/20180516.1) (2018-05-16)
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20180119.0...20180516.1)
+
+## [20180119.0](https://github.com/Netflix/titus-executor/tree/20180119.0) (2018-05-16)
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20171231.0...20180119.0)
 
 **Closed issues:**
 
@@ -86,12 +114,6 @@
 - Add better error messages to testLaunchAfterKill [\#34](https://github.com/Netflix/titus-executor/pull/34) ([sargun](https://github.com/sargun))
 - Add initial code to disable launchguard [\#33](https://github.com/Netflix/titus-executor/pull/33) ([sargun](https://github.com/sargun))
 - Add agent protobuf with disable launchguard [\#32](https://github.com/Netflix/titus-executor/pull/32) ([sargun](https://github.com/sargun))
-
-## [20180119.0](https://github.com/Netflix/titus-executor/tree/20180119.0) (2018-01-19)
-[Full Changelog](https://github.com/Netflix/titus-executor/compare/20171231.0...20180119.0)
-
-**Merged pull requests:**
-
 - Disable atlas agent during testing [\#30](https://github.com/Netflix/titus-executor/pull/30) ([sargun](https://github.com/sargun))
 - Bump golang.org/x/sys/unix [\#28](https://github.com/Netflix/titus-executor/pull/28) ([sargun](https://github.com/sargun))
 - Bump protodefs [\#27](https://github.com/Netflix/titus-executor/pull/27) ([sargun](https://github.com/sargun))
