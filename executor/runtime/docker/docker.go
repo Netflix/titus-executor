@@ -695,12 +695,14 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	allocateDone := make(chan struct{})
 	defer close(allocateDone)
 
-	// This ctx should only be cancelled when
+	// This ctx should only be cancelled when prepare is interrupted
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		select {
 		case <-allocateDone:
+			log.Info("Allocation complete, no longer monitoring for premature termination")
 		case <-parentCtx.Done():
+			log.Error("Terminating allocate-network prematurely due to context cancellation")
 			cancel()
 		}
 	}()
@@ -710,19 +712,22 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	c.AllocationCommand = exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gas
 	c.AllocationCommandStatus = make(chan error)
 
-	stdoutPipe, err := c.AllocationCommand.StdoutPipe()
 	c.AllocationCommand.Stderr = os.Stderr
-
+	stdoutPipe, err := c.AllocationCommand.StdoutPipe()
 	if err != nil {
 		return err
 	}
-	if err := c.AllocationCommand.Start(); err != nil {
+
+	err = c.AllocationCommand.Start()
+	if err != nil {
 		return err
 	}
 
-	if err := json.NewDecoder(stdoutPipe).Decode(&c.Allocation); err != nil {
+	err = json.NewDecoder(stdoutPipe).Decode(&c.Allocation)
+	if err != nil {
 		// This should kill the process
 		cancel()
+		log.Error("Unable to read JSON from allocate command: ", err)
 		return fmt.Errorf("Unable to read json from pipe: %+v", err)
 	}
 
@@ -745,8 +750,11 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		defer close(c.AllocationCommandStatus)
 		e := c.AllocationCommand.Wait()
 		if e == nil {
+			log.Info("Allocate command exited with no error")
 			return
 		}
+		log.Error("Allocate command exited with error: ", err)
+
 		if exitErr, ok := e.(*exec.ExitError); ok {
 			c.AllocationCommandStatus <- exitErr
 		} else {
