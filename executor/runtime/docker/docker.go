@@ -692,16 +692,13 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	}
 
 	// This channel indicates when allocation is done, successful or not
-	allocateDone := make(chan struct{})
-	defer close(allocateDone)
+	allocateDone := false
 
 	// This ctx should only be cancelled when prepare is interrupted
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		select {
-		case <-allocateDone:
-			log.Info("Allocation complete, no longer monitoring for premature termination")
-		case <-parentCtx.Done():
+		<-parentCtx.Done()
+		if !allocateDone {
 			log.Error("Terminating allocate-network prematurely due to context cancellation")
 			cancel()
 		}
@@ -749,7 +746,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	go func() {
 		defer close(c.AllocationCommandStatus)
 		e := c.AllocationCommand.Wait()
-		if e == nil {
+		if e == nil || (c.AllocationCommand.ProcessState.Exited() && c.AllocationCommand.ProcessState.Success()) {
 			log.Info("Allocate command exited with no error")
 			return
 		}
@@ -775,6 +772,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		return fmt.Errorf("vpc network configuration error: %s; %v", c.Allocation.Error, c.AllocationCommand.Wait())
 	}
 
+	allocateDone = true
 	log.WithField("allocation", c.Allocation).Info("vpc network configuration obtained")
 
 	return nil
