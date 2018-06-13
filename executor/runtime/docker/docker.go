@@ -746,7 +746,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	go func() {
 		defer close(c.AllocationCommandStatus)
 		e := c.AllocationCommand.Wait()
-		if e == nil {
+		if e == nil || (c.AllocationCommand.ProcessState.Exited() && c.AllocationCommand.ProcessState.Success()) {
 			log.Info("Allocate command exited with no error")
 			return
 		}
