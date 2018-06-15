@@ -8,7 +8,7 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst bool, allocation types.Allocation) (netlink.Link, error) {
+func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
 	return nil, types.ErrUnsupported
 }
 
