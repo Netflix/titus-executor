@@ -160,7 +160,8 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string) error {
 			LinkAttrs: netlink.LinkAttrs{
 				Name: ifbName,
 				// Hardcoded
-				TxQLen: 10000,
+				TxQLen:      1000,
+				NumTxQueues: 16,
 				// AWS Upper bound of MTU
 				MTU: 9001,
 			},
