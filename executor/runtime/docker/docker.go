@@ -62,6 +62,7 @@ const (
 	defaultNetworkBandwidth = 128 * MB
 	defaultKillWait         = 10 * time.Second
 	trueString              = "true"
+	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
 )
 
 const envFileTemplateStr = `
@@ -1621,6 +1622,13 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 	}
 	if burst || c.TitusInfo.GetAllowNetworkBursting() {
 		args = append(args, "--burst")
+	}
+	if jumbo, ok := c.TitusInfo.GetPassthroughAttributes()[jumboFrameParam]; ok {
+		if val, err := strconv.ParseBool(jumbo); err != nil {
+			log.Error("Could not parse value for "+jumboFrameParam+": ", err)
+		} else if val {
+			args = append(args, "--jumbo")
+		}
 	}
 	return args
 }

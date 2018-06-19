@@ -29,11 +29,16 @@ var SetupContainer = cli.Command{ // nolint: golint
 			Name:  "burst",
 			Usage: "Allow this container to burst its network allocation",
 		},
+		cli.BoolFlag{
+			Name:  "jumbo",
+			Usage: "Allow this container to use jumbo frames",
+		},
 	},
 }
 
 func setupContainer(parentCtx *context.VPCContext) error {
 	burst := parentCtx.CLIContext.Bool("burst")
+	jumbo := parentCtx.CLIContext.Bool("jumbo")
 	bandwidth := parentCtx.CLIContext.Uint64("bandwidth")
 	netns := parentCtx.CLIContext.Int("netns")
 	if netns <= 0 {
@@ -46,7 +51,7 @@ func setupContainer(parentCtx *context.VPCContext) error {
 		return cli.NewMultiError(cli.NewExitError("Unable to read allocation", 1), err)
 	}
 
-	link, err := doSetupContainer(parentCtx, netns, bandwidth, burst, allocation)
+	link, err := doSetupContainer(parentCtx, netns, bandwidth, burst, jumbo, allocation)
 	if err != nil {
 		_ = json.NewEncoder(os.Stdout).Encode(types.WiringStatus{Success: false, Error: err.Error()})
 		return cli.NewMultiError(cli.NewExitError("Unable to setup container", 1), err)

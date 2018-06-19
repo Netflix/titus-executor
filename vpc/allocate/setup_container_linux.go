@@ -30,7 +30,8 @@ var (
 	errLinkNotFound = errors.New("Link not found")
 )
 
-func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst bool, allocation types.Allocation) (netlink.Link, error) {
+func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
+
 	networkInterface, err := getInterfaceByIdx(parentCtx, allocation.DeviceIndex)
 	if err != nil {
 		parentCtx.Logger.Error("Cannot get interface by index: ", err)
@@ -50,13 +51,18 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 	}
 	defer nsHandle.Delete()
 
+	mtu := parentLink.Attrs().MTU
+	if !jumbo {
+		mtu = 1500
+	}
+
 	containerInterfaceName := fmt.Sprintf("tmp-%d", rand.Intn(10000))
 	ipvlan := netlink.IPVlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name:        containerInterfaceName,
 			ParentIndex: parentLink.Attrs().Index,
 			Namespace:   netlink.NsFd(netnsfd),
-			MTU:         parentLink.Attrs().MTU,
+			MTU:         mtu,
 			TxQLen:      -1,
 		},
 		Mode: netlink.IPVLAN_MODE_L2,
