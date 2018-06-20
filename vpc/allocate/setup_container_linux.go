@@ -82,10 +82,10 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 		return nil, err
 	}
 
-	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, burst, networkInterface, ip)
+	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, networkInterface, ip)
 }
 
-func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip net.IP) error {
+func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip net.IP) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -95,6 +95,12 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 	err = nsHandle.LinkSetUp(link)
 	if err != nil {
 		parentCtx.Logger.Error("Unable to set link up: ", err)
+		return err
+	}
+
+	err = nsHandle.LinkSetMTU(link, mtu)
+	if err != nil {
+		parentCtx.Logger.Error("Unable to set link mtu: ", err)
 		return err
 	}
 
