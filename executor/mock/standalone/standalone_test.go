@@ -66,6 +66,10 @@ var (
 		name: "titusoss/pty",
 		tag:  "20180507-1525733149",
 	}
+	envLabel = testImage{
+		name: "titusoss/ubuntu-env-label",
+		tag:  "20180621-1529540359",
+	}
 )
 
 // This file still uses log as opposed to using the testing library's built-in logging framework.
@@ -99,6 +103,10 @@ func TestStandalone(t *testing.T) {
 		testSchedBatch,
 		testSchedNormal,
 		testSchedIdle,
+		testNewEnvironmentLocationPositive,
+		testNewEnvironmentLocationNegative,
+		testOldEnvironmentLocationPositive,
+		testOldEnvironmentLocationNegative,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -612,6 +620,54 @@ func testSchedIdle(t *testing.T, jobID string) {
 		Batch:      "idle",
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testNewEnvironmentLocationPositive(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  envLabel.name,
+		Version:    envLabel.tag,
+		Entrypoint: `cat /etc/nflx/base-environment.d/titus`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testNewEnvironmentLocationNegative(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  envLabel.name,
+		Version:    envLabel.tag,
+		Entrypoint: `cat /etc/profile.d/netflix_environment.sh`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingFailure(ji) {
+		t.Fail()
+	}
+}
+
+func testOldEnvironmentLocationPositive(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `cat /etc/profile.d/netflix_environment.sh`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+func testOldEnvironmentLocationNegative(t *testing.T, jobID string) {
+
+	ji := &mock.JobInput{
+		ImageName:  ubuntu.name,
+		Version:    ubuntu.tag,
+		Entrypoint: `cat /etc/nflx/base-environment.d/titus`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingFailure(ji) {
 		t.Fail()
 	}
 }
