@@ -1,8 +1,19 @@
 # Change Log
 
-## [20180516.2](https://github.com/Netflix/titus-executor/tree/HEAD)
+## [20180516.3](https://github.com/Netflix/titus-executor/tree/20180516.3) (2018-06-21)
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20180516.2...20180516.3)
 
-[Full Changelog](https://github.com/Netflix/titus-executor/compare/20180516.0...HEAD)
+**Merged pull requests:**
+
+- Change Environment to New Netflix Style [\#144](https://github.com/Netflix/titus-executor/pull/144) ([sargun](https://github.com/sargun))
+- Fix MTU configuration [\#143](https://github.com/Netflix/titus-executor/pull/143) ([sargun](https://github.com/sargun))
+- Jumbo frame support [\#142](https://github.com/Netflix/titus-executor/pull/142) ([sargun](https://github.com/sargun))
+- Simpilify allocate done code [\#141](https://github.com/Netflix/titus-executor/pull/141) ([sargun](https://github.com/sargun))
+- Add logging around allocation command termination [\#140](https://github.com/Netflix/titus-executor/pull/140) ([sargun](https://github.com/sargun))
+- initial \(very simple\) PR template [\#139](https://github.com/Netflix/titus-executor/pull/139) ([fabiokung](https://github.com/fabiokung))
+
+## [20180516.2](https://github.com/Netflix/titus-executor/tree/20180516.2) (2018-06-07)
+[Full Changelog](https://github.com/Netflix/titus-executor/compare/20180516.0...20180516.2)
 
 **Closed issues:**
 
