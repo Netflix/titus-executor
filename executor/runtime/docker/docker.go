@@ -786,6 +786,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	defer cancel()
 	var containerCreateBody container.ContainerCreateCreatedBody
 	dockerCreateStartTime := time.Now()
+	var myImageInfo *types.ImageInspect
 	var dockerCfg *container.Config
 	var hostCfg *container.HostConfig
 	var size int64
@@ -815,6 +816,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		if !r.hasEntrypoint(imageInfo, c) {
 			return NoEntrypointError
 		}
+
+		myImageInfo = &imageInfo
 		return nil
 	})
 
@@ -884,7 +887,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 	l.Info("Titus Configuration pushed")
 
-	err = r.pushEnvironment(c)
+	err = r.pushEnvironment(c, myImageInfo)
 	l.Info("Titus environment pushed")
 
 error:
@@ -1046,7 +1049,7 @@ func (r *DockerRuntime) pushMetatron(parentCtx context.Context, c *runtimeTypes.
 	return r.client.CopyToContainer(ctx, c.ID, "/", bytes.NewReader(tarBuf.Bytes()), cco)
 }
 
-func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container) error {
+func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
 	var envTemplateBuf, tarBuf bytes.Buffer
 
 	if err := envFileTemplate.Execute(&envTemplateBuf, c.Env); err != nil {
@@ -1084,8 +1087,13 @@ func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container) error {
 		}
 	}
 
+	path := "etc/profile.d/netflix_environment.sh"
+	if version, ok := imageInfo.Config.Labels["nflxenv"]; ok && strings.HasPrefix(version, "1.") {
+		path = "etc/nflx/base-environment.d/titus"
+	}
+
 	hdr := &tar.Header{
-		Name: "etc/profile.d/netflix_environment.sh",
+		Name: path,
 		Mode: 0644,
 		Size: int64(envTemplateBuf.Len()),
 	}

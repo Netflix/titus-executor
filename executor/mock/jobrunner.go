@@ -62,6 +62,16 @@ func (jobRunResponse *JobRunResponse) WaitForSuccess() bool {
 	return status == "TASK_FINISHED"
 }
 
+// WaitForFailure blocks on the jobs completion and returns true
+// if it exits with a non-zero (user) error
+func (jobRunResponse *JobRunResponse) WaitForFailure() bool {
+	status, err := jobRunResponse.WaitForCompletion()
+	if err != nil {
+		return false
+	}
+	return status == "TASK_FAILED"
+}
+
 // WaitForCompletion blocks on the jobs completion and returns its status
 // if it completed successfully.
 func (jobRunResponse *JobRunResponse) WaitForCompletion() (string, error) {
@@ -237,6 +247,15 @@ func RunJobExpectingSuccess(jobInput *JobInput) bool {
 
 	jobResult := jobRunner.StartJob(jobInput)
 	return jobResult.WaitForSuccess()
+}
+
+// RunJobExpectingFailure is similar to RunJob but returns true when the task completes successfully.
+func RunJobExpectingFailure(jobInput *JobInput) bool {
+	jobRunner := NewJobRunner()
+	defer jobRunner.StopExecutor()
+
+	jobResult := jobRunner.StartJob(jobInput)
+	return jobResult.WaitForFailure()
 }
 
 // RunJob runs a single Titus task based on provided JobInput
