@@ -41,6 +41,10 @@ type JobInput struct {
 	IgnoreLaunchGuard bool
 	// Batch sets batch mode on the task
 	Batch string
+	// CPUBursting sets the CPU bursting protobuf attribute
+	CPUBursting bool
+	// CPU sets the CPU count resource attribute
+	CPU *int64
 	// StopTimeoutSeconds is the duration we wait after SIGTERM for the container to exit
 	KillWaitSeconds uint32
 }
@@ -211,7 +215,12 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 	if id := jobInput.ImageDigest; id != "" {
 		ci.ImageDigest = protobuf.String(id)
 	}
+
+	ci.AllowCpuBursting = protobuf.Bool(jobInput.CPUBursting)
 	cpu := int64(1)
+	if jobInput.CPU != nil {
+		cpu = *jobInput.CPU
+	}
 	memMiB := int64(400)
 	diskMiB := uint64(100)
 

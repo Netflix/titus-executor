@@ -4,6 +4,7 @@ import "fmt"
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -15,7 +16,13 @@ import (
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
+	"github.com/aws/aws-sdk-go/aws/arn"
 )
+
+// ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
+// This is a transition because previously the protobuf had this marked as an optional field
+// and it's a temporary measure during protocol evolution.
+var ErrMissingIAMRole = errors.New("IAM Role Missing")
 
 // RegistryImageNotFoundError represents an error where an image
 // did not exist in the registry
@@ -176,6 +183,39 @@ func (c *Container) GetSortedEnvArray() []string {
 	}
 	return retEnv
 
+}
+
+// GetIamProfile retrieves, and validates the format of the IAM profile
+func (c *Container) GetIamProfile() (string, error) {
+	if c.TitusInfo.IamProfile == nil || c.TitusInfo.GetIamProfile() == "" {
+		return "", ErrMissingIAMRole
+	}
+	if _, err := arn.Parse(c.TitusInfo.GetIamProfile()); err != nil {
+		return "", err
+	}
+
+	return c.TitusInfo.GetIamProfile(), nil
+}
+
+// GetBatch returns what the environment variable TITUS_BATCH should be set to.
+// if it returns nil, TITUS_BATCH should be unset
+func (c *Container) GetBatch() *string {
+	idleStr := "idle"
+	trueStr := "true"
+
+	if c.Resources.CPU == 0 {
+		return &idleStr
+	}
+
+	if !c.TitusInfo.GetBatch() {
+		return nil
+	}
+
+	if c.TitusInfo.GetPassthroughAttributes()["titusParameter.agent.batchPriority"] == "idle" {
+		return &idleStr
+	}
+
+	return &trueStr
 }
 
 // Resources specify constraints to be applied to a Container
