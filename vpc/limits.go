@@ -125,8 +125,8 @@ var interfaceLimits = map[string]map[string]limits{
 		},
 		"16xlarge": limits{
 			interfaces:               15,
-			ipAddressesPerInterface:  50,
-			ip6AddressesPerInterface: 50,
+			ipAddressesPerInterface:  24,
+			ip6AddressesPerInterface: 24,
 			networkThroughput:        23000,
 		},
 	},
