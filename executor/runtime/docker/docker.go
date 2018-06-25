@@ -28,7 +28,6 @@ import (
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/nvidia"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
-	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
@@ -192,11 +191,6 @@ var (
 	envFileTemplate = template.Must(template.New("").Parse(envFileTemplateStr))
 )
 
-// ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
-// This is a transition because previously the protobuf had this marked as an optional field
-// and it's a temporary measure during protocol evolution.
-var ErrMissingIAMRole = errors.New("IAM Role Missing")
-
 // NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
 var NoEntrypointError = &runtimeTypes.BadEntryPointError{Reason: errors.New("Image, and job have no entrypoint, or command")}
 
@@ -335,13 +329,18 @@ func setupLoggingInfra(dockerRuntime *DockerRuntime) error {
 }
 
 func maybeSetCFSBandwidth(cfsBandwidthMode string, cfsBandwidthPeriod uint64, c *runtimeTypes.Container, hostCfg *container.HostConfig) {
-	cpuBurst := c.TitusInfo.GetAllowNetworkBursting()
+	cpuBurst := c.TitusInfo.GetAllowCpuBursting()
 	logEntry := log.WithField("taskID", c.TaskID).WithField("bandwidthMode", cfsBandwidthMode).WithField("cpuBurst", cpuBurst)
 
 	if cpuBurst {
 		logEntry.Info("Falling back to shares since CPU bursting is enabled")
 		setShares(logEntry, c, hostCfg)
 		return
+	}
+
+	if c.Resources.CPU == 0 {
+		logEntry.WithField("shares", 1).Info("Setting shares as this is an opportunistic workload")
+		hostCfg.CPUShares = 1
 	}
 
 	switch cfsBandwidthMode {
@@ -398,16 +397,10 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		return nil, nil, err
 	}
 
-	if c.TitusInfo.IamProfile == nil || c.TitusInfo.GetIamProfile() == "" {
-		return nil, nil, ErrMissingIAMRole
-	}
-
-	_, err = arn.Parse(c.TitusInfo.GetIamProfile())
+	c.Env["TITUS_IAM_ROLE"], err = c.GetIamProfile()
 	if err != nil {
 		return nil, nil, err
 	}
-
-	c.Env["TITUS_IAM_ROLE"] = c.TitusInfo.GetIamProfile()
 
 	hostname := strings.ToLower(c.TaskID)
 	containerCfg := &container.Config{
@@ -496,12 +489,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
-	if c.TitusInfo.GetBatch() {
-		if c.TitusInfo.GetPassthroughAttributes()["titusParameter.agent.batchPriority"] == "idle" {
-			c.Env["TITUS_BATCH"] = "idle"
-		} else {
-			c.Env["TITUS_BATCH"] = "true"
-		}
+	if batch := c.GetBatch(); batch != nil {
+		c.Env["TITUS_BATCH"] = *batch
 	}
 
 	// This must got after all setup
