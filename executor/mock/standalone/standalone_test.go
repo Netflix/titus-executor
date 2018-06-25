@@ -107,6 +107,9 @@ func TestStandalone(t *testing.T) {
 		testNewEnvironmentLocationNegative,
 		testOldEnvironmentLocationPositive,
 		testOldEnvironmentLocationNegative,
+		testNoCPUBursting,
+		testCPUBursting,
+		testTwoCPUs,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -668,6 +671,48 @@ func testOldEnvironmentLocationNegative(t *testing.T, jobID string) {
 		JobID:      jobID,
 	}
 	if !mock.RunJobExpectingFailure(ji) {
+		t.Fail()
+	}
+}
+
+func testNoCPUBursting(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName: ubuntu.name,
+		Version:   ubuntu.tag,
+		// Make sure quota is set
+		Entrypoint: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.cfs_quota_us|grep -v - -1'`,
+		JobID:      jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testCPUBursting(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName: ubuntu.name,
+		Version:   ubuntu.tag,
+		// Make sure quota is set
+		Entrypoint:  `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.cfs_quota_us|grep - -1'`,
+		JobID:       jobID,
+		CPUBursting: true,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testTwoCPUs(t *testing.T, jobID string) {
+	var cpuCount int64 = 2
+	ji := &mock.JobInput{
+		ImageName: ubuntu.name,
+		Version:   ubuntu.tag,
+		// Make sure quota is set
+		Entrypoint: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.shares|grep 200'`,
+		JobID:      jobID,
+		CPU:        &cpuCount,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
 }
