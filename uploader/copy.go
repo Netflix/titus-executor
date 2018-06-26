@@ -6,6 +6,8 @@ import (
 	"os"
 	"path"
 
+	"context"
+
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	log "github.com/sirupsen/logrus"
 )
@@ -17,12 +19,16 @@ type CopyUploader struct {
 }
 
 // NewCopyUploader creates a new instance of a copy uploader
-func NewCopyUploader(directory string) *CopyUploader {
+func NewCopyUploader(directory string) Uploader {
 	return &CopyUploader{Dir: directory}
 }
 
 // Upload copies a single file only!
-func (u *CopyUploader) Upload(local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
+func (u *CopyUploader) Upload(ctx context.Context, local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	l, err := os.Open(local)
 	if err != nil {
 		return err
@@ -70,7 +76,11 @@ func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) e
 }
 
 // UploadPartOfFile copies a single file only. It doesn't preserve the cursor location in the file.
-func (u *CopyUploader) UploadPartOfFile(local io.ReadSeeker, start, length int64, remote, contentType string) error {
+func (u *CopyUploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if n, err := local.Seek(start, io.SeekStart); err != nil {
 		return err
 	} else if n != start {

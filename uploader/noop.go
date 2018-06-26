@@ -1,6 +1,7 @@
 package uploader
 
 import (
+	"context"
 	"io"
 )
 
@@ -14,11 +15,11 @@ func NewNoopUploader() Uploader {
 }
 
 // Upload does nothing (i.e., noop)
-func (u *NoopUploader) Upload(local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
-	return nil
+func (u *NoopUploader) Upload(ctx context.Context, local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
+	return ctx.Err()
 }
 
 // UploadPartOfFile does nothing (i.e., noop)
-func (u *NoopUploader) UploadPartOfFile(local io.ReadSeeker, start, length int64, remote, contentType string) error {
-	return nil
+func (u *NoopUploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
+	return ctx.Err()
 }
