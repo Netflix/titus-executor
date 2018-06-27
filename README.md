@@ -17,16 +17,20 @@ We recommend setting up a GOPATH, and checking out your code into that GOPATH. F
 mkdir -p ${HOME}/go
 ## You add these lines to your .bashrc
 export GOPATH=${HOME}/go
-export PATH=${GOPATH}/bin:{PATH}
+export PATH=${GOPATH}/bin:${PATH}
 ##
 ```
 
 And then you can check out `github.com/Netflix/titus-executor` to `${GOPATH}/src/github.com/Netflix/titus-executor` -- an easy way to do this is go run `go get -u github.com/Netflix/titus-executor`.
 
 # Initial setup steps
-go get -u github.com/alecthomas/gometalinter
-gometalinter --install
-go get -u github.com/kardianos/govendor
+1. go get -u github.com/alecthomas/gometalinter
+1. gometalinter --install
+1. go get -u github.com/kardianos/govendor
+
+You would also need to make sure that your build environment (i.e. VM) has the following commands prior to building
+* make
+* gcc
 ```
 
 
