@@ -25,10 +25,10 @@ And then you can check out `github.com/Netflix/titus-executor` to `${GOPATH}/src
 
 # Initial setup steps
 1. go get -u github.com/alecthomas/gometalinter
-1. gometalinter --install
-1. go get -u github.com/kardianos/govendor
+2. gometalinter --install
+3. go get -u github.com/kardianos/govendor
 
-You would also need to make sure that your build environment (i.e. VM) has the following commands prior to building
+You also need to make sure that your build environment (i.e. VM) has the following commands prior to building
 * make
 * gcc
 ```
