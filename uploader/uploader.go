@@ -8,6 +8,8 @@ import (
 
 	"io"
 
+	"context"
+
 	"github.com/Netflix/titus-executor/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -68,7 +70,7 @@ func NewUploadersFromUploaderArray(uploaders []Uploader) *Uploaders {
 // Performs a parallel upload of all of files in a directory but
 // not its subdirectories. A slice containing the error results for
 // each upload with an error is returned.
-func uploadDir(uploader Uploader, local string, remote string, ctypeFunc ContentTypeInferenceFunction) []error {
+func uploadDir(ctx context.Context, uploader Uploader, local string, remote string, ctypeFunc ContentTypeInferenceFunction) []error {
 	var errs []error
 
 	fi, err := os.Stat(local)
@@ -91,7 +93,7 @@ func uploadDir(uploader Uploader, local string, remote string, ctypeFunc Content
 			qremote := path.Join(remote, finfo.Name())
 
 			log.Printf("Uploading log file %s to %s", qlocal, qremote)
-			if err = uploader.Upload(qlocal, qremote, ctypeFunc); err != nil {
+			if err = uploader.Upload(ctx, qlocal, qremote, ctypeFunc); err != nil {
 				uploadErr := fmt.Errorf("Error uploading to %s: %s", qremote, err)
 				log.Printf("%s", uploadErr)
 				errs = append(errs, uploadErr)
@@ -103,7 +105,7 @@ func uploadDir(uploader Uploader, local string, remote string, ctypeFunc Content
 
 // Upload is used to run each of uploaders available. A slice containing
 // the error results for each upload with an error is returned.
-func (e *Uploaders) Upload(local, remote string, ctypeFunc ContentTypeInferenceFunction) []error {
+func (e *Uploaders) Upload(ctx context.Context, local, remote string, ctypeFunc ContentTypeInferenceFunction) []error {
 	var errs []error
 
 	fi, staterr := os.Stat(local)
@@ -114,12 +116,12 @@ func (e *Uploaders) Upload(local, remote string, ctypeFunc ContentTypeInferenceF
 
 	if fi.IsDir() {
 		for _, uploader := range e.uploaders {
-			errs = uploadDir(uploader, local, remote, ctypeFunc)
+			errs = uploadDir(ctx, uploader, local, remote, ctypeFunc)
 		}
 	} else {
 		for _, uploader := range e.uploaders {
 			log.Printf("uploading %s to %s", local, remote)
-			uploadErrMsg := uploader.Upload(local, remote, ctypeFunc)
+			uploadErrMsg := uploader.Upload(ctx, local, remote, ctypeFunc)
 			if uploadErrMsg != nil {
 				uploadErr := fmt.Errorf("Error uploading to %s : %s", remote, uploadErrMsg)
 				errs = append(errs, uploadErr)
@@ -130,12 +132,12 @@ func (e *Uploaders) Upload(local, remote string, ctypeFunc ContentTypeInferenceF
 }
 
 // UploadPartOfFile wraps the uploaders, and calls the UploadPartOfFile method on them. It can upload a subset of a file. Offsets are not preserved.
-func (e *Uploaders) UploadPartOfFile(local io.ReadSeeker, start, length int64, remote, contentType string) []error {
+func (e *Uploaders) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) []error {
 	var errs []error
 
 	for _, uploader := range e.uploaders {
 		log.Debugf("uploading %s to %s", local, remote)
-		uploadErrMsg := uploader.UploadPartOfFile(local, start, length, remote, contentType)
+		uploadErrMsg := uploader.UploadPartOfFile(ctx, local, start, length, remote, contentType)
 		if uploadErrMsg != nil {
 			uploadErr := fmt.Errorf("Error uploading to %s : %s", remote, uploadErrMsg)
 			errs = append(errs, uploadErr)

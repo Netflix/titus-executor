@@ -7,6 +7,8 @@ import (
 
 	"io"
 
+	"context"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -68,7 +70,7 @@ func getEC2Region() (string, error) {
 }
 
 // Upload writes a single file only to S3!
-func (u *S3Uploader) Upload(local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
+func (u *S3Uploader) Upload(ctx context.Context, local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
 
 	f, err := os.Open(local)
@@ -85,17 +87,17 @@ func (u *S3Uploader) Upload(local string, remote string, ctypeFunc ContentTypeIn
 		}
 	}()
 
-	return u.uploadFile(f, remote, contentType)
+	return u.uploadFile(ctx, f, remote, contentType)
 }
 
 // UploadFile writes a single file only to S3!
-func (u *S3Uploader) uploadFile(local io.Reader, remote string, contentType string) error {
+func (u *S3Uploader) uploadFile(ctx context.Context, local io.Reader, remote string, contentType string) error {
 	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
 	if contentType == "" {
 		contentType = defaultS3ContentType
 	}
 
-	result, err := u.s3Uploader.Upload(&s3manager.UploadInput{
+	result, err := u.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 		ACL:         aws.String(defaultS3ACL),
 		ContentType: aws.String(contentType),
 		Bucket:      aws.String(u.bucketName),
@@ -112,7 +114,7 @@ func (u *S3Uploader) uploadFile(local io.Reader, remote string, contentType stri
 }
 
 // UploadPartOfFile copies a single file only. It doesn't preserve the cursor location in the file.
-func (u *S3Uploader) UploadPartOfFile(local io.ReadSeeker, start, length int64, remote, contentType string) error {
+func (u *S3Uploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
 	if _, err := local.Seek(start, io.SeekStart); err != nil {
 		return err
 	}
@@ -120,7 +122,7 @@ func (u *S3Uploader) UploadPartOfFile(local io.ReadSeeker, start, length int64, 
 		contentType = defaultS3ContentType
 	}
 	limitLocal := io.LimitReader(local, length)
-	return u.uploadFile(limitLocal, remote, contentType)
+	return u.uploadFile(ctx, limitLocal, remote, contentType)
 }
 
 type logAdapter struct {

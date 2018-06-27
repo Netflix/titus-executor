@@ -3,7 +3,6 @@ package filesystems
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
@@ -23,6 +22,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -55,20 +55,6 @@ const (
 var PotentialStdioNames = map[string]struct{}{
 	"stderr": {},
 	"stdout": {},
-}
-
-// LogUploadError represents an error uploading logs based
-// on the kind of uploader used.
-type LogUploadError struct {
-	reason error
-}
-
-// Error returns a string describing the error
-func (e *LogUploadError) Error() string {
-	if e.reason != nil {
-		return "Error uploading log files : " + e.reason.Error()
-	}
-	return "No upload errors"
 }
 
 // We rely on potentialStdioNames not matching any of the regexes here. Otherwise "bad" things will happen.
@@ -251,15 +237,24 @@ func (w *Watcher) watchLoop(parentCtx context.Context) {
 
 	log.Debug("Watcher shutting down")
 
+	finalCtx, finalCancel := context.WithTimeout(parentCtx, 5*time.Minute)
+	defer finalCancel()
 	// Wait for both loops to wrap up. This runs in theoretically unbounded time.
 	// At least we will throw an error if it takes more than 2 minutes to shut down
-	t := time.AfterFunc(120*time.Second, func() { log.Error("Watchloop took too long to shutdown") })
+	t := time.AfterFunc(120*time.Second, func() {
+		// TODO: We should do something to preempt the wait below
+		log.Error("Watchloop took too long to shutdown")
+	})
 	wg.Wait()
 	t.Stop()
 
-	w.stdioRotate(finalUpload)
+	w.stdioRotate(finalCtx, finalUpload)
+	if err := finalCtx.Err(); err != nil {
+		w.retError = err
+		return
+	}
 	// Set retError
-	w.retError = w.uploadAllLogFiles()
+	w.retError = w.uploadAllLogFiles(finalCtx)
 
 	// Cleanup is done by all of the above defers!
 }
@@ -276,7 +271,7 @@ func (w *Watcher) stdioRotateLoop(parentCtx context.Context, wg *sync.WaitGroup)
 	c := newTicker(ctx, w.stdioLogCheckInterval)
 
 	for range c {
-		w.stdioRotate(normalRotate)
+		w.stdioRotate(ctx, normalRotate)
 	}
 }
 
@@ -292,24 +287,24 @@ func (w *Watcher) traditionalRotateLoop(parentCtx context.Context, wg *sync.Wait
 	log.Debug("Rotate interval: ", w.UploadCheckInterval.String())
 
 	for range c {
-		w.traditionalRotate()
+		w.traditionalRotate(ctx)
 	}
 }
 
 // Traditional rotate doesn't actually rotate at all
 // it goes through a list of files, and checks when they were modified, and based upon that it uploads them and optionally deletes them
-func (w *Watcher) traditionalRotate() {
+func (w *Watcher) traditionalRotate(ctx context.Context) {
 	logFileList, err := buildFileListInDir(w.localDir, true, w.UploadThreshold)
 	if err == nil {
 		for _, logFile := range logFileList {
-			w.uploadLogfile(logFile)
+			w.uploadLogfile(ctx, logFile)
 		}
 	} else {
 		log.Error(err)
 	}
 }
 
-func (w *Watcher) stdioRotate(mode stdioRotateMode) {
+func (w *Watcher) stdioRotate(ctx context.Context, mode stdioRotateMode) {
 	for potentialStdioName := range PotentialStdioNames {
 
 		fullPath := filepath.Join(w.localDir, potentialStdioName)
@@ -328,19 +323,19 @@ func (w *Watcher) stdioRotate(mode stdioRotateMode) {
 		defer shouldClose(file)
 		// 1. Check for old virtual files that can be reclaimed:
 		// if so upload 'em, punch a hole in 'em, and discard 'em
-		w.doStdioUploadAndReclaim(mode, file)
+		w.doStdioUploadAndReclaim(ctx, mode, file)
 
 		if mode == normalRotate {
 			w.doStdioRotate(file)
 		} else if mode == finalUpload {
-			w.doFinalStdioUploadAndReclaim(file)
+			w.doFinalStdioUploadAndReclaim(ctx, file)
 		}
 
 	}
 }
 
-func (w *Watcher) doFinalStdioUploadAndReclaim(file *os.File) {
-	w.doStdioUploadAndReclaim(finalUpload, file)
+func (w *Watcher) doFinalStdioUploadAndReclaim(ctx context.Context, file *os.File) {
+	w.doStdioUploadAndReclaim(ctx, finalUpload, file)
 
 	cutLoc, err := GetCurrentOffset(file)
 	if err != nil {
@@ -351,13 +346,13 @@ func (w *Watcher) doFinalStdioUploadAndReclaim(file *os.File) {
 
 	fullRemoteFilePath := path.Join(w.uploadDir, path.Base(file.Name()))
 
-	if err := w.uploaders.UploadPartOfFile(file, cutLoc, math.MaxInt64, fullRemoteFilePath, ""); err != nil {
+	if err := w.uploaders.UploadPartOfFile(ctx, file, cutLoc, math.MaxInt64, fullRemoteFilePath, ""); err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 		log.Errorf("watch: error uploading %s: %s", file.Name(), err)
 	}
 }
 
-func (w *Watcher) doStdioUploadAndReclaim(mode stdioRotateMode, file *os.File) {
+func (w *Watcher) doStdioUploadAndReclaim(ctx context.Context, mode stdioRotateMode, file *os.File) {
 	xattrList, err := xattr.FListXattrs(file)
 	if err != nil {
 		log.Warning("Could not fetch xattr list for %s, because %v, not uploading and reclaiming", file.Name(), err)
@@ -383,7 +378,7 @@ func (w *Watcher) doStdioUploadAndReclaim(mode stdioRotateMode, file *os.File) {
 		}
 		start, len, err := FetchStartAndLen(xattrKey, file)
 		if err == nil {
-			w.doStdioUploadAndReclaimVirtualFile(mode, start, len, xattrKey, file)
+			w.doStdioUploadAndReclaimVirtualFile(ctx, mode, start, len, xattrKey, file)
 		}
 	}
 }
@@ -417,7 +412,7 @@ func FetchStartAndLen(xattrKey string, file *os.File) (int64, int64, error) {
 	return start, length, nil
 }
 
-func (w *Watcher) doStdioUploadAndReclaimVirtualFile(mode stdioRotateMode, start, length int64, xattrKey string, file *os.File) {
+func (w *Watcher) doStdioUploadAndReclaimVirtualFile(ctx context.Context, mode stdioRotateMode, start, length int64, xattrKey string, file *os.File) {
 
 	log.WithField("start", start).WithField("length", length).WithField("xattrKey", xattrKey).WithField("filename", file.Name()).Debug("Stdio upload and reclaim")
 	virtualFileSuffix := strings.TrimPrefix(xattrKey, VirtualFilePrefixWithSeparator)
@@ -441,7 +436,7 @@ func (w *Watcher) doStdioUploadAndReclaimVirtualFile(mode stdioRotateMode, start
 	// This relies on the fact that the stdio files are always in the root directory
 	fullRemoteFilePath := path.Join(w.uploadDir, virtualFileName)
 
-	if err := w.uploaders.UploadPartOfFile(file, start, length, fullRemoteFilePath, ""); err != nil {
+	if err := w.uploaders.UploadPartOfFile(ctx, file, start, length, fullRemoteFilePath, ""); err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 		log.Errorf("watch: error uploading %s's %s: %s", file.Name(), virtualFileName, err)
 	}
@@ -589,55 +584,48 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
-func (w *Watcher) uploadAllLogFiles() error {
-	var uploadErr LogUploadError
+func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
+	var errs *multierror.Error
 
 	logFileList, err := buildFileListInDir(w.localDir, false, w.UploadThreshold)
 	if err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 		log.Printf("Error uploading directory %s : %s\n", w.localDir, err)
-		uploadErr.reason = err
-		return uploadErr.reason
+		errs = multierror.Append(errs, err)
+		return errs.ErrorOrNil()
 	}
 
-	var errs []error
 	for _, logFile := range logFileList {
+		if ctx.Err() != nil {
+			errs = multierror.Append(errs, ctx.Err())
+			break
+		}
 		remoteFilePath, err := filepath.Rel(w.localDir, logFile)
 		if err != nil {
 			log.Printf("Unable to make relative path for %s : %s", logFile, err)
-			errs = append(errs, err)
+			errs = multierror.Append(errs, err)
 			continue
 		}
 		if CheckFileForStdio(logFile) {
 			continue
 		}
 
-		errs2 := w.uploaders.Upload(logFile, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType)
-		errs = append(errs, errs2...)
-
-		// Collect any errors from the upload and append to single error to return
-		for i, uploadErrMsg := range errs {
-			if i > 10 {
-				// Only return the first 10 errors so that
-				// the error message doesn't become too long.
-				break
-			}
-			if uploadErr.reason == nil {
-				uploadErr.reason = uploadErrMsg
-			} else {
-				uploadErr.reason = fmt.Errorf("%s, %s", uploadErr.reason, uploadErrMsg)
-			}
-			w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
+		errs2 := w.uploaders.Upload(ctx, logFile, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType)
+		for _, err := range errs2 {
+			errs = multierror.Append(errs, err)
 		}
 	}
 
-	return uploadErr.reason
+	if errs.ErrorOrNil() != nil {
+		w.metrics.Counter("titus.executor.logsUploadError", len(errs.Errors), nil)
+	}
+	return errs.ErrorOrNil()
 }
 
 // uploadLogFile is called to upload a single log file while the
 // task is running. Currently, no error is returned to the caller,
 // it is just logged.
-func (w *Watcher) uploadLogfile(fileToUpload string) {
+func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string) {
 	if w.shouldRotate(path.Base(fileToUpload)) {
 		// FIXME set content type
 		log.Info("Uploading ", fileToUpload)
@@ -647,7 +635,7 @@ func (w *Watcher) uploadLogfile(fileToUpload string) {
 			return
 		}
 
-		if err := w.uploaders.Upload(fileToUpload, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType); err != nil {
+		if err := w.uploaders.Upload(ctx, fileToUpload, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType); err != nil {
 			w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 			log.Printf("watch : error uploading %s : %s\n", fileToUpload, err)
 		}
