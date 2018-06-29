@@ -34,6 +34,7 @@ jobs:
       - run: ./build.sh ubuntu
       - run: ./build.sh ubuntu-systemd-xenial
       - run: ./build.sh no-entrypoint
+      - run: ./build.sh shell-entrypoint
       - run: ./build.sh ignore-signals
       - run: ./build.sh pty
       - run: ./build.sh ubuntu-env-label
