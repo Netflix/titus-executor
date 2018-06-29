@@ -211,7 +211,7 @@ func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 127); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 123); err != nil {
 		t.Fatal(err)
@@ -264,7 +264,7 @@ func testOverrideCmdFromImage(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 5); err != nil {
 		t.Fatal(err)
@@ -284,7 +284,7 @@ func testResetEntrypointFromImage(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner()
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 6); err != nil {
 		t.Fatal(err)
@@ -673,8 +673,8 @@ func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
 	if status.State.String() != "TASK_KILLED" {
 		t.Fail()
 	}
-	// 20 is 15 with some buffer?
-	if killTime > time.Second*time.Duration(20) {
+	// 30 is 15 with some buffer?
+	if killTime > time.Second*time.Duration(30) {
 		t.Fatalf("Task wasn't killed quickly enough, in %s", killTime.String())
 	}
 }
