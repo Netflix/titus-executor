@@ -144,30 +144,27 @@ func (c *Container) UploadDir(namespace string) string {
 	return filepath.Join("titan", c.Config.Stack, namespace, c.TaskID)
 }
 
-// GetEntrypointFromProto is a helper function to a parse the Protobuf entrypoint definition
-// into a string array that the Docker client expects.
-func (c *Container) GetEntrypointFromProto() ([]string, error) {
-	var (
-		cmd []string
-		err error
-	)
-	switch {
-	case c.TitusInfo.GetEntrypointStr() != "":
-		// If entrypointStr is > 0 bytes then we're assuming that
-		// this is the entrypoint to use, formatted as a single string
-		envs := []string{}
-		cmd, err = dockershellparser.ProcessWords(c.TitusInfo.GetEntrypointStr(), envs)
+// Process extracts Entrypoint and Cmd from TitusInfo expecting that only one of the below will be present:
+//
+// - TitusInfo.EntrypointStr, the old code path being deprecated. The flat string will be parsed according to shell
+//   rules and be returned as entrypoint, while cmd will be nil
+// - TitusInfo.Process, the new code path where both entrypoint and cmd are lists. Docker rules on how they interact
+//   apply
+//
+// If both are set, EntrypointStr has precedence to allow for smoother transition.
+func (c *Container) Process() (entrypoint, cmd []string, err error) {
+	if c.TitusInfo.EntrypointStr != nil {
+		// deprecated (old) way of passing entrypoints as a flat string. We need to parse it
+		entrypoint, err = dockershellparser.ProcessWords(c.TitusInfo.GetEntrypointStr(), []string{})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-	case len(c.TitusInfo.GetEntrypointCmd()) > 0:
-		cmd = append(cmd, c.TitusInfo.GetEntrypointCmd()...)
-	default:
-		// Neither of the entrypoints are set. Return an empty entrypoint
-		// array indicating the entrypoint wasn't set.
+		// nil cmd because everything is in the entrypoint
+		return entrypoint, nil, err
 	}
 
-	return cmd, nil
+	process := c.TitusInfo.GetProcess()
+	return process.GetEntrypoint(), process.GetCommand(), nil
 }
 
 // GetSortedEnvArray returns the list of environment variables set for the container as a sorted Key=Value list
