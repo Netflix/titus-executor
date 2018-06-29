@@ -86,9 +86,11 @@ message ContainerInfo {
 
     optional SnapshotPolicy snapshotPolicy = 10 [deprecated = true];
 
-    repeated string entrypointCmd = 11; // Deprecated. Use entrypointStr instead.
+    // deprecated: Use process instead
+    repeated string entrypointCmd = 11 [deprecated = true];
 
-    optional string entrypointStr = 13;
+    // deprecated: Use process instead
+    optional string entrypointStr = 13 [deprecated = true];
 
     optional string appName = 14;
 
@@ -99,8 +101,9 @@ message ContainerInfo {
     optional string iamProfile = 17;
 
     message NetworkConfigInfo {
-        // should this be required?
-        // it was added later (typo fix)
+        // deprecated: use eniLabel instead
+        required string eniLablel = 1 [deprecated = true];
+        // this should be required, but it was added later (typo fix) and is optional for backwards compatibility
         optional string eniLabel = 5;
         repeated string securityGroups = 3;
         optional uint32 bandwidthLimitMbps = 4; // In Mbps
@@ -253,4 +256,17 @@ message ContainerInfo {
 
     // passthrough attributes are an arbitrary set of key / value pairs that are passed from API to executor
     map<string, string> passthroughAttributes = 37;
+
+    // entrypoint and command follow Docker semantics, and can be used to override what is baked into the Docker image:
+    // https://docs.docker.com/engine/reference/builder/#understand-how-cmd-and-entrypoint-interact
+    //
+    // Both CMD and ENTRYPOINT baked into the image can be explicitly cleared with a single empty value (i.e.: `[""]`).
+    message Process {
+        // when set, will override ENTRYPOINT baked into the image, and cause CMD from the image to be ignored
+        repeated string entrypoint = 1;
+        // when set, will override CMD baked into the image
+        repeated string command = 2;
+    }
+    // Process to be executed inside the container
+    optional Process process = 38;
 }

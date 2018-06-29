@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+// Titus task relocation API specification.
+//
+
+package com.netflix.titus;
+
+import "google/protobuf/empty.proto";
+import "netflix/titus/titus_base.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "TaskRelocationProto";
+
+option go_package = "titus";
+
+// ----------------------------------------------------------------------------
+// Task relocation core data structures
+
+/// A single relocation plan.
+message RelocationPlan {
+    /// (Required) A list of task ids to terminate.
+    repeated string candidateTaskIds = 1;
+}
+
+/// An execution status for a single relocation plan.
+message ExecutionStatus {
+    /// Task ids from a relocation plan, that were successfully evicted.
+    repeated string terminatedTaskIds = 1;
+
+    // Map with key values containing the task ids from a relocation plan, that could not be evicted due to disruption
+    // budget or other constraints. Map value is the failure reason.
+    map<string, string> taskTerminationFailures = 2;
+}
+
+// ----------------------------------------------------------------------------
+// GRPC services
+
+message RelocationResult {
+    RelocationPlan plan = 1;
+    ExecutionStatus status = 2;
+}
+
+message RelocationHistoryRequest {
+    /// (Required) Number of the previously executed relocation plans to return.
+    uint32 count = 1;
+}
+
+message RelocationResults {
+    repeated RelocationResult results = 1;
+}
+
+message RelocationEvent {
+    message RelocationPlanCreatedEvent {
+        RelocationPlan plan = 1;
+    }
+
+    message ExecutionStatusUpdate {
+        ExecutionStatus status = 1;
+    }
+
+    oneof Event {
+        RelocationPlanCreatedEvent relocationPlanCreatedEvent = 1;
+        ExecutionStatusUpdate executionStatusUpdate = 2;
+    }
+}
+
+service TaskRelocationService {
+
+    /// Get the current relocation plan.
+    rpc GetCurrent (google.protobuf.Empty) returns (RelocationResult) {
+    }
+
+    /// Get the previous relocation plans.
+    rpc GetPrevious (RelocationHistoryRequest) returns (RelocationResults) {
+    }
+
+    /// Observe relocation plans and their execution status.
+    rpc ObserveRelocationEvents (google.protobuf.Empty) returns (stream RelocationEvent) {
+    }
+}

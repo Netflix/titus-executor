@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+// Titus health checking API, based on the GRPC Health Checking Protocol:
+// https://github.com/grpc/grpc/blob/e84d242ed4072246d6142b1a264bed2e19389c2d/doc/health-checking.md
+
+package com.netflix.titus;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "HealthProto";
+
+option go_package = "titus";
+
+message HealthCheckRequest {
+  // reserved for future use as per the GRPC Health Checking protocol, but currently ignored.
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  ServingStatus status = 1;
+
+  // Titus extensions to the healthcheck protocol
+
+  message ServerStatus {
+    oneof Status {
+      Details details = 1;
+      Unknown error = 2;
+    }
+  }
+
+  message Unknown {
+    string cell = 1;
+    string errorCode = 2;
+    string message = 3;
+  }
+
+  // Health check details for each server
+  message Details {
+    ServingStatus status = 1;
+    string cell = 2;
+    bool leader = 3;
+    bool active = 4;
+    google.protobuf.Timestamp electionTimestamp = 5;
+    google.protobuf.Timestamp activationTimestamp = 6;
+    google.protobuf.Duration activationTime = 7;
+    google.protobuf.Duration uptime = 8;
+    // sorted by each service activationTimestamp
+    repeated ServiceActivation serviceActivationTimes = 9;
+  }
+
+  // individual hosts return single details, while proxies (titus-gateway, titus-federation) may return multiple
+  repeated ServerStatus details = 2;
+}
+
+message ServiceActivation {
+  string name = 1;
+  google.protobuf.Duration activationTime = 2;
+}
+
+service Health {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+}
