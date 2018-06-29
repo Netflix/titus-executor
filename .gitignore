@@ -94,5 +94,5 @@ checkstyle-result.xml
 # unignore directories named titus-executor
 !*/titus-executor/
 
-test-standalone.log
-test-local.log
+coverage-local.out
+coverage-standalone.out
