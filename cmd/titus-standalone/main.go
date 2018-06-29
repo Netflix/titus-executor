@@ -124,7 +124,7 @@ func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config,
 
 	// Create the Titus executor
 	var logUploaders *uploader.Uploaders
-	if logUploaders, err = uploader.NewUploaders(cfg); err != nil {
+	if logUploaders, err = uploader.NewUploaders(cfg, m); err != nil {
 		return fmt.Errorf("Cannot create log uploaders: %v", err)
 	}
 

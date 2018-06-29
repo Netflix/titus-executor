@@ -10,6 +10,7 @@ import (
 
 	"context"
 
+	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -23,10 +24,10 @@ func collectCopyUploaders(cfg *config.Config) []Uploader {
 	return copyUploaders
 }
 
-func collectS3Uploaders(cfg *config.Config) []Uploader {
+func collectS3Uploaders(cfg *config.Config, m metrics.Reporter) []Uploader {
 	copyUploaders := []Uploader{}
 	for _, uploaderArg := range cfg.S3Uploaders {
-		copyUploaders = append(copyUploaders, NewS3Uploader(log.StandardLogger(), uploaderArg))
+		copyUploaders = append(copyUploaders, NewS3Uploader(m, log.StandardLogger(), uploaderArg))
 	}
 
 	return copyUploaders
@@ -48,11 +49,11 @@ type Uploaders struct {
 }
 
 // NewUploaders creates a new instance of an Uploaders object
-func NewUploaders(config *config.Config) (*Uploaders, error) {
+func NewUploaders(config *config.Config, m metrics.Reporter) (*Uploaders, error) {
 	e := &Uploaders{}
 
 	e.uploaders = append(e.uploaders, collectCopyUploaders(config)...)
-	e.uploaders = append(e.uploaders, collectS3Uploaders(config)...)
+	e.uploaders = append(e.uploaders, collectS3Uploaders(config, m)...)
 	e.uploaders = append(e.uploaders, collectNoopUploaders(config)...)
 
 	return e, nil

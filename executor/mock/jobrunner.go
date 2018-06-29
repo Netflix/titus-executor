@@ -132,7 +132,7 @@ func NewJobRunner() *JobRunner {
 	}
 
 	// Create an executor
-	logUploaders, err := uploader.NewUploaders(cfg)
+	logUploaders, err := uploader.NewUploaders(cfg, metrics.Discard)
 	if err != nil {
 		log.Fatalf("cannot create log uploaders: %s", err)
 	}
