@@ -109,6 +109,23 @@ message RetryPolicy {
     }
 }
 
+/// Token bucket policies
+message TokenBucketPolicy {
+    message FixedIntervalRefillStrategy {
+        uint64 refillRate = 3;
+
+        uint64 intervalMs = 4;
+    }
+
+    uint64 capacity = 1;
+
+    uint64 initialNumberOfTokens = 2;
+
+    oneof RefillStrategy {
+        FixedIntervalRefillStrategy fixedIntervalRefillStrategy = 3;
+    }
+}
+
 /// Titus scheduler tier (see Titus scheduler documentation for more information).
 enum Tier {
     /// Tier for running latency insensitive batch workloads.
@@ -116,6 +133,38 @@ enum Tier {
 
     /// Tier for running latency sensitive workloads.
     Critical = 1;
+}
+
+/// Titus hierarchy level.
+enum Level {
+    GlobalLevel = 0;
+    TierLevel = 1;
+    CapacityGroupLevel = 2;
+    JobLevel = 3;
+    TaskLevel = 4;
+}
+
+/// A reference to an entity in the Titus hierarchy.
+message Reference {
+    message Global {
+    }
+
+    oneof Reference {
+        /// Global level.
+        Global global = 1;
+
+        /// Tier level
+        Tier tier = 2;
+
+        /// A capacity group level, with the capacity group name as a value.
+        string capacityGroup = 3;
+
+        /// Job id.
+        string jobId = 4;
+
+        /// Task id.
+        string taskId = 5;
+    }
 }
 
 /// Disk mount permission mask

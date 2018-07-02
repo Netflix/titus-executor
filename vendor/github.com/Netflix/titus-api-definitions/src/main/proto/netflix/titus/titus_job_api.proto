@@ -133,10 +133,16 @@ message Container {
     /// (Optional) Arbitrary set of key/value pairs. Key names starting with 'titus.' are reserved by Titus.
     map<string, string> attributes = 4;
 
-    /// (Optional) A binary to execute with parameters. If not set, the entry point must be defined in the container image.
+    /// (Optional) Override the entry point of the image.
+    // If set, the command baked into the image (if any) is always ignored. Interactions between the entry point and
+    // command are the same as specified by Docker:
+    // https://docs.docker.com/engine/reference/builder/#understand-how-cmd-and-entrypoint-interact
+    //
+    //  To clear (unset) the entry point of the image, pass a single empty string value: [""]
     repeated string entryPoint = 5;
 
-    /// (Optional, not supported yet) Additional parameters for the entry point defined either here or provided in the container image
+    /// (Optional) Additional parameters for the entry point defined either here or provided in the container image.
+    // To clear (unset) the command of the image, pass a single empty string value: [""]
     repeated string command = 6;
 
     /// (Optional) A collection of system environment variables passed to the container.
@@ -164,6 +170,33 @@ message Capacity {
 
     // (Required) Desired number of tasks to run (min <= desired <= max)
     uint32 desired = 3;
+}
+
+/// Job disruption budget, associated (optionally) with a job.
+message JobDisruptionBudget {
+
+    /// The minimum required percentage of tasks in a healthy state. Tasks will not be terminated by the eviction service
+    //  if this limit would be violated.
+    message AvailabilityPercentageLimit {
+        double limit = 1;
+    }
+
+    /// The minimum required amount of tasks in a healthy state. Tasks will not be terminated by the eviction service
+    //  if this limit would be violated.
+    message AvailableTasksLimit {
+        uint32 limit = 1;
+    }
+
+    /// Maximum number of times a task can be evicted.
+    message EvictionLimit {
+        uint32 limit = 1;
+    }
+
+    oneof Policy {
+        AvailabilityPercentageLimit availabilityPercentageLimit = 1;
+        AvailableTasksLimit availableTasksLimit = 2;
+        EvictionLimit relocationLimit = 3;
+    }
 }
 
 /// Batch job specification.
@@ -269,6 +302,9 @@ message JobDescriptor {
         /// Service job specific descriptor.
         ServiceJobSpec service = 9;
     };
+
+    /// (Optional) Job disruption budget. If not defined, a job type specific (batch or service) default is set.
+    // JobDisruptionBudget disruptionBudget = 10;
 }
 
 /// Composite data structure holding both job state information and the reason of the transition to this state.

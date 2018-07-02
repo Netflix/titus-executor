@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
@@ -21,6 +22,13 @@ import (
 
 var errStatusChannelClosed = errors.New("Status channel closed")
 
+// Process describes what runs inside the container
+type Process struct {
+	Entrypoint []string
+	// Cmd overrides what is in the image
+	Cmd []string
+}
+
 // JobInput contains basic config info for a test job to run
 type JobInput struct {
 	// JobID is the name of the Titus job
@@ -31,8 +39,10 @@ type JobInput struct {
 	Version string
 	// ImageDigest is a unique identifier of the image
 	ImageDigest string
-	// Entrypoint is the name of the Docker entrypoint
-	Entrypoint string
+	// EntrypointOld is the deprecated way of passing an entrypoint as a flat string
+	EntrypointOld string
+	// Process is the new way of passing entrypoint and cmd
+	Process *Process
 	// Capabilities to add
 	Capabilities *titus.ContainerInfo_Capabilities
 	// Environment  is any extra environment variables to add
@@ -74,6 +84,31 @@ func (jobRunResponse *JobRunResponse) WaitForFailure() bool {
 		return false
 	}
 	return status == "TASK_FAILED"
+}
+
+// WaitForFailureWithStatus blocks until the job is finished, or ctx expires, and returns no error if the exit status
+// code matches the the desired value
+func (jobRunResponse *JobRunResponse) WaitForFailureWithStatus(ctx context.Context, exitStatus int) error {
+	for {
+		select {
+		case status, ok := <-jobRunResponse.UpdateChan:
+			if !ok {
+				return errors.New("UpdateChan closed before TASK_FAIL")
+			}
+			if !status.State.IsTerminalStatus() {
+				continue
+			}
+			if status.State == titusdriver.Failed {
+				if !strings.Contains(status.Mesg, fmt.Sprintf("exited with code %d", exitStatus)) {
+					return fmt.Errorf("Did not exit with status %d: %s", exitStatus, status.Mesg)
+				}
+				return nil // success
+			}
+			return fmt.Errorf("Terminal state is not TASK_FAILED: %s", status.State.String())
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 // WaitForCompletion blocks on the jobs completion and returns its status
@@ -187,11 +222,10 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 	}
 
 	ci := &titus.ContainerInfo{
-		ImageName:     protobuf.String(jobInput.ImageName),
-		Version:       protobuf.String(jobInput.Version),
-		EntrypointStr: protobuf.String(jobInput.Entrypoint),
-		JobId:         protobuf.String(jobID),
-		AppName:       protobuf.String("myapp"),
+		ImageName: protobuf.String(jobInput.ImageName),
+		Version:   protobuf.String(jobInput.Version),
+		JobId:     protobuf.String(jobID),
+		AppName:   protobuf.String("myapp"),
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
 			EniLabel: protobuf.String("1"),
 		},
@@ -201,7 +235,14 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 		IgnoreLaunchGuard:     protobuf.Bool(jobInput.IgnoreLaunchGuard),
 		PassthroughAttributes: make(map[string]string),
 	}
-
+	if p := jobInput.Process; p != nil {
+		ci.Process = &titus.ContainerInfo_Process{
+			Entrypoint: p.Entrypoint,
+			Command:    p.Cmd,
+		}
+	} else {
+		ci.EntrypointStr = protobuf.String(jobInput.EntrypointOld)
+	}
 	if jobInput.Batch != "" {
 		ci.Batch = protobuf.Bool(true)
 	}

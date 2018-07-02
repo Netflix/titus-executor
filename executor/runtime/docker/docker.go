@@ -392,7 +392,7 @@ func setShares(logEntry *log.Entry, c *runtimeTypes.Container, hostCfg *containe
 func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64) (*container.Config, *container.HostConfig, error) {
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
-	entrypoint, err := c.GetEntrypointFromProto()
+	entrypoint, cmd, err := c.Process()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -406,7 +406,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	containerCfg := &container.Config{
 		Image:      c.QualifiedImageName(),
 		Entrypoint: entrypoint,
-		Cmd:        nil, // We pass all arguments in the entrypoint array.
+		Cmd:        cmd,
 		Labels:     c.Labels,
 		Volumes:    map[string]struct{}{},
 		Hostname:   hostname,
@@ -770,18 +770,20 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string) error { // nolint: gocyclo
-	log.WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
+	l := log.WithField("taskID", c.TaskID)
+	l.WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
+
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.prepareTimeout)
 	defer cancel()
-	var containerCreateBody container.ContainerCreateCreatedBody
+
+	var (
+		containerCreateBody container.ContainerCreateCreatedBody
+		myImageInfo         *types.ImageInspect
+		dockerCfg           *container.Config
+		hostCfg             *container.HostConfig
+		size                int64
+	)
 	dockerCreateStartTime := time.Now()
-	var myImageInfo *types.ImageInspect
-	var dockerCfg *container.Config
-	var hostCfg *container.HostConfig
-	var size int64
-
-	l := log.WithField("taskID", c.TaskID)
-
 	group, errGroupCtx := errgroup.WithContext(ctx)
 	err := r.validateEFSMounts(c)
 	if err != nil {
@@ -800,9 +802,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		}
 
 		size = r.reportDockerImageSizeMetric(c, imageInfo)
-		// Check if this image (container) has a an entrypoint, or if we
-		// were passed one
-		if !r.hasEntrypoint(imageInfo, c) {
+		if !r.hasEntrypointOrCmd(imageInfo, c) {
 			return NoEntrypointError
 		}
 
@@ -1854,15 +1854,14 @@ func (r *DockerRuntime) reportDockerImageSizeMetric(c *runtimeTypes.Container, i
 	return imageInfo.Size
 }
 
-func (r *DockerRuntime) hasEntrypoint(imageInfo types.ImageInspect, c *runtimeTypes.Container) bool {
-	if entrypoint, err := c.GetEntrypointFromProto(); err != nil {
-		// If this happens, we return true, because this error will be bubbled up elsewhere
-		return true
-	} else if entrypoint != nil {
+// hasEntrypointOrCmd checks if the image has a an entrypoint, or if we were passed one
+func (r *DockerRuntime) hasEntrypointOrCmd(imageInfo types.ImageInspect, c *runtimeTypes.Container) bool {
+	entrypoint, cmd, err := c.Process()
+	if err != nil {
+		// If this happens, we return true, because this error will bubble up elsewhere
 		return true
 	}
-
-	return imageInfo.Config.Entrypoint != nil || imageInfo.Config.Cmd != nil
+	return len(entrypoint) > 0 || len(cmd) > 0 || len(imageInfo.Config.Entrypoint) > 0 || len(imageInfo.Config.Cmd) > 0
 }
 
 func shouldClose(c io.Closer) {
