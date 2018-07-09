@@ -9,6 +9,7 @@ import (
 
 	"context"
 
+	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -28,10 +29,11 @@ type S3Uploader struct {
 	log        logrus.FieldLogger
 	bucketName string
 	s3Uploader *s3manager.Uploader
+	metrics    metrics.Reporter
 }
 
 // NewS3Uploader creates a new instance of an S3 uploader
-func NewS3Uploader(log logrus.FieldLogger, bucket string) Uploader {
+func NewS3Uploader(m metrics.Reporter, log logrus.FieldLogger, bucket string) Uploader {
 	region, err := getEC2Region()
 	if err != nil {
 		panic(err)
@@ -40,6 +42,7 @@ func NewS3Uploader(log logrus.FieldLogger, bucket string) Uploader {
 	u := &S3Uploader{
 		log:        log,
 		bucketName: bucket,
+		metrics:    m,
 	}
 
 	session, err := session.NewSession(&aws.Config{
@@ -90,6 +93,21 @@ func (u *S3Uploader) Upload(ctx context.Context, local string, remote string, ct
 	return u.uploadFile(ctx, f, remote, contentType)
 }
 
+// countingReader is a wrapper of io.Reader to count number of bytes read
+type countingReader struct {
+	reader    io.Reader
+	bytesRead int
+}
+
+// Read aggregates number of bytes read
+func (r *countingReader) Read(p []byte) (n int, err error) {
+	n, err = r.reader.Read(p)
+	if err == nil {
+		r.bytesRead += n
+	}
+	return
+}
+
 // UploadFile writes a single file only to S3!
 func (u *S3Uploader) uploadFile(ctx context.Context, local io.Reader, remote string, contentType string) error {
 	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
@@ -97,16 +115,22 @@ func (u *S3Uploader) uploadFile(ctx context.Context, local io.Reader, remote str
 		contentType = defaultS3ContentType
 	}
 
+	// wrap input io.Reader with a counting reader
+	reader := &countingReader{reader: local}
+
 	result, err := u.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 		ACL:         aws.String(defaultS3ACL),
 		ContentType: aws.String(contentType),
 		Bucket:      aws.String(u.bucketName),
 		Key:         aws.String(remote),
-		Body:        local,
+		Body:        reader,
 	})
 	if err != nil {
 		return err
 	}
+
+	// TODO TITUS-895 uncomment metrics emission below once we can override Atlas common metrics INSIGHT-6368
+	// u.metrics.Counter("titus.executor.S3Uploader.successfullyUploadedBytes", reader.bytesRead, nil)
 
 	u.log.Printf("Successfully uploaded file from: %s to: %s", local, result.Location)
 
