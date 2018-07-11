@@ -236,7 +236,7 @@ func (r *Runner) prepareContainer(ctx context.Context, updateChan chan update) u
 		r.logger.Error("task failed to create container: ", err)
 		// Treat registry pull errors as LOST and non-existent images as FAILED.
 		switch err.(type) {
-		case *runtimeTypes.RegistryImageNotFoundError, *runtimeTypes.InvalidSecurityGroupError, *runtimeTypes.BadEntryPointError:
+		case *runtimeTypes.RegistryImageNotFoundError, *runtimeTypes.InvalidSecurityGroupError, *runtimeTypes.BadEntryPointError, *runtimeTypes.InvalidConfigurationError:
 			r.logger.Error("Returning TASK_FAILED for task: ", err)
 			return update{status: titusdriver.Failed, msg: err.Error()}
 		}

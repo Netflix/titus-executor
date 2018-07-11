@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -17,6 +18,10 @@ import (
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/aws/aws-sdk-go/aws/arn"
+)
+
+const (
+	hostnameStyleParam = "titusParameter.agent.hostnameStyle"
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -55,6 +60,17 @@ type InvalidSecurityGroupError struct {
 // Error returns a string describing an error
 func (e *InvalidSecurityGroupError) Error() string {
 	return fmt.Sprintf("Invalid security group : %s", e.Reason)
+}
+
+// InvalidConfigurationError represents invalid configuration
+// that results in a task startup being aborted
+type InvalidConfigurationError struct {
+	Reason error
+}
+
+// Error returns a string describing an error
+func (e *InvalidConfigurationError) Error() string {
+	return fmt.Sprintf("Invalid configuration: %s", e.Reason)
 }
 
 // CleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
@@ -213,6 +229,21 @@ func (c *Container) GetBatch() *string {
 	}
 
 	return &trueStr
+}
+
+// ComputeHostname computes a hostname in the container using container ID or ec2 style
+// depending on titusParameter.agent.hostnameStyle setting.  Return error if style is unrecognized.
+func (c *Container) ComputeHostname() (string, error) {
+	hostnameStyle := strings.ToLower(c.TitusInfo.GetPassthroughAttributes()[hostnameStyleParam])
+	switch hostnameStyle {
+	case "":
+		return strings.ToLower(c.TaskID), nil
+	case "ec2":
+		hostname := fmt.Sprintf("ip-%s", strings.Replace(c.Allocation.IPV4Address, ".", "-", 3))
+		return hostname, nil
+	default:
+		return "", &InvalidConfigurationError{Reason: fmt.Errorf("Unknown hostname style: %s", hostnameStyle)}
+	}
 }
 
 // Resources specify constraints to be applied to a Container

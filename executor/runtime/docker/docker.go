@@ -402,7 +402,12 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		return nil, nil, err
 	}
 
-	hostname := strings.ToLower(c.TaskID)
+	// hostname style: ip-{ip-addr} or {task ID}
+	hostname, err := c.ComputeHostname()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	containerCfg := &container.Config{
 		Image:      c.QualifiedImageName(),
 		Entrypoint: entrypoint,
