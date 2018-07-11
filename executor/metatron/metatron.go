@@ -128,6 +128,7 @@ type TitusMetadata struct {
 	Stack        string            `json:"stack"`
 	ImageName    string            `json:"imageName"`
 	ImageVersion string            `json:"imageVersion"`
+	ImageDigest  string            `json:"imageDigest"`
 	Entrypoint   string            `json:"entry"`
 	Env          map[string]string `json:"env"`
 	TaskID       string            `json:"instanceId"`
