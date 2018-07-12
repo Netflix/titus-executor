@@ -65,7 +65,7 @@ var (
 	}
 	ignoreSignals = testImage{
 		name: "titusoss/ignore-signals",
-		tag:  "latest",
+		tag:  "20180711-1531353167",
 	}
 	pty = testImage{
 		name: "titusoss/pty",
