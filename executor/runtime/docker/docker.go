@@ -740,6 +740,12 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 			log.Info("Allocate command exited with no error")
 			return
 		}
+		e = ctx.Err()
+		if e != nil {
+			log.WithError(e).Info("Allocate command canceled")
+			return
+		}
+
 		log.Error("Allocate command exited with error: ", err)
 
 		if exitErr, ok := e.(*exec.ExitError); ok {
@@ -1681,6 +1687,11 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 		defer close(c.SetupCommandStatus)
 		e := c.SetupCommand.Wait()
 		if e == nil {
+			return
+		}
+		e = ctx.Err()
+		if e != nil {
+			log.WithError(e).Info("Setup command canceled")
 			return
 		}
 		if exitErr, ok := e.(*exec.ExitError); ok {
