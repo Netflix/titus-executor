@@ -42,6 +42,11 @@ func setup(parentCtx *context.VPCContext) error {
 		return cli.NewMultiError(cli.NewExitError("Unable to setup interfaces", 1), err)
 	}
 
+	err = waitForInterfaces(ctx)
+	if err != nil {
+		return cli.NewMultiError(cli.NewExitError("Interfaces not available", 1), err)
+	}
+
 	// TODO: Ensure interfaces are attached in DeleteOnTermination
 	err = setupIFBs(ctx)
 	if err != nil {
@@ -97,10 +102,11 @@ func setupInterfaces(ctx *context.VPCContext) error {
 		}
 	}
 
-	return waitForInterfaces(ctx)
+	return nil
 }
 
 func attachInterfaceAtIdx(ctx *context.VPCContext, instanceID, subnetID string, idx int) error {
+	ctx.Logger.WithField("idx", idx).Info("Attaching interface")
 	// TODO: Check DescribeInstances to make sure an existing interface is not in attaching
 	svc := ec2.New(ctx.AWSSession)
 
@@ -155,6 +161,7 @@ func waitForInterfacesUp(ctx *context.VPCContext, allInterfaces map[string]ec2wr
 	waitUntil := time.Now().Add(time.Minute)
 
 	for time.Until(waitUntil) > 0 {
+		ctx.Logger.Info("Waiting for interfaces to come up")
 		outstandingInterfaces := len(allInterfaces)
 		interfaces, err := net.Interfaces()
 		if err != nil {
@@ -172,6 +179,7 @@ func waitForInterfacesUp(ctx *context.VPCContext, allInterfaces map[string]ec2wr
 		if outstandingInterfaces == 0 {
 			return nil
 		}
+		ctx.Logger.WithField("outstandingInterfaces", outstandingInterfaces).Info("Not all interfaces up")
 		time.Sleep(5 * time.Second)
 	}
 
