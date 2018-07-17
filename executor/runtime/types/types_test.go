@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -94,4 +95,42 @@ func TestDefaultIsNil(t *testing.T) {
 	}
 	assert.Len(t, entrypoint, 0)
 	assert.Len(t, cmd, 0)
+}
+
+func TestDefaultHostnameStyle(t *testing.T) {
+	container := &Container{
+		TitusInfo: &titus.ContainerInfo{
+			PassthroughAttributes: map[string]string{},
+		},
+		TaskID: "foobar",
+	}
+	hostname, err := container.ComputeHostname()
+	assert.Nil(t, err)
+	assert.Equal(t, container.TaskID, hostname)
+}
+
+func TestEc2HostnameStyle(t *testing.T) {
+	container := &Container{
+		TitusInfo: &titus.ContainerInfo{
+			PassthroughAttributes: map[string]string{hostnameStyleParam: "ec2"},
+		},
+		Allocation: vpcTypes.Allocation{
+			IPV4Address: "1.2.3.4",
+		},
+	}
+	hostname, err := container.ComputeHostname()
+	assert.Nil(t, err)
+	assert.Equal(t, "ip-1-2-3-4", hostname)
+}
+
+func TestInvalidHostnameStyle(t *testing.T) {
+	container := &Container{
+		TitusInfo: &titus.ContainerInfo{
+			PassthroughAttributes: map[string]string{hostnameStyleParam: "foo"},
+		},
+	}
+	hostname, err := container.ComputeHostname()
+	assert.Empty(t, hostname)
+	assert.NotNil(t, err)
+	assert.IsType(t, &InvalidConfigurationError{}, err)
 }

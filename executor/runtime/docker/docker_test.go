@@ -1,12 +1,11 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 	"time"
-
-	"bytes"
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	docker "github.com/docker/docker/client"
