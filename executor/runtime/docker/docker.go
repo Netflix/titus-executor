@@ -80,6 +80,7 @@ const (
 // Config represents the configuration for the Docker titus runtime
 type Config struct { // nolint: maligned
 	userNamespaceFDEnabled          bool
+	enableDefaultTitusTags          bool
 	cfsBandwidthPeriod              uint64
 	cfsBandwidthMode                string
 	tiniVerbosity                   int
@@ -165,8 +166,19 @@ func NewConfig() (*Config, []cli.Flag) {
 				"systems. Kernels with CONFIG_RT_GROUP_SCHED=y require all cgroups in the hierarchy to have some " +
 				"cpu.rt_runtime_us allocated to each one of them",
 		},
+		cli.BoolTFlag{
+			Name:        "titus.executor.enableDefaultTitusTags",
+			Destination: &cfg.enableDefaultTitusTags,
+			Usage:       "When enabled, titus-executor Atlas metrics are decorated with additional tags, t.jobId, t.taskId",
+		},
 	}
 	return cfg, flags
+}
+
+// IsEnableDefaultTitusTags returns true if Atlas metrics should be tagged with additional tags
+// including t.jobId and t.taskId; return false otherwise
+func (c *Config) IsEnableDefaultTitusTags() bool {
+	return c.enableDefaultTitusTags
 }
 
 // GenerateConfiguration is only meant to validate the behaviour of parsing command line arguments

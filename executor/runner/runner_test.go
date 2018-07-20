@@ -11,6 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/gogo/protobuf/proto"
@@ -150,7 +151,7 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 
 	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
-	}, l, cfg)
+	}, l, cfg, &docker.Config{})
 	require.NoError(t, err)
 	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 
@@ -223,7 +224,7 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 
 	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
-	}, l, cfg)
+	}, l, cfg, &docker.Config{})
 	require.NoError(t, err)
 	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 
@@ -308,7 +309,7 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 
 	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
-	}, l, cfg)
+	}, l, cfg, &docker.Config{})
 	require.NoError(t, err)
 	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 

@@ -129,9 +129,8 @@ func (u *S3Uploader) uploadFile(ctx context.Context, local io.Reader, remote str
 		return err
 	}
 
-	// TODO TITUS-895 uncomment metrics emission below once we can override Atlas common metrics INSIGHT-6368
-	// u.metrics.Counter("titus.executor.S3Uploader.successfullyUploadedBytes", reader.bytesRead, nil)
-
+	// TITUS-895 emit byes uploaded metrics.  tags = null to get default tags from the wrapped metrics Reporter (see Runner)
+	u.metrics.Counter("titus.executor.S3Uploader.successfullyUploadedBytes", reader.bytesRead, nil)
 	u.log.Printf("Successfully uploaded file from: %s to: %s", local, result.Location)
 
 	return nil

@@ -88,7 +88,7 @@ func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config)
 	case true:
 		m = metrics.Discard
 	default:
-		m = metrics.New(ctx, log.StandardLogger(), tag.Defaults)
+		m = runner.NewReporter(metrics.New(ctx, log.StandardLogger(), tag.Defaults))
 		defer m.Flush()
 	}
 
