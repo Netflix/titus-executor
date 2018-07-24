@@ -837,6 +837,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 
+	binds = append(binds, getlxcfsbindmounts()...)
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size)
 	if err != nil {
 		goto error
