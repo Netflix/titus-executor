@@ -27,7 +27,7 @@ RUN echo "deb [arch=amd64] https://apt.dockerproject.org/repo ubuntu-xenial main
 RUN apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
-    apt-get install -y build-essential make cmake libattr1-dev dbus docker-engine wget
+    apt-get install -y build-essential make cmake libattr1-dev dbus docker-engine wget lxcfs
 
 ### FROM golang:1.10.1
 # see: https://github.com/docker-library/golang/blob/906e04de73168f643c5c2b40dca0877a14d2377c/1.10/alpine3.7/Dockerfile
