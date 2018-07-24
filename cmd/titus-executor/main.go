@@ -28,6 +28,7 @@ func init() {
 }
 
 var logLevel string
+var enableDefaultTitusTags = true
 
 func setupLogging() {
 	switch logLevel {
@@ -49,6 +50,11 @@ var flags = []cli.Flag{
 		Name:        "titus.executor.logLevel",
 		Value:       "info",
 		Destination: &logLevel,
+	},
+	cli.BoolTFlag{
+		Name:        "titus.executor.enableDefaultTitusTags",
+		Destination: &enableDefaultTitusTags,
+		Usage:       "When enabled, titus-executor Atlas metrics are decorated with additional tags: t.jobId, t.taskId",
 	},
 }
 
@@ -89,6 +95,11 @@ func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config)
 		m = metrics.Discard
 	default:
 		m = metrics.New(ctx, log.StandardLogger(), tag.Defaults)
+		if enableDefaultTitusTags {
+			// If fast property titus.executor.enableDefaultTitusTags is unset or set to true,
+			// wrap metrics.Reporter with runner.reporter that has default Atlas tags (t.jobId, t.taskId)
+			m = runner.NewReporter(m)
+		}
 		defer m.Flush()
 	}
 

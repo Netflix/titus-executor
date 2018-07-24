@@ -43,10 +43,11 @@ type task struct {
 // Runner maintains in memory state for the task runner
 type Runner struct { // nolint: maligned
 	// const:
-	metrics metrics.Reporter
-	runtime runtimeTypes.Runtime
-	config  config.Config
-	logger  *logrus.Entry
+	metrics       metrics.Reporter
+	metricsTagger tagger // the presence of tagger indicates extra Atlas tag is enabled
+	runtime       runtimeTypes.Runtime
+	config        config.Config
+	logger        *logrus.Entry
 
 	container *runtimeTypes.Container
 	watcher   *filesystems.Watcher
@@ -77,15 +78,17 @@ func New(ctx context.Context, m metrics.Reporter, logUploaders *uploader.Uploade
 
 // WithRuntime builds an Executor using the provided Runtime factory func
 func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.Uploaders, cfg config.Config) (*Runner, error) {
+	metricsTagger, _ := m.(tagger) // metrics.Reporter may or may not implement tagger interface.  OK to be nil
 	runner := &Runner{
-		logger:       logrus.NewEntry(logrus.StandardLogger()),
-		metrics:      m,
-		logUploaders: logUploaders,
-		config:       cfg,
-		taskChan:     make(chan task, 1),
-		killChan:     make(chan struct{}),
-		UpdatesChan:  make(chan Update, 10),
-		StoppedChan:  make(chan struct{}),
+		logger:        logrus.NewEntry(logrus.StandardLogger()),
+		metrics:       m,
+		metricsTagger: metricsTagger,
+		logUploaders:  logUploaders,
+		config:        cfg,
+		taskChan:      make(chan task, 1),
+		killChan:      make(chan struct{}),
+		UpdatesChan:   make(chan Update, 10),
+		StoppedChan:   make(chan struct{}),
 	}
 	setupCh := make(chan error)
 	go runner.startRunner(ctx, setupCh, rp)
@@ -260,6 +263,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 		return
 	default:
 	}
+	r.maybeSetDefaultTags() // initialize metrics.Reporter default tags
 	updateChan <- update{status: titusdriver.Starting, msg: "creating"}
 
 	prepareUpdate := r.prepareContainer(ctx, updateChan)
@@ -302,6 +306,19 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
 
 	r.monitorContainer(ctx, startTime, statusChan, updateChan, details)
+}
+
+func (r *Runner) maybeSetDefaultTags() {
+	// If extra Atlas tags is enabled, initialize metrics.Reporter with default tags t.jobId and t.taskId
+	jobID := r.container.TitusInfo.TitusProvidedEnv["TITUS_JOB_ID"]
+	if r.metricsTagger != nil && len(jobID) > 0 {
+		tags := map[string]string{
+			"t.jobId":  jobID,
+			"t.taskId": r.container.TaskID,
+		}
+		r.metricsTagger.append(tags)
+		r.logger.Infof("Set Atlas default tags to: %s", tags)
+	}
 }
 
 func (r *Runner) monitorContainer(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
