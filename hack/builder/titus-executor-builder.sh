@@ -75,7 +75,7 @@ systemctl enable titus-darion.service
 systemctl enable titus-reaper.service
 systemctl enable titus-setup-networking.timer
 systemctl enable titus-vpc-gc.timer
-systemctl enable lxcfs
+systemctl enable lxcfs || echo "Not enabling LXCFS -- it is not available"
 EOF
 chmod +x /tmp/post-install.sh
 
