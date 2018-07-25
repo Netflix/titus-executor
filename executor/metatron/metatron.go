@@ -170,15 +170,6 @@ func createPassportDir(taskID string) error {
 	return os.MkdirAll(getMetatronOutputPath(taskID), os.FileMode(0700))
 }
 
-// RemovePassports removes a task's Metatron credential directory on the host
-func RemovePassports(taskID string) error {
-	err := os.RemoveAll(getPassportHostPath(taskID))
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("Failed to remove Metatron host path %s: %s", getPassportHostPath(taskID), err)
-	}
-	return nil
-}
-
 // GetPassports gets Metatron passports for a container/task and stores
 // them in a file system location.
 func (mts *TrustStore) GetPassports(ctx context.Context, encodedAppMetadata *string, encodedAppSig *string, taskID string, titusMetadata TitusMetadata) (*CredentialsConfig, error) {
