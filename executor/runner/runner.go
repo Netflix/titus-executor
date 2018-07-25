@@ -41,7 +41,7 @@ type task struct {
 }
 
 // Runner maintains in memory state for the task runner
-type Runner struct { // nolint: maligned
+type Runner struct {
 	// const:
 	metrics       metrics.Reporter
 	metricsTagger tagger // the presence of tagger indicates extra Atlas tag is enabled
@@ -468,25 +468,39 @@ func mkGetMetatronConfigFunc(mts *metatron.TrustStore) func(ctx context.Context,
 		if envMap == nil {
 			envMap = make(map[string]string)
 		}
+
+		var (
+			entrypoint []string
+			cmd        []string
+		)
+		if e := c.TitusInfo.EntrypointStr; e != nil {
+			// legacy entrypoints as flat strings, no support for CMD
+			entrypoint = []string{*e}
+			cmd = nil
+		} else {
+			entrypoint = c.TitusInfo.GetProcess().GetEntrypoint()
+			cmd = c.TitusInfo.GetProcess().GetCommand()
+		}
+
 		titusMetadata := metatron.TitusMetadata{
 			App:          c.TitusInfo.GetAppName(),
 			Stack:        c.TitusInfo.GetJobGroupStack(),
 			ImageName:    c.TitusInfo.GetImageName(),
 			ImageVersion: c.TitusInfo.GetVersion(),
 			ImageDigest:  c.TitusInfo.GetImageDigest(),
-			Entrypoint:   c.TitusInfo.GetEntrypointStr(),
+			Entrypoint:   entrypoint,
+			Command:      cmd,
 			IPAddress:    c.Allocation.IPV4Address,
 			Env:          envMap,
 			TaskID:       c.TaskID,
 			LaunchTime:   (time.Now().UnixNano() / int64(time.Millisecond)),
 		}
-
 		metatronConfig, err := mts.GetPassports(
 			ctx,
-			c.TitusInfo.MetatronCreds.AppMetadata,
-			c.TitusInfo.MetatronCreds.MetadataSig,
-			c.TaskID,
-			titusMetadata)
+			*c.TitusInfo.MetatronCreds.AppMetadata,
+			*c.TitusInfo.MetatronCreds.MetadataSig,
+			titusMetadata,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("Get Metatron Passport credentials failed: %s", err.Error())
 		}
