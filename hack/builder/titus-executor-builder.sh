@@ -101,6 +101,7 @@ fpm -t deb -s dir -C root \
   --deb-field "Branch: ${git_sha}" \
   --deb-activate ldconfig \
   --depends libc6 \
+  --depends 'systemd >= 237-3ubuntu10' \
   --deb-recommends lxcfs \
   --deb-recommends atlas-titus-agent \
   ${provides:-} \
