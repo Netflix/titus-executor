@@ -11,7 +11,7 @@ const (
 	lxcfs = "/var/lib/lxcfs"
 )
 
-func getlxcfsbindmounts() []string {
+func getLXCFsBindMounts() []string {
 	extraBinds := []string{}
 	for _, file := range []string{"cpuinfo", "meminfo", "uptime"} {
 		path := filepath.Join(lxcfs, "proc", file)
