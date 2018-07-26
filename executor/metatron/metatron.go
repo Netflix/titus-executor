@@ -129,7 +129,8 @@ type TitusMetadata struct {
 	ImageName    string            `json:"imageName"`
 	ImageVersion string            `json:"imageVersion"`
 	ImageDigest  string            `json:"imageDigest"`
-	Entrypoint   string            `json:"entry"`
+	Entrypoint   []string          `json:"entry,omitempty"`
+	Command      []string          `json:"command,omitempty"`
 	Env          map[string]string `json:"env"`
 	TaskID       string            `json:"instanceId"`
 	LaunchTime   int64             `json:"launchTime"`
@@ -170,19 +171,14 @@ func createPassportDir(taskID string) error {
 	return os.MkdirAll(getMetatronOutputPath(taskID), os.FileMode(0700))
 }
 
-// RemovePassports removes a task's Metatron credential directory on the host
-func RemovePassports(taskID string) error {
-	err := os.RemoveAll(getPassportHostPath(taskID))
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("Failed to remove Metatron host path %s: %s", getPassportHostPath(taskID), err)
-	}
-	return nil
-}
-
 // GetPassports gets Metatron passports for a container/task and stores
 // them in a file system location.
-func (mts *TrustStore) GetPassports(ctx context.Context, encodedAppMetadata *string, encodedAppSig *string, taskID string, titusMetadata TitusMetadata) (*CredentialsConfig, error) {
-	var err error
+func (mts *TrustStore) GetPassports(ctx context.Context, encodedAppMetadata string, encodedAppSig string, titusMetadata TitusMetadata) (*CredentialsConfig, error) {
+	var (
+		err    error
+		taskID = titusMetadata.TaskID
+	)
+
 	// Create a writeable directory path for the passports to go
 	if err = createPassportDir(taskID); err != nil {
 		return nil, err
@@ -193,8 +189,8 @@ func (mts *TrustStore) GetPassports(ctx context.Context, encodedAppMetadata *str
 	passportRequest := PassportRequest{
 		Version:        metatronRequestVersion,
 		RequestType:    metatronRequestType,
-		AppMetadata:    *encodedAppMetadata,
-		AppMetadataSig: *encodedAppSig,
+		AppMetadata:    encodedAppMetadata,
+		AppMetadataSig: encodedAppSig,
 		OutputPath:     outputPath,
 		TitusMetadata:  titusMetadata,
 	}

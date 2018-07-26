@@ -1025,7 +1025,7 @@ func (r *DockerRuntime) pushMetatron(parentCtx context.Context, c *runtimeTypes.
 	// TODO: Collapse these two into one tarball extract / copy, and not two
 
 	// Push trust store tar
-	if err := r.client.CopyToContainer(ctx, c.ID, "/", bytes.NewReader(mcc.TruststoreTarBuf.Bytes()), cco); err != nil {
+	if err := r.client.CopyToContainer(ctx, c.ID, "/", mcc.TruststoreTarBuf, cco); err != nil {
 		return err
 	}
 
@@ -1046,8 +1046,7 @@ func (r *DockerRuntime) pushMetatron(parentCtx context.Context, c *runtimeTypes.
 	if err := metatronTarWalk(tw, mcc); err != nil {
 		return err
 	}
-
-	return r.client.CopyToContainer(ctx, c.ID, "/", bytes.NewReader(tarBuf.Bytes()), cco)
+	return r.client.CopyToContainer(ctx, c.ID, "/", tarBuf, cco)
 }
 
 func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
