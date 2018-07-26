@@ -497,8 +497,8 @@ func mkGetMetatronConfigFunc(mts *metatron.TrustStore) func(ctx context.Context,
 		}
 		metatronConfig, err := mts.GetPassports(
 			ctx,
-			*c.TitusInfo.MetatronCreds.AppMetadata,
-			*c.TitusInfo.MetatronCreds.MetadataSig,
+			c.TitusInfo.GetMetatronCreds().GetAppMetadata(),
+			c.TitusInfo.GetMetatronCreds().GetMetadataSig(),
 			titusMetadata,
 		)
 		if err != nil {
