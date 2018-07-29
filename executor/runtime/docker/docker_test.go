@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
+	"github.com/Netflix/titus-executor/properties"
 	docker "github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 )
@@ -105,4 +106,9 @@ func TestValidEnvironmentKeys(t *testing.T) {
 	assert.False(t, environmentVariableKeyRegexp.MatchString("ksrouter.foo.bar"))
 	assert.False(t, environmentVariableKeyRegexp.MatchString("foo-bar"))
 	assert.False(t, environmentVariableKeyRegexp.MatchString("0"))
+}
+
+func TestFlags(t *testing.T) {
+	_, flags := NewConfig()
+	properties.ConvertFlagsForAltSrc(flags)
 }

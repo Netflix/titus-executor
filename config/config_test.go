@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	titusproto "github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/properties"
 	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 )
@@ -322,4 +323,9 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 	for _, f := range fixtures {
 		t.Run(f.name, check(f.input, f.want))
 	}
+}
+
+func TestFlags(t *testing.T) {
+	_, flags := NewConfig()
+	properties.ConvertFlagsForAltSrc(flags)
 }
