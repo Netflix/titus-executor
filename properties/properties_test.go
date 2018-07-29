@@ -36,21 +36,21 @@ func generateFlags() (*properties, []cli.Flag) {
 	localProperties := &properties{}
 
 	ret := []cli.Flag{
-		altsrc.NewBoolFlag(cli.BoolFlag{
+		cli.BoolFlag{
 			Name:        "TestBool",
 			Destination: &localProperties.TestBool,
-		}),
-		altsrc.NewBoolTFlag(cli.BoolTFlag{
+		},
+		cli.BoolTFlag{
 			Name:        "TestBoolT",
 			Destination: &localProperties.TestBoolT,
-		}),
-		altsrc.NewStringFlag(cli.StringFlag{
+		},
+		cli.StringFlag{
 			Name:        "TestString",
 			Destination: &localProperties.TestString,
-		}),
+		},
 	}
 
-	return localProperties, ret
+	return localProperties, ConvertFlagsForAltSrc(ret)
 }
 
 func TestProperties(t *testing.T) {

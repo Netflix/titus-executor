@@ -71,6 +71,7 @@ func main() {
 		return cli.NewExitError(mainWithError(c, dockerCfg, cfg), 1)
 	}
 
+	app.Flags = properties.ConvertFlagsForAltSrc(app.Flags)
 	app.Before = altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource())
 	if err := app.Run(os.Args); err != nil {
 		panic(err)

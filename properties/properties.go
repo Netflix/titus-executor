@@ -216,3 +216,33 @@ func incorrectTypeForFlagError(name, expectedTypeName string, value interface{})
 
 	return fmt.Errorf("Mismatched type for flag '%s'. Expected '%s' but actual is '%s'", name, expectedTypeName, valueTypeName)
 }
+
+// ConvertFlagsForAltSrc enables a flag to be used by altsrc
+func ConvertFlagsForAltSrc(flags []cli.Flag) []cli.Flag { // nolint: gocyclo
+	ret := make([]cli.Flag, len(flags))
+	for idx, untypedflag := range flags {
+		switch f := untypedflag.(type) {
+		case cli.IntFlag:
+			ret[idx] = altsrc.NewIntFlag(f)
+		case cli.DurationFlag:
+			ret[idx] = altsrc.NewDurationFlag(f)
+		case cli.Float64Flag:
+			ret[idx] = altsrc.NewFloat64Flag(f)
+		case cli.StringFlag:
+			ret[idx] = altsrc.NewStringFlag(f)
+		case cli.StringSliceFlag:
+			ret[idx] = altsrc.NewStringSliceFlag(f)
+		case cli.IntSliceFlag:
+			ret[idx] = altsrc.NewIntSliceFlag(f)
+		case cli.GenericFlag:
+			ret[idx] = altsrc.NewGenericFlag(f)
+		case cli.BoolFlag:
+			ret[idx] = altsrc.NewBoolFlag(f)
+		case cli.BoolTFlag:
+			ret[idx] = altsrc.NewBoolTFlag(f)
+		default:
+			panic(fmt.Sprintf("Unknown type: %T", untypedflag))
+		}
+	}
+	return ret
+}
