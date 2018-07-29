@@ -60,11 +60,14 @@ func (qis *QuiteliteInputSource) getVal(name string) (interface{}, bool) {
 func (qis *QuiteliteInputSource) Int(name string) (int, error) {
 	otherGenericValue, exists := qis.getVal(name)
 	if exists {
-		otherValue, isType := otherGenericValue.(int)
+		otherValue, isType := otherGenericValue.(float64)
 		if !isType {
 			return 0, incorrectTypeForFlagError(name, "int", otherGenericValue)
 		}
-		return otherValue, nil
+		if float64(int(otherValue)) != otherValue {
+			return 0, fmt.Errorf("Cannot convert %f into int", otherValue)
+		}
+		return int(otherValue), nil
 	}
 	return 0, nil
 }
@@ -73,11 +76,16 @@ func (qis *QuiteliteInputSource) Int(name string) (int, error) {
 func (qis *QuiteliteInputSource) Duration(name string) (time.Duration, error) {
 	otherGenericValue, exists := qis.getVal(name)
 	if exists {
-		otherValue, isType := otherGenericValue.(time.Duration)
-		if !isType {
+		switch otherValue := otherGenericValue.(type) {
+		case time.Duration:
+			return otherValue, nil
+		case string:
+			return time.ParseDuration(otherValue)
+		case float64:
+			return time.Duration(otherValue), nil
+		default:
 			return 0, incorrectTypeForFlagError(name, "duration", otherGenericValue)
 		}
-		return otherValue, nil
 	}
 
 	return 0, nil
@@ -153,13 +161,13 @@ func (qis *QuiteliteInputSource) IntSlice(name string) ([]int, error) {
 
 	var intSlice = make([]int, 0, len(otherValue))
 	for i, v := range otherValue {
-		intValue, isType := v.(int)
+		intValue, isType := v.(float64)
 
 		if !isType {
 			return nil, incorrectTypeForFlagError(fmt.Sprintf("%s[%d]", name, i), "int", v)
 		}
 
-		intSlice = append(intSlice, intValue)
+		intSlice = append(intSlice, int(intValue))
 	}
 
 	return intSlice, nil
@@ -214,7 +222,7 @@ func incorrectTypeForFlagError(name, expectedTypeName string, value interface{})
 		valueTypeName = valueType.Name()
 	}
 
-	return fmt.Errorf("Mismatched type for flag '%s'. Expected '%s' but actual is '%s'", name, expectedTypeName, valueTypeName)
+	return fmt.Errorf("Mismatched type for flag '%s'. Expected to receive '%s' from quitelite but actually received '%s'", name, expectedTypeName, valueTypeName)
 }
 
 // ConvertFlagsForAltSrc enables a flag to be used by altsrc
