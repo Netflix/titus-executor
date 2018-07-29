@@ -6,21 +6,25 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"time"
+
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/urfave/cli.v1"
 	"gopkg.in/urfave/cli.v1/altsrc"
 )
 
 type properties struct {
-	TestBool   bool
-	TestBoolT  bool
-	TestString string
+	TestBool     bool
+	TestBoolT    bool
+	TestString   string
+	TestDuration time.Duration
 }
 
 var referenceProperties = properties{
-	TestBool:   true,
-	TestBoolT:  false,
-	TestString: "test",
+	TestBool:     true,
+	TestBoolT:    false,
+	TestString:   "test",
+	TestDuration: 5 * time.Second,
 }
 
 type propertiesHandler struct {
@@ -48,6 +52,10 @@ func generateFlags() (*properties, []cli.Flag) {
 			Name:        "TestString",
 			Destination: &localProperties.TestString,
 		},
+		cli.DurationFlag{
+			Name:        "TestDuration",
+			Destination: &localProperties.TestDuration,
+		},
 	}
 
 	return localProperties, ConvertFlagsForAltSrc(ret)
@@ -72,6 +80,7 @@ func TestProperties(t *testing.T) {
 		assert.Equal(t, referenceProperties.TestString, props.TestString)
 		assert.Equal(t, referenceProperties.TestBoolT, props.TestBoolT)
 		assert.Equal(t, referenceProperties.TestBool, props.TestBool)
+		assert.Equal(t, referenceProperties.TestDuration, props.TestDuration)
 		return nil
 	}
 
