@@ -19,22 +19,16 @@ var (
 const defaultURI = "http://localhost:3002/properties/serialize"
 
 // NewQuiteliteSource instantiates a quitelite source. It will pull unless the disable flag is true.
-func NewQuiteliteSource(disableFlagName, alternateURIFlag string) func(context *cli.Context) (altsrc.InputSourceContext, error) {
+func NewQuiteliteSource() func(context *cli.Context) (altsrc.InputSourceContext, error) {
 	return func(context *cli.Context) (altsrc.InputSourceContext, error) {
-		if context.Bool(disableFlagName) {
-			return &QuiteliteInputSource{}, nil
-		}
-		alternateURI := context.String(alternateURIFlag)
-		if alternateURI != "" {
-			return fetchQuiteLiteSource(alternateURI)
-		}
-
 		return fetchQuiteLiteSource(defaultURI)
 	}
 }
 
 func fetchQuiteLiteSource(alternateURIFlag string) (altsrc.InputSourceContext, error) {
-	resp, err := http.Get(alternateURIFlag)
+	client := http.Client{}
+	client.Timeout = 10 * time.Second
+	resp, err := client.Get(alternateURIFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +39,7 @@ func fetchQuiteLiteSource(alternateURIFlag string) (altsrc.InputSourceContext, e
 
 	}()
 	ret := QuiteliteInputSource{}
-	err = json.NewDecoder(resp.Body).Decode(&ret)
+	err = json.NewDecoder(resp.Body).Decode(&ret.valueMap)
 	if err != nil {
 		return nil, err
 	}

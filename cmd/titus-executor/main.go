@@ -44,8 +44,6 @@ func setupLogging() {
 }
 
 var flags = []cli.Flag{
-	cli.BoolFlag{Name: "disable-quitelite"},
-	cli.StringFlag{Name: " quitelite-url"},
 	cli.StringFlag{
 		Name:        "titus.executor.logLevel",
 		Value:       "info",
@@ -73,7 +71,7 @@ func main() {
 		return cli.NewExitError(mainWithError(c, dockerCfg, cfg), 1)
 	}
 
-	altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource("disable-quitelite", "quitelite-url"))
+	app.Before = altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource())
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
