@@ -240,6 +240,10 @@ func ConvertFlagsForAltSrc(flags []cli.Flag) []cli.Flag { // nolint: gocyclo
 			ret[idx] = altsrc.NewBoolFlag(f)
 		case cli.BoolTFlag:
 			ret[idx] = altsrc.NewBoolTFlag(f)
+		case cli.Int64Flag:
+			ret[idx] = altsrc.NewInt64Flag(f)
+		case cli.Uint64Flag:
+			ret[idx] = altsrc.NewUint64Flag(f)
 		default:
 			panic(fmt.Sprintf("Unknown type: %T", untypedflag))
 		}
