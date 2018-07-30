@@ -217,7 +217,7 @@ func buildLogLocationBase(containerID string) string {
 		return "/logs"
 	}
 	// Outside container
-	return filepath.Join(conf.ContainersHome, containerID)
+	return filepath.Join(conf.ContainersHome, containerID, "logs")
 }
 
 func buildLink(containerID, fileName string) string {
