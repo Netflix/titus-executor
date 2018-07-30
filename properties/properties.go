@@ -19,22 +19,16 @@ var (
 const defaultURI = "http://localhost:3002/properties/serialize"
 
 // NewQuiteliteSource instantiates a quitelite source. It will pull unless the disable flag is true.
-func NewQuiteliteSource(disableFlagName, alternateURIFlag string) func(context *cli.Context) (altsrc.InputSourceContext, error) {
+func NewQuiteliteSource() func(context *cli.Context) (altsrc.InputSourceContext, error) {
 	return func(context *cli.Context) (altsrc.InputSourceContext, error) {
-		if context.Bool(disableFlagName) {
-			return &QuiteliteInputSource{}, nil
-		}
-		alternateURI := context.String(alternateURIFlag)
-		if alternateURI != "" {
-			return fetchQuiteLiteSource(alternateURI)
-		}
-
 		return fetchQuiteLiteSource(defaultURI)
 	}
 }
 
 func fetchQuiteLiteSource(alternateURIFlag string) (altsrc.InputSourceContext, error) {
-	resp, err := http.Get(alternateURIFlag)
+	client := http.Client{}
+	client.Timeout = 10 * time.Second
+	resp, err := client.Get(alternateURIFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +39,7 @@ func fetchQuiteLiteSource(alternateURIFlag string) (altsrc.InputSourceContext, e
 
 	}()
 	ret := QuiteliteInputSource{}
-	err = json.NewDecoder(resp.Body).Decode(&ret)
+	err = json.NewDecoder(resp.Body).Decode(&ret.valueMap)
 	if err != nil {
 		return nil, err
 	}
@@ -66,11 +60,14 @@ func (qis *QuiteliteInputSource) getVal(name string) (interface{}, bool) {
 func (qis *QuiteliteInputSource) Int(name string) (int, error) {
 	otherGenericValue, exists := qis.getVal(name)
 	if exists {
-		otherValue, isType := otherGenericValue.(int)
+		otherValue, isType := otherGenericValue.(float64)
 		if !isType {
 			return 0, incorrectTypeForFlagError(name, "int", otherGenericValue)
 		}
-		return otherValue, nil
+		if float64(int(otherValue)) != otherValue {
+			return 0, fmt.Errorf("Cannot convert %f into int", otherValue)
+		}
+		return int(otherValue), nil
 	}
 	return 0, nil
 }
@@ -79,11 +76,16 @@ func (qis *QuiteliteInputSource) Int(name string) (int, error) {
 func (qis *QuiteliteInputSource) Duration(name string) (time.Duration, error) {
 	otherGenericValue, exists := qis.getVal(name)
 	if exists {
-		otherValue, isType := otherGenericValue.(time.Duration)
-		if !isType {
+		switch otherValue := otherGenericValue.(type) {
+		case time.Duration:
+			return otherValue, nil
+		case string:
+			return time.ParseDuration(otherValue)
+		case float64:
+			return time.Duration(otherValue), nil
+		default:
 			return 0, incorrectTypeForFlagError(name, "duration", otherGenericValue)
 		}
-		return otherValue, nil
 	}
 
 	return 0, nil
@@ -159,13 +161,13 @@ func (qis *QuiteliteInputSource) IntSlice(name string) ([]int, error) {
 
 	var intSlice = make([]int, 0, len(otherValue))
 	for i, v := range otherValue {
-		intValue, isType := v.(int)
+		intValue, isType := v.(float64)
 
 		if !isType {
 			return nil, incorrectTypeForFlagError(fmt.Sprintf("%s[%d]", name, i), "int", v)
 		}
 
-		intSlice = append(intSlice, intValue)
+		intSlice = append(intSlice, int(intValue))
 	}
 
 	return intSlice, nil
@@ -220,5 +222,39 @@ func incorrectTypeForFlagError(name, expectedTypeName string, value interface{})
 		valueTypeName = valueType.Name()
 	}
 
-	return fmt.Errorf("Mismatched type for flag '%s'. Expected '%s' but actual is '%s'", name, expectedTypeName, valueTypeName)
+	return fmt.Errorf("Mismatched type for flag '%s'. Expected to receive '%s' from quitelite but actually received '%s'", name, expectedTypeName, valueTypeName)
+}
+
+// ConvertFlagsForAltSrc enables a flag to be used by altsrc
+func ConvertFlagsForAltSrc(flags []cli.Flag) []cli.Flag { // nolint: gocyclo
+	ret := make([]cli.Flag, len(flags))
+	for idx, untypedflag := range flags {
+		switch f := untypedflag.(type) {
+		case cli.IntFlag:
+			ret[idx] = altsrc.NewIntFlag(f)
+		case cli.DurationFlag:
+			ret[idx] = altsrc.NewDurationFlag(f)
+		case cli.Float64Flag:
+			ret[idx] = altsrc.NewFloat64Flag(f)
+		case cli.StringFlag:
+			ret[idx] = altsrc.NewStringFlag(f)
+		case cli.StringSliceFlag:
+			ret[idx] = altsrc.NewStringSliceFlag(f)
+		case cli.IntSliceFlag:
+			ret[idx] = altsrc.NewIntSliceFlag(f)
+		case cli.GenericFlag:
+			ret[idx] = altsrc.NewGenericFlag(f)
+		case cli.BoolFlag:
+			ret[idx] = altsrc.NewBoolFlag(f)
+		case cli.BoolTFlag:
+			ret[idx] = altsrc.NewBoolTFlag(f)
+		case cli.Int64Flag:
+			ret[idx] = altsrc.NewInt64Flag(f)
+		case cli.Uint64Flag:
+			ret[idx] = altsrc.NewUint64Flag(f)
+		default:
+			panic(fmt.Sprintf("Unknown type: %T", untypedflag))
+		}
+	}
+	return ret
 }
