@@ -81,6 +81,7 @@ checkstyle-result.xml
 /root/apps/titus-executor/bin/titus-executor
 /root/apps/titus-executor/bin/titus-reaper
 /root/apps/titus-executor/bin/titus-darion
+/root/apps/titus-executor/bin/titus-log-viewer
 /root/apps/titus-executor/bin/titus-metadata-service
 /root/apps/titus-executor/bin/titus-mount
 /root/apps/titus-executor/bin/tini-static

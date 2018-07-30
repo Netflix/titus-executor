@@ -39,8 +39,8 @@ func LogHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string) {
-	filePath := filepath.Join(conf.ContainersHome, containerID, "logs", fileName)
-	fout, err := os.Open(filePath)
+	logPath := filepath.Join(buildLogLocationBase(containerID), fileName)
+	fout, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		err = maybeVirtualFileStdioLogHandler(w, r, containerID, fileName)
 		if err != nil {
@@ -210,7 +210,14 @@ func writeResponse(w io.Writer, containerID string, fileList []string) error {
 }
 
 func buildLogLocationBase(containerID string) string {
-	return conf.ContainersHome + "/" + containerID + "/logs/"
+	// Make this code work in both outside and inside of a container until the log viewer is changed to
+	// run inside container exclusively.
+	if conf.TitusTaskID == containerID {
+		// Inside container
+		return "/logs"
+	}
+	// Outside container
+	return filepath.Join(conf.ContainersHome, containerID)
 }
 
 func buildLink(containerID, fileName string) string {
