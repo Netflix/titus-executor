@@ -43,6 +43,7 @@ profile docker-nested flags=(attach_disconnected,mediate_deleted) {
   deny /sys/kernel/security/** rwklx,
 
   mount fstype=tmpfs,
+  mount fstype=fuse,
 
   # suppress ptrace denials when using 'docker ps' or using 'ps' inside a container
   ptrace (trace,read) peer=docker-default,
