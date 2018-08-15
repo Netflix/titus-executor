@@ -16,6 +16,9 @@ profile docker-nested flags=(attach_disconnected,mediate_deleted) {
   capability,
   file,
   umount,
+  # Apparmor 4.14+ breaks mounting when using an old userland unless all mounts are whitelisted
+  mount,
+  remount,
 
   deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
   # deny write to files not in /proc/<number>/** or /proc/sys/**
@@ -26,10 +29,6 @@ profile docker-nested flags=(attach_disconnected,mediate_deleted) {
   deny @{PROC}/mem rwklx,
   deny @{PROC}/kmem rwklx,
   deny @{PROC}/kcore rwklx,
-
-  deny remount,
-  deny mount,
-  deny pivot_root,
 
   deny signal (send),
   signal peer=@{profile_name},
@@ -43,9 +42,11 @@ profile docker-nested flags=(attach_disconnected,mediate_deleted) {
   deny /sys/kernel/security/** rwklx,
 
   mount fstype=tmpfs,
+  mount fstype=fuse,
 
   # suppress ptrace denials when using 'docker ps' or using 'ps' inside a container
   ptrace (trace,read) peer=docker-default,
+  ptrace (trace,read) peer=docker-nested,
 
 }
 
