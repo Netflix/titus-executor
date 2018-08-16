@@ -59,6 +59,8 @@ COPY hack/agent/daemon.json /etc/docker/daemon.json
 COPY hack/agent/titus-shared.env /etc/titus-shared.env
 COPY hack/agent/10-disable-atlas-agent.conf /etc/systemd/system/atlas-titus-agent@.service.d/10-disable-atlas-agent.conf
 
+RUN wget -O /tmp/apparmor.deb http://launchpadlibrarian.net/381273068/apparmor_2.12-4ubuntu7_amd64.deb
+RUN dpkg -i /tmp/apparmor.deb
 
 # Directories that the executor needs access to, which will be available with --volumes-from
 VOLUME /run
