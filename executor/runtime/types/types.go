@@ -23,7 +23,8 @@ import (
 
 const (
 	hostnameStyleParam = "titusParameter.agent.hostnameStyle"
-	fuseEnabledParam   = "titusParameter.agent.fuseEnabled"
+	// FuseEnabledParam is a container atttribute set to enable FUSE
+	FuseEnabledParam = "titusParameter.agent.fuseEnabled"
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -250,7 +251,7 @@ func (c *Container) ComputeHostname() (string, error) {
 
 // GetFuseEnabled determines whether the container has FUSE devices exposed to it
 func (c *Container) GetFuseEnabled() (bool, error) {
-	fuseEnabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[fuseEnabledParam]
+	fuseEnabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[FuseEnabledParam]
 	if !ok {
 		return false, nil
 	}
