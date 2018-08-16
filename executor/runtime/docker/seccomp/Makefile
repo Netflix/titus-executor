@@ -2,6 +2,6 @@
 
 all: seccomp.go
 
-seccomp.go: default.json nested-container.json
-	go-bindata -pkg seccomp -o seccomp.go default.json nested-container.json
+seccomp.go: default.json nested-container.json fuse-container.json
+	go-bindata -pkg seccomp -o seccomp.go default.json nested-container.json fuse-container.json
 

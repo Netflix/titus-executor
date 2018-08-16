@@ -24,7 +24,6 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/metatron"
-	"github.com/Netflix/titus-executor/executor/runtime/docker/seccomp"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/nvidia"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
@@ -480,7 +479,10 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		// seccomp profile will automatically adjust based on the capabilities.
 		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
 	} else {
-		r.setupAdditionalCapabilities(c, hostCfg)
+		err = setupAdditionalCapabilities(c, hostCfg)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	// label is necessary for metadata proxy compatibility
@@ -537,37 +539,6 @@ func tiniSocketFileName(c *runtimeTypes.Container) string {
 
 func netflixLoggerTempDir(cfg config.Config, c *runtimeTypes.Container) string {
 	return filepath.Join(cfg.LogsTmpDir, c.TaskID)
-}
-
-func (r *DockerRuntime) setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
-	addedCapabilities := make(map[string]struct{})
-
-	// Set any additional capabilities for this container
-	if cap := c.TitusInfo.GetCapabilities(); cap != nil {
-		for _, add := range cap.GetAdd() {
-			addedCapabilities[add.String()] = struct{}{}
-			hostCfg.CapAdd = append(hostCfg.CapAdd, add.String())
-		}
-		for _, drop := range cap.GetDrop() {
-			hostCfg.CapDrop = append(hostCfg.CapDrop, drop.String())
-		}
-	}
-
-	// Privileged containers automaticaly deactivate seccomp and friends, no need to do this
-	if c.TitusInfo.GetAllowNestedContainers() {
-		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:docker-nested")
-
-		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(seccomp.MustAsset("nested-container.json"))))
-
-		if _, ok := addedCapabilities["SYS_ADMIN"]; !ok {
-			hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
-		}
-		c.Env["TINI_HANDOFF"] = trueString
-		c.Env["TINI_UNSHARE"] = trueString
-	} else {
-		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(seccomp.MustAsset("default.json"))))
-	}
-
 }
 
 func sleepWithCtx(parentCtx context.Context, d time.Duration) error {
