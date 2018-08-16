@@ -31,6 +31,12 @@ var GlobalGC = cli.Command{ // nolint: golint
 			Usage: "How long an ENI has to be detached before we will clean it up",
 			Value: time.Minute * 30,
 		},
+		cli.StringFlag{
+			Name:   "vpc-id",
+			Usage:  "Optionally specify a VPC, to speed up filtering requests",
+			EnvVar: "EC2_VPC_ID",
+			Value:  "",
+		},
 	},
 }
 
@@ -40,28 +46,46 @@ func globalGc(parentCtx *context.VPCContext) error {
 	defer cancel()
 
 	minDetachTime := parentCtx.CLIContext.Duration("detach-time")
+	vpcID := parentCtx.CLIContext.String("vpc-id")
 
-	if err := doGlobalGc(ctx, minDetachTime); err != nil {
+	if err := doGlobalGc(ctx, minDetachTime, vpcID); err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to run GC", 1), err)
 	}
 
 	return nil
 }
 
-func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) error {
+func getBaseFilter(vpcID string) []*ec2.Filter {
+	filters := []*ec2.Filter{
+		{
+			Name:   aws.String("description"),
+			Values: aws.StringSlice([]string{setup.NetworkInterfaceDescription}),
+		},
+	}
+
+	if vpcID != "" {
+		filter := ec2.Filter{
+			Name:   aws.String("vpc-id"),
+			Values: aws.StringSlice([]string{vpcID}),
+		}
+		filters = append(filters, &filter)
+	}
+	return filters
+}
+
+func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration, vpcID string) error {
 	ec2Client := ec2.New(parentCtx.AWSSession)
 
+	baseFilters := getBaseFilter(vpcID)
+	parentCtx.Logger.WithField("filters", getBaseFilter(vpcID)).Debug("Configuring ENI fetch filters")
+
 	describeAvailableRequest := &ec2.DescribeNetworkInterfacesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String("description"),
-				Values: aws.StringSlice([]string{setup.NetworkInterfaceDescription}),
-			},
+		Filters: append([]*ec2.Filter{
 			{
 				Name:   aws.String("status"),
 				Values: aws.StringSlice([]string{"available"}),
 			},
-		},
+		}, baseFilters...),
 	}
 
 	networkInterfaces, err := ec2Client.DescribeNetworkInterfacesWithContext(parentCtx, describeAvailableRequest)
@@ -89,11 +113,7 @@ func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) erro
 
 	// Remove incorrectly marked interfaces
 	describeMarkedRequest := &ec2.DescribeNetworkInterfacesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String("description"),
-				Values: aws.StringSlice([]string{setup.NetworkInterfaceDescription}),
-			},
+		Filters: append([]*ec2.Filter{
 			{
 				Name:   aws.String("status"),
 				Values: aws.StringSlice([]string{"in-use"}),
@@ -102,7 +122,7 @@ func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration) erro
 				Name:   aws.String("tag-key"),
 				Values: aws.StringSlice([]string{markTag}),
 			},
-		},
+		}, baseFilters...),
 	}
 
 	markedNetworkInterfaces, err := ec2Client.DescribeNetworkInterfacesWithContext(parentCtx, describeMarkedRequest)
