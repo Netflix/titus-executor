@@ -121,7 +121,7 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 	}
 	err = nsHandle.AddrAdd(link, &new4Addr)
 	if err != nil {
-		parentCtx.Logger.Error("Unable to add addr to link: ", err)
+		parentCtx.Logger.Error("Unable to add IPv4 addr to link: ", err)
 		return err
 	}
 	if ip6 != nil {
@@ -131,7 +131,7 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 		}
 		err = nsHandle.AddrAdd(link, &new6Addr)
 		if err != nil {
-			parentCtx.Logger.Error("Unable to add addr to link: ", err)
+			parentCtx.Logger.Error("Unable to add IPv6 addr to link: ", err)
 			return err
 		}
 	}
