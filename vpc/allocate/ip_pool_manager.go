@@ -2,6 +2,7 @@ package allocate
 
 import (
 	"errors"
+	"math/rand"
 	"path/filepath"
 	"time"
 
@@ -94,6 +95,10 @@ func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, networkinterface
 	if err != nil {
 		return "", nil, err
 	}
+	ipv6Addresses := iface.Ipv6Addresses
+	rand.Shuffle(len(ipv6Addresses), func(i, j int) {
+		ipv6Addresses[i], ipv6Addresses[j] = ipv6Addresses[j], ipv6Addresses[i]
+	})
 	for _, ipAddress := range iface.Ipv6Addresses {
 		lock, err := mgr.tryAllocate(ctx, *ipAddress.Ipv6Address)
 		if err != nil {
