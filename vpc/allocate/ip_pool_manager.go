@@ -17,6 +17,7 @@ import (
 var (
 	errIPRefreshFailed         = errors.New("IP refresh failed")
 	errMaxIPAddressesAllocated = errors.New("Maximum number of ip addresses allocated")
+	errNoFreeIPAddressFound    = errors.New("No free IP address found")
 )
 
 // IPPoolManager encapsulates all management, and locking for a given interface. It must be constructed with NewIPPoolManager
@@ -81,7 +82,33 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, 
 	return errIPRefreshFailed
 }
 
-func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) (string, *fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, networkinterface *ec2wrapper.EC2NetworkInterface) (string, *fslocker.ExclusiveLock, error) {
+	configLock, err := mgr.lockConfiguration(ctx)
+	if err != nil {
+		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
+		return "", nil, err
+	}
+	defer configLock.Unlock()
+
+	iface, err := ctx.Cache.DescribeInterface(ctx, networkinterface.InterfaceID)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, ipAddress := range iface.Ipv6Addresses {
+		lock, err := mgr.tryAllocate(ctx, *ipAddress.Ipv6Address)
+		if err != nil {
+			ctx.Logger.Warning("Unable to do allocation: ", err)
+			return "", nil, err
+		}
+		if lock != nil {
+			lock.Bump()
+			return *ipAddress.Ipv6Address, lock, nil
+		}
+	}
+	return "", nil, errNoFreeIPAddressFound
+}
+
+func (mgr *IPPoolManager) allocateIPv4(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) (string, *fslocker.ExclusiveLock, error) {
 	configLock, err := mgr.lockConfiguration(ctx)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
@@ -96,11 +123,12 @@ func (mgr *IPPoolManager) allocate(ctx *context.VPCContext, batchSize int, ipRef
 	}
 
 	ip, lock, err := mgr.doAllocate(ctx)
-	// Did we successfully get an IP, or was there an error?
-	if err != nil || lock != nil {
-		if err != nil {
-			ctx.Logger.Warning("Unable to allocate IP: ", err)
-		}
+	if err == errNoFreeIPAddressFound {
+
+	} else if err != nil {
+		ctx.Logger.WithError(err).Warning("Unable to allocate IP")
+		return ip, lock, err
+	} else if lock != nil { // We assume we only get a non-nil lock when we get a non-nil IP address
 		return ip, lock, err
 	}
 
@@ -128,7 +156,7 @@ func (mgr *IPPoolManager) doAllocate(ctx *context.VPCContext) (string, *fslocker
 			return ipAddress, lock, nil
 		}
 	}
-	return "", nil, nil
+	return "", nil, errNoFreeIPAddressFound
 }
 
 func (mgr *IPPoolManager) ipAddressesPath() string {

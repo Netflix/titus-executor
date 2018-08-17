@@ -104,7 +104,7 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 		return err
 	}
 
-	subnet, err := parentCtx.SubnetCache.DescribeSubnet(parentCtx, networkInterface.SubnetID)
+	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, networkInterface.SubnetID)
 	if err != nil {
 		return err
 	}

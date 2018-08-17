@@ -5,6 +5,7 @@ import "errors"
 // Allocation is the public interface exposed when we allocate a namespace
 type Allocation struct {
 	IPV4Address string `json:"ipv4Address"`
+	IPV6Address string `json:"ipv6Address"`
 	DeviceIndex int    `json:"deviceIndex"`
 	Success     bool   `json:"success"`
 	Error       string `json:"error"`
