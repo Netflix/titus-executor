@@ -652,6 +652,14 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		"--batch-size", strconv.Itoa(cfg.batchSize),
 	}
 
+	assignIPv6Address, err := c.AssignIPv6Address()
+	if err != nil {
+		return err
+	}
+	if assignIPv6Address {
+		args = append(args, "--allocate-ipv6-address=true")
+	}
+
 	// This blocks, and ignores kills.
 	if !c.TitusInfo.GetIgnoreLaunchGuard() {
 		args = append(args, "--wait-for-sg-lock-timeout", cfg.waitForSecurityGroupLockTimeout.String())
