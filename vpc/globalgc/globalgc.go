@@ -55,14 +55,19 @@ func globalGc(parentCtx *context.VPCContext) error {
 	return nil
 }
 
-func getBaseFilter(vpcID string) []*ec2.Filter {
+func getBaseFilter(vpcID, az string) []*ec2.Filter {
 	filters := []*ec2.Filter{
 		{
 			Name:   aws.String("description"),
 			Values: aws.StringSlice([]string{setup.NetworkInterfaceDescription}),
 		},
+		{
+			Name:   aws.String("availability-zone"),
+			Values: aws.StringSlice([]string{az}),
+		},
 	}
 
+	/* We don't filter on VPC here, because VPC filters make the call fail "reliably"
 	if vpcID != "" {
 		filter := ec2.Filter{
 			Name:   aws.String("vpc-id"),
@@ -70,14 +75,58 @@ func getBaseFilter(vpcID string) []*ec2.Filter {
 		}
 		filters = append(filters, &filter)
 	}
+	*/
 	return filters
 }
 
+func getAvailabilityZones(parentCtx *context.VPCContext) ([]string, error) {
+	ec2Client := ec2.New(parentCtx.AWSSession)
+	myAz, err := parentCtx.EC2metadataClientWrapper.AvailabilityZone()
+	if err != nil {
+		return nil, err
+	}
+	region := myAz[0 : len(myAz)-1]
+
+	req := &ec2.DescribeAvailabilityZonesInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   aws.String("region-name"),
+				Values: aws.StringSlice([]string{region}),
+			},
+		},
+	}
+	resp, err := ec2Client.DescribeAvailabilityZonesWithContext(parentCtx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	azNames := []string{}
+	for _, az := range resp.AvailabilityZones {
+		azNames = append(azNames, *az.ZoneName)
+	}
+
+	return azNames, nil
+}
+
 func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration, vpcID string) error {
+	availabilityZones, err := getAvailabilityZones(parentCtx)
+	if err != nil {
+		return err
+	}
+	for _, az := range availabilityZones {
+		err = doZonalGC(parentCtx, minDetachTime, az, vpcID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func doZonalGC(parentCtx *context.VPCContext, minDetachTime time.Duration, az string, vpcID string) error {
 	ec2Client := ec2.New(parentCtx.AWSSession)
 
-	baseFilters := getBaseFilter(vpcID)
-	parentCtx.Logger.WithField("filters", getBaseFilter(vpcID)).Debug("Configuring ENI fetch filters")
+	baseFilters := getBaseFilter(vpcID, az)
+	parentCtx.Logger.WithField("filters", baseFilters).Debug("Configuring ENI fetch filters")
 
 	describeAvailableRequest := &ec2.DescribeNetworkInterfacesInput{
 		Filters: append([]*ec2.Filter{
