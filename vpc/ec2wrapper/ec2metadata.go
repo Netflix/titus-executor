@@ -68,6 +68,15 @@ func (mdc *EC2MetadataClientWrapper) InstanceID() (string, error) {
 
 }
 
+// AvailabilityZone returns the qualified availability zone of the instance
+func (mdc *EC2MetadataClientWrapper) AvailabilityZone() (string, error) {
+	val, err := mdc.getMetadata("placement/availability-zone")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(val), nil
+}
+
 // Interfaces returns a map of mac addresses to interfaces
 func (mdc *EC2MetadataClientWrapper) Interfaces() (map[string]EC2NetworkInterface, error) {
 	ret := make(map[string]EC2NetworkInterface)
