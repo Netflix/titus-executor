@@ -38,8 +38,8 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 		return nil, err
 	}
 
-	ip := net.ParseIP(allocation.IPV4Address)
-
+	ip4 := net.ParseIP(allocation.IPV4Address)
+	ip6 := net.ParseIP(allocation.IPV6Address)
 	parentLink, err := getLink(networkInterface)
 	if err != nil {
 		return nil, err
@@ -82,10 +82,10 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 		return nil, err
 	}
 
-	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, networkInterface, ip)
+	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, networkInterface, ip4, ip6)
 }
 
-func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip net.IP) error {
+func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip4, ip6 net.IP) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -116,19 +116,30 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 	}
 
 	// The netlink package appears to automatically calculate broadcast
-	newAddr := netlink.Addr{
-		IPNet: &net.IPNet{IP: ip, Mask: ipnet.Mask},
+	new4Addr := netlink.Addr{
+		IPNet: &net.IPNet{IP: ip4, Mask: ipnet.Mask},
 	}
-	err = nsHandle.AddrAdd(link, &newAddr)
+	err = nsHandle.AddrAdd(link, &new4Addr)
 	if err != nil {
 		parentCtx.Logger.Error("Unable to add addr to link: ", err)
 		return err
+	}
+	if ip6 != nil {
+		// Amazon only gives out /128s
+		new6Addr := netlink.Addr{
+			IPNet: &net.IPNet{IP: ip6, Mask: net.CIDRMask(128, 128)},
+		}
+		err = nsHandle.AddrAdd(link, &new6Addr)
+		if err != nil {
+			parentCtx.Logger.Error("Unable to add addr to link: ", err)
+			return err
+		}
 	}
 
 	gateway := cidr.Inc(ipnet.IP)
 	newRoute := netlink.Route{
 		Gw:        gateway,
-		Src:       ip,
+		Src:       ip4,
 		LinkIndex: link.Attrs().Index,
 	}
 	err = nsHandle.RouteAdd(&newRoute)
@@ -137,7 +148,8 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 		return err
 	}
 
-	return setupIFBClasses(parentCtx, bandwidth, burst, ip)
+	// TODO: Wire up IFB / BPF / Bandwidth limits for IPv6
+	return setupIFBClasses(parentCtx, bandwidth, burst, ip4)
 }
 
 func setupIFBClasses(parentCtx *context.VPCContext, bandwidth uint64, burst bool, ip net.IP) error {
