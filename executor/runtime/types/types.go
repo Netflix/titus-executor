@@ -24,7 +24,8 @@ import (
 const (
 	hostnameStyleParam = "titusParameter.agent.hostnameStyle"
 	// FuseEnabledParam is a container atttribute set to enable FUSE
-	FuseEnabledParam = "titusParameter.agent.fuseEnabled"
+	FuseEnabledParam       = "titusParameter.agent.fuseEnabled"
+	assignIPv6AddressParam = "titusParameter.agent.assignIPv6Address"
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -256,6 +257,20 @@ func (c *Container) GetFuseEnabled() (bool, error) {
 		return false, nil
 	}
 	val, err := strconv.ParseBool(fuseEnabledStr)
+	if err != nil {
+		return false, err
+	}
+
+	return val, nil
+}
+
+// AssignIPv6Address determines whether the container should be assigned an IPv6 address
+func (c *Container) AssignIPv6Address() (bool, error) {
+	assignIPv6AddressStr, ok := c.TitusInfo.GetPassthroughAttributes()[assignIPv6AddressParam]
+	if !ok {
+		return false, nil
+	}
+	val, err := strconv.ParseBool(assignIPv6AddressStr)
 	if err != nil {
 		return false, err
 	}

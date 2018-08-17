@@ -134,3 +134,23 @@ func TestInvalidHostnameStyle(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.IsType(t, &InvalidConfigurationError{}, err)
 }
+
+func TestDefaultIPv6AddressAssignment(t *testing.T) {
+	c := Container{
+		TitusInfo: &titus.ContainerInfo{},
+	}
+	assignIPv6Address, err := c.AssignIPv6Address()
+	assert.NoError(t, err)
+	assert.False(t, assignIPv6Address)
+}
+
+func TestIPv6AddressAssignment(t *testing.T) {
+	c := Container{
+		TitusInfo: &titus.ContainerInfo{
+			PassthroughAttributes: map[string]string{assignIPv6AddressParam: "true"},
+		},
+	}
+	assignIPv6Address, err := c.AssignIPv6Address()
+	assert.NoError(t, err)
+	assert.True(t, assignIPv6Address)
+}

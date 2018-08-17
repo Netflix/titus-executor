@@ -61,10 +61,14 @@ var AllocateNetwork = cli.Command{ // nolint: golint
 			Usage: "How long to wait for AWS to give us IP addresses",
 			Value: 10 * time.Second,
 		},
+		cli.BoolFlag{
+			Name:  "allocate-ipv6-address",
+			Usage: "Allocate IPv6 Address for container",
+		},
 	},
 }
 
-func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]struct{}, batchSize, deviceIdx int, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, retErr error) {
+func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]struct{}, batchSize, deviceIdx int, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, allocateIPv6Address bool, retErr error) {
 	var err error
 
 	deviceIdx = parentCtx.CLIContext.Int("device-idx")
@@ -109,6 +113,7 @@ func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]st
 		retErr = cli.NewExitError("IP Refresh timeout must be at least 1 second", 1)
 		return
 	}
+	allocateIPv6Address = parentCtx.CLIContext.Bool("allocate-ipv6-address")
 
 	return
 }
@@ -116,7 +121,7 @@ func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]st
 func allocateNetwork(parentCtx *context.VPCContext) error {
 	var err error
 
-	securityGroups, batchSize, deviceIdx, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout, err := getCommandLine(parentCtx)
+	securityGroups, batchSize, deviceIdx, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout, allocateIPv6Address, err := getCommandLine(parentCtx)
 	if err != nil {
 		return err
 	}
@@ -128,9 +133,10 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 		"securityConvergenceTimeout": securityConvergenceTimeout,
 		"waitForSgLockTimeout":       waitForSgLockTimeout,
 		"ipRefreshTimeout":           ipRefreshTimeout,
+		"allocateIPv6Address":        allocateIPv6Address,
 	}).Debug()
 
-	allocation, err := doAllocateNetwork(parentCtx, deviceIdx, batchSize, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout)
+	allocation, err := doAllocateNetwork(parentCtx, deviceIdx, batchSize, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout, allocateIPv6Address)
 	if err != nil {
 		errors := []error{cli.NewExitError("Unable to setup networking", 1), err}
 		err = json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
@@ -139,10 +145,20 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 		}
 		return cli.NewMultiError(errors...)
 	}
-	ctx := parentCtx.WithField("ip", allocation.ipAddress)
+	ctx := parentCtx.WithField("ip4", allocation.ip4Address)
+	if allocateIPv6Address {
+		ctx = ctx.WithField("ip6", allocation.ip6Address)
+	}
 	ctx.Logger.Info("Network setup")
 	// TODO: Output JSON as to new network settings
-	err = json.NewEncoder(os.Stdout).Encode(types.Allocation{IPV4Address: allocation.ipAddress, DeviceIndex: deviceIdx, Success: true, ENI: allocation.eni})
+	err = json.NewEncoder(os.Stdout).
+		Encode(
+			types.Allocation{
+				IPV4Address: allocation.ip4Address,
+				IPV6Address: allocation.ip6Address,
+				DeviceIndex: deviceIdx,
+				Success:     true,
+				ENI:         allocation.eni})
 	if err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to write allocation record", 1), err)
 	}
@@ -172,19 +188,27 @@ exit:
 }
 
 type allocation struct {
-	sharedSGLock    *fslocker.SharedLock
-	exclusiveIPLock *fslocker.ExclusiveLock
-	ipAddress       string
-	eni             string
+	sharedSGLock     *fslocker.SharedLock
+	exclusiveIP4Lock *fslocker.ExclusiveLock
+	exclusiveIP6Lock *fslocker.ExclusiveLock
+	ip4Address       string
+	ip6Address       string
+	eni              string
 }
 
 func (a *allocation) refresh() error {
-	a.exclusiveIPLock.Bump()
+	a.exclusiveIP4Lock.Bump()
+	if a.exclusiveIP6Lock != nil {
+		a.exclusiveIP6Lock.Bump()
+	}
 	return nil
 }
 
 func (a *allocation) deallocate(ctx *context.VPCContext) {
-	a.exclusiveIPLock.Unlock()
+	a.exclusiveIP4Lock.Unlock()
+	if a.exclusiveIP6Lock != nil {
+		a.exclusiveIP6Lock.Bump()
+	}
 	a.sharedSGLock.Unlock()
 }
 
@@ -200,7 +224,7 @@ func getDefaultSecurityGroups(parentCtx *context.VPCContext) (map[string]struct{
 	return primaryInterface.SecurityGroupIds, nil
 }
 
-func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration) (*allocation, error) {
+func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, allocateIPv6Address bool) (*allocation, error) {
 	// 1. Ensure security groups are setup
 	ctx, cancel := parentCtx.WithTimeout(5 * time.Minute)
 	defer cancel()
@@ -210,21 +234,28 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 		ctx.Logger.Warning("Unable to get interface by idx: ", err)
 		return nil, err
 	}
-	sharedSGLock, err := setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
+	allocation := &allocation{
+		eni: networkInterface.InterfaceID,
+	}
+	allocation.sharedSGLock, err = setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
 	if err != nil {
 		ctx.Logger.Warning("Unable to setup security groups: ", err)
 		return nil, err
 	}
 	// 2. Get a (free) IP
-	ip, ipLock, err := NewIPPoolManager(networkInterface).allocate(ctx, batchSize, ipRefreshTimeout)
+	ipPoolManager := NewIPPoolManager(networkInterface)
+	allocation.ip4Address, allocation.exclusiveIP4Lock, err = ipPoolManager.allocateIPv4(ctx, batchSize, ipRefreshTimeout)
 	if err != nil {
 		return nil, err
 	}
-	allocation := &allocation{
-		sharedSGLock:    sharedSGLock,
-		exclusiveIPLock: ipLock,
-		ipAddress:       ip,
-		eni:             networkInterface.InterfaceID,
+
+	// Optionally, get an IPv6 address
+	if allocateIPv6Address {
+		allocation.ip6Address, allocation.exclusiveIP6Lock, err = ipPoolManager.allocateIPv6(ctx, networkInterface)
+		if err != nil {
+			allocation.deallocate(ctx)
+			return nil, err
+		}
 	}
 
 	return allocation, nil

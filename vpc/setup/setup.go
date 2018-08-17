@@ -111,9 +111,9 @@ func attachInterfaceAtIdx(ctx *context.VPCContext, instanceID, subnetID string, 
 	svc := ec2.New(ctx.AWSSession)
 
 	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
-		Description: aws.String(NetworkInterfaceDescription),
-		SubnetId:    aws.String(subnetID),
-		//	Ipv6AddressCount: aws.Int64(int64(getLimits(instanceType).ip6AddressesPerInterface)),
+		Description:      aws.String(NetworkInterfaceDescription),
+		SubnetId:         aws.String(subnetID),
+		Ipv6AddressCount: aws.Int64(int64(vpc.GetMaxIPv6Addresses(ctx.InstanceType))),
 	}
 	createNetworkInterfaceResult, err := svc.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
 	if err != nil {

@@ -220,6 +220,11 @@ func GetMaxIPv4Addresses(instanceType string) int {
 	return getLimits(instanceType).ipAddressesPerInterface
 }
 
+// GetMaxIPv6Addresses returns  the maximum number of IPv6 addresses that this instance type can handle per interface
+func GetMaxIPv6Addresses(instanceType string) int {
+	return getLimits(instanceType).ip6AddressesPerInterface
+}
+
 // GetMaxNetworkMbps returns the maximum network throughput in Megabits per second that this instance type can handle
 func GetMaxNetworkMbps(instanceType string) int {
 	return getLimits(instanceType).networkThroughput

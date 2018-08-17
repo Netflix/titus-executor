@@ -36,7 +36,7 @@ type VPCContext struct {
 	Logger                   *logrus.Entry
 	InstanceType             string
 	InstanceID               string
-	SubnetCache              *SubnetCache
+	Cache                    *Cache
 }
 
 func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
@@ -84,13 +84,15 @@ func newVPCContext(cliContext *cli.Context) (*VPCContext, error) {
 	}
 	ret.FSLocker = locker
 
-	subnetCachingDirectory := filepath.Join(stateDir, "subnets")
-	err = os.MkdirAll(subnetCachingDirectory, 0700)
+	cachingDirectory := filepath.Join(stateDir, "cache")
+	err = os.MkdirAll(cachingDirectory, 0700)
 	if err != nil {
 		return nil, err
 	}
-	ret.SubnetCache = newSubnetCache(locker, subnetCachingDirectory)
-
+	ret.Cache, err = newCache(locker, cachingDirectory)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
