@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"os"
 	"os/exec"
@@ -388,6 +389,19 @@ func setShares(logEntry *log.Entry, c *runtimeTypes.Container, hostCfg *containe
 	hostCfg.CPUShares = shares
 }
 
+func stableSecret() string {
+	ipBuf := make([]byte, 16)
+	// We can use math/rand here because this doesn't have to be cryptographically secure
+	n, err := rand.Read(ipBuf) // nolint: gas
+	if err != nil {
+		panic(err)
+	}
+	if n != len(ipBuf) {
+		panic(fmt.Sprintf("rand.Read only read %d bytes, not %d bytes", n, len(ipBuf)))
+	}
+	return net.IP(ipBuf).String()
+}
+
 func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64) (*container.Config, *container.HostConfig, error) {
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
@@ -423,10 +437,11 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Binds:      binds,
 		ExtraHosts: []string{fmt.Sprintf("%s:%s", hostname, c.Allocation.IPV4Address)},
 		Sysctls: map[string]string{
-			"net.ipv4.tcp_ecn":                   "1",
-			"net.ipv6.conf.all.disable_ipv6":     "0",
-			"net.ipv6.conf.default.disable_ipv6": "0",
-			"net.ipv6.conf.lo.disable_ipv6":      "0",
+			"net.ipv4.tcp_ecn":                    "1",
+			"net.ipv6.conf.all.disable_ipv6":      "0",
+			"net.ipv6.conf.default.disable_ipv6":  "0",
+			"net.ipv6.conf.lo.disable_ipv6":       "0",
+			"net.ipv6.conf.default.stable_secret": stableSecret(), // This is to ensure each container sets their addresses differently
 		},
 		Init: &useInit,
 	}
