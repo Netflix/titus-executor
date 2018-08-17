@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -22,6 +23,8 @@ import (
 
 const (
 	hostnameStyleParam = "titusParameter.agent.hostnameStyle"
+	// FuseEnabledParam is a container atttribute set to enable FUSE
+	FuseEnabledParam = "titusParameter.agent.fuseEnabled"
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -244,6 +247,20 @@ func (c *Container) ComputeHostname() (string, error) {
 	default:
 		return "", &InvalidConfigurationError{Reason: fmt.Errorf("Unknown hostname style: %s", hostnameStyle)}
 	}
+}
+
+// GetFuseEnabled determines whether the container has FUSE devices exposed to it
+func (c *Container) GetFuseEnabled() (bool, error) {
+	fuseEnabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[FuseEnabledParam]
+	if !ok {
+		return false, nil
+	}
+	val, err := strconv.ParseBool(fuseEnabledStr)
+	if err != nil {
+		return false, err
+	}
+
+	return val, nil
 }
 
 // Resources specify constraints to be applied to a Container
