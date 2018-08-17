@@ -5,11 +5,11 @@ package allocate
 import (
 	"encoding/binary"
 	"errors"
-	"net"
-	"reflect"
-
 	"fmt"
 	"math/rand"
+	"net"
+	"reflect"
+	"time"
 
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/context"
@@ -22,12 +22,14 @@ import (
 )
 
 const (
-	mtu = 9000
-	hz  = 100.0
+	mtu              = 9000
+	hz               = 100.0
+	networkSetupWait = 30 * time.Second
 )
 
 var (
-	errLinkNotFound = errors.New("Link not found")
+	errLinkNotFound        = errors.New("Link not found")
+	errAddressSetupTimeout = errors.New("IPv6 address setup timed out")
 )
 
 func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
@@ -85,6 +87,43 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, networkInterface, ip4, ip6)
 }
 
+func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, nsHandle *netlink.Handle, link netlink.Link, ip net.IP) error {
+	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, networkInterface.SubnetID)
+	if err != nil {
+		return err
+	}
+
+	// We assume that it always gives us the subnet
+	_, ipnet, err := net.ParseCIDR(*subnet.CidrBlock)
+	if err != nil {
+		return err
+	}
+
+	// The netlink package appears to automatically calculate broadcast
+	new4Addr := netlink.Addr{
+		IPNet: &net.IPNet{IP: ip, Mask: ipnet.Mask},
+	}
+	err = nsHandle.AddrAdd(link, &new4Addr)
+	if err != nil {
+		parentCtx.Logger.Error("Unable to add IPv4 addr to link: ", err)
+		return err
+	}
+
+	gateway := cidr.Inc(ipnet.IP)
+	newRoute := netlink.Route{
+		Gw:        gateway,
+		Src:       ip,
+		LinkIndex: link.Attrs().Index,
+	}
+	err = nsHandle.RouteAdd(&newRoute)
+	if err != nil {
+		parentCtx.Logger.Error("Unable to add route to link: ", err)
+		return err
+	}
+
+	return nil
+}
+
 func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip4, ip6 net.IP) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
@@ -104,26 +143,6 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 		return err
 	}
 
-	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, networkInterface.SubnetID)
-	if err != nil {
-		return err
-	}
-
-	// We assume that it always gives us the subnet
-	_, ipnet, err := net.ParseCIDR(*subnet.CidrBlock)
-	if err != nil {
-		return err
-	}
-
-	// The netlink package appears to automatically calculate broadcast
-	new4Addr := netlink.Addr{
-		IPNet: &net.IPNet{IP: ip4, Mask: ipnet.Mask},
-	}
-	err = nsHandle.AddrAdd(link, &new4Addr)
-	if err != nil {
-		parentCtx.Logger.Error("Unable to add IPv4 addr to link: ", err)
-		return err
-	}
 	if ip6 != nil {
 		// Amazon only gives out /128s
 		new6Addr := netlink.Addr{
@@ -136,20 +155,54 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 		}
 	}
 
-	gateway := cidr.Inc(ipnet.IP)
-	newRoute := netlink.Route{
-		Gw:        gateway,
-		Src:       ip4,
-		LinkIndex: link.Attrs().Index,
-	}
-	err = nsHandle.RouteAdd(&newRoute)
+	err = addIPv4AddressAndRoute(parentCtx, networkInterface, nsHandle, link, ip4)
 	if err != nil {
-		parentCtx.Logger.Error("Unable to add route to link: ", err)
 		return err
 	}
 
 	// TODO: Wire up IFB / BPF / Bandwidth limits for IPv6
-	return setupIFBClasses(parentCtx, bandwidth, burst, ip4)
+	err = setupIFBClasses(parentCtx, bandwidth, burst, ip4)
+	if err != nil {
+		return err
+	}
+	if ip6 != nil {
+		return waitForAddressUp(parentCtx, nsHandle, link)
+	}
+	return nil
+}
+
+// This checks if we have a globally-scoped, non-tentative IPv6 address
+func isIPv6Ready(nsHandle *netlink.Handle, link netlink.Link) (bool, error) {
+	addrs, err := nsHandle.AddrList(link, netlink.FAMILY_V6)
+	if err != nil {
+		return false, err
+	}
+	for _, addr := range addrs {
+		if addr.Scope == int(netlink.SCOPE_UNIVERSE) && addr.Flags&unix.IFA_F_TENTATIVE == 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func waitForAddressUp(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link) error {
+	ctx, cancel := parentCtx.WithTimeout(networkSetupWait)
+	defer cancel()
+	pollTimer := time.NewTicker(100 * time.Millisecond)
+	defer pollTimer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return errAddressSetupTimeout
+		case <-pollTimer.C:
+			if found, err := isIPv6Ready(nsHandle, link); err != nil {
+				return err
+			} else if found {
+				return nil
+			}
+		}
+	}
 }
 
 func setupIFBClasses(parentCtx *context.VPCContext, bandwidth uint64, burst bool, ip net.IP) error {

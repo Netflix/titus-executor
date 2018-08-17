@@ -402,6 +402,15 @@ func stableSecret() string {
 	return net.IP(ipBuf).String()
 }
 
+func maybeAddOptimisticDad(sysctl map[string]string) {
+	if unix.Access("/proc/sys/net/ipv6/conf/default/use_optimistic", 0) == nil {
+		sysctl["net.ipv6.conf.default.use_optimistic"] = "1"
+	}
+	if unix.Access("/proc/sys/net/ipv6/conf/default/optimistic_dad", 0) == nil {
+		sysctl["net.ipv6.conf.default.optimistic_dad"] = "1"
+	}
+}
+
 func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64) (*container.Config, *container.HostConfig, error) {
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
@@ -445,6 +454,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		},
 		Init: &useInit,
 	}
+	maybeAddOptimisticDad(hostCfg.Sysctls)
 	hostCfg.CgroupParent = r.pidCgroupPath
 	c.RegisterRuntimeCleanup(func() error {
 		return cleanupCgroups(r.pidCgroupPath)

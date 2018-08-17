@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
-
-	"path/filepath"
 
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/vpc"
