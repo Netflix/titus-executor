@@ -134,7 +134,6 @@ func (l *awsLogger) Log(args ...interface{}) {
 
 	if strings.Contains(formattedAWSArg, "EOF") || strings.Contains(formattedAWSArg, "404 - Not Found") {
 		// We need to dump all existing logs, and in addition turn our internal log level to debug
-		l.debugMode = true
 		message.Error(formattedAWSArg)
 		l.dumpExistingMessages()
 		return
