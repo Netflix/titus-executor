@@ -94,7 +94,7 @@ func getENIs(parentCtx *context.VPCContext, cfg *backfillConfiguration, svc *ec2
 	}
 }
 
-func filterNetworkInterfaces(enis []*ec2.NetworkInterface) []*ec2.NetworkInterface {
+func filterUntaggedInterfaces(enis []*ec2.NetworkInterface) []*ec2.NetworkInterface {
 	untaggedENIs := []*ec2.NetworkInterface{}
 	for _, eni := range enis {
 		tags := ec2util.TagSetToMap(eni.TagSet)
@@ -116,17 +116,14 @@ func doBackfillEni(parentCtx *context.VPCContext, cfg *backfillConfiguration) er
 		return nil
 	}
 
-	untaggedEnis := filterNetworkInterfaces(enis)
+	untaggedEnis := filterUntaggedInterfaces(enis)
 	ctx.Logger.WithField("count", len(untaggedEnis)).Info("Found untagged ENIs")
 
-	for len(untaggedEnis) > 0 {
-		workingSetSize := cfg.TagChunkSize
-		if len(untaggedEnis) < workingSetSize {
-			workingSetSize = len(untaggedEnis)
-		}
-		workingSet := untaggedEnis[:workingSetSize]
-		untaggedEnis = untaggedEnis[workingSetSize:]
-		err = tagWorkingSet(parentCtx, workingSet, svc)
+	now := time.Now()
+	// We do this because even though the CreateTagsInput call accepts multiple resources, if one of the resources
+	// is missing, it ends up causing the whole thing to fail
+	for _, untaggedENI := range untaggedEnis {
+		err = tagENI(parentCtx, untaggedENI, svc, now)
 		if err != nil {
 			return err
 		}
@@ -134,21 +131,12 @@ func doBackfillEni(parentCtx *context.VPCContext, cfg *backfillConfiguration) er
 	return nil
 }
 
-func tagWorkingSet(parentCtx *context.VPCContext, workingSet []*ec2.NetworkInterface, svc *ec2.EC2) error {
-	resources := make([]*string, len(workingSet))
-	for idx, item := range workingSet {
-		resources[idx] = item.NetworkInterfaceId
-	}
-	strResources := make([]string, len(resources))
-	for idx := range resources {
-		strResources[idx] = *resources[idx]
-	}
-	parentCtx.Logger.WithField("count", len(strResources)).WithField("resources", resources).Info("Labeling ENIs")
-
-	now := time.Now()
+func tagENI(parentCtx *context.VPCContext, eni *ec2.NetworkInterface, svc *ec2.EC2, now time.Time) error {
+	ctx := parentCtx.Logger.WithField("eni", *eni.NetworkInterfaceId)
+	ctx.Info("Labeling ENI")
 
 	createTagsInput := &ec2.CreateTagsInput{
-		Resources: resources,
+		Resources: aws.StringSlice([]string{*eni.NetworkInterfaceId}),
 		Tags: []*ec2.Tag{
 			{
 				Key:   aws.String(vpc.ENICreationTimeTag),
@@ -165,7 +153,7 @@ func tagWorkingSet(parentCtx *context.VPCContext, workingSet []*ec2.NetworkInter
 	} else if err != nil {
 		return err
 	}
-	parentCtx.Logger.WithField("count", len(resources)).Info("Labeled ENIs")
+	ctx.Info("Labeled ENIs")
 
 	return nil
 }
