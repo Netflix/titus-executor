@@ -13,10 +13,10 @@ import (
 )
 
 type globalGcConfig struct {
-	timeout    time.Duration
-	detachTime time.Duration
-	vpcID      string
-	workers    int
+	timeout           time.Duration
+	timeSinceCreation time.Duration
+	vpcID             string
+	workers           int
 }
 
 // GlobalGC is the configuration for the command that deletes ENI which have been unattached too long
@@ -40,10 +40,10 @@ func GlobalGC() cli.Command {
 				Destination: &cfg.timeout,
 			},
 			cli.DurationFlag{
-				Name:        "detach-time",
-				Usage:       "How long an ENI has to be detached before we will clean it up",
+				Name:        "time-since-creation",
+				Usage:       "How long an ENI has to be created before we will clean it up",
 				Value:       time.Minute * 30,
-				Destination: &cfg.detachTime,
+				Destination: &cfg.timeSinceCreation,
 			},
 			cli.StringFlag{
 				Name:        "vpc-id",
@@ -170,7 +170,7 @@ func doGlobalGC(parentCtx *context.VPCContext, cfg *globalGcConfig) error {
 
 	for i := 0; i < cfg.workers; i++ {
 		grp.Go(func() error {
-			return cleanupENIs(ctx, cfg.detachTime, networkInterfaceChannel)
+			return cleanupENIs(ctx, cfg.timeSinceCreation, networkInterfaceChannel)
 		})
 	}
 
