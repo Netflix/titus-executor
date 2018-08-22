@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/sirupsen/logrus"
 	"github.com/wercker/journalhook"
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -178,8 +179,7 @@ func (ctx *VPCContext) setupEC2() error {
 		awsConfig := aws.NewConfig().
 			WithMaxRetries(3).
 			WithRegion(instanceIDDocument.Region).
-			WithLogger(newAWSLogger).
-			WithLogLevel()
+			WithLogger(newAWSLogger)
 
 		if awsSession, err2 := session.NewSession(awsConfig); err2 == nil {
 			ctx.AWSSession = awsSession
@@ -229,4 +229,19 @@ func WrapFunc(internalFunc func(*VPCContext) error) func(*cli.Context) error {
 		}
 		return internalFunc(ctx)
 	}
+}
+
+// copy returns a copy of the context
+func (ctx *VPCContext) copy() *VPCContext {
+	ret := &VPCContext{}
+	*ret = *ctx
+	return ret
+}
+
+// ErrGroup returns a new ErrGroup and an associated Context derived from ctx.
+func (ctx *VPCContext) ErrGroup() (*errgroup.Group, *VPCContext) {
+	var grp *errgroup.Group
+	tmp := ctx.copy()
+	grp, tmp.Context = errgroup.WithContext(ctx.Context)
+	return grp, tmp
 }

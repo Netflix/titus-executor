@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/allocate"
+	"github.com/Netflix/titus-executor/vpc/backfilleni"
 	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/Netflix/titus-executor/vpc/gc"
 	"github.com/Netflix/titus-executor/vpc/genconf"
@@ -40,8 +41,9 @@ func main() {
 		allocate.AllocateNetwork,
 		gc.GC,
 		allocate.SetupContainer,
-		globalgc.GlobalGC,
+		globalgc.GlobalGC(),
 		genconf.GenConf,
+		backfilleni.BackfillEni(),
 	}
 
 	// This is here because logs are buffered, and it's a way to try to guarantee that logs

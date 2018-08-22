@@ -4,70 +4,82 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/context"
-	"github.com/Netflix/titus-executor/vpc/setup"
+	"github.com/Netflix/titus-executor/vpc/ec2util"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"gopkg.in/urfave/cli.v1"
 )
 
-const (
-	markTag = "titus-gc-mark-time"
-)
-
-var GlobalGC = cli.Command{ // nolint: golint
-	Name:   "globalgc",
-	Usage:  "Garbage collect detached ENIs",
-	Action: context.WrapFunc(globalGc),
-	Flags: []cli.Flag{
-		cli.DurationFlag{
-			Name:  "timeout",
-			Usage: "Maximum amount of time allowed running GC",
-			Value: time.Minute * 5,
-		},
-		cli.DurationFlag{
-			Name:  "detach-time",
-			Usage: "How long an ENI has to be detached before we will clean it up",
-			Value: time.Minute * 30,
-		},
-		cli.StringFlag{
-			Name:   "vpc-id",
-			Usage:  "Optionally specify a VPC, to speed up filtering requests",
-			EnvVar: "EC2_VPC_ID",
-			Value:  "",
-		},
-	},
+type globalGcConfig struct {
+	timeout    time.Duration
+	detachTime time.Duration
+	vpcID      string
+	workers    int
 }
 
-func globalGc(parentCtx *context.VPCContext) error {
-	timeout := parentCtx.CLIContext.Duration("timeout")
-	ctx, cancel := parentCtx.WithTimeout(timeout)
-	defer cancel()
-
-	minDetachTime := parentCtx.CLIContext.Duration("detach-time")
-	vpcID := parentCtx.CLIContext.String("vpc-id")
-
-	if err := doGlobalGc(ctx, minDetachTime, vpcID); err != nil {
-		return cli.NewMultiError(cli.NewExitError("Unable to run GC", 1), err)
+// GlobalGC is the configuration for the command that deletes ENI which have been unattached too long
+func GlobalGC() cli.Command {
+	cfg := &globalGcConfig{}
+	globalGc := func(parentCtx *context.VPCContext) error {
+		if err := doGlobalGC(parentCtx, cfg); err != nil {
+			return cli.NewMultiError(cli.NewExitError("Unable to run global gc", 1), err)
+		}
+		return nil
 	}
-
-	return nil
+	return cli.Command{ // nolint: golint
+		Name:   "globalgc",
+		Usage:  "Garbage collect detached ENIs",
+		Action: context.WrapFunc(globalGc),
+		Flags: []cli.Flag{
+			cli.DurationFlag{
+				Name:        "timeout",
+				Usage:       "Maximum amount of time allowed running GC",
+				Value:       time.Minute * 5,
+				Destination: &cfg.timeout,
+			},
+			cli.DurationFlag{
+				Name:        "detach-time",
+				Usage:       "How long an ENI has to be detached before we will clean it up",
+				Value:       time.Minute * 30,
+				Destination: &cfg.detachTime,
+			},
+			cli.StringFlag{
+				Name:        "vpc-id",
+				Usage:       "Optionally specify a VPC, to speed up filtering requests",
+				EnvVar:      "EC2_VPC_ID",
+				Value:       "",
+				Destination: &cfg.vpcID,
+			},
+			cli.IntFlag{
+				Name:        "num-workers",
+				Usage:       "How many parallel workers to start to delete ENIs",
+				Value:       8,
+				Destination: &cfg.workers,
+			},
+		},
+	}
 }
 
-func getBaseFilter(vpcID, az string) []*ec2.Filter {
+func fetchDisconnectedENIs(parentCtx *context.VPCContext, vpcID string, networkInterfaceChannel chan *ec2.NetworkInterface) error {
+	defer close(networkInterfaceChannel)
+	svc := ec2.New(parentCtx.AWSSession)
 	filters := []*ec2.Filter{
 		{
 			Name:   aws.String("description"),
-			Values: aws.StringSlice([]string{setup.NetworkInterfaceDescription}),
+			Values: aws.StringSlice([]string{vpc.NetworkInterfaceDescription}),
 		},
 		{
-			Name:   aws.String("availability-zone"),
-			Values: aws.StringSlice([]string{az}),
+			Name:   aws.String("tag-key"),
+			Values: aws.StringSlice([]string{vpc.ENICreationTimeTag}),
+		},
+		{
+			Name:   aws.String("status"),
+			Values: aws.StringSlice([]string{"available"}),
 		},
 	}
 
-	/* We don't filter on VPC here, because VPC filters make the call fail "reliably"
 	if vpcID != "" {
 		filter := ec2.Filter{
 			Name:   aws.String("vpc-id"),
@@ -75,232 +87,92 @@ func getBaseFilter(vpcID, az string) []*ec2.Filter {
 		}
 		filters = append(filters, &filter)
 	}
-	*/
-	return filters
-}
-
-func getAvailabilityZones(parentCtx *context.VPCContext) ([]string, error) {
-	ec2Client := ec2.New(parentCtx.AWSSession)
-	myAz, err := parentCtx.EC2metadataClientWrapper.AvailabilityZone()
-	if err != nil {
-		return nil, err
-	}
-	region := myAz[0 : len(myAz)-1]
-
-	req := &ec2.DescribeAvailabilityZonesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String("region-name"),
-				Values: aws.StringSlice([]string{region}),
-			},
-		},
-	}
-	resp, err := ec2Client.DescribeAvailabilityZonesWithContext(parentCtx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	azNames := []string{}
-	for _, az := range resp.AvailabilityZones {
-		azNames = append(azNames, *az.ZoneName)
-	}
-
-	return azNames, nil
-}
-
-func doGlobalGc(parentCtx *context.VPCContext, minDetachTime time.Duration, vpcID string) error {
-	availabilityZones, err := getAvailabilityZones(parentCtx)
-	if err != nil {
-		return err
-	}
-	for _, az := range availabilityZones {
-		err = doZonalGC(parentCtx, minDetachTime, az, vpcID)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func doZonalGC(parentCtx *context.VPCContext, minDetachTime time.Duration, az string, vpcID string) error {
-	ec2Client := ec2.New(parentCtx.AWSSession)
-
-	baseFilters := getBaseFilter(vpcID, az)
-	parentCtx.Logger.WithField("filters", baseFilters).Debug("Configuring ENI fetch filters")
-
 	describeAvailableRequest := &ec2.DescribeNetworkInterfacesInput{
-		Filters: append([]*ec2.Filter{
-			{
-				Name:   aws.String("status"),
-				Values: aws.StringSlice([]string{"available"}),
-			},
-		}, baseFilters...),
+		Filters:    filters,
+		MaxResults: aws.Int64(1000),
 	}
 
-	networkInterfaces, err := ec2Client.DescribeNetworkInterfacesWithContext(parentCtx, describeAvailableRequest)
-	if err != nil {
-		return err
-	}
-
-	now := time.Now()
-	// Get the candidates, and selected
-	candidates, selected := markAndCollect(parentCtx, networkInterfaces, minDetachTime, now)
-	parentCtx.Logger.Info("Going to GC: ", selected)
-	// Delete the selected
-	err = deleteSelected(parentCtx, selected)
-	if err != nil {
-		return err
-	}
-
-	// Mark the candidates
-	if len(candidates) > 0 {
-		err = doMark(parentCtx, candidates, now, ec2Client)
+	// If parentCtx gets cancelled, this should bubble up and error out, but let's check just in case
+	for {
+		err := parentCtx.Err()
 		if err != nil {
 			return err
 		}
-	}
-
-	// Remove incorrectly marked interfaces
-	describeMarkedRequest := &ec2.DescribeNetworkInterfacesInput{
-		Filters: append([]*ec2.Filter{
-			{
-				Name:   aws.String("status"),
-				Values: aws.StringSlice([]string{"in-use"}),
-			},
-			{
-				Name:   aws.String("tag-key"),
-				Values: aws.StringSlice([]string{markTag}),
-			},
-		}, baseFilters...),
-	}
-
-	markedNetworkInterfaces, err := ec2Client.DescribeNetworkInterfacesWithContext(parentCtx, describeMarkedRequest)
-	if err != nil {
-		return err
-	}
-
-	attachedInterfaces := extractNetworkInterfaces(markedNetworkInterfaces)
-	if len(attachedInterfaces) > 0 {
-		parentCtx.Logger.Info("Removing gc mark from interfaces: ", attachedInterfaces)
-		deleteTagsInput := &ec2.DeleteTagsInput{
-			Resources: attachedInterfaces,
-			Tags: []*ec2.Tag{
-				{
-					Key: aws.String(markTag),
-				},
-			},
-		}
-		_, err = ec2Client.DeleteTagsWithContext(parentCtx, deleteTagsInput)
-
+		describeAvailableResult, err := svc.DescribeNetworkInterfacesWithContext(parentCtx, describeAvailableRequest)
 		if err != nil {
 			return err
 		}
+		for _, networkInterface := range describeAvailableResult.NetworkInterfaces {
+			networkInterfaceChannel <- networkInterface
+		}
+		if describeAvailableResult.NextToken == nil {
+			return nil
+		}
+		describeAvailableRequest.SetNextToken(*describeAvailableResult.NextToken)
+	}
+}
+
+// TODO: Find fatal errors and return errors
+func cleanupENI(parentCtx *context.VPCContext, svc *ec2.EC2, detachTime time.Duration, eni *ec2.NetworkInterface) error {
+	ctx := parentCtx.WithField("NetworkInterfaceId", *eni.NetworkInterfaceId)
+	tags := ec2util.TagSetToMap(eni.TagSet)
+	networkCreationTime, ok := tags[vpc.ENICreationTimeTag]
+	if !ok {
+		ctx.Logger.Warning("ENI does not have creation time field")
+		return nil
+	}
+	creationTime, err := time.Parse(time.RFC3339, *networkCreationTime)
+	if err != nil {
+		ctx.Logger.WithField(vpc.ENICreationTimeTag, *networkCreationTime).WithError(err).Error("Cannot parse")
+		return nil
+	}
+	timeSinceCreation := time.Since(creationTime)
+	if timeSinceCreation < detachTime {
+		ctx.Logger.WithField("timeSinceCreation", timeSinceCreation.String()).Debug("Not cleaning up ENI, too young")
+		return nil
+	}
+
+	if *eni.Description != vpc.NetworkInterfaceDescription {
+		panic(fmt.Sprintf("Interface description is %s instead of %s", *eni.Description, vpc.NetworkInterfaceDescription))
+	}
+	if *eni.Status != "available" {
+		panic(fmt.Sprintf("Interface status is %s instead of available", *eni.Status))
+	}
+
+	parentCtx.Logger.Info("Destroying ENI")
+	deleteNetworkInterfaceInput := &ec2.DeleteNetworkInterfaceInput{
+		NetworkInterfaceId: aws.String(*eni.NetworkInterfaceId),
+	}
+	_, err = svc.DeleteNetworkInterfaceWithContext(ctx, deleteNetworkInterfaceInput)
+	if err != nil {
+		parentCtx.Logger.WithError(err).Error("Unable to delete ENI")
 	}
 
 	return nil
 }
 
-func doMark(parentCtx *context.VPCContext, candidates []string, now time.Time, ec2Client *ec2.EC2) error {
-	// Split it up into chunks of 10
-	for i := 0; i*10 < len(candidates); i++ {
-		pageBegin := i * 10
-		pageEnd := min(len(candidates), (i+1)*10)
-		parentCtx.Logger.Info("Marking candidates: ", candidates[pageBegin:pageEnd])
-		createTagsInput := &ec2.CreateTagsInput{
-			Resources: aws.StringSlice(candidates[pageBegin:pageEnd]),
-			Tags: []*ec2.Tag{
-				{
-					Key:   aws.String(markTag),
-					Value: aws.String(now.Format(time.RFC3339)),
-				},
-			},
-		}
-		_, err := ec2Client.CreateTagsWithContext(parentCtx, createTagsInput)
-		// Is this an actual fatal error?
-		if awsErr, ok := err.(awserr.Error); ok {
-			if awsErr.Code() == "InvalidNetworkInterfaceID.NotFound" {
-				parentCtx.Logger.Warning("Unable to process batch because: ", err)
-			} else {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func extractNetworkInterfaces(networkInterfaces *ec2.DescribeNetworkInterfacesOutput) []*string {
-	ret := make([]*string, len(networkInterfaces.NetworkInterfaces))
-	for idx, iface := range networkInterfaces.NetworkInterfaces {
-		ret[idx] = iface.NetworkInterfaceId
-	}
-	return ret
-}
-
-// Returns ENI IDs that match the criteria to be GCd, and marks ENIs which could be elected for the next generation of GC
-func markAndCollect(parentCtx *context.VPCContext, networkInterfaces *ec2.DescribeNetworkInterfacesOutput, minDetachTime time.Duration, now time.Time) ([]string, []string) {
-	candidates := []string{}
-	selected := []string{}
-
-	for _, iface := range networkInterfaces.NetworkInterfaces {
-		// AWS's APIs can return inconsistent results, so these might panic. If so, we should run again.
-		if *iface.Description != setup.NetworkInterfaceDescription {
-			panic(fmt.Sprintf("Interface description is %s instead of %s", *iface.Description, setup.NetworkInterfaceDescription))
-		}
-		if *iface.Status != "available" {
-			panic(fmt.Sprintf("Interface status is %s instead of available", *iface.Status))
-		}
-		ifaceTags := tagSetToMap(iface.TagSet)
-		if markTagValue, ok := ifaceTags[markTag]; ok && markTagValue != nil {
-			markTimestamp, err := time.Parse(time.RFC3339, *markTagValue)
-			if err != nil {
-				// This shouldn't happen.
-				parentCtx.Logger.Error("Unable to parse marktimestamp: ", markTagValue)
-			} else if now.Sub(markTimestamp) > minDetachTime {
-				parentCtx.Logger.Debug("Marking interface as selected: ", *iface)
-				selected = append(selected, *iface.NetworkInterfaceId)
-			}
-		} else {
-			parentCtx.Logger.Debug("Marking interface as candidate: ", *iface)
-			candidates = append(candidates, *iface.NetworkInterfaceId)
-		}
-	}
-
-	return candidates, selected
-}
-
-func tagSetToMap(tagSet []*ec2.Tag) map[string]*string {
-	ret := make(map[string]*string)
-	// No tags
-	if tagSet == nil {
-		return ret
-	}
-	for _, tag := range tagSet {
-		ret[*tag.Key] = tag.Value
-	}
-	return ret
-}
-
-func deleteSelected(parentCtx *context.VPCContext, selected []string) error {
-	ec2Client := ec2.New(parentCtx.AWSSession)
-	for _, iface := range selected {
-		ctx := parentCtx.WithField("iface", iface)
-		deleteNetworkInterfaceInput := &ec2.DeleteNetworkInterfaceInput{
-			NetworkInterfaceId: aws.String(iface),
-		}
-		ctx.Logger.Debug("Deleting interface")
-		_, err := ec2Client.DeleteNetworkInterfaceWithContext(ctx, deleteNetworkInterfaceInput)
-		if err != nil {
+func cleanupENIs(parentCtx *context.VPCContext, detachTime time.Duration, networkInterfaceChannel chan *ec2.NetworkInterface) error {
+	svc := ec2.New(parentCtx.AWSSession)
+	for eni := range networkInterfaceChannel {
+		if err := cleanupENI(parentCtx, svc, detachTime, eni); err != nil {
 			return err
 		}
-		ctx.Logger.Debug("Deleted interface")
 	}
 	return nil
 }
 
-func min(x, y int) int {
-	if x < y {
-		return x
+func doGlobalGC(parentCtx *context.VPCContext, cfg *globalGcConfig) error {
+	grp, ctx := parentCtx.ErrGroup()
+	networkInterfaceChannel := make(chan *ec2.NetworkInterface, 100000)
+	grp.Go(func() error {
+		return fetchDisconnectedENIs(ctx, cfg.vpcID, networkInterfaceChannel)
+	})
+
+	for i := 0; i < cfg.workers; i++ {
+		grp.Go(func() error {
+			return cleanupENIs(ctx, cfg.detachTime, networkInterfaceChannel)
+		})
 	}
-	return y
+
+	return grp.Wait()
 }
