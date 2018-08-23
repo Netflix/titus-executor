@@ -16,8 +16,6 @@ import (
 
 const (
 	maxSetupTime = 2 * time.Minute
-	// NetworkInterfaceDescription is what interfaces are named
-	NetworkInterfaceDescription = "titus-managed"
 )
 
 var Setup = cli.Command{ // nolint: golint
@@ -111,11 +109,26 @@ func attachInterfaceAtIdx(ctx *context.VPCContext, instanceID, subnetID string, 
 	svc := ec2.New(ctx.AWSSession)
 
 	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
-		Description:      aws.String(NetworkInterfaceDescription),
+		Description:      aws.String(vpc.NetworkInterfaceDescription),
 		SubnetId:         aws.String(subnetID),
 		Ipv6AddressCount: aws.Int64(int64(vpc.GetMaxIPv6Addresses(ctx.InstanceType))),
 	}
 	createNetworkInterfaceResult, err := svc.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	createTagsInput := &ec2.CreateTagsInput{
+		Resources: aws.StringSlice([]string{*createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId}),
+		Tags: []*ec2.Tag{
+			{
+				Key:   aws.String(vpc.ENICreationTimeTag),
+				Value: aws.String(now.Format(time.RFC3339)),
+			},
+		},
+	}
+	_, err = svc.CreateTagsWithContext(ctx, createTagsInput)
 	if err != nil {
 		return err
 	}
