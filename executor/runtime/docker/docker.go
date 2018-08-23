@@ -1417,7 +1417,7 @@ const (
 )
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeTypes.Container, rootFile *os.File, cred *ucred, efsMountInfos []efsMountInfo) error {
-	baseMountOptions := []string{"vers=4.1"}
+	baseMountOptions := []string{"nofsc,nosharecache,vers=4"}
 
 	mntNSPath := filepath.Join("/proc", strconv.Itoa(int(cred.pid)), "ns", "mnt")
 	mntNSFile, err := os.OpenFile(mntNSPath, os.O_RDONLY, 0444)
