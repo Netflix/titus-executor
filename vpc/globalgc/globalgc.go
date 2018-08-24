@@ -42,7 +42,7 @@ func GlobalGC() cli.Command {
 			cli.DurationFlag{
 				Name:        "time-since-creation",
 				Usage:       "How long an ENI has to be created before we will clean it up",
-				Value:       time.Minute * 30,
+				Value:       time.Minute * 5,
 				Destination: &cfg.timeSinceCreation,
 			},
 			cli.StringFlag{
