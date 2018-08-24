@@ -139,7 +139,7 @@ func cleanupENI(parentCtx *context.VPCContext, svc *ec2.EC2, detachTime time.Dur
 		panic(fmt.Sprintf("Interface status is %s instead of available", *eni.Status))
 	}
 
-	parentCtx.Logger.Info("Destroying ENI")
+	parentCtx.Logger.WithField("eni-name", *eni.NetworkInterfaceId).Info("Destroying ENI")
 	deleteNetworkInterfaceInput := &ec2.DeleteNetworkInterfaceInput{
 		NetworkInterfaceId: aws.String(*eni.NetworkInterfaceId),
 	}
