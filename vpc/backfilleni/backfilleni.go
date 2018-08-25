@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/hashicorp/go-multierror"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -122,13 +123,15 @@ func doBackfillEni(parentCtx *context.VPCContext, cfg *backfillConfiguration) er
 	now := time.Now()
 	// We do this because even though the CreateTagsInput call accepts multiple resources, if one of the resources
 	// is missing, it ends up causing the whole thing to fail
+	var result *multierror.Error
+
 	for _, untaggedENI := range untaggedEnis {
 		err = tagENI(parentCtx, untaggedENI, svc, now)
 		if err != nil {
-			return err
+			result = multierror.Append(result, err)
 		}
 	}
-	return nil
+	return result.ErrorOrNil()
 }
 
 func tagENI(parentCtx *context.VPCContext, eni *ec2.NetworkInterface, svc *ec2.EC2, now time.Time) error {
@@ -148,12 +151,13 @@ func tagENI(parentCtx *context.VPCContext, eni *ec2.NetworkInterface, svc *ec2.E
 	// Joe? Do you how this deals with (potential) failure if one ENI doesn't exist
 	// svc.CreateTagsWithContext(parentCtx, createTagsInput)
 	_, err := svc.CreateTagsWithContext(parentCtx, createTagsInput)
-	if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() != "InvalidNetworkInterfaceID.NotFound" {
-		return err
-	} else if err != nil {
-		return err
+	if err == nil {
+		ctx.Info("Labeled ENI")
+		return nil
 	}
-	ctx.Info("Labeled ENIs")
-
-	return nil
+	ctx.Logger.WithError(err).Warning("Failed to label ENI")
+	if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "InvalidNetworkInterfaceID.NotFound" {
+		return nil
+	}
+	return err
 }
