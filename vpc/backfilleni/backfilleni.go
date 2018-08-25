@@ -112,9 +112,11 @@ func doBackfillEni(parentCtx *context.VPCContext, cfg *backfillConfiguration) er
 	ctx, cancel := parentCtx.WithTimeout(cfg.Timeout)
 	defer cancel()
 
+	ctx.Logger.Info("Fetching untagged ENIs")
+
 	enis, err := getENIs(ctx, cfg, svc)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	untaggedEnis := filterUntaggedInterfaces(enis)
