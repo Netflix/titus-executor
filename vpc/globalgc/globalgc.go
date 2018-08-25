@@ -42,7 +42,7 @@ func GlobalGC() cli.Command {
 			cli.DurationFlag{
 				Name:        "time-since-creation",
 				Usage:       "How long an ENI has to be created before we will clean it up",
-				Value:       time.Minute * 30,
+				Value:       time.Minute * 5,
 				Destination: &cfg.timeSinceCreation,
 			},
 			cli.StringFlag{
@@ -139,7 +139,7 @@ func cleanupENI(parentCtx *context.VPCContext, svc *ec2.EC2, detachTime time.Dur
 		panic(fmt.Sprintf("Interface status is %s instead of available", *eni.Status))
 	}
 
-	parentCtx.Logger.Info("Destroying ENI")
+	parentCtx.Logger.WithField("eni-name", *eni.NetworkInterfaceId).Info("Destroying ENI")
 	deleteNetworkInterfaceInput := &ec2.DeleteNetworkInterfaceInput{
 		NetworkInterfaceId: aws.String(*eni.NetworkInterfaceId),
 	}
