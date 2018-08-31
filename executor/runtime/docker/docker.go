@@ -827,7 +827,12 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func() error {
-			return prepareNetworkDriver(errGroupCtx, r.dockerCfg, c)
+			prepareNetworkStartTime := time.Now()
+			netErr := prepareNetworkDriver(errGroupCtx, r.dockerCfg, c)
+			if netErr == nil {
+				r.metrics.Timer("titus.executor.prepareNetworkTime", time.Since(prepareNetworkStartTime), nil)
+			}
+			return netErr
 		})
 	} else {
 		// Don't call out to network driver for local development
