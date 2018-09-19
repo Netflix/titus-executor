@@ -156,8 +156,8 @@ func pointerToByteSlice(byteSlice []byte) uintptr {
 		// If the byte slice is 0 bytes, we should never allow it to be dereferenced
 		return 0
 	}
-	// Use of unsafe calls should be audited,LOW,HIGH (gas)
-	return uintptr(unsafe.Pointer(&byteSlice[0])) // nolint: gas
+	// Use of unsafe calls should be audited,LOW,HIGH (gosec)
+	return uintptr(unsafe.Pointer(&byteSlice[0])) // nolint: gosec
 }
 
 // GetMimeType tries to get the mime type for a given filename based on the xattr

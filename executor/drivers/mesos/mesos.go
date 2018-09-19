@@ -59,7 +59,7 @@ func New(m metrics.Reporter, runner *runner.Runner) (*TitusMesosDriver, error) {
 
 	port := os.Getenv(mesosLibProcessPortKey)
 	if port != "" {
-		portNum, err := strconv.ParseUint(port, 10, 16) // nolint: gas
+		portNum, err := strconv.ParseUint(port, 10, 16) // nolint: gosec
 		if err != nil {
 			log.Fatalf("Cannot parse variable %s with value %s", mesosLibProcessPortKey, port)
 		}
@@ -229,7 +229,7 @@ func (driver *TitusMesosDriver) handleUpdate(update runner.Update) {
 	log.Printf("Updating task %s : details %#v", update.TaskID, update.Details)
 	var dataBytes []byte
 	if update.Details != nil {
-		dataBytes, _ = json.Marshal(update.Details) // nolint: gas
+		dataBytes, _ = json.Marshal(update.Details) // nolint: gosec
 	}
 
 	mesosStatus := &mesosproto.TaskStatus{
@@ -261,7 +261,7 @@ func (driver *TitusMesosDriver) ReportTitusTaskStatus(taskID string, msg string,
 
 	var dataBytes []byte
 	if details != nil {
-		dataBytes, _ = json.Marshal(details) // nolint: gas
+		dataBytes, _ = json.Marshal(details) // nolint: gosec
 	}
 
 	mesosStatus := &mesosproto.TaskStatus{

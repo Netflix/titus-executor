@@ -315,12 +315,12 @@ func setupLoggingInfra(dockerRuntime *DockerRuntime) error {
 		return err
 	}
 
-	err = os.Chmod(dockerRuntime.tiniSocketDir, 0777) // nolint: gas
+	err = os.Chmod(dockerRuntime.tiniSocketDir, 0777) // nolint: gosec
 	if err != nil {
 		return err
 	}
 
-	err = os.Mkdir(dockerRuntime.cfg.LogsTmpDir, 0777) // nolint: gas
+	err = os.Mkdir(dockerRuntime.cfg.LogsTmpDir, 0777) // nolint: gosec
 	if err != nil && !os.IsExist(err) {
 		return err
 	}
@@ -392,7 +392,7 @@ func setShares(logEntry *log.Entry, c *runtimeTypes.Container, hostCfg *containe
 func stableSecret() string {
 	ipBuf := make([]byte, 16)
 	// We can use math/rand here because this doesn't have to be cryptographically secure
-	n, err := rand.Read(ipBuf) // nolint: gas
+	n, err := rand.Read(ipBuf) // nolint: gosec
 	if err != nil {
 		panic(err)
 	}
@@ -705,7 +705,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	// We intentionally don't use context here, because context only KILLs.
 	// Instead we rely on the idea of the cleanup function below.
 
-	c.AllocationCommand = exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gas
+	c.AllocationCommand = exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gosec
 	c.AllocationCommandStatus = make(chan error)
 
 	c.AllocationCommand.Stderr = os.Stderr
@@ -724,11 +724,11 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		// This should kill the process
 		cancel()
 		log.Error("Unable to read JSON from allocate command: ", err)
-		return fmt.Errorf("Unable to read json from pipe: %+v", err)
+		return fmt.Errorf("Unable to read json from pipe: %+v", err) // nolint: gosec
 	}
 
 	c.RegisterRuntimeCleanup(func() error {
-		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM)
+		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
 		time.AfterFunc(5*time.Minute, cancel)
 		defer cancel()
 		select {
@@ -766,7 +766,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	}()
 
 	if !c.Allocation.Success {
-		_ = c.AllocationCommand.Process.Kill()
+		_ = c.AllocationCommand.Process.Kill() // nolint: gosec
 		if (strings.Contains(c.Allocation.Error, "invalid security groups requested for vpc id")) ||
 			(strings.Contains(c.Allocation.Error, "InvalidGroup.NotFound") ||
 				(strings.Contains(c.Allocation.Error, "InvalidSecurityGroupID.NotFound"))) {
@@ -913,7 +913,7 @@ error:
 func (r *DockerRuntime) createTitusContainerConfigFile(c *runtimeTypes.Container) error {
 	containerConfigFile := filepath.Join(titusEnvironments, fmt.Sprintf("%s.json", c.TaskID))
 
-	f, err := os.OpenFile(containerConfigFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gas
+	f, err := os.OpenFile(containerConfigFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gosec
 	if err != nil {
 		return err
 	}
@@ -928,7 +928,7 @@ func (r *DockerRuntime) createTitusContainerConfigFile(c *runtimeTypes.Container
 // Creates the file $titusEnvironments/ContainerID.env filled with newline delimited set of environment variables
 func (r *DockerRuntime) createTitusEnvironmentFile(c *runtimeTypes.Container) error {
 	envFile := filepath.Join(titusEnvironments, fmt.Sprintf("%s.env", c.TaskID))
-	f, err := os.OpenFile(envFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gas
+	f, err := os.OpenFile(envFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gosec
 	if err != nil {
 		return err
 	}
@@ -992,7 +992,7 @@ func metatronTarWalk(tw *tar.Writer, mcc *metatron.CredentialsConfig) error {
 			return nil
 		}
 
-		data, err = ioutil.ReadFile(path)
+		data, err = ioutil.ReadFile(path) // nolint: gosec
 		if err != nil {
 			return err
 		}
@@ -1452,7 +1452,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 		// because the parent window should be greater
 		ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount") // nolint: gas
+		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount") // nolint: gosec
 		// mntNSFD = 3+0 = 3
 		// userNSFD = 3+1 = 4
 		flags := MS_MGC_VAL
@@ -1498,7 +1498,7 @@ func (r *DockerRuntime) setupPreStartTini(ctx context.Context, c *runtimeTypes.C
 	}
 	unixListener := l.(*net.UnixListener)
 
-	err = os.Chmod(fullSocketFileName, 0777) // nolint: gas
+	err = os.Chmod(fullSocketFileName, 0777) // nolint: gosec
 	if err != nil {
 		return nil, err
 	}
@@ -1664,7 +1664,7 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	// in the runtime cleanup function, or in
 	ctx, cancel := context.WithCancel(context.Background()) // nolint: vet
 
-	c.SetupCommand = exec.CommandContext(ctx, vpcToolPath(), setupNetworkingArgs(burst, c)...) // nolint: gas
+	c.SetupCommand = exec.CommandContext(ctx, vpcToolPath(), setupNetworkingArgs(burst, c)...) // nolint: gosec
 	c.SetupCommandStatus = make(chan error)
 	stdin, err := c.SetupCommand.StdinPipe()
 	if err != nil {
@@ -1684,7 +1684,7 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 
 	c.RegisterRuntimeCleanup(func() error {
 		defer cancel()
-		_ = c.SetupCommand.Process.Signal(unix.SIGTERM)
+		_ = c.SetupCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
 		time.AfterFunc(1*time.Minute, cancel)
 		select {
 		case e, ok := <-c.SetupCommandStatus:
@@ -1828,16 +1828,16 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
 
 stopped:
 	if c.SetupCommand != nil {
-		_ = c.SetupCommand.Process.Signal(unix.SIGTERM)
+		_ = c.SetupCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
 	}
 	if c.AllocationCommand != nil {
-		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM)
+		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
 		time.AfterFunc(5*time.Second, func() {
-			_ = c.AllocationCommand.Process.Kill()
+			_ = c.AllocationCommand.Process.Kill() // nolint: gosec
 		})
 
 		log.WithField("taskId", c.TaskID).Info("Waiting for deallocation to finish")
-		_ = c.AllocationCommand.Wait()
+		_ = c.AllocationCommand.Wait() // nolint: gosec
 		log.WithField("taskId", c.TaskID).Info("Deallocation finished")
 	} else {
 		log.WithField("taskId", c.TaskID).Info("No need to deallocate, no allocation command")

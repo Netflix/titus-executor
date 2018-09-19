@@ -29,7 +29,7 @@ func (u *CopyUploader) Upload(ctx context.Context, local, remote string, ctypeFu
 		return err
 	}
 
-	l, err := os.Open(local)
+	l, err := os.Open(local) // nolint: gosec
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) e
 	log.Println("copy : local io.Reader -> " + fullremote)
 
 	remoteDir := path.Dir(fullremote)
-	if err := os.MkdirAll(remoteDir, 0777); err != nil { // nolint: gas
+	if err := os.MkdirAll(remoteDir, 0777); err != nil { // nolint: gosec
 		return err
 	}
 

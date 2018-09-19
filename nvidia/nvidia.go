@@ -259,7 +259,7 @@ func createVolume(parentCtx context.Context, dockerClient *docker.Client, vcb vo
 
 func iterOverDevices(devices []string) chan string {
 	retChan := make(chan string)
-	offset := rand.Int() // nolint: gas
+	offset := rand.Int() // nolint: gosec
 
 	go func() {
 		defer close(retChan)

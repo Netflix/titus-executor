@@ -13,7 +13,9 @@ func atomicWriteOnce(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer shouldClose(tempfile)
+
+	// warning: error return value not checked
+	defer shouldClose(tempfile) // nolint: errcheck
 
 	_, err = tempfile.Write(data)
 	if err != nil {

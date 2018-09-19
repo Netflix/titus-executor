@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	passportScript         = "/apps/metatron-identity/bin/getWorkloadPassports.sh" // nolint: gas
-	passportPath           = "/run/titus-client-passports"
+	passportScript         = "/apps/metatron-identity/bin/getWorkloadPassports.sh" // nolint: gosec
+	passportPath           = "/run/titus-client-passports"                         // nolint: gosec
 	legacyMetatronPath     = "/run/shm/metatron"
 	metatronPath           = "/run/metatron"
 	truststorePath         = "/metatron"
@@ -104,7 +104,7 @@ func walkTruststore(tw *tar.Writer) error { // nolint: gocyclo
 			return nil
 		}
 
-		data, err = ioutil.ReadFile(path)
+		data, err = ioutil.ReadFile(path) // nolint: gosec
 		if err != nil {
 			return err
 		}
@@ -200,7 +200,7 @@ func (mts *TrustStore) GetPassports(ctx context.Context, encodedAppMetadata stri
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, passportScript) // nolint: gas
+	cmd := exec.CommandContext(ctx, passportScript) // nolint: gosec
 
 	var stdin io.WriteCloser
 	if stdin, err = cmd.StdinPipe(); err != nil {

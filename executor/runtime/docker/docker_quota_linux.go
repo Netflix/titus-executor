@@ -62,8 +62,8 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 	var dqi dqinfo
 
 	devcstr := []byte(dev + "\x00")                        // This is to cast it into a cstr
-	devcstrPointer := uintptr(unsafe.Pointer(&devcstr[0])) // nolint: gas
-	dqiPointer := uintptr(unsafe.Pointer(&dqi))            // nolint: gas
+	devcstrPointer := uintptr(unsafe.Pointer(&devcstr[0])) // nolint: gosec
+	dqiPointer := uintptr(unsafe.Pointer(&dqi))            // nolint: gosec
 
 	r1, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, uintptr(qcmd(q_getinfo, prjquota)), devcstrPointer, 0, dqiPointer, 0, 0)
 

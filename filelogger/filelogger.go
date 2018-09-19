@@ -72,7 +72,7 @@ func NewHook(logDir, baseName, extension string, maxFileSize int64, now clock) l
 		now:          now,
 	}
 
-	if err := os.MkdirAll(hook.logDir, 0776); err != nil { // nolint: gas
+	if err := os.MkdirAll(hook.logDir, 0776); err != nil { // nolint: gosec
 		hook.stderrLogger.Fatal("Error setting up logger: ", err)
 	}
 
@@ -102,7 +102,7 @@ func (h *fileSystemHook) openNewLogFile() (*os.File, error) {
 		filename = fmt.Sprintf("%s_%s.%s", h.baseName, formattedTime, h.extension)
 		logFilePath = filepath.Join(h.logDir, filename)
 
-		if f, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND|os.O_EXCL, 0666); err == nil { // nolint: gas
+		if f, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND|os.O_EXCL, 0666); err == nil { // nolint: gosec
 			return f, nil
 		} else if err.(*os.PathError).Err != syscall.EEXIST {
 			return nil, err
