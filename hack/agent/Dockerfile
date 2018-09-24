@@ -30,7 +30,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
     apt-get install -y build-essential make cmake libattr1-dev dbus docker-engine wget
 
 ENV GOLANG_VERSION 1.10.4
-COPY --from=golang:1.10.4-stretch /usr/local/go /usr/local/go
+COPY --from=golang:1.11-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
 RUN go version
