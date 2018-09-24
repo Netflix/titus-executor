@@ -12,8 +12,6 @@ export PATH="/usr/local/go/bin:${GOPATH}/bin:${PATH}"
 
 cd ${GOPATH}/src/github.com/Netflix/titus-executor
 
-go get -u github.com/alecthomas/gometalinter
-gometalinter --install
 go get -u github.com/kardianos/govendor
 go get -u github.com/wadey/gocovmerge
 go get -u github.com/mattn/goveralls
