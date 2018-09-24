@@ -18,7 +18,6 @@ TEST_FLAGS            ?= -v -parallel 32
 TEST_OUTPUT           ?= test.xml
 TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
 GOVENDOR              := $(GOPATH)/bin/govendor
-GOMETALINTER          := $(GOPATH)/bin/gometalinter
 
 SHORT_CIRCUIT_QUITELITE := true
 
@@ -86,10 +85,10 @@ fmt: goimports $(GOVENDOR)
 .PHONY: metalinter
 metalinter: testdeps
 ifdef FAST
-	$(GOMETALINTER) $(GOMETALINTER_OPTS) $(shell git diff origin/master --name-only --diff-filter=AM | grep 'go$$' | egrep -v '(^|/)vendor/' | /usr/bin/xargs -L1 dirname|sort|uniq) \
+	gometalinter $(GOMETALINTER_OPTS) $(shell git diff origin/master --name-only --diff-filter=AM | grep 'go$$' | egrep -v '(^|/)vendor/' | /usr/bin/xargs -L1 dirname|sort|uniq) \
 	| tee $(LINTER_OUTPUT)
 else
-	$(GOMETALINTER) $(GOMETALINTER_OPTS) $(LOCAL_DIRS) | tee $(LINTER_OUTPUT)
+	gometalinter $(GOMETALINTER_OPTS) $(LOCAL_DIRS) | tee $(LINTER_OUTPUT)
 endif
 
 
@@ -135,10 +134,8 @@ goimports:
 $(GOVENDOR):
 	go get github.com/kardianos/govendor
 
-$(GOMETALINTER):
-	go get github.com/alecthomas/gometalinter
-
 .PHONY: testdeps
-testdeps: $(GOVENDOR) $(GOMETALINTER)
+testdeps: $(GOVENDOR)
 	$(GOVENDOR) install +local
-
+	# Fail if gometalinter is not present in $PATH:
+	which gometalinter

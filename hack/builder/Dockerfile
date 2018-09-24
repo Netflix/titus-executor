@@ -29,8 +29,16 @@ RUN curl -fsSL $LIBNL_DOWNLOAD_URL -o libnl.tar.gz \
 RUN go get -u github.com/kardianos/govendor
 RUN go get -u golang.org/x/tools/cmd/goimports
 RUN go get -u github.com/mitchellh/gox
-RUN go get -u github.com/alecthomas/gometalinter
-RUN gometalinter --install
+
+# gometalinter 2.0.11:
+ENV GOMETALINTER_DOWNLOAD_SHA256 97d8bd0a4d024740964c7fc2ae41276cf5f839ccf0749528ca900942f656d201
+ENV GOMETALINTER_DOWNLOAD_URL https://github.com/alecthomas/gometalinter/releases/download/v2.0.11/gometalinter-2.0.11-linux-amd64.tar.gz
+
+RUN mkdir /gometalinter && cd /gometalinter \
+    && curl -fsSL $GOMETALINTER_DOWNLOAD_URL -o gometalinter.tar.gz \
+	&& echo "$GOMETALINTER_DOWNLOAD_SHA256 gometalinter.tar.gz" | sha256sum -c - \
+	&& tar --strip-components=1 -xf gometalinter.tar.gz \
+	&& rm gometalinter.tar.gz && mv * $GOPATH/bin && cd && rm -rf /gometalinter
 
 RUN go get -u github.com/jteeuwen/go-bindata/...
 
