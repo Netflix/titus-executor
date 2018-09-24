@@ -43,7 +43,7 @@ func TestSubnetCache(t *testing.T) {
 		CidrBlock:               aws.String("1.2.3.0/24"),
 		SubnetId:                aws.String(testSubnetName1),
 		AvailableIpAddressCount: aws.Int64(32),
-		State: aws.String("available"),
+		State:                   aws.String("available"),
 	}
 	subnetCache.persistSubnetToCache(testContext, fakeSubnet1)
 
