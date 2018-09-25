@@ -17,6 +17,7 @@ LOCAL_DIRS            = $(shell govendor list -p -no-status +local)
 TEST_FLAGS            ?= -v -parallel 32
 TEST_OUTPUT           ?= test.xml
 TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
+GOIMPORTS             := $(GOPATH)/bin/goimports
 GOVENDOR              := $(GOPATH)/bin/govendor
 
 SHORT_CIRCUIT_QUITELITE := true
@@ -78,9 +79,9 @@ validate-docker: | $(builder)
 	$(DOCKER_RUN) -v $(PWD):$(PWD) -e GOPATH -w $(PWD) titusoss/titus-executor-builder make -j validate
 
 .PHONY: fmt
-fmt: goimports $(GOVENDOR)
+fmt: $(GOIMPORTS) $(GOVENDOR)
 	govendor fmt +local
-	goimports -w $(LOCAL_DIRS)
+	$(GOIMPORTS) -w $(LOCAL_DIRS)
 
 .PHONY: metalinter
 metalinter: testdeps
@@ -127,8 +128,7 @@ clean-proto-defs: | $(clean)
 
 ## Binary dependencies
 
-.PHONY: goimports
-goimports:
+$(GOIMPORTS):
 	go get golang.org/x/tools/cmd/goimports
 
 $(GOVENDOR):

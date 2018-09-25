@@ -25,9 +25,7 @@ And then you can check out `github.com/Netflix/titus-executor` to `${GOPATH}/src
 
 # Initial setup steps
 1. `curl -fsSL https://raw.githubusercontent.com/alecthomas/gometalinter/master/scripts/install.sh | bash -s -- -b $GOPATH/bin v2.0.11`
-2. go get -u github.com/kardianos/govendor
-
-You also need to make sure that your build environment (i.e. VM) has the following commands prior to building
+2. You also need to make sure that your build environment (i.e. VM) has the following commands prior to building:
 * make
 * gcc
 ```
