@@ -144,15 +144,15 @@ func configureQdiscsForLink(ctx *context.VPCContext, link netlink.Link) error {
 }
 
 func setupIFBs(ctx *context.VPCContext) error {
-	err := setupIFB(ctx, vpc.IngressIFB, "classifier_ingress")
+	err := setupIFB(ctx, vpc.IngressIFB, "classifier_ingress", unix.ETH_P_IP)
 	if err != nil {
 		return err
 	}
 
-	return setupIFB(ctx, vpc.EgressIFB, "classifier_egress")
+	return setupIFB(ctx, vpc.EgressIFB, "classifier_egress", unix.ETH_P_ALL)
 }
 
-func setupIFB(ctx *context.VPCContext, ifbName, filterName string) error {
+func setupIFB(ctx *context.VPCContext, ifbName, filterName string, filterProtocol uint16) error {
 	link, err := netlink.LinkByName(ifbName)
 	if err != nil && err.Error() == "Link not found" {
 		ctx.Logger.Info("Adding link: ", ifbName)
@@ -171,7 +171,7 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string) error {
 			return err2
 		}
 		// Retry
-		return setupIFB(ctx, ifbName, filterName)
+		return setupIFB(ctx, ifbName, filterName, filterProtocol)
 	} else if err != nil {
 		return err
 	}
@@ -186,10 +186,10 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string) error {
 		return err
 	}
 
-	return setupIFBBPFFilter(ctx, link, filterName)
+	return setupIFBBPFFilter(ctx, link, filterName, filterProtocol)
 }
 
-func setupIFBBPFFilter(ctx *context.VPCContext, link netlink.Link, filterName string) error {
+func setupIFBBPFFilter(ctx *context.VPCContext, link netlink.Link, filterName string, filterProtocol uint16) error {
 	filterData, err := filter.Asset("filter.o")
 	if err != nil {
 		return err
@@ -209,7 +209,7 @@ func setupIFBBPFFilter(ctx *context.VPCContext, link netlink.Link, filterName st
 		LinkIndex: link.Attrs().Index,
 		Parent:    netlink.MakeHandle(1, 0),
 		Handle:    netlink.MakeHandle(0, 1),
-		Protocol:  unix.ETH_P_IP,
+		Protocol:  filterProtocol,
 		Priority:  32000,
 	}
 

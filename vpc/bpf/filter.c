@@ -36,8 +36,11 @@ int classifier_egress_filter(struct __sk_buff *skb) {
 
 	if (eth->h_proto == __constant_htons(ETH_P_IP) && iph->daddr == __constant_htonl(METADATA_SERVICE_IP))
 		return TC_ACT_SHOT;
-	/* See the explanation behind this in allocation_network_linux.go */
-	skb->tc_classid = TC_H_MAKE(1 << 16, __builtin_bswap32(iph->saddr) & 0xffff);
+
+	/* See explanation behind this in setup_container_linux.go, under setupIFBClasses */
+	if (eth->h_proto == __constant_htons(ETH_P_IP))
+		skb->tc_classid = TC_H_MAKE(1 << 16, __builtin_bswap32(iph->saddr) & 0xffff);
+
 	return TC_ACT_OK;
 }
 
@@ -51,7 +54,8 @@ int classifier_ingress_filter(struct __sk_buff *skb) {
 	if (data + sizeof(*eth) + sizeof(*iph) > data_end)
 		return TC_ACT_SHOT;
 
-	skb->tc_classid = TC_H_MAKE(1 << 16, __builtin_bswap32(iph->daddr) & 0xffff);
+	if (eth->h_proto == __constant_htons(ETH_P_IP))
+		skb->tc_classid = TC_H_MAKE(1 << 16, __builtin_bswap32(iph->daddr) & 0xffff);
 	return TC_ACT_OK;
 }
 
