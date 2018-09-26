@@ -9,7 +9,7 @@ You must have Docker 1.13+ installed on your system, and it must be running. The
 gpasswd -a $YOURUSER docker # Fill in $YOURUSER with your user name
 ```
 
-You must have a Go 1.10+ development environment set up. You can find more details on installing Go, [on their website](https://golang.org/doc/install). You must also install the `build-essential` metapackage. The following commands will install the Go dependencies:
+You must have a Go 1.11 development environment set up. You can find more details on installing Go, [on their website](https://golang.org/doc/install). You must also install the `build-essential` metapackage on Linux.
 
 We recommend setting up a GOPATH, and checking out your code into that GOPATH. For example:
 
@@ -24,11 +24,8 @@ export PATH=${GOPATH}/bin:${PATH}
 And then you can check out `github.com/Netflix/titus-executor` to `${GOPATH}/src/github.com/Netflix/titus-executor` -- an easy way to do this is go run `go get -u github.com/Netflix/titus-executor`.
 
 # Initial setup steps
-1. go get -u github.com/alecthomas/gometalinter
-2. gometalinter --install
-3. go get -u github.com/kardianos/govendor
-
-You also need to make sure that your build environment (i.e. VM) has the following commands prior to building
+1. `curl -fsSL https://raw.githubusercontent.com/alecthomas/gometalinter/master/scripts/install.sh | bash -s -- -b $GOPATH/bin v2.0.11`
+2. You also need to make sure that your build environment (i.e. VM) has the following commands prior to building:
 * make
 * gcc
 ```

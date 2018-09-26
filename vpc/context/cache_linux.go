@@ -12,11 +12,12 @@ import (
 
 func atomicWriteOnce(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	file, err := os.OpenFile(dir, unix.O_TMPFILE|os.O_RDWR, 0644) // nolint: gas
+	file, err := os.OpenFile(dir, unix.O_TMPFILE|os.O_RDWR, 0644) // nolint: gosec
 	if err != nil {
 		return err
 	}
-	defer shouldClose(file)
+	// warning: error return value not checked
+	defer shouldClose(file) // nolint: errcheck
 	_, err = file.Write(data)
 	if err != nil {
 		return err

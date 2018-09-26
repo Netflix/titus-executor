@@ -73,7 +73,7 @@ func setupScheduler(cred ucred) error {
 	 * numerically lower priority values.
 	 */
 	sp := schedParam{99}
-	tmpRet, _, err := syscall.Syscall(syscall.SYS_SCHED_SETSCHEDULER, uintptr(cred.pid), uintptr(SCHED_RR|SCHED_RESET_ON_FORK), uintptr(unsafe.Pointer(&sp))) // nolint: gas
+	tmpRet, _, err := syscall.Syscall(syscall.SYS_SCHED_SETSCHEDULER, uintptr(cred.pid), uintptr(SCHED_RR|SCHED_RESET_ON_FORK), uintptr(unsafe.Pointer(&sp))) // nolint: gosec
 	ret := int(tmpRet)
 	if ret == -1 {
 		return err
@@ -97,7 +97,7 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cred 
 	// /proc/$PID -> $titusInits/$taskID
 	pidpath := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10))
 	path := filepath.Join(titusInits, c.TaskID)
-	if err := os.Mkdir(path, 0755); err != nil { // nolint: gas
+	if err := os.Mkdir(path, 0755); err != nil { // nolint: gosec
 		return err
 	}
 	c.RegisterRuntimeCleanup(func() error {
@@ -154,7 +154,10 @@ func cleanupCgroups(cgroupPath string) error {
 	}
 	for _, mount := range allCgroupMounts {
 		path := filepath.Join(mount.Mountpoint, cgroupPath)
-		_ = os.RemoveAll(path)
+		err = os.RemoveAll(path)
+		if err != nil {
+			logrus.Warn("Cannot remove cgroup mount: ", err)
+		}
 	}
 
 	return nil
@@ -165,7 +168,7 @@ func setupContainerNesting(parentCtx context.Context, c *runtimeTypes.Container,
 		return nil
 	}
 	cgroupPath := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10), "cgroup")
-	cgroups, err := ioutil.ReadFile(cgroupPath)
+	cgroups, err := ioutil.ReadFile(cgroupPath) // nolint: gosec
 	if err != nil {
 		return err
 	}

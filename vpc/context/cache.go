@@ -119,7 +119,7 @@ func (sc *Cache) DescribeInterface(parentCtx *VPCContext, eniID string) (*ec2.Ne
 
 func (sc *Cache) fetchInterfaceFromCache(ctx *VPCContext, eniID string) (*ec2.NetworkInterface, error) {
 	path := sc.getPersistedPath(interfaceKey, eniID)
-	bytes, err := ioutil.ReadFile(path)
+	bytes, err := ioutil.ReadFile(path) // nolint: gosec
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -138,7 +138,7 @@ func (sc *Cache) fetchInterfaceFromCache(ctx *VPCContext, eniID string) (*ec2.Ne
 
 func (sc *Cache) fetchSubnetFromCache(ctx *VPCContext, subnetid string) (*ec2.Subnet, error) {
 	path := sc.getPersistedPath(subnetKey, subnetid)
-	bytes, err := ioutil.ReadFile(path)
+	bytes, err := ioutil.ReadFile(path) // nolint: gosec
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -221,8 +221,8 @@ func (sc *Cache) persistToCache(ctx *VPCContext, itemType cacheType, id string, 
 	ctx.Logger.Info("Subnet successfully persisted to cache")
 }
 
-func shouldClose(closer io.Closer) {
-	_ = closer.Close()
+func shouldClose(closer io.Closer) error {
+	return closer.Close()
 }
 
 func (sc *Cache) getPersistedPath(itemType cacheType, id string) string {

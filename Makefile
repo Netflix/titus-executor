@@ -17,6 +17,8 @@ LOCAL_DIRS            = $(shell govendor list -p -no-status +local)
 TEST_FLAGS            ?= -v -parallel 32
 TEST_OUTPUT           ?= test.xml
 TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
+GOIMPORTS             := $(GOPATH)/bin/goimports
+GOVENDOR              := $(GOPATH)/bin/govendor
 
 SHORT_CIRCUIT_QUITELITE := true
 
@@ -49,7 +51,7 @@ build-standalone: tini/src
 test: test-local test-standalone
 
 .PHONY: build-tests-darwin
-build-tests-darwin: govendor | $(clean)
+build-tests-darwin: $(GOVENDOR) | $(clean)
 	$(eval TESTS_BUILD_DIR:=$(shell mktemp -d -t "build-tests.XXXXXX"))
 	for p in $$(govendor list -no-status +local); do \
 	  GOOS="darwin" govendor test -c $$p -o $(TESTS_BUILD_DIR)/$$p.test; \
@@ -57,8 +59,8 @@ build-tests-darwin: govendor | $(clean)
 	$(RM) -r "$(TESTS_BUILD_DIR)"
 
 .PHONY: test-local
-test-local: govendor | $(clean)
-	govendor test $(TEST_FLAGS) -covermode=count -coverprofile=coverage-local.out -coverpkg=github.com/Netflix/... +local \
+test-local: $(GOVENDOR) | $(clean)
+	$(GOVENDOR) test $(TEST_FLAGS) -covermode=count -coverprofile=coverage-local.out -coverpkg=github.com/Netflix/... +local \
 	| tee /dev/stderr > test-local.log
 
 # run standalone tests against the docker container runtime
@@ -77,17 +79,17 @@ validate-docker: | $(builder)
 	$(DOCKER_RUN) -v $(PWD):$(PWD) -e GOPATH -w $(PWD) titusoss/titus-executor-builder make -j validate
 
 .PHONY: fmt
-fmt: goimports govendor
+fmt: $(GOIMPORTS) $(GOVENDOR)
 	govendor fmt +local
-	goimports -w $(LOCAL_DIRS)
+	$(GOIMPORTS) -w $(LOCAL_DIRS)
 
 .PHONY: metalinter
 metalinter: testdeps
 ifdef FAST
-	$(GOMETALINTER) $(shell git diff origin/master --name-only --diff-filter=AM | grep 'go$$' | egrep -v '(^|/)vendor/' | /usr/bin/xargs -L1 dirname|sort|uniq) \
+	gometalinter $(GOMETALINTER_OPTS) $(shell git diff origin/master --name-only --diff-filter=AM | grep 'go$$' | egrep -v '(^|/)vendor/' | /usr/bin/xargs -L1 dirname|sort|uniq) \
 	| tee $(LINTER_OUTPUT)
 else
-	$(GOMETALINTER) $(LOCAL_DIRS) | tee $(LINTER_OUTPUT)
+	gometalinter $(GOMETALINTER_OPTS) $(LOCAL_DIRS) | tee $(LINTER_OUTPUT)
 endif
 
 
@@ -126,19 +128,14 @@ clean-proto-defs: | $(clean)
 
 ## Binary dependencies
 
-.PHONY: goimports
-goimports:
+$(GOIMPORTS):
 	go get golang.org/x/tools/cmd/goimports
 
-.PHONY: govendor
-govendor:
+$(GOVENDOR):
 	go get github.com/kardianos/govendor
 
-.PHONY: gometalinter
-gometalinter:
-	go get github.com/alecthomas/gometalinter
-
 .PHONY: testdeps
-testdeps: govendor gometalinter
-	govendor install +local
-
+testdeps: $(GOVENDOR)
+	$(GOVENDOR) install +local
+	# Fail if gometalinter is not present in $PATH:
+	which gometalinter

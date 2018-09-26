@@ -37,7 +37,7 @@ func GetProgram(reader io.ReaderAt, name string) (int, error) {
 	logBuf := make([]byte, 65535)
 	program := netlink.BPFAttr{
 		ProgType: uint32(netlink.BPF_PROG_TYPE_SCHED_CLS),
-		LogBuf:   uintptr(unsafe.Pointer(&logBuf[0])), // nolint: gas
+		LogBuf:   uintptr(unsafe.Pointer(&logBuf[0])), // nolint: gosec
 		LogSize:  uint32(cap(logBuf) - 1),
 		LogLevel: 1,
 	}
@@ -54,18 +54,18 @@ func GetProgram(reader io.ReaderAt, name string) (int, error) {
 		return 0, err
 	}
 
-	program.Insns = uintptr(unsafe.Pointer(&data[0])) // nolint: gas
+	program.Insns = uintptr(unsafe.Pointer(&data[0])) // nolint: gosec
 	program.InsnCnt = uint32(len(data) / sizeofStructBpfInsn)
 	license, err := elfReadLicense(module)
 
-	program.License = uintptr(unsafe.Pointer(&license[0])) // nolint: gas
+	program.License = uintptr(unsafe.Pointer(&license[0])) // nolint: gosec
 	if err != nil {
 		return 0, err
 	}
 	fd, _, errno := unix.Syscall(unix.SYS_BPF,
 		BPF_PROG_LOAD,
-		uintptr(unsafe.Pointer(&program)), // nolint: gas
-		unsafe.Sizeof(program))            // nolint: gas
+		uintptr(unsafe.Pointer(&program)), // nolint: gosec
+		unsafe.Sizeof(program))            // nolint: gosec
 	runtime.KeepAlive(data)
 	runtime.KeepAlive(license)
 

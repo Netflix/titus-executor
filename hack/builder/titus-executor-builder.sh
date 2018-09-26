@@ -40,7 +40,7 @@ mv build/inject-metadataproxy/titus-inject-metadataproxy build/bin/linux-amd64
 install -t root/apps/titus-executor/bin build/bin/linux-amd64/*
 
 
-## Setup the environment the environment
+## Setup the environment
 
 outdir="$(mktemp -d)"
 git_sha=$(git rev-parse --verify HEAD)

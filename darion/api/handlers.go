@@ -40,7 +40,7 @@ func LogHandler(w http.ResponseWriter, r *http.Request) {
 
 func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string) {
 	filePath := filepath.Join(conf.ContainersHome, containerID, "logs", fileName)
-	fout, err := os.Open(filePath)
+	fout, err := os.Open(filePath) // nolint: gosec
 	if os.IsNotExist(err) {
 		err = maybeVirtualFileStdioLogHandler(w, r, containerID, fileName)
 		if err != nil {
@@ -235,7 +235,7 @@ func writeStdioVirtualLinks(containerID, fileName string, w io.Writer) error {
 	// Then build the virtual files
 	xattrList, err := xattr.ListXattrs(fileName)
 	if err != nil {
-		log.Warning("Could not fetch xattr list for %s, because %v, not listing virtual files", fileName, err)
+		log.Warningf("Could not fetch xattr list for %s, because %v, not listing virtual files", fileName, err)
 		return nil
 	}
 	for xattrKey := range xattrList {

@@ -76,7 +76,8 @@ func getEC2Region() (string, error) {
 func (u *S3Uploader) Upload(ctx context.Context, local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
 
-	f, err := os.Open(local)
+	// warning: Potential file inclusion via variable,MEDIUM,HIGH (gosec)
+	f, err := os.Open(local) // nolint: gosec
 	if err != nil {
 		return err
 	}

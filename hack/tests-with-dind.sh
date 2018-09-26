@@ -20,7 +20,7 @@ fi
 run_id="${ci_job_id:-$random_uuid}"
 
 log() {
-    echo -e "$1" >&2
+    echo -e "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $1" >&2
 }
 
 log "## Titus Integration tests, run ID: $run_id"
@@ -33,7 +33,9 @@ terminate_titus_docker() {
     log "## Titus Integration tests ended, terminating the docker container"
     docker exec "$titus_agent_name" journalctl > journald-standalone.log || true
     docker exec "$titus_agent_name" journalctl -ojson > journald-standalone.json || true
+    log "Stopping container: $titus_agent_name"
     docker stop "$titus_agent_name" 2>/dev/null || true
+    log "Container stopped (rc: $?)"
 }
 
 trap terminate_titus_docker EXIT
@@ -52,3 +54,5 @@ docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GO
   go test -timeout 3m ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
     -coverpkg=github.com/Netflix/... ./executor/mock/standalone/... -standalone=true 2>&1 | tee test-standalone.log
+
+log "Integration tests complete (rc: $?)"

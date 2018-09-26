@@ -53,7 +53,8 @@ func setupContainer(parentCtx *context.VPCContext) error {
 
 	link, err := doSetupContainer(parentCtx, netns, bandwidth, burst, jumbo, allocation)
 	if err != nil {
-		_ = json.NewEncoder(os.Stdout).Encode(types.WiringStatus{Success: false, Error: err.Error()})
+		// warning: Errors unhandled.,LOW,HIGH (gosec)
+		_ = json.NewEncoder(os.Stdout).Encode(types.WiringStatus{Success: false, Error: err.Error()}) // nolint: gosec
 		return cli.NewMultiError(cli.NewExitError("Unable to setup container", 1), err)
 	}
 

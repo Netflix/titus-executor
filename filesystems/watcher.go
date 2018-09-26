@@ -355,7 +355,7 @@ func (w *Watcher) doFinalStdioUploadAndReclaim(ctx context.Context, file *os.Fil
 func (w *Watcher) doStdioUploadAndReclaim(ctx context.Context, mode stdioRotateMode, file *os.File) {
 	xattrList, err := xattr.FListXattrs(file)
 	if err != nil {
-		log.Warning("Could not fetch xattr list for %s, because %v, not uploading and reclaiming", file.Name(), err)
+		log.Warningf("Could not fetch xattr list for %s, because %v, not uploading and reclaiming", file.Name(), err)
 		return
 	}
 
@@ -576,7 +576,7 @@ func GetCurrentOffset(file *os.File) (int64, error) {
 func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	currentOffsetInt, err := strconv.ParseInt(string(currentOffsetBytes), 10, 64)
 	if err != nil {
-		log.Warning("Assuming rotation for %s from the start because cannot parse the current offsets '%s' and error: %v", name, string(currentOffsetBytes), err)
+		log.Warningf("Assuming rotation for %s from the start because cannot parse the current offsets '%s' and error: %v", name, string(currentOffsetBytes), err)
 		return 0
 	}
 	return currentOffsetInt

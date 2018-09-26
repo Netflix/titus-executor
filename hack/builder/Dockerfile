@@ -7,22 +7,10 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
 
 RUN gem install --no-ri --no-rdoc fpm
 
-### FROM golang:1.10.1
-# see: https://github.com/docker-library/golang/blob/906e04de73168f643c5c2b40dca0877a14d2377c/1.10/alpine3.7/Dockerfile
-ENV GOLANG_VERSION 1.10.1
-
-RUN set -eux; \
-    goRelSha256='72d820dec546752e5a8303b33b009079c15c2390ce76d67cf514991646c6127b'; \
-	url="https://golang.org/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz"; \
-	wget -O go.tgz "$url"; \
-	echo "${goRelSha256} *go.tgz" | sha256sum -c -; \
-	tar -C /usr/local -xzf go.tgz; \
-	rm go.tgz; \
-	export PATH="/usr/local/go/bin:$PATH"; \
-	go version
-
+COPY --from=golang:1.11-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
+RUN go version
 
 RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
 ###
@@ -40,8 +28,16 @@ RUN curl -fsSL $LIBNL_DOWNLOAD_URL -o libnl.tar.gz \
 RUN go get -u github.com/kardianos/govendor
 RUN go get -u golang.org/x/tools/cmd/goimports
 RUN go get -u github.com/mitchellh/gox
-RUN go get -u github.com/alecthomas/gometalinter
-RUN gometalinter --install
+
+# gometalinter 2.0.11:
+ENV GOMETALINTER_DOWNLOAD_SHA256 97d8bd0a4d024740964c7fc2ae41276cf5f839ccf0749528ca900942f656d201
+ENV GOMETALINTER_DOWNLOAD_URL https://github.com/alecthomas/gometalinter/releases/download/v2.0.11/gometalinter-2.0.11-linux-amd64.tar.gz
+
+RUN mkdir /gometalinter && cd /gometalinter \
+    && curl -fsSL $GOMETALINTER_DOWNLOAD_URL -o gometalinter.tar.gz \
+	&& echo "$GOMETALINTER_DOWNLOAD_SHA256 gometalinter.tar.gz" | sha256sum -c - \
+	&& tar --strip-components=1 -xf gometalinter.tar.gz \
+	&& rm gometalinter.tar.gz && mv * $GOPATH/bin && cd && rm -rf /gometalinter
 
 RUN go get -u github.com/jteeuwen/go-bindata/...
 

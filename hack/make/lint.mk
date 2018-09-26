@@ -19,7 +19,7 @@ else
 CHECKSTYLE :=
 endif
 
-GOMETALINTER := gometalinter --vendor --tests --vendored-linters $(CHECKSTYLE) --disable=maligned --disable=gotype --enable=unused --enable=goimports --enable=gofmt \
+GOMETALINTER_OPTS := --vendor --tests --vendored-linters $(CHECKSTYLE) --disable=maligned --disable=gotype --enable=unused --enable=goimports --enable=gofmt \
     --concurrency=$(NPROCS) --deadline=600s \
     --exclude=api/netflix/titus \
     --exclude=vpc/bpf/filter \
