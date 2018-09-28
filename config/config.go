@@ -68,6 +68,14 @@ func NewConfig() (*Config, []cli.Flag) {
 		hardCodedEnv: []string{
 			"NETFLIX_APPUSER=appuser",
 			"EC2_DOMAIN=amazonaws.com",
+			/* See:
+			 * - https://docs.aws.amazon.com/cli/latest/topic/config-vars.html
+			 * - https://github.com/jtblin/kube2iam/issues/31
+			 * AWS_METADATA_SERVICE_TIMEOUT, and AWS_METADATA_SERVICE_NUM_ATTEMPTS are respected by all AWS standard SDKs
+			 * as timeouts for connecting to the metadata service.
+			 */
+			"AWS_METADATA_SERVICE_TIMEOUT=5",
+			"AWS_METADATA_SERVICE_NUM_ATTEMPTS=3",
 		},
 	}
 
@@ -162,7 +170,9 @@ func NewConfig() (*Config, []cli.Flag) {
 	return cfg, flags
 }
 
-func (c *Config) GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string { // nolint: golint
+// GetNetflixEnvForTask fetches the "base" environment configuration, and adds in titus-specific environment variables
+// based on the ContainerInfo, and resources.
+func (c *Config) GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string {
 	env := c.getEnvHardcoded()
 	env = appendMap(env, c.getEnvFromHost())
 	env = appendMap(env, c.getEnvBasedOnTask(taskInfo, mem, cpu, disk, networkBandwidth))
