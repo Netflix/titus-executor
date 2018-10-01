@@ -106,13 +106,14 @@ func filterTitusContainers(containers []types.Container) []types.Container {
 
 func (reaper *Reaper) processContainer(ctx context.Context, container types.Container, dockerClient *docker.Client) {
 	containerJSON, err := dockerClient.ContainerInspect(ctx, container.ID)
-	taskID := containerJSON.Config.Labels[models.TaskIDLabel]
-	l := reaper.log.WithField("taskID", taskID)
 	if docker.IsErrContainerNotFound(err) {
 		return
 	} else if err != nil {
 		reaper.log.Fatal("Unable to fetch container JSON: ", err)
 	}
+
+	taskID := containerJSON.Config.Labels[models.TaskIDLabel]
+	l := reaper.log.WithField("taskID", taskID)
 
 	if shouldTerminate(ctx, &reaper.log, containerJSON) {
 		l.Info("Terminating container")
