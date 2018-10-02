@@ -19,6 +19,7 @@ TEST_OUTPUT           ?= test.xml
 TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
 GOIMPORTS             := $(GOPATH)/bin/goimports
 GOVENDOR              := $(GOPATH)/bin/govendor
+PROTOC_GEN_GO         := $(GOPATH)/bin/protoc-gen-go
 
 SHORT_CIRCUIT_QUITELITE := true
 
@@ -117,7 +118,7 @@ push-titus-agent: titus-agent
 
 PROTOS := vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/titus_base.proto vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/titus_agent_api.proto vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus/agent.proto
 .PHONY: protogen
-protogen:  $(PROTOS) | $(clean) $(clean-proto-defs)
+protogen: $(PROTOS) $(PROTOC_GEN_GO) | $(clean) $(clean-proto-defs)
 	mkdir -p api
 	protoc -Ivendor/github.com/Netflix/titus-api-definitions/src/main/proto/ --go_out=api/ $(PROTOS)
 
@@ -127,6 +128,8 @@ clean-proto-defs: | $(clean)
 
 
 ## Binary dependencies
+$(PROTOC_GEN_GO): vendor/vendor.json vendor/github.com/golang/protobuf/protoc-gen-go
+	govendor install ./vendor/github.com/golang/protobuf/protoc-gen-go
 
 $(GOIMPORTS):
 	go get golang.org/x/tools/cmd/goimports

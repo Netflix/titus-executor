@@ -176,7 +176,7 @@ func (c *Container) UploadDir(namespace string) string {
 func (c *Container) Process() (entrypoint, cmd []string, err error) {
 	if c.TitusInfo.EntrypointStr != nil {
 		// deprecated (old) way of passing entrypoints as a flat string. We need to parse it
-		entrypoint, err = dockershellparser.ProcessWords(c.TitusInfo.GetEntrypointStr(), []string{})
+		entrypoint, err = dockershellparser.ProcessWords(c.TitusInfo.GetEntrypointStr(), []string{}) // nolint: megacheck
 		if err != nil {
 			return nil, nil, err
 		}

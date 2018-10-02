@@ -256,7 +256,7 @@ func (c *Config) getUserProvided(taskInfo *titus.ContainerInfo) map[string]strin
 // ENV from the deprecated environmentVariable field that had both user and Titus provided values merged
 func getUserProvidedDeprecated(taskInfo *titus.ContainerInfo) map[string]string {
 	vars := make(map[string]string)
-	for _, env := range taskInfo.GetEnvironmentVariable() {
+	for _, env := range taskInfo.GetEnvironmentVariable() { // nolint: megacheck
 		vars[env.GetName()] = env.GetValue()
 	}
 	return vars

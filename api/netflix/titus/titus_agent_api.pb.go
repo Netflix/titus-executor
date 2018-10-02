@@ -13,6 +13,12 @@ var _ = proto.Marshal
 var _ = fmt.Errorf
 var _ = math.Inf
 
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the proto package it is being compiled against.
+// A compilation error at this line likely means your copy of the
+// proto package needs to be updated.
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+
 // / Agent instance deployment state.
 type InstanceLifecycleState int32
 
@@ -45,7 +51,9 @@ var InstanceLifecycleState_value = map[string]int32{
 func (x InstanceLifecycleState) String() string {
 	return proto.EnumName(InstanceLifecycleState_name, int32(x))
 }
-func (InstanceLifecycleState) EnumDescriptor() ([]byte, []int) { return fileDescriptor1, []int{0} }
+func (InstanceLifecycleState) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{0}
+}
 
 // / Administrator override state for an agent. The primary reason for this state is to alter task placement decisions.
 type InstanceOverrideState int32
@@ -70,7 +78,9 @@ var InstanceOverrideState_value = map[string]int32{
 func (x InstanceOverrideState) String() string {
 	return proto.EnumName(InstanceOverrideState_name, int32(x))
 }
-func (InstanceOverrideState) EnumDescriptor() ([]byte, []int) { return fileDescriptor1, []int{1} }
+func (InstanceOverrideState) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{1}
+}
 
 // / An agent health state.
 type HealthState int32
@@ -98,7 +108,9 @@ var HealthState_value = map[string]int32{
 func (x HealthState) String() string {
 	return proto.EnumName(HealthState_name, int32(x))
 }
-func (HealthState) EnumDescriptor() ([]byte, []int) { return fileDescriptor1, []int{2} }
+func (HealthState) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{2}
+}
 
 // / Agent server group lifecycle state.
 type InstanceGroupLifecycleState int32
@@ -130,20 +142,44 @@ var InstanceGroupLifecycleState_value = map[string]int32{
 func (x InstanceGroupLifecycleState) String() string {
 	return proto.EnumName(InstanceGroupLifecycleState_name, int32(x))
 }
-func (InstanceGroupLifecycleState) EnumDescriptor() ([]byte, []int) { return fileDescriptor1, []int{3} }
+func (InstanceGroupLifecycleState) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{3}
+}
 
 // / Agent instance deployment status.
 type InstanceLifecycleStatus struct {
 	// / Agent instance state.
-	State InstanceLifecycleState `protobuf:"varint,1,opt,name=state,enum=com.netflix.titus.InstanceLifecycleState" json:"state,omitempty"`
+	State InstanceLifecycleState `protobuf:"varint,1,opt,name=state,proto3,enum=com.netflix.titus.InstanceLifecycleState" json:"state,omitempty"`
 	// / Instance launch timestamp (EC2 API provides only launch time, with no information about time of subsequent state changes).
-	LaunchTimestamp uint64 `protobuf:"varint,3,opt,name=launchTimestamp" json:"launchTimestamp,omitempty"`
+	LaunchTimestamp      uint64   `protobuf:"varint,3,opt,name=launchTimestamp,proto3" json:"launchTimestamp,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *InstanceLifecycleStatus) Reset()                    { *m = InstanceLifecycleStatus{} }
-func (m *InstanceLifecycleStatus) String() string            { return proto.CompactTextString(m) }
-func (*InstanceLifecycleStatus) ProtoMessage()               {}
-func (*InstanceLifecycleStatus) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{0} }
+func (m *InstanceLifecycleStatus) Reset()         { *m = InstanceLifecycleStatus{} }
+func (m *InstanceLifecycleStatus) String() string { return proto.CompactTextString(m) }
+func (*InstanceLifecycleStatus) ProtoMessage()    {}
+func (*InstanceLifecycleStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{0}
+}
+func (m *InstanceLifecycleStatus) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_InstanceLifecycleStatus.Unmarshal(m, b)
+}
+func (m *InstanceLifecycleStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_InstanceLifecycleStatus.Marshal(b, m, deterministic)
+}
+func (dst *InstanceLifecycleStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InstanceLifecycleStatus.Merge(dst, src)
+}
+func (m *InstanceLifecycleStatus) XXX_Size() int {
+	return xxx_messageInfo_InstanceLifecycleStatus.Size(m)
+}
+func (m *InstanceLifecycleStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_InstanceLifecycleStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InstanceLifecycleStatus proto.InternalMessageInfo
 
 func (m *InstanceLifecycleStatus) GetState() InstanceLifecycleState {
 	if m != nil {
@@ -162,17 +198,39 @@ func (m *InstanceLifecycleStatus) GetLaunchTimestamp() uint64 {
 // / Agent instance override status.
 type InstanceOverrideStatus struct {
 	// / Override state.
-	State InstanceOverrideState `protobuf:"varint,1,opt,name=state,enum=com.netflix.titus.InstanceOverrideState" json:"state,omitempty"`
+	State InstanceOverrideState `protobuf:"varint,1,opt,name=state,proto3,enum=com.netflix.titus.InstanceOverrideState" json:"state,omitempty"`
 	// / A reason for which an override was made.
-	Detail string `protobuf:"bytes,2,opt,name=detail" json:"detail,omitempty"`
+	Detail string `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
 	// / Time when the override was done.
-	Timestamp uint64 `protobuf:"varint,3,opt,name=timestamp" json:"timestamp,omitempty"`
+	Timestamp            uint64   `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *InstanceOverrideStatus) Reset()                    { *m = InstanceOverrideStatus{} }
-func (m *InstanceOverrideStatus) String() string            { return proto.CompactTextString(m) }
-func (*InstanceOverrideStatus) ProtoMessage()               {}
-func (*InstanceOverrideStatus) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{1} }
+func (m *InstanceOverrideStatus) Reset()         { *m = InstanceOverrideStatus{} }
+func (m *InstanceOverrideStatus) String() string { return proto.CompactTextString(m) }
+func (*InstanceOverrideStatus) ProtoMessage()    {}
+func (*InstanceOverrideStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{1}
+}
+func (m *InstanceOverrideStatus) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_InstanceOverrideStatus.Unmarshal(m, b)
+}
+func (m *InstanceOverrideStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_InstanceOverrideStatus.Marshal(b, m, deterministic)
+}
+func (dst *InstanceOverrideStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InstanceOverrideStatus.Merge(dst, src)
+}
+func (m *InstanceOverrideStatus) XXX_Size() int {
+	return xxx_messageInfo_InstanceOverrideStatus.Size(m)
+}
+func (m *InstanceOverrideStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_InstanceOverrideStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InstanceOverrideStatus proto.InternalMessageInfo
 
 func (m *InstanceOverrideStatus) GetState() InstanceOverrideState {
 	if m != nil {
@@ -198,21 +256,43 @@ func (m *InstanceOverrideStatus) GetTimestamp() uint64 {
 // / Agent health status.
 type HealthStatus struct {
 	// / Source id
-	SourceId string `protobuf:"bytes,1,opt,name=sourceId" json:"sourceId,omitempty"`
+	SourceId string `protobuf:"bytes,1,opt,name=sourceId,proto3" json:"sourceId,omitempty"`
 	// / Agent health state.
-	State HealthState `protobuf:"varint,2,opt,name=state,enum=com.netflix.titus.HealthState" json:"state,omitempty"`
+	State HealthState `protobuf:"varint,2,opt,name=state,proto3,enum=com.netflix.titus.HealthState" json:"state,omitempty"`
 	// / If agent is in bad state, contains more information about the problem.
-	Detail string `protobuf:"bytes,3,opt,name=detail" json:"detail,omitempty"`
+	Detail string `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
 	// / Time at which an agent went into the given state.
-	Timestamp uint64 `protobuf:"varint,4,opt,name=timestamp" json:"timestamp,omitempty"`
+	Timestamp uint64 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	// / Health status from individual components, which this state aggregates.
-	Components []*HealthStatus `protobuf:"bytes,5,rep,name=components" json:"components,omitempty"`
+	Components           []*HealthStatus `protobuf:"bytes,5,rep,name=components,proto3" json:"components,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}        `json:"-"`
+	XXX_unrecognized     []byte          `json:"-"`
+	XXX_sizecache        int32           `json:"-"`
 }
 
-func (m *HealthStatus) Reset()                    { *m = HealthStatus{} }
-func (m *HealthStatus) String() string            { return proto.CompactTextString(m) }
-func (*HealthStatus) ProtoMessage()               {}
-func (*HealthStatus) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{2} }
+func (m *HealthStatus) Reset()         { *m = HealthStatus{} }
+func (m *HealthStatus) String() string { return proto.CompactTextString(m) }
+func (*HealthStatus) ProtoMessage()    {}
+func (*HealthStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{2}
+}
+func (m *HealthStatus) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_HealthStatus.Unmarshal(m, b)
+}
+func (m *HealthStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_HealthStatus.Marshal(b, m, deterministic)
+}
+func (dst *HealthStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_HealthStatus.Merge(dst, src)
+}
+func (m *HealthStatus) XXX_Size() int {
+	return xxx_messageInfo_HealthStatus.Size(m)
+}
+func (m *HealthStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_HealthStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_HealthStatus proto.InternalMessageInfo
 
 func (m *HealthStatus) GetSourceId() string {
 	if m != nil {
@@ -252,17 +332,39 @@ func (m *HealthStatus) GetComponents() []*HealthStatus {
 // / Agent server group status.
 type InstanceGroupLifecycleStatus struct {
 	// / Lifecycle state.
-	State InstanceGroupLifecycleState `protobuf:"varint,1,opt,name=state,enum=com.netflix.titus.InstanceGroupLifecycleState" json:"state,omitempty"`
+	State InstanceGroupLifecycleState `protobuf:"varint,1,opt,name=state,proto3,enum=com.netflix.titus.InstanceGroupLifecycleState" json:"state,omitempty"`
 	// / A reason for moving into this state.
-	Detail string `protobuf:"bytes,2,opt,name=detail" json:"detail,omitempty"`
+	Detail string `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
 	// / Time at which agent server group went into the given state.
-	Timestamp uint64 `protobuf:"varint,3,opt,name=timestamp" json:"timestamp,omitempty"`
+	Timestamp            uint64   `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *InstanceGroupLifecycleStatus) Reset()                    { *m = InstanceGroupLifecycleStatus{} }
-func (m *InstanceGroupLifecycleStatus) String() string            { return proto.CompactTextString(m) }
-func (*InstanceGroupLifecycleStatus) ProtoMessage()               {}
-func (*InstanceGroupLifecycleStatus) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{3} }
+func (m *InstanceGroupLifecycleStatus) Reset()         { *m = InstanceGroupLifecycleStatus{} }
+func (m *InstanceGroupLifecycleStatus) String() string { return proto.CompactTextString(m) }
+func (*InstanceGroupLifecycleStatus) ProtoMessage()    {}
+func (*InstanceGroupLifecycleStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{3}
+}
+func (m *InstanceGroupLifecycleStatus) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_InstanceGroupLifecycleStatus.Unmarshal(m, b)
+}
+func (m *InstanceGroupLifecycleStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_InstanceGroupLifecycleStatus.Marshal(b, m, deterministic)
+}
+func (dst *InstanceGroupLifecycleStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InstanceGroupLifecycleStatus.Merge(dst, src)
+}
+func (m *InstanceGroupLifecycleStatus) XXX_Size() int {
+	return xxx_messageInfo_InstanceGroupLifecycleStatus.Size(m)
+}
+func (m *InstanceGroupLifecycleStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_InstanceGroupLifecycleStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InstanceGroupLifecycleStatus proto.InternalMessageInfo
 
 func (m *InstanceGroupLifecycleStatus) GetState() InstanceGroupLifecycleState {
 	if m != nil {
@@ -288,27 +390,49 @@ func (m *InstanceGroupLifecycleStatus) GetTimestamp() uint64 {
 // / An agent server.
 type AgentInstance struct {
 	// / A unique id of the agent server.
-	Id string `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// / A server group, to which the agent belongs to.
-	InstanceGroupId string `protobuf:"bytes,2,opt,name=instanceGroupId" json:"instanceGroupId,omitempty"`
+	InstanceGroupId string `protobuf:"bytes,2,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
 	// / IP address of the agent.
-	IpAddress string `protobuf:"bytes,3,opt,name=ipAddress" json:"ipAddress,omitempty"`
+	IpAddress string `protobuf:"bytes,3,opt,name=ipAddress,proto3" json:"ipAddress,omitempty"`
 	// / Hostname of the agent.
-	Hostname string `protobuf:"bytes,4,opt,name=hostname" json:"hostname,omitempty"`
+	Hostname string `protobuf:"bytes,4,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	// / Current deployment status.
-	LifecycleStatus *InstanceLifecycleStatus `protobuf:"bytes,5,opt,name=lifecycleStatus" json:"lifecycleStatus,omitempty"`
+	LifecycleStatus *InstanceLifecycleStatus `protobuf:"bytes,5,opt,name=lifecycleStatus,proto3" json:"lifecycleStatus,omitempty"`
 	// / Current override status.
-	OverrideStatus *InstanceOverrideStatus `protobuf:"bytes,6,opt,name=overrideStatus" json:"overrideStatus,omitempty"`
+	OverrideStatus *InstanceOverrideStatus `protobuf:"bytes,6,opt,name=overrideStatus,proto3" json:"overrideStatus,omitempty"`
 	// / Current health status.
-	HealthStatus *HealthStatus `protobuf:"bytes,7,opt,name=healthStatus" json:"healthStatus,omitempty"`
+	HealthStatus *HealthStatus `protobuf:"bytes,7,opt,name=healthStatus,proto3" json:"healthStatus,omitempty"`
 	// / Arbitrary set of key/value pairs. Keys starting with 'titus' prefix are reserved for Titus.
-	Attributes map[string]string `protobuf:"bytes,8,rep,name=attributes" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes           map[string]string `protobuf:"bytes,8,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
 }
 
-func (m *AgentInstance) Reset()                    { *m = AgentInstance{} }
-func (m *AgentInstance) String() string            { return proto.CompactTextString(m) }
-func (*AgentInstance) ProtoMessage()               {}
-func (*AgentInstance) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{4} }
+func (m *AgentInstance) Reset()         { *m = AgentInstance{} }
+func (m *AgentInstance) String() string { return proto.CompactTextString(m) }
+func (*AgentInstance) ProtoMessage()    {}
+func (*AgentInstance) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{4}
+}
+func (m *AgentInstance) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentInstance.Unmarshal(m, b)
+}
+func (m *AgentInstance) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentInstance.Marshal(b, m, deterministic)
+}
+func (dst *AgentInstance) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentInstance.Merge(dst, src)
+}
+func (m *AgentInstance) XXX_Size() int {
+	return xxx_messageInfo_AgentInstance.Size(m)
+}
+func (m *AgentInstance) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentInstance.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentInstance proto.InternalMessageInfo
 
 func (m *AgentInstance) GetId() string {
 	if m != nil {
@@ -369,25 +493,47 @@ func (m *AgentInstance) GetAttributes() map[string]string {
 // / Auto scaling rule associated with an agent server group.
 type AutoScaleRule struct {
 	// / Minimum number of agents in the server group.
-	Min uint32 `protobuf:"varint,1,opt,name=min" json:"min,omitempty"`
+	Min uint32 `protobuf:"varint,1,opt,name=min,proto3" json:"min,omitempty"`
 	// / Maximum number of agents in the server group.
-	Max uint32 `protobuf:"varint,2,opt,name=max" json:"max,omitempty"`
+	Max uint32 `protobuf:"varint,2,opt,name=max,proto3" json:"max,omitempty"`
 	// / Minimum number of idle agent instances to keep.
-	MinIdleToKeep uint32 `protobuf:"varint,3,opt,name=minIdleToKeep" json:"minIdleToKeep,omitempty"`
+	MinIdleToKeep uint32 `protobuf:"varint,3,opt,name=minIdleToKeep,proto3" json:"minIdleToKeep,omitempty"`
 	// / Maximum number of idle agent instances to keep.
-	MaxIdleToKeep uint32 `protobuf:"varint,4,opt,name=maxIdleToKeep" json:"maxIdleToKeep,omitempty"`
+	MaxIdleToKeep uint32 `protobuf:"varint,4,opt,name=maxIdleToKeep,proto3" json:"maxIdleToKeep,omitempty"`
 	// / Minimum interval between auto-scale actions.
-	CoolDownSec uint64 `protobuf:"varint,5,opt,name=coolDownSec" json:"coolDownSec,omitempty"`
+	CoolDownSec uint64 `protobuf:"varint,5,opt,name=coolDownSec,proto3" json:"coolDownSec,omitempty"`
 	// / Agent server group auto-scale priority. Server groups with higher priority are scaled up first, and scaled down last.
-	Priority uint32 `protobuf:"varint,6,opt,name=priority" json:"priority,omitempty"`
+	Priority uint32 `protobuf:"varint,6,opt,name=priority,proto3" json:"priority,omitempty"`
 	// / The factor to adjust shortfall.
-	ShortfallAdjustingFactor uint32 `protobuf:"varint,7,opt,name=shortfallAdjustingFactor" json:"shortfallAdjustingFactor,omitempty"`
+	ShortfallAdjustingFactor uint32   `protobuf:"varint,7,opt,name=shortfallAdjustingFactor,proto3" json:"shortfallAdjustingFactor,omitempty"`
+	XXX_NoUnkeyedLiteral     struct{} `json:"-"`
+	XXX_unrecognized         []byte   `json:"-"`
+	XXX_sizecache            int32    `json:"-"`
 }
 
-func (m *AutoScaleRule) Reset()                    { *m = AutoScaleRule{} }
-func (m *AutoScaleRule) String() string            { return proto.CompactTextString(m) }
-func (*AutoScaleRule) ProtoMessage()               {}
-func (*AutoScaleRule) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{5} }
+func (m *AutoScaleRule) Reset()         { *m = AutoScaleRule{} }
+func (m *AutoScaleRule) String() string { return proto.CompactTextString(m) }
+func (*AutoScaleRule) ProtoMessage()    {}
+func (*AutoScaleRule) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{5}
+}
+func (m *AutoScaleRule) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AutoScaleRule.Unmarshal(m, b)
+}
+func (m *AutoScaleRule) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AutoScaleRule.Marshal(b, m, deterministic)
+}
+func (dst *AutoScaleRule) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AutoScaleRule.Merge(dst, src)
+}
+func (m *AutoScaleRule) XXX_Size() int {
+	return xxx_messageInfo_AutoScaleRule.Size(m)
+}
+func (m *AutoScaleRule) XXX_DiscardUnknown() {
+	xxx_messageInfo_AutoScaleRule.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AutoScaleRule proto.InternalMessageInfo
 
 func (m *AutoScaleRule) GetMin() uint32 {
 	if m != nil {
@@ -441,39 +587,61 @@ func (m *AutoScaleRule) GetShortfallAdjustingFactor() uint32 {
 // / An agent instance group.
 type AgentInstanceGroup struct {
 	// / A unique id of the server group.
-	Id string `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// / An id of the server type (for example AWS instance type id).
-	InstanceType string `protobuf:"bytes,2,opt,name=instanceType" json:"instanceType,omitempty"`
+	InstanceType string `protobuf:"bytes,2,opt,name=instanceType,proto3" json:"instanceType,omitempty"`
 	// / Instance resources (cpu, memory, etc).
-	InstanceResources *ResourceDimension `protobuf:"bytes,3,opt,name=instanceResources" json:"instanceResources,omitempty"`
+	InstanceResources *ResourceDimension `protobuf:"bytes,3,opt,name=instanceResources,proto3" json:"instanceResources,omitempty"`
 	// / Tier to which the given server group is attached.
-	Tier Tier `protobuf:"varint,4,opt,name=tier,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
+	Tier Tier `protobuf:"varint,4,opt,name=tier,proto3,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
 	// / Minimum number of servers in the server group.
-	Min uint32 `protobuf:"varint,5,opt,name=min" json:"min,omitempty"`
+	Min uint32 `protobuf:"varint,5,opt,name=min,proto3" json:"min,omitempty"`
 	// / Desired number of servers in the server group.
-	Desired uint32 `protobuf:"varint,6,opt,name=desired" json:"desired,omitempty"`
+	Desired uint32 `protobuf:"varint,6,opt,name=desired,proto3" json:"desired,omitempty"`
 	// / Current number of servers in the server group.
-	Current uint32 `protobuf:"varint,7,opt,name=current" json:"current,omitempty"`
+	Current uint32 `protobuf:"varint,7,opt,name=current,proto3" json:"current,omitempty"`
 	// / Maximum number of servers in the server group.
-	Max uint32 `protobuf:"varint,8,opt,name=max" json:"max,omitempty"`
+	Max uint32 `protobuf:"varint,8,opt,name=max,proto3" json:"max,omitempty"`
 	// / Set to true, if a new servers can be started in this server group.
-	IsLaunchEnabled bool `protobuf:"varint,9,opt,name=isLaunchEnabled" json:"isLaunchEnabled,omitempty"`
+	IsLaunchEnabled bool `protobuf:"varint,9,opt,name=isLaunchEnabled,proto3" json:"isLaunchEnabled,omitempty"`
 	// / Set to true, if servers can be terminated in this server group.
-	IsTerminateEnabled bool `protobuf:"varint,10,opt,name=isTerminateEnabled" json:"isTerminateEnabled,omitempty"`
+	IsTerminateEnabled bool `protobuf:"varint,10,opt,name=isTerminateEnabled,proto3" json:"isTerminateEnabled,omitempty"`
 	// / Auto scaling rule associated with this server group.
-	AutoScaleRule *AutoScaleRule `protobuf:"bytes,11,opt,name=autoScaleRule" json:"autoScaleRule,omitempty"`
+	AutoScaleRule *AutoScaleRule `protobuf:"bytes,11,opt,name=autoScaleRule,proto3" json:"autoScaleRule,omitempty"`
 	// / Current lifecycle state.
-	LifecycleStatus *InstanceGroupLifecycleStatus `protobuf:"bytes,12,opt,name=lifecycleStatus" json:"lifecycleStatus,omitempty"`
+	LifecycleStatus *InstanceGroupLifecycleStatus `protobuf:"bytes,12,opt,name=lifecycleStatus,proto3" json:"lifecycleStatus,omitempty"`
 	// / Time at wich the server group was created.
-	LaunchTimestamp uint64 `protobuf:"varint,13,opt,name=launchTimestamp" json:"launchTimestamp,omitempty"`
+	LaunchTimestamp uint64 `protobuf:"varint,13,opt,name=launchTimestamp,proto3" json:"launchTimestamp,omitempty"`
 	// / Arbitrary set of key/value pairs. Keys starting with 'titus' prefix are reserved for Titus.
-	Attributes map[string]string `protobuf:"bytes,14,rep,name=attributes" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes           map[string]string `protobuf:"bytes,14,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
 }
 
-func (m *AgentInstanceGroup) Reset()                    { *m = AgentInstanceGroup{} }
-func (m *AgentInstanceGroup) String() string            { return proto.CompactTextString(m) }
-func (*AgentInstanceGroup) ProtoMessage()               {}
-func (*AgentInstanceGroup) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{6} }
+func (m *AgentInstanceGroup) Reset()         { *m = AgentInstanceGroup{} }
+func (m *AgentInstanceGroup) String() string { return proto.CompactTextString(m) }
+func (*AgentInstanceGroup) ProtoMessage()    {}
+func (*AgentInstanceGroup) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{6}
+}
+func (m *AgentInstanceGroup) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentInstanceGroup.Unmarshal(m, b)
+}
+func (m *AgentInstanceGroup) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentInstanceGroup.Marshal(b, m, deterministic)
+}
+func (dst *AgentInstanceGroup) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentInstanceGroup.Merge(dst, src)
+}
+func (m *AgentInstanceGroup) XXX_Size() int {
+	return xxx_messageInfo_AgentInstanceGroup.Size(m)
+}
+func (m *AgentInstanceGroup) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentInstanceGroup.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentInstanceGroup proto.InternalMessageInfo
 
 func (m *AgentInstanceGroup) GetId() string {
 	if m != nil {
@@ -581,37 +749,69 @@ type AgentChangeEvent struct {
 	//	*AgentChangeEvent_AgentInstanceUpdate
 	//	*AgentChangeEvent_AgentInstanceRemoved
 	//	*AgentChangeEvent_SnapshotEnd_
-	Event isAgentChangeEvent_Event `protobuf_oneof:"Event"`
+	Event                isAgentChangeEvent_Event `protobuf_oneof:"Event"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
 }
 
-func (m *AgentChangeEvent) Reset()                    { *m = AgentChangeEvent{} }
-func (m *AgentChangeEvent) String() string            { return proto.CompactTextString(m) }
-func (*AgentChangeEvent) ProtoMessage()               {}
-func (*AgentChangeEvent) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{7} }
+func (m *AgentChangeEvent) Reset()         { *m = AgentChangeEvent{} }
+func (m *AgentChangeEvent) String() string { return proto.CompactTextString(m) }
+func (*AgentChangeEvent) ProtoMessage()    {}
+func (*AgentChangeEvent) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{7}
+}
+func (m *AgentChangeEvent) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentChangeEvent.Unmarshal(m, b)
+}
+func (m *AgentChangeEvent) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentChangeEvent.Marshal(b, m, deterministic)
+}
+func (dst *AgentChangeEvent) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentChangeEvent.Merge(dst, src)
+}
+func (m *AgentChangeEvent) XXX_Size() int {
+	return xxx_messageInfo_AgentChangeEvent.Size(m)
+}
+func (m *AgentChangeEvent) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentChangeEvent.DiscardUnknown(m)
+}
 
-type isAgentChangeEvent_Event interface{ isAgentChangeEvent_Event() }
+var xxx_messageInfo_AgentChangeEvent proto.InternalMessageInfo
+
+type isAgentChangeEvent_Event interface {
+	isAgentChangeEvent_Event()
+}
 
 type AgentChangeEvent_InstanceGroupUpdate_ struct {
-	InstanceGroupUpdate *AgentChangeEvent_InstanceGroupUpdate `protobuf:"bytes,1,opt,name=instanceGroupUpdate,oneof"`
-}
-type AgentChangeEvent_InstanceGroupRemoved_ struct {
-	InstanceGroupRemoved *AgentChangeEvent_InstanceGroupRemoved `protobuf:"bytes,2,opt,name=instanceGroupRemoved,oneof"`
-}
-type AgentChangeEvent_AgentInstanceUpdate struct {
-	AgentInstanceUpdate *AgentChangeEvent_InstanceUpdate `protobuf:"bytes,3,opt,name=agentInstanceUpdate,oneof"`
-}
-type AgentChangeEvent_AgentInstanceRemoved struct {
-	AgentInstanceRemoved *AgentChangeEvent_InstanceRemoved `protobuf:"bytes,4,opt,name=agentInstanceRemoved,oneof"`
-}
-type AgentChangeEvent_SnapshotEnd_ struct {
-	SnapshotEnd *AgentChangeEvent_SnapshotEnd `protobuf:"bytes,5,opt,name=snapshotEnd,oneof"`
+	InstanceGroupUpdate *AgentChangeEvent_InstanceGroupUpdate `protobuf:"bytes,1,opt,name=instanceGroupUpdate,proto3,oneof"`
 }
 
-func (*AgentChangeEvent_InstanceGroupUpdate_) isAgentChangeEvent_Event()  {}
+type AgentChangeEvent_InstanceGroupRemoved_ struct {
+	InstanceGroupRemoved *AgentChangeEvent_InstanceGroupRemoved `protobuf:"bytes,2,opt,name=instanceGroupRemoved,proto3,oneof"`
+}
+
+type AgentChangeEvent_AgentInstanceUpdate struct {
+	AgentInstanceUpdate *AgentChangeEvent_InstanceUpdate `protobuf:"bytes,3,opt,name=agentInstanceUpdate,proto3,oneof"`
+}
+
+type AgentChangeEvent_AgentInstanceRemoved struct {
+	AgentInstanceRemoved *AgentChangeEvent_InstanceRemoved `protobuf:"bytes,4,opt,name=agentInstanceRemoved,proto3,oneof"`
+}
+
+type AgentChangeEvent_SnapshotEnd_ struct {
+	SnapshotEnd *AgentChangeEvent_SnapshotEnd `protobuf:"bytes,5,opt,name=snapshotEnd,proto3,oneof"`
+}
+
+func (*AgentChangeEvent_InstanceGroupUpdate_) isAgentChangeEvent_Event() {}
+
 func (*AgentChangeEvent_InstanceGroupRemoved_) isAgentChangeEvent_Event() {}
-func (*AgentChangeEvent_AgentInstanceUpdate) isAgentChangeEvent_Event()   {}
-func (*AgentChangeEvent_AgentInstanceRemoved) isAgentChangeEvent_Event()  {}
-func (*AgentChangeEvent_SnapshotEnd_) isAgentChangeEvent_Event()          {}
+
+func (*AgentChangeEvent_AgentInstanceUpdate) isAgentChangeEvent_Event() {}
+
+func (*AgentChangeEvent_AgentInstanceRemoved) isAgentChangeEvent_Event() {}
+
+func (*AgentChangeEvent_SnapshotEnd_) isAgentChangeEvent_Event() {}
 
 func (m *AgentChangeEvent) GetEvent() isAgentChangeEvent_Event {
 	if m != nil {
@@ -756,27 +956,27 @@ func _AgentChangeEvent_OneofSizer(msg proto.Message) (n int) {
 	switch x := m.Event.(type) {
 	case *AgentChangeEvent_InstanceGroupUpdate_:
 		s := proto.Size(x.InstanceGroupUpdate)
-		n += proto.SizeVarint(1<<3 | proto.WireBytes)
+		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
 	case *AgentChangeEvent_InstanceGroupRemoved_:
 		s := proto.Size(x.InstanceGroupRemoved)
-		n += proto.SizeVarint(2<<3 | proto.WireBytes)
+		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
 	case *AgentChangeEvent_AgentInstanceUpdate:
 		s := proto.Size(x.AgentInstanceUpdate)
-		n += proto.SizeVarint(3<<3 | proto.WireBytes)
+		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
 	case *AgentChangeEvent_AgentInstanceRemoved:
 		s := proto.Size(x.AgentInstanceRemoved)
-		n += proto.SizeVarint(4<<3 | proto.WireBytes)
+		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
 	case *AgentChangeEvent_SnapshotEnd_:
 		s := proto.Size(x.SnapshotEnd)
-		n += proto.SizeVarint(5<<3 | proto.WireBytes)
+		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
 	case nil:
@@ -788,15 +988,35 @@ func _AgentChangeEvent_OneofSizer(msg proto.Message) (n int) {
 
 // / Sent whenever 'AgentInstanceGroup' state changes, excluding agent instances.
 type AgentChangeEvent_InstanceGroupUpdate struct {
-	InstanceGroup *AgentInstanceGroup `protobuf:"bytes,1,opt,name=instanceGroup" json:"instanceGroup,omitempty"`
+	InstanceGroup        *AgentInstanceGroup `protobuf:"bytes,1,opt,name=instanceGroup,proto3" json:"instanceGroup,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
+	XXX_unrecognized     []byte              `json:"-"`
+	XXX_sizecache        int32               `json:"-"`
 }
 
 func (m *AgentChangeEvent_InstanceGroupUpdate) Reset()         { *m = AgentChangeEvent_InstanceGroupUpdate{} }
 func (m *AgentChangeEvent_InstanceGroupUpdate) String() string { return proto.CompactTextString(m) }
 func (*AgentChangeEvent_InstanceGroupUpdate) ProtoMessage()    {}
 func (*AgentChangeEvent_InstanceGroupUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor1, []int{7, 0}
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{7, 0}
 }
+func (m *AgentChangeEvent_InstanceGroupUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentChangeEvent_InstanceGroupUpdate.Unmarshal(m, b)
+}
+func (m *AgentChangeEvent_InstanceGroupUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentChangeEvent_InstanceGroupUpdate.Marshal(b, m, deterministic)
+}
+func (dst *AgentChangeEvent_InstanceGroupUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentChangeEvent_InstanceGroupUpdate.Merge(dst, src)
+}
+func (m *AgentChangeEvent_InstanceGroupUpdate) XXX_Size() int {
+	return xxx_messageInfo_AgentChangeEvent_InstanceGroupUpdate.Size(m)
+}
+func (m *AgentChangeEvent_InstanceGroupUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentChangeEvent_InstanceGroupUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentChangeEvent_InstanceGroupUpdate proto.InternalMessageInfo
 
 func (m *AgentChangeEvent_InstanceGroupUpdate) GetInstanceGroup() *AgentInstanceGroup {
 	if m != nil {
@@ -807,15 +1027,35 @@ func (m *AgentChangeEvent_InstanceGroupUpdate) GetInstanceGroup() *AgentInstance
 
 // / Sent whenever 'AgentInstanceGroup' is removed.
 type AgentChangeEvent_InstanceGroupRemoved struct {
-	InstanceGroupId string `protobuf:"bytes,1,opt,name=instanceGroupId" json:"instanceGroupId,omitempty"`
+	InstanceGroupId      string   `protobuf:"bytes,1,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *AgentChangeEvent_InstanceGroupRemoved) Reset()         { *m = AgentChangeEvent_InstanceGroupRemoved{} }
 func (m *AgentChangeEvent_InstanceGroupRemoved) String() string { return proto.CompactTextString(m) }
 func (*AgentChangeEvent_InstanceGroupRemoved) ProtoMessage()    {}
 func (*AgentChangeEvent_InstanceGroupRemoved) Descriptor() ([]byte, []int) {
-	return fileDescriptor1, []int{7, 1}
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{7, 1}
 }
+func (m *AgentChangeEvent_InstanceGroupRemoved) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentChangeEvent_InstanceGroupRemoved.Unmarshal(m, b)
+}
+func (m *AgentChangeEvent_InstanceGroupRemoved) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentChangeEvent_InstanceGroupRemoved.Marshal(b, m, deterministic)
+}
+func (dst *AgentChangeEvent_InstanceGroupRemoved) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentChangeEvent_InstanceGroupRemoved.Merge(dst, src)
+}
+func (m *AgentChangeEvent_InstanceGroupRemoved) XXX_Size() int {
+	return xxx_messageInfo_AgentChangeEvent_InstanceGroupRemoved.Size(m)
+}
+func (m *AgentChangeEvent_InstanceGroupRemoved) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentChangeEvent_InstanceGroupRemoved.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentChangeEvent_InstanceGroupRemoved proto.InternalMessageInfo
 
 func (m *AgentChangeEvent_InstanceGroupRemoved) GetInstanceGroupId() string {
 	if m != nil {
@@ -826,15 +1066,35 @@ func (m *AgentChangeEvent_InstanceGroupRemoved) GetInstanceGroupId() string {
 
 // / Sent whenever 'AgentInstance' state changes, including initial (add)/final (terminate) updates.
 type AgentChangeEvent_InstanceUpdate struct {
-	Instance *AgentInstance `protobuf:"bytes,1,opt,name=instance" json:"instance,omitempty"`
+	Instance             *AgentInstance `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
+	XXX_unrecognized     []byte         `json:"-"`
+	XXX_sizecache        int32          `json:"-"`
 }
 
 func (m *AgentChangeEvent_InstanceUpdate) Reset()         { *m = AgentChangeEvent_InstanceUpdate{} }
 func (m *AgentChangeEvent_InstanceUpdate) String() string { return proto.CompactTextString(m) }
 func (*AgentChangeEvent_InstanceUpdate) ProtoMessage()    {}
 func (*AgentChangeEvent_InstanceUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor1, []int{7, 2}
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{7, 2}
 }
+func (m *AgentChangeEvent_InstanceUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentChangeEvent_InstanceUpdate.Unmarshal(m, b)
+}
+func (m *AgentChangeEvent_InstanceUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentChangeEvent_InstanceUpdate.Marshal(b, m, deterministic)
+}
+func (dst *AgentChangeEvent_InstanceUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentChangeEvent_InstanceUpdate.Merge(dst, src)
+}
+func (m *AgentChangeEvent_InstanceUpdate) XXX_Size() int {
+	return xxx_messageInfo_AgentChangeEvent_InstanceUpdate.Size(m)
+}
+func (m *AgentChangeEvent_InstanceUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentChangeEvent_InstanceUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentChangeEvent_InstanceUpdate proto.InternalMessageInfo
 
 func (m *AgentChangeEvent_InstanceUpdate) GetInstance() *AgentInstance {
 	if m != nil {
@@ -845,15 +1105,35 @@ func (m *AgentChangeEvent_InstanceUpdate) GetInstance() *AgentInstance {
 
 // / Sent whenever 'AgentInstance' is removed.
 type AgentChangeEvent_InstanceRemoved struct {
-	InstanceId string `protobuf:"bytes,1,opt,name=instanceId" json:"instanceId,omitempty"`
+	InstanceId           string   `protobuf:"bytes,1,opt,name=instanceId,proto3" json:"instanceId,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *AgentChangeEvent_InstanceRemoved) Reset()         { *m = AgentChangeEvent_InstanceRemoved{} }
 func (m *AgentChangeEvent_InstanceRemoved) String() string { return proto.CompactTextString(m) }
 func (*AgentChangeEvent_InstanceRemoved) ProtoMessage()    {}
 func (*AgentChangeEvent_InstanceRemoved) Descriptor() ([]byte, []int) {
-	return fileDescriptor1, []int{7, 3}
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{7, 3}
 }
+func (m *AgentChangeEvent_InstanceRemoved) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentChangeEvent_InstanceRemoved.Unmarshal(m, b)
+}
+func (m *AgentChangeEvent_InstanceRemoved) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentChangeEvent_InstanceRemoved.Marshal(b, m, deterministic)
+}
+func (dst *AgentChangeEvent_InstanceRemoved) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentChangeEvent_InstanceRemoved.Merge(dst, src)
+}
+func (m *AgentChangeEvent_InstanceRemoved) XXX_Size() int {
+	return xxx_messageInfo_AgentChangeEvent_InstanceRemoved.Size(m)
+}
+func (m *AgentChangeEvent_InstanceRemoved) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentChangeEvent_InstanceRemoved.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentChangeEvent_InstanceRemoved proto.InternalMessageInfo
 
 func (m *AgentChangeEvent_InstanceRemoved) GetInstanceId() string {
 	if m != nil {
@@ -864,16 +1144,38 @@ func (m *AgentChangeEvent_InstanceRemoved) GetInstanceId() string {
 
 // / A marker notification, indicating that all known agent state was streamed to the client.
 type AgentChangeEvent_SnapshotEnd struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *AgentChangeEvent_SnapshotEnd) Reset()                    { *m = AgentChangeEvent_SnapshotEnd{} }
-func (m *AgentChangeEvent_SnapshotEnd) String() string            { return proto.CompactTextString(m) }
-func (*AgentChangeEvent_SnapshotEnd) ProtoMessage()               {}
-func (*AgentChangeEvent_SnapshotEnd) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{7, 4} }
+func (m *AgentChangeEvent_SnapshotEnd) Reset()         { *m = AgentChangeEvent_SnapshotEnd{} }
+func (m *AgentChangeEvent_SnapshotEnd) String() string { return proto.CompactTextString(m) }
+func (*AgentChangeEvent_SnapshotEnd) ProtoMessage()    {}
+func (*AgentChangeEvent_SnapshotEnd) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{7, 4}
+}
+func (m *AgentChangeEvent_SnapshotEnd) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentChangeEvent_SnapshotEnd.Unmarshal(m, b)
+}
+func (m *AgentChangeEvent_SnapshotEnd) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentChangeEvent_SnapshotEnd.Marshal(b, m, deterministic)
+}
+func (dst *AgentChangeEvent_SnapshotEnd) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentChangeEvent_SnapshotEnd.Merge(dst, src)
+}
+func (m *AgentChangeEvent_SnapshotEnd) XXX_Size() int {
+	return xxx_messageInfo_AgentChangeEvent_SnapshotEnd.Size(m)
+}
+func (m *AgentChangeEvent_SnapshotEnd) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentChangeEvent_SnapshotEnd.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentChangeEvent_SnapshotEnd proto.InternalMessageInfo
 
 type AgentQuery struct {
 	// / (Required) Requested page number/size.
-	Page *Page `protobuf:"bytes,1,opt,name=page" json:"page,omitempty"`
+	Page *Page `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
 	// / (Optional) Collection of fields and their values for filtering.
 	// Available query criteria:
 	// instanceIds - list of agent instance ids
@@ -881,17 +1183,39 @@ type AgentQuery struct {
 	// deploymentState - agent deployment state
 	// overrideState - override state of an agent
 	// healthState - current agent health state
-	FilteringCriteria map[string]string `protobuf:"bytes,2,rep,name=filteringCriteria" json:"filteringCriteria,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	FilteringCriteria map[string]string `protobuf:"bytes,2,rep,name=filteringCriteria,proto3" json:"filteringCriteria,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// / (Optional) If set, only field values explicitly given in this parameter will be returned
 	// This does not include certain attributes like 'id', 'instanceGroupId' which are always returned.
 	// If nested field value is provided, only the explicitly listed nested fields will be returned.
-	Fields []string `protobuf:"bytes,5,rep,name=fields" json:"fields,omitempty"`
+	Fields               []string `protobuf:"bytes,5,rep,name=fields,proto3" json:"fields,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *AgentQuery) Reset()                    { *m = AgentQuery{} }
-func (m *AgentQuery) String() string            { return proto.CompactTextString(m) }
-func (*AgentQuery) ProtoMessage()               {}
-func (*AgentQuery) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{8} }
+func (m *AgentQuery) Reset()         { *m = AgentQuery{} }
+func (m *AgentQuery) String() string { return proto.CompactTextString(m) }
+func (*AgentQuery) ProtoMessage()    {}
+func (*AgentQuery) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{8}
+}
+func (m *AgentQuery) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentQuery.Unmarshal(m, b)
+}
+func (m *AgentQuery) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentQuery.Marshal(b, m, deterministic)
+}
+func (dst *AgentQuery) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentQuery.Merge(dst, src)
+}
+func (m *AgentQuery) XXX_Size() int {
+	return xxx_messageInfo_AgentQuery.Size(m)
+}
+func (m *AgentQuery) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentQuery.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentQuery proto.InternalMessageInfo
 
 func (m *AgentQuery) GetPage() *Page {
 	if m != nil {
@@ -915,13 +1239,35 @@ func (m *AgentQuery) GetFields() []string {
 }
 
 type Id struct {
-	Id string `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	Id                   string   `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *Id) Reset()                    { *m = Id{} }
-func (m *Id) String() string            { return proto.CompactTextString(m) }
-func (*Id) ProtoMessage()               {}
-func (*Id) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{9} }
+func (m *Id) Reset()         { *m = Id{} }
+func (m *Id) String() string { return proto.CompactTextString(m) }
+func (*Id) ProtoMessage()    {}
+func (*Id) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{9}
+}
+func (m *Id) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Id.Unmarshal(m, b)
+}
+func (m *Id) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Id.Marshal(b, m, deterministic)
+}
+func (dst *Id) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Id.Merge(dst, src)
+}
+func (m *Id) XXX_Size() int {
+	return xxx_messageInfo_Id.Size(m)
+}
+func (m *Id) XXX_DiscardUnknown() {
+	xxx_messageInfo_Id.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Id proto.InternalMessageInfo
 
 func (m *Id) GetId() string {
 	if m != nil {
@@ -931,13 +1277,35 @@ func (m *Id) GetId() string {
 }
 
 type AgentInstanceGroups struct {
-	AgentInstanceGroups []*AgentInstanceGroup `protobuf:"bytes,1,rep,name=agentInstanceGroups" json:"agentInstanceGroups,omitempty"`
+	AgentInstanceGroups  []*AgentInstanceGroup `protobuf:"bytes,1,rep,name=agentInstanceGroups,proto3" json:"agentInstanceGroups,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
 }
 
-func (m *AgentInstanceGroups) Reset()                    { *m = AgentInstanceGroups{} }
-func (m *AgentInstanceGroups) String() string            { return proto.CompactTextString(m) }
-func (*AgentInstanceGroups) ProtoMessage()               {}
-func (*AgentInstanceGroups) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{10} }
+func (m *AgentInstanceGroups) Reset()         { *m = AgentInstanceGroups{} }
+func (m *AgentInstanceGroups) String() string { return proto.CompactTextString(m) }
+func (*AgentInstanceGroups) ProtoMessage()    {}
+func (*AgentInstanceGroups) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{10}
+}
+func (m *AgentInstanceGroups) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentInstanceGroups.Unmarshal(m, b)
+}
+func (m *AgentInstanceGroups) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentInstanceGroups.Marshal(b, m, deterministic)
+}
+func (dst *AgentInstanceGroups) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentInstanceGroups.Merge(dst, src)
+}
+func (m *AgentInstanceGroups) XXX_Size() int {
+	return xxx_messageInfo_AgentInstanceGroups.Size(m)
+}
+func (m *AgentInstanceGroups) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentInstanceGroups.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentInstanceGroups proto.InternalMessageInfo
 
 func (m *AgentInstanceGroups) GetAgentInstanceGroups() []*AgentInstanceGroup {
 	if m != nil {
@@ -947,13 +1315,35 @@ func (m *AgentInstanceGroups) GetAgentInstanceGroups() []*AgentInstanceGroup {
 }
 
 type AgentInstances struct {
-	AgentInstances []*AgentInstance `protobuf:"bytes,1,rep,name=agentInstances" json:"agentInstances,omitempty"`
+	AgentInstances       []*AgentInstance `protobuf:"bytes,1,rep,name=agentInstances,proto3" json:"agentInstances,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
+	XXX_unrecognized     []byte           `json:"-"`
+	XXX_sizecache        int32            `json:"-"`
 }
 
-func (m *AgentInstances) Reset()                    { *m = AgentInstances{} }
-func (m *AgentInstances) String() string            { return proto.CompactTextString(m) }
-func (*AgentInstances) ProtoMessage()               {}
-func (*AgentInstances) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{11} }
+func (m *AgentInstances) Reset()         { *m = AgentInstances{} }
+func (m *AgentInstances) String() string { return proto.CompactTextString(m) }
+func (*AgentInstances) ProtoMessage()    {}
+func (*AgentInstances) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{11}
+}
+func (m *AgentInstances) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AgentInstances.Unmarshal(m, b)
+}
+func (m *AgentInstances) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AgentInstances.Marshal(b, m, deterministic)
+}
+func (dst *AgentInstances) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AgentInstances.Merge(dst, src)
+}
+func (m *AgentInstances) XXX_Size() int {
+	return xxx_messageInfo_AgentInstances.Size(m)
+}
+func (m *AgentInstances) XXX_DiscardUnknown() {
+	xxx_messageInfo_AgentInstances.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AgentInstances proto.InternalMessageInfo
 
 func (m *AgentInstances) GetAgentInstances() []*AgentInstance {
 	if m != nil {
@@ -963,14 +1353,36 @@ func (m *AgentInstances) GetAgentInstances() []*AgentInstance {
 }
 
 type TierUpdate struct {
-	InstanceGroupId string `protobuf:"bytes,1,opt,name=instanceGroupId" json:"instanceGroupId,omitempty"`
-	Tier            Tier   `protobuf:"varint,2,opt,name=tier,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
+	InstanceGroupId      string   `protobuf:"bytes,1,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
+	Tier                 Tier     `protobuf:"varint,2,opt,name=tier,proto3,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TierUpdate) Reset()                    { *m = TierUpdate{} }
-func (m *TierUpdate) String() string            { return proto.CompactTextString(m) }
-func (*TierUpdate) ProtoMessage()               {}
-func (*TierUpdate) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{12} }
+func (m *TierUpdate) Reset()         { *m = TierUpdate{} }
+func (m *TierUpdate) String() string { return proto.CompactTextString(m) }
+func (*TierUpdate) ProtoMessage()    {}
+func (*TierUpdate) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{12}
+}
+func (m *TierUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_TierUpdate.Unmarshal(m, b)
+}
+func (m *TierUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_TierUpdate.Marshal(b, m, deterministic)
+}
+func (dst *TierUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TierUpdate.Merge(dst, src)
+}
+func (m *TierUpdate) XXX_Size() int {
+	return xxx_messageInfo_TierUpdate.Size(m)
+}
+func (m *TierUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_TierUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TierUpdate proto.InternalMessageInfo
 
 func (m *TierUpdate) GetInstanceGroupId() string {
 	if m != nil {
@@ -987,14 +1399,36 @@ func (m *TierUpdate) GetTier() Tier {
 }
 
 type AutoScalingRuleUpdate struct {
-	InstanceGroupId string         `protobuf:"bytes,1,opt,name=instanceGroupId" json:"instanceGroupId,omitempty"`
-	AutoScaleRule   *AutoScaleRule `protobuf:"bytes,2,opt,name=autoScaleRule" json:"autoScaleRule,omitempty"`
+	InstanceGroupId      string         `protobuf:"bytes,1,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
+	AutoScaleRule        *AutoScaleRule `protobuf:"bytes,2,opt,name=autoScaleRule,proto3" json:"autoScaleRule,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
+	XXX_unrecognized     []byte         `json:"-"`
+	XXX_sizecache        int32          `json:"-"`
 }
 
-func (m *AutoScalingRuleUpdate) Reset()                    { *m = AutoScalingRuleUpdate{} }
-func (m *AutoScalingRuleUpdate) String() string            { return proto.CompactTextString(m) }
-func (*AutoScalingRuleUpdate) ProtoMessage()               {}
-func (*AutoScalingRuleUpdate) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{13} }
+func (m *AutoScalingRuleUpdate) Reset()         { *m = AutoScalingRuleUpdate{} }
+func (m *AutoScalingRuleUpdate) String() string { return proto.CompactTextString(m) }
+func (*AutoScalingRuleUpdate) ProtoMessage()    {}
+func (*AutoScalingRuleUpdate) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{13}
+}
+func (m *AutoScalingRuleUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AutoScalingRuleUpdate.Unmarshal(m, b)
+}
+func (m *AutoScalingRuleUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AutoScalingRuleUpdate.Marshal(b, m, deterministic)
+}
+func (dst *AutoScalingRuleUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AutoScalingRuleUpdate.Merge(dst, src)
+}
+func (m *AutoScalingRuleUpdate) XXX_Size() int {
+	return xxx_messageInfo_AutoScalingRuleUpdate.Size(m)
+}
+func (m *AutoScalingRuleUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_AutoScalingRuleUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AutoScalingRuleUpdate proto.InternalMessageInfo
 
 func (m *AutoScalingRuleUpdate) GetInstanceGroupId() string {
 	if m != nil {
@@ -1011,17 +1445,37 @@ func (m *AutoScalingRuleUpdate) GetAutoScaleRule() *AutoScaleRule {
 }
 
 type InstanceGroupLifecycleStateUpdate struct {
-	InstanceGroupId string                      `protobuf:"bytes,1,opt,name=instanceGroupId" json:"instanceGroupId,omitempty"`
-	LifecycleState  InstanceGroupLifecycleState `protobuf:"varint,2,opt,name=lifecycleState,enum=com.netflix.titus.InstanceGroupLifecycleState" json:"lifecycleState,omitempty"`
-	Detail          string                      `protobuf:"bytes,3,opt,name=detail" json:"detail,omitempty"`
+	InstanceGroupId      string                      `protobuf:"bytes,1,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
+	LifecycleState       InstanceGroupLifecycleState `protobuf:"varint,2,opt,name=lifecycleState,proto3,enum=com.netflix.titus.InstanceGroupLifecycleState" json:"lifecycleState,omitempty"`
+	Detail               string                      `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                    `json:"-"`
+	XXX_unrecognized     []byte                      `json:"-"`
+	XXX_sizecache        int32                       `json:"-"`
 }
 
 func (m *InstanceGroupLifecycleStateUpdate) Reset()         { *m = InstanceGroupLifecycleStateUpdate{} }
 func (m *InstanceGroupLifecycleStateUpdate) String() string { return proto.CompactTextString(m) }
 func (*InstanceGroupLifecycleStateUpdate) ProtoMessage()    {}
 func (*InstanceGroupLifecycleStateUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor1, []int{14}
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{14}
 }
+func (m *InstanceGroupLifecycleStateUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_InstanceGroupLifecycleStateUpdate.Unmarshal(m, b)
+}
+func (m *InstanceGroupLifecycleStateUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_InstanceGroupLifecycleStateUpdate.Marshal(b, m, deterministic)
+}
+func (dst *InstanceGroupLifecycleStateUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InstanceGroupLifecycleStateUpdate.Merge(dst, src)
+}
+func (m *InstanceGroupLifecycleStateUpdate) XXX_Size() int {
+	return xxx_messageInfo_InstanceGroupLifecycleStateUpdate.Size(m)
+}
+func (m *InstanceGroupLifecycleStateUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_InstanceGroupLifecycleStateUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InstanceGroupLifecycleStateUpdate proto.InternalMessageInfo
 
 func (m *InstanceGroupLifecycleStateUpdate) GetInstanceGroupId() string {
 	if m != nil {
@@ -1045,14 +1499,36 @@ func (m *InstanceGroupLifecycleStateUpdate) GetDetail() string {
 }
 
 type InstanceGroupAttributesUpdate struct {
-	InstanceGroupId string            `protobuf:"bytes,1,opt,name=instanceGroupId" json:"instanceGroupId,omitempty"`
-	Attributes      map[string]string `protobuf:"bytes,2,rep,name=attributes" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	InstanceGroupId      string            `protobuf:"bytes,1,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
+	Attributes           map[string]string `protobuf:"bytes,2,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
 }
 
-func (m *InstanceGroupAttributesUpdate) Reset()                    { *m = InstanceGroupAttributesUpdate{} }
-func (m *InstanceGroupAttributesUpdate) String() string            { return proto.CompactTextString(m) }
-func (*InstanceGroupAttributesUpdate) ProtoMessage()               {}
-func (*InstanceGroupAttributesUpdate) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{15} }
+func (m *InstanceGroupAttributesUpdate) Reset()         { *m = InstanceGroupAttributesUpdate{} }
+func (m *InstanceGroupAttributesUpdate) String() string { return proto.CompactTextString(m) }
+func (*InstanceGroupAttributesUpdate) ProtoMessage()    {}
+func (*InstanceGroupAttributesUpdate) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{15}
+}
+func (m *InstanceGroupAttributesUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_InstanceGroupAttributesUpdate.Unmarshal(m, b)
+}
+func (m *InstanceGroupAttributesUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_InstanceGroupAttributesUpdate.Marshal(b, m, deterministic)
+}
+func (dst *InstanceGroupAttributesUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InstanceGroupAttributesUpdate.Merge(dst, src)
+}
+func (m *InstanceGroupAttributesUpdate) XXX_Size() int {
+	return xxx_messageInfo_InstanceGroupAttributesUpdate.Size(m)
+}
+func (m *InstanceGroupAttributesUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_InstanceGroupAttributesUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InstanceGroupAttributesUpdate proto.InternalMessageInfo
 
 func (m *InstanceGroupAttributesUpdate) GetInstanceGroupId() string {
 	if m != nil {
@@ -1069,15 +1545,37 @@ func (m *InstanceGroupAttributesUpdate) GetAttributes() map[string]string {
 }
 
 type InstanceOverrideStateUpdate struct {
-	AgentInstanceId string                `protobuf:"bytes,1,opt,name=agentInstanceId" json:"agentInstanceId,omitempty"`
-	OverrideState   InstanceOverrideState `protobuf:"varint,2,opt,name=overrideState,enum=com.netflix.titus.InstanceOverrideState" json:"overrideState,omitempty"`
-	Detail          string                `protobuf:"bytes,3,opt,name=detail" json:"detail,omitempty"`
+	AgentInstanceId      string                `protobuf:"bytes,1,opt,name=agentInstanceId,proto3" json:"agentInstanceId,omitempty"`
+	OverrideState        InstanceOverrideState `protobuf:"varint,2,opt,name=overrideState,proto3,enum=com.netflix.titus.InstanceOverrideState" json:"overrideState,omitempty"`
+	Detail               string                `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
 }
 
-func (m *InstanceOverrideStateUpdate) Reset()                    { *m = InstanceOverrideStateUpdate{} }
-func (m *InstanceOverrideStateUpdate) String() string            { return proto.CompactTextString(m) }
-func (*InstanceOverrideStateUpdate) ProtoMessage()               {}
-func (*InstanceOverrideStateUpdate) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{16} }
+func (m *InstanceOverrideStateUpdate) Reset()         { *m = InstanceOverrideStateUpdate{} }
+func (m *InstanceOverrideStateUpdate) String() string { return proto.CompactTextString(m) }
+func (*InstanceOverrideStateUpdate) ProtoMessage()    {}
+func (*InstanceOverrideStateUpdate) Descriptor() ([]byte, []int) {
+	return fileDescriptor_titus_agent_api_54f28efdd197b847, []int{16}
+}
+func (m *InstanceOverrideStateUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_InstanceOverrideStateUpdate.Unmarshal(m, b)
+}
+func (m *InstanceOverrideStateUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_InstanceOverrideStateUpdate.Marshal(b, m, deterministic)
+}
+func (dst *InstanceOverrideStateUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InstanceOverrideStateUpdate.Merge(dst, src)
+}
+func (m *InstanceOverrideStateUpdate) XXX_Size() int {
+	return xxx_messageInfo_InstanceOverrideStateUpdate.Size(m)
+}
+func (m *InstanceOverrideStateUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_InstanceOverrideStateUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InstanceOverrideStateUpdate proto.InternalMessageInfo
 
 func (m *InstanceOverrideStateUpdate) GetAgentInstanceId() string {
 	if m != nil {
@@ -1106,8 +1604,10 @@ func init() {
 	proto.RegisterType((*HealthStatus)(nil), "com.netflix.titus.HealthStatus")
 	proto.RegisterType((*InstanceGroupLifecycleStatus)(nil), "com.netflix.titus.InstanceGroupLifecycleStatus")
 	proto.RegisterType((*AgentInstance)(nil), "com.netflix.titus.AgentInstance")
+	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.AgentInstance.AttributesEntry")
 	proto.RegisterType((*AutoScaleRule)(nil), "com.netflix.titus.AutoScaleRule")
 	proto.RegisterType((*AgentInstanceGroup)(nil), "com.netflix.titus.AgentInstanceGroup")
+	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.AgentInstanceGroup.AttributesEntry")
 	proto.RegisterType((*AgentChangeEvent)(nil), "com.netflix.titus.AgentChangeEvent")
 	proto.RegisterType((*AgentChangeEvent_InstanceGroupUpdate)(nil), "com.netflix.titus.AgentChangeEvent.InstanceGroupUpdate")
 	proto.RegisterType((*AgentChangeEvent_InstanceGroupRemoved)(nil), "com.netflix.titus.AgentChangeEvent.InstanceGroupRemoved")
@@ -1115,6 +1615,7 @@ func init() {
 	proto.RegisterType((*AgentChangeEvent_InstanceRemoved)(nil), "com.netflix.titus.AgentChangeEvent.InstanceRemoved")
 	proto.RegisterType((*AgentChangeEvent_SnapshotEnd)(nil), "com.netflix.titus.AgentChangeEvent.SnapshotEnd")
 	proto.RegisterType((*AgentQuery)(nil), "com.netflix.titus.AgentQuery")
+	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.AgentQuery.FilteringCriteriaEntry")
 	proto.RegisterType((*Id)(nil), "com.netflix.titus.Id")
 	proto.RegisterType((*AgentInstanceGroups)(nil), "com.netflix.titus.AgentInstanceGroups")
 	proto.RegisterType((*AgentInstances)(nil), "com.netflix.titus.AgentInstances")
@@ -1122,6 +1623,7 @@ func init() {
 	proto.RegisterType((*AutoScalingRuleUpdate)(nil), "com.netflix.titus.AutoScalingRuleUpdate")
 	proto.RegisterType((*InstanceGroupLifecycleStateUpdate)(nil), "com.netflix.titus.InstanceGroupLifecycleStateUpdate")
 	proto.RegisterType((*InstanceGroupAttributesUpdate)(nil), "com.netflix.titus.InstanceGroupAttributesUpdate")
+	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.InstanceGroupAttributesUpdate.AttributesEntry")
 	proto.RegisterType((*InstanceOverrideStateUpdate)(nil), "com.netflix.titus.InstanceOverrideStateUpdate")
 	proto.RegisterEnum("com.netflix.titus.InstanceLifecycleState", InstanceLifecycleState_name, InstanceLifecycleState_value)
 	proto.RegisterEnum("com.netflix.titus.InstanceOverrideState", InstanceOverrideState_name, InstanceOverrideState_value)
@@ -1129,9 +1631,11 @@ func init() {
 	proto.RegisterEnum("com.netflix.titus.InstanceGroupLifecycleState", InstanceGroupLifecycleState_name, InstanceGroupLifecycleState_value)
 }
 
-func init() { proto.RegisterFile("netflix/titus/titus_agent_api.proto", fileDescriptor1) }
+func init() {
+	proto.RegisterFile("netflix/titus/titus_agent_api.proto", fileDescriptor_titus_agent_api_54f28efdd197b847)
+}
 
-var fileDescriptor1 = []byte{
+var fileDescriptor_titus_agent_api_54f28efdd197b847 = []byte{
 	// 1645 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x58, 0x4b, 0x6f, 0xdb, 0xc6,
 	0x16, 0x16, 0x65, 0xcb, 0x8f, 0x23, 0x4b, 0x96, 0xc7, 0x8f, 0x08, 0xca, 0x4b, 0x61, 0x72, 0x2f,
