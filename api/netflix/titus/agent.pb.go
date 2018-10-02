@@ -12,6 +12,12 @@ var _ = proto.Marshal
 var _ = fmt.Errorf
 var _ = math.Inf
 
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the proto package it is being compiled against.
+// A compilation error at this line likely means your copy of the
+// proto package needs to be updated.
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+
 type TaskInfo_Status int32
 
 const (
@@ -47,7 +53,9 @@ func (x *TaskInfo_Status) UnmarshalJSON(data []byte) error {
 	*x = TaskInfo_Status(value)
 	return nil
 }
-func (TaskInfo_Status) EnumDescriptor() ([]byte, []int) { return fileDescriptor2, []int{3, 0} }
+func (TaskInfo_Status) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{3, 0}
+}
 
 type ContainerInfo_SnapshotPolicy int32
 
@@ -88,7 +96,7 @@ func (x *ContainerInfo_SnapshotPolicy) UnmarshalJSON(data []byte) error {
 	return nil
 }
 func (ContainerInfo_SnapshotPolicy) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor2, []int{4, 0}
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 0}
 }
 
 // Borrowed from Kubernetes
@@ -131,7 +139,7 @@ func (x *ContainerInfo_ImagePullPolicy) UnmarshalJSON(data []byte) error {
 	return nil
 }
 func (ContainerInfo_ImagePullPolicy) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor2, []int{4, 1}
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 1}
 }
 
 type ContainerInfo_EfsConfigInfo_MountPerms int32
@@ -170,7 +178,7 @@ func (x *ContainerInfo_EfsConfigInfo_MountPerms) UnmarshalJSON(data []byte) erro
 	return nil
 }
 func (ContainerInfo_EfsConfigInfo_MountPerms) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor2, []int{4, 2, 0}
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 2, 0}
 }
 
 // Taken from include/uapi/linux/capability.h
@@ -316,18 +324,39 @@ func (x *ContainerInfo_Capabilities_Capability) UnmarshalJSON(data []byte) error
 	return nil
 }
 func (ContainerInfo_Capabilities_Capability) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor2, []int{4, 3, 0}
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 3, 0}
 }
 
 type TaskStatusData struct {
-	Timestamp        *int64 `protobuf:"varint,1,req,name=timestamp" json:"timestamp,omitempty"`
-	XXX_unrecognized []byte `json:"-"`
+	Timestamp            *int64   `protobuf:"varint,1,req,name=timestamp" json:"timestamp,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TaskStatusData) Reset()                    { *m = TaskStatusData{} }
-func (m *TaskStatusData) String() string            { return proto.CompactTextString(m) }
-func (*TaskStatusData) ProtoMessage()               {}
-func (*TaskStatusData) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{0} }
+func (m *TaskStatusData) Reset()         { *m = TaskStatusData{} }
+func (m *TaskStatusData) String() string { return proto.CompactTextString(m) }
+func (*TaskStatusData) ProtoMessage()    {}
+func (*TaskStatusData) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{0}
+}
+func (m *TaskStatusData) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_TaskStatusData.Unmarshal(m, b)
+}
+func (m *TaskStatusData) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_TaskStatusData.Marshal(b, m, deterministic)
+}
+func (dst *TaskStatusData) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskStatusData.Merge(dst, src)
+}
+func (m *TaskStatusData) XXX_Size() int {
+	return xxx_messageInfo_TaskStatusData.Size(m)
+}
+func (m *TaskStatusData) XXX_DiscardUnknown() {
+	xxx_messageInfo_TaskStatusData.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TaskStatusData proto.InternalMessageInfo
 
 func (m *TaskStatusData) GetTimestamp() int64 {
 	if m != nil && m.Timestamp != nil {
@@ -337,17 +366,38 @@ func (m *TaskStatusData) GetTimestamp() int64 {
 }
 
 type StateUpdate struct {
-	Id               *string `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
-	State            *string `protobuf:"bytes,2,opt,name=state" json:"state,omitempty"`
-	Message          *string `protobuf:"bytes,3,opt,name=message" json:"message,omitempty"`
-	Timestamp        *string `protobuf:"bytes,4,opt,name=timestamp" json:"timestamp,omitempty"`
-	XXX_unrecognized []byte  `json:"-"`
+	Id                   *string  `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	State                *string  `protobuf:"bytes,2,opt,name=state" json:"state,omitempty"`
+	Message              *string  `protobuf:"bytes,3,opt,name=message" json:"message,omitempty"`
+	Timestamp            *string  `protobuf:"bytes,4,opt,name=timestamp" json:"timestamp,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *StateUpdate) Reset()                    { *m = StateUpdate{} }
-func (m *StateUpdate) String() string            { return proto.CompactTextString(m) }
-func (*StateUpdate) ProtoMessage()               {}
-func (*StateUpdate) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{1} }
+func (m *StateUpdate) Reset()         { *m = StateUpdate{} }
+func (m *StateUpdate) String() string { return proto.CompactTextString(m) }
+func (*StateUpdate) ProtoMessage()    {}
+func (*StateUpdate) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{1}
+}
+func (m *StateUpdate) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_StateUpdate.Unmarshal(m, b)
+}
+func (m *StateUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_StateUpdate.Marshal(b, m, deterministic)
+}
+func (dst *StateUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StateUpdate.Merge(dst, src)
+}
+func (m *StateUpdate) XXX_Size() int {
+	return xxx_messageInfo_StateUpdate.Size(m)
+}
+func (m *StateUpdate) XXX_DiscardUnknown() {
+	xxx_messageInfo_StateUpdate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_StateUpdate proto.InternalMessageInfo
 
 func (m *StateUpdate) GetId() string {
 	if m != nil && m.Id != nil {
@@ -378,14 +428,35 @@ func (m *StateUpdate) GetTimestamp() string {
 }
 
 type StateUpdates struct {
-	StateUpdate      []*StateUpdate `protobuf:"bytes,1,rep,name=stateUpdate" json:"stateUpdate,omitempty"`
-	XXX_unrecognized []byte         `json:"-"`
+	StateUpdate          []*StateUpdate `protobuf:"bytes,1,rep,name=stateUpdate" json:"stateUpdate,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
+	XXX_unrecognized     []byte         `json:"-"`
+	XXX_sizecache        int32          `json:"-"`
 }
 
-func (m *StateUpdates) Reset()                    { *m = StateUpdates{} }
-func (m *StateUpdates) String() string            { return proto.CompactTextString(m) }
-func (*StateUpdates) ProtoMessage()               {}
-func (*StateUpdates) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{2} }
+func (m *StateUpdates) Reset()         { *m = StateUpdates{} }
+func (m *StateUpdates) String() string { return proto.CompactTextString(m) }
+func (*StateUpdates) ProtoMessage()    {}
+func (*StateUpdates) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{2}
+}
+func (m *StateUpdates) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_StateUpdates.Unmarshal(m, b)
+}
+func (m *StateUpdates) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_StateUpdates.Marshal(b, m, deterministic)
+}
+func (dst *StateUpdates) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StateUpdates.Merge(dst, src)
+}
+func (m *StateUpdates) XXX_Size() int {
+	return xxx_messageInfo_StateUpdates.Size(m)
+}
+func (m *StateUpdates) XXX_DiscardUnknown() {
+	xxx_messageInfo_StateUpdates.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_StateUpdates proto.InternalMessageInfo
 
 func (m *StateUpdates) GetStateUpdate() []*StateUpdate {
 	if m != nil {
@@ -395,20 +466,41 @@ func (m *StateUpdates) GetStateUpdate() []*StateUpdate {
 }
 
 type TaskInfo struct {
-	ContainerId         *string                         `protobuf:"bytes,1,opt,name=containerId" json:"containerId,omitempty"`
-	TaskId              *string                         `protobuf:"bytes,2,opt,name=taskId" json:"taskId,omitempty"`
-	HostName            *string                         `protobuf:"bytes,3,opt,name=hostName" json:"hostName,omitempty"`
-	SlaveId             *string                         `protobuf:"bytes,4,opt,name=slaveId" json:"slaveId,omitempty"`
-	Status              *TaskInfo_Status                `protobuf:"varint,5,opt,name=status,enum=messages.TaskInfo_Status" json:"status,omitempty"`
-	Message             *string                         `protobuf:"bytes,6,opt,name=message" json:"message,omitempty"`
-	EnvironmentVariable []*TaskInfo_EnvironmentVariable `protobuf:"bytes,7,rep,name=environmentVariable" json:"environmentVariable,omitempty"`
-	XXX_unrecognized    []byte                          `json:"-"`
+	ContainerId          *string                         `protobuf:"bytes,1,opt,name=containerId" json:"containerId,omitempty"`
+	TaskId               *string                         `protobuf:"bytes,2,opt,name=taskId" json:"taskId,omitempty"`
+	HostName             *string                         `protobuf:"bytes,3,opt,name=hostName" json:"hostName,omitempty"`
+	SlaveId              *string                         `protobuf:"bytes,4,opt,name=slaveId" json:"slaveId,omitempty"`
+	Status               *TaskInfo_Status                `protobuf:"varint,5,opt,name=status,enum=messages.TaskInfo_Status" json:"status,omitempty"`
+	Message              *string                         `protobuf:"bytes,6,opt,name=message" json:"message,omitempty"`
+	EnvironmentVariable  []*TaskInfo_EnvironmentVariable `protobuf:"bytes,7,rep,name=environmentVariable" json:"environmentVariable,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                        `json:"-"`
+	XXX_unrecognized     []byte                          `json:"-"`
+	XXX_sizecache        int32                           `json:"-"`
 }
 
-func (m *TaskInfo) Reset()                    { *m = TaskInfo{} }
-func (m *TaskInfo) String() string            { return proto.CompactTextString(m) }
-func (*TaskInfo) ProtoMessage()               {}
-func (*TaskInfo) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{3} }
+func (m *TaskInfo) Reset()         { *m = TaskInfo{} }
+func (m *TaskInfo) String() string { return proto.CompactTextString(m) }
+func (*TaskInfo) ProtoMessage()    {}
+func (*TaskInfo) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{3}
+}
+func (m *TaskInfo) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_TaskInfo.Unmarshal(m, b)
+}
+func (m *TaskInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_TaskInfo.Marshal(b, m, deterministic)
+}
+func (dst *TaskInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskInfo.Merge(dst, src)
+}
+func (m *TaskInfo) XXX_Size() int {
+	return xxx_messageInfo_TaskInfo.Size(m)
+}
+func (m *TaskInfo) XXX_DiscardUnknown() {
+	xxx_messageInfo_TaskInfo.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TaskInfo proto.InternalMessageInfo
 
 func (m *TaskInfo) GetContainerId() string {
 	if m != nil && m.ContainerId != nil {
@@ -460,15 +552,36 @@ func (m *TaskInfo) GetEnvironmentVariable() []*TaskInfo_EnvironmentVariable {
 }
 
 type TaskInfo_EnvironmentVariable struct {
-	Name             *string `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
-	Value            *string `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
-	XXX_unrecognized []byte  `json:"-"`
+	Name                 *string  `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
+	Value                *string  `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TaskInfo_EnvironmentVariable) Reset()                    { *m = TaskInfo_EnvironmentVariable{} }
-func (m *TaskInfo_EnvironmentVariable) String() string            { return proto.CompactTextString(m) }
-func (*TaskInfo_EnvironmentVariable) ProtoMessage()               {}
-func (*TaskInfo_EnvironmentVariable) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{3, 0} }
+func (m *TaskInfo_EnvironmentVariable) Reset()         { *m = TaskInfo_EnvironmentVariable{} }
+func (m *TaskInfo_EnvironmentVariable) String() string { return proto.CompactTextString(m) }
+func (*TaskInfo_EnvironmentVariable) ProtoMessage()    {}
+func (*TaskInfo_EnvironmentVariable) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{3, 0}
+}
+func (m *TaskInfo_EnvironmentVariable) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_TaskInfo_EnvironmentVariable.Unmarshal(m, b)
+}
+func (m *TaskInfo_EnvironmentVariable) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_TaskInfo_EnvironmentVariable.Marshal(b, m, deterministic)
+}
+func (dst *TaskInfo_EnvironmentVariable) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskInfo_EnvironmentVariable.Merge(dst, src)
+}
+func (m *TaskInfo_EnvironmentVariable) XXX_Size() int {
+	return xxx_messageInfo_TaskInfo_EnvironmentVariable.Size(m)
+}
+func (m *TaskInfo_EnvironmentVariable) XXX_DiscardUnknown() {
+	xxx_messageInfo_TaskInfo_EnvironmentVariable.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TaskInfo_EnvironmentVariable proto.InternalMessageInfo
 
 func (m *TaskInfo_EnvironmentVariable) GetName() string {
 	if m != nil && m.Name != nil {
@@ -487,19 +600,19 @@ func (m *TaskInfo_EnvironmentVariable) GetValue() string {
 type ContainerInfo struct {
 	ImageName      *string `protobuf:"bytes,1,opt,name=imageName" json:"imageName,omitempty"`
 	Command        *string `protobuf:"bytes,2,opt,name=command" json:"command,omitempty"`
-	ContainerPorts *string `protobuf:"bytes,3,opt,name=containerPorts" json:"containerPorts,omitempty"`
+	ContainerPorts *string `protobuf:"bytes,3,opt,name=containerPorts" json:"containerPorts,omitempty"` // Deprecated: Do not use.
 	Version        *string `protobuf:"bytes,4,opt,name=version,def=latest" json:"version,omitempty"`
 	// deprecated: use userProvidedEnv and titusProvidedEnv instead
-	EnvironmentVariable []*ContainerInfo_EnvironmentVariable `protobuf:"bytes,5,rep,name=environmentVariable" json:"environmentVariable,omitempty"`
+	EnvironmentVariable []*ContainerInfo_EnvironmentVariable `protobuf:"bytes,5,rep,name=environmentVariable" json:"environmentVariable,omitempty"` // Deprecated: Do not use.
 	JobId               *string                              `protobuf:"bytes,6,opt,name=jobId" json:"jobId,omitempty"`
 	LogUploadRegexp     *string                              `protobuf:"bytes,7,opt,name=logUploadRegexp" json:"logUploadRegexp,omitempty"`
-	MaxHealthFailures   *uint32                              `protobuf:"varint,8,opt,name=maxHealthFailures" json:"maxHealthFailures,omitempty"`
-	HealthCheckCmd      []string                             `protobuf:"bytes,9,rep,name=healthCheckCmd" json:"healthCheckCmd,omitempty"`
-	SnapshotPolicy      *ContainerInfo_SnapshotPolicy        `protobuf:"varint,10,opt,name=snapshotPolicy,enum=messages.ContainerInfo_SnapshotPolicy" json:"snapshotPolicy,omitempty"`
+	MaxHealthFailures   *uint32                              `protobuf:"varint,8,opt,name=maxHealthFailures" json:"maxHealthFailures,omitempty"`                                       // Deprecated: Do not use.
+	HealthCheckCmd      []string                             `protobuf:"bytes,9,rep,name=healthCheckCmd" json:"healthCheckCmd,omitempty"`                                              // Deprecated: Do not use.
+	SnapshotPolicy      *ContainerInfo_SnapshotPolicy        `protobuf:"varint,10,opt,name=snapshotPolicy,enum=messages.ContainerInfo_SnapshotPolicy" json:"snapshotPolicy,omitempty"` // Deprecated: Do not use.
 	// deprecated: Use process instead
-	EntrypointCmd []string `protobuf:"bytes,11,rep,name=entrypointCmd" json:"entrypointCmd,omitempty"`
+	EntrypointCmd []string `protobuf:"bytes,11,rep,name=entrypointCmd" json:"entrypointCmd,omitempty"` // Deprecated: Do not use.
 	// deprecated: Use process instead
-	EntrypointStr     *string                          `protobuf:"bytes,13,opt,name=entrypointStr" json:"entrypointStr,omitempty"`
+	EntrypointStr     *string                          `protobuf:"bytes,13,opt,name=entrypointStr" json:"entrypointStr,omitempty"` // Deprecated: Do not use.
 	AppName           *string                          `protobuf:"bytes,14,opt,name=appName" json:"appName,omitempty"`
 	JobGroupStack     *string                          `protobuf:"bytes,15,opt,name=jobGroupStack" json:"jobGroupStack,omitempty"`
 	JobGroupDetail    *string                          `protobuf:"bytes,16,opt,name=jobGroupDetail" json:"jobGroupDetail,omitempty"`
@@ -552,14 +665,35 @@ type ContainerInfo struct {
 	// passthrough attributes are an arbitrary set of key / value pairs that are passed from API to executor
 	PassthroughAttributes map[string]string `protobuf:"bytes,37,rep,name=passthroughAttributes" json:"passthroughAttributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Process to be executed inside the container
-	Process          *ContainerInfo_Process `protobuf:"bytes,38,opt,name=process" json:"process,omitempty"`
-	XXX_unrecognized []byte                 `json:"-"`
+	Process              *ContainerInfo_Process `protobuf:"bytes,38,opt,name=process" json:"process,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
-func (m *ContainerInfo) Reset()                    { *m = ContainerInfo{} }
-func (m *ContainerInfo) String() string            { return proto.CompactTextString(m) }
-func (*ContainerInfo) ProtoMessage()               {}
-func (*ContainerInfo) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{4} }
+func (m *ContainerInfo) Reset()         { *m = ContainerInfo{} }
+func (m *ContainerInfo) String() string { return proto.CompactTextString(m) }
+func (*ContainerInfo) ProtoMessage()    {}
+func (*ContainerInfo) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4}
+}
+func (m *ContainerInfo) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo.Unmarshal(m, b)
+}
+func (m *ContainerInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo.Merge(dst, src)
+}
+func (m *ContainerInfo) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo.Size(m)
+}
+func (m *ContainerInfo) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContainerInfo proto.InternalMessageInfo
 
 const Default_ContainerInfo_Version string = "latest"
 
@@ -577,6 +711,7 @@ func (m *ContainerInfo) GetCommand() string {
 	return ""
 }
 
+// Deprecated: Do not use.
 func (m *ContainerInfo) GetContainerPorts() string {
 	if m != nil && m.ContainerPorts != nil {
 		return *m.ContainerPorts
@@ -591,6 +726,7 @@ func (m *ContainerInfo) GetVersion() string {
 	return Default_ContainerInfo_Version
 }
 
+// Deprecated: Do not use.
 func (m *ContainerInfo) GetEnvironmentVariable() []*ContainerInfo_EnvironmentVariable {
 	if m != nil {
 		return m.EnvironmentVariable
@@ -612,6 +748,7 @@ func (m *ContainerInfo) GetLogUploadRegexp() string {
 	return ""
 }
 
+// Deprecated: Do not use.
 func (m *ContainerInfo) GetMaxHealthFailures() uint32 {
 	if m != nil && m.MaxHealthFailures != nil {
 		return *m.MaxHealthFailures
@@ -619,6 +756,7 @@ func (m *ContainerInfo) GetMaxHealthFailures() uint32 {
 	return 0
 }
 
+// Deprecated: Do not use.
 func (m *ContainerInfo) GetHealthCheckCmd() []string {
 	if m != nil {
 		return m.HealthCheckCmd
@@ -626,6 +764,7 @@ func (m *ContainerInfo) GetHealthCheckCmd() []string {
 	return nil
 }
 
+// Deprecated: Do not use.
 func (m *ContainerInfo) GetSnapshotPolicy() ContainerInfo_SnapshotPolicy {
 	if m != nil && m.SnapshotPolicy != nil {
 		return *m.SnapshotPolicy
@@ -633,6 +772,7 @@ func (m *ContainerInfo) GetSnapshotPolicy() ContainerInfo_SnapshotPolicy {
 	return ContainerInfo_NEVER
 }
 
+// Deprecated: Do not use.
 func (m *ContainerInfo) GetEntrypointCmd() []string {
 	if m != nil {
 		return m.EntrypointCmd
@@ -640,6 +780,7 @@ func (m *ContainerInfo) GetEntrypointCmd() []string {
 	return nil
 }
 
+// Deprecated: Do not use.
 func (m *ContainerInfo) GetEntrypointStr() string {
 	if m != nil && m.EntrypointStr != nil {
 		return *m.EntrypointStr
@@ -824,17 +965,36 @@ func (m *ContainerInfo) GetProcess() *ContainerInfo_Process {
 
 // deprecated: use userProvidedEnv and titusProvidedEnv instead
 type ContainerInfo_EnvironmentVariable struct {
-	Name             *string `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
-	Value            *string `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
-	XXX_unrecognized []byte  `json:"-"`
+	Name                 *string  `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
+	Value                *string  `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *ContainerInfo_EnvironmentVariable) Reset()         { *m = ContainerInfo_EnvironmentVariable{} }
 func (m *ContainerInfo_EnvironmentVariable) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_EnvironmentVariable) ProtoMessage()    {}
 func (*ContainerInfo_EnvironmentVariable) Descriptor() ([]byte, []int) {
-	return fileDescriptor2, []int{4, 0}
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 0}
 }
+func (m *ContainerInfo_EnvironmentVariable) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo_EnvironmentVariable.Unmarshal(m, b)
+}
+func (m *ContainerInfo_EnvironmentVariable) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo_EnvironmentVariable.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo_EnvironmentVariable) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_EnvironmentVariable.Merge(dst, src)
+}
+func (m *ContainerInfo_EnvironmentVariable) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo_EnvironmentVariable.Size(m)
+}
+func (m *ContainerInfo_EnvironmentVariable) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo_EnvironmentVariable.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContainerInfo_EnvironmentVariable proto.InternalMessageInfo
 
 func (m *ContainerInfo_EnvironmentVariable) GetName() string {
 	if m != nil && m.Name != nil {
@@ -852,21 +1012,41 @@ func (m *ContainerInfo_EnvironmentVariable) GetValue() string {
 
 type ContainerInfo_NetworkConfigInfo struct {
 	// deprecated: use eniLabel instead
-	EniLablel *string `protobuf:"bytes,1,req,name=eniLablel" json:"eniLablel,omitempty"`
+	EniLablel *string `protobuf:"bytes,1,req,name=eniLablel" json:"eniLablel,omitempty"` // Deprecated: Do not use.
 	// this should be required, but it was added later (typo fix) and is optional for backwards compatibility
-	EniLabel           *string  `protobuf:"bytes,5,opt,name=eniLabel" json:"eniLabel,omitempty"`
-	SecurityGroups     []string `protobuf:"bytes,3,rep,name=securityGroups" json:"securityGroups,omitempty"`
-	BandwidthLimitMbps *uint32  `protobuf:"varint,4,opt,name=bandwidthLimitMbps" json:"bandwidthLimitMbps,omitempty"`
-	XXX_unrecognized   []byte   `json:"-"`
+	EniLabel             *string  `protobuf:"bytes,5,opt,name=eniLabel" json:"eniLabel,omitempty"`
+	SecurityGroups       []string `protobuf:"bytes,3,rep,name=securityGroups" json:"securityGroups,omitempty"`
+	BandwidthLimitMbps   *uint32  `protobuf:"varint,4,opt,name=bandwidthLimitMbps" json:"bandwidthLimitMbps,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *ContainerInfo_NetworkConfigInfo) Reset()         { *m = ContainerInfo_NetworkConfigInfo{} }
 func (m *ContainerInfo_NetworkConfigInfo) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_NetworkConfigInfo) ProtoMessage()    {}
 func (*ContainerInfo_NetworkConfigInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor2, []int{4, 1}
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 1}
+}
+func (m *ContainerInfo_NetworkConfigInfo) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Unmarshal(m, b)
+}
+func (m *ContainerInfo_NetworkConfigInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo_NetworkConfigInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Merge(dst, src)
+}
+func (m *ContainerInfo_NetworkConfigInfo) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Size(m)
+}
+func (m *ContainerInfo_NetworkConfigInfo) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo_NetworkConfigInfo.DiscardUnknown(m)
 }
 
+var xxx_messageInfo_ContainerInfo_NetworkConfigInfo proto.InternalMessageInfo
+
+// Deprecated: Do not use.
 func (m *ContainerInfo_NetworkConfigInfo) GetEniLablel() string {
 	if m != nil && m.EniLablel != nil {
 		return *m.EniLablel
@@ -900,13 +1080,34 @@ type ContainerInfo_EfsConfigInfo struct {
 	MountPoint            *string                                 `protobuf:"bytes,2,req,name=mountPoint" json:"mountPoint,omitempty"`
 	MntPerms              *ContainerInfo_EfsConfigInfo_MountPerms `protobuf:"varint,3,opt,name=mntPerms,enum=messages.ContainerInfo_EfsConfigInfo_MountPerms" json:"mntPerms,omitempty"`
 	EfsFsRelativeMntPoint *string                                 `protobuf:"bytes,4,opt,name=efsFsRelativeMntPoint" json:"efsFsRelativeMntPoint,omitempty"`
+	XXX_NoUnkeyedLiteral  struct{}                                `json:"-"`
 	XXX_unrecognized      []byte                                  `json:"-"`
+	XXX_sizecache         int32                                   `json:"-"`
 }
 
-func (m *ContainerInfo_EfsConfigInfo) Reset()                    { *m = ContainerInfo_EfsConfigInfo{} }
-func (m *ContainerInfo_EfsConfigInfo) String() string            { return proto.CompactTextString(m) }
-func (*ContainerInfo_EfsConfigInfo) ProtoMessage()               {}
-func (*ContainerInfo_EfsConfigInfo) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{4, 2} }
+func (m *ContainerInfo_EfsConfigInfo) Reset()         { *m = ContainerInfo_EfsConfigInfo{} }
+func (m *ContainerInfo_EfsConfigInfo) String() string { return proto.CompactTextString(m) }
+func (*ContainerInfo_EfsConfigInfo) ProtoMessage()    {}
+func (*ContainerInfo_EfsConfigInfo) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 2}
+}
+func (m *ContainerInfo_EfsConfigInfo) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo_EfsConfigInfo.Unmarshal(m, b)
+}
+func (m *ContainerInfo_EfsConfigInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo_EfsConfigInfo.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo_EfsConfigInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_EfsConfigInfo.Merge(dst, src)
+}
+func (m *ContainerInfo_EfsConfigInfo) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo_EfsConfigInfo.Size(m)
+}
+func (m *ContainerInfo_EfsConfigInfo) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo_EfsConfigInfo.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContainerInfo_EfsConfigInfo proto.InternalMessageInfo
 
 func (m *ContainerInfo_EfsConfigInfo) GetEfsFsId() string {
 	if m != nil && m.EfsFsId != nil {
@@ -937,15 +1138,36 @@ func (m *ContainerInfo_EfsConfigInfo) GetEfsFsRelativeMntPoint() string {
 }
 
 type ContainerInfo_Capabilities struct {
-	Add              []ContainerInfo_Capabilities_Capability `protobuf:"varint,1,rep,name=add,enum=messages.ContainerInfo_Capabilities_Capability" json:"add,omitempty"`
-	Drop             []ContainerInfo_Capabilities_Capability `protobuf:"varint,2,rep,name=drop,enum=messages.ContainerInfo_Capabilities_Capability" json:"drop,omitempty"`
-	XXX_unrecognized []byte                                  `json:"-"`
+	Add                  []ContainerInfo_Capabilities_Capability `protobuf:"varint,1,rep,name=add,enum=messages.ContainerInfo_Capabilities_Capability" json:"add,omitempty"`
+	Drop                 []ContainerInfo_Capabilities_Capability `protobuf:"varint,2,rep,name=drop,enum=messages.ContainerInfo_Capabilities_Capability" json:"drop,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                                `json:"-"`
+	XXX_unrecognized     []byte                                  `json:"-"`
+	XXX_sizecache        int32                                   `json:"-"`
 }
 
-func (m *ContainerInfo_Capabilities) Reset()                    { *m = ContainerInfo_Capabilities{} }
-func (m *ContainerInfo_Capabilities) String() string            { return proto.CompactTextString(m) }
-func (*ContainerInfo_Capabilities) ProtoMessage()               {}
-func (*ContainerInfo_Capabilities) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{4, 3} }
+func (m *ContainerInfo_Capabilities) Reset()         { *m = ContainerInfo_Capabilities{} }
+func (m *ContainerInfo_Capabilities) String() string { return proto.CompactTextString(m) }
+func (*ContainerInfo_Capabilities) ProtoMessage()    {}
+func (*ContainerInfo_Capabilities) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 3}
+}
+func (m *ContainerInfo_Capabilities) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo_Capabilities.Unmarshal(m, b)
+}
+func (m *ContainerInfo_Capabilities) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo_Capabilities.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo_Capabilities) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_Capabilities.Merge(dst, src)
+}
+func (m *ContainerInfo_Capabilities) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo_Capabilities.Size(m)
+}
+func (m *ContainerInfo_Capabilities) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo_Capabilities.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContainerInfo_Capabilities proto.InternalMessageInfo
 
 func (m *ContainerInfo_Capabilities) GetAdd() []ContainerInfo_Capabilities_Capability {
 	if m != nil {
@@ -962,15 +1184,36 @@ func (m *ContainerInfo_Capabilities) GetDrop() []ContainerInfo_Capabilities_Capa
 }
 
 type ContainerInfo_MetatronCreds struct {
-	AppMetadata      *string `protobuf:"bytes,1,req,name=appMetadata" json:"appMetadata,omitempty"`
-	MetadataSig      *string `protobuf:"bytes,2,req,name=metadataSig" json:"metadataSig,omitempty"`
-	XXX_unrecognized []byte  `json:"-"`
+	AppMetadata          *string  `protobuf:"bytes,1,req,name=appMetadata" json:"appMetadata,omitempty"`
+	MetadataSig          *string  `protobuf:"bytes,2,req,name=metadataSig" json:"metadataSig,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ContainerInfo_MetatronCreds) Reset()                    { *m = ContainerInfo_MetatronCreds{} }
-func (m *ContainerInfo_MetatronCreds) String() string            { return proto.CompactTextString(m) }
-func (*ContainerInfo_MetatronCreds) ProtoMessage()               {}
-func (*ContainerInfo_MetatronCreds) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{4, 4} }
+func (m *ContainerInfo_MetatronCreds) Reset()         { *m = ContainerInfo_MetatronCreds{} }
+func (m *ContainerInfo_MetatronCreds) String() string { return proto.CompactTextString(m) }
+func (*ContainerInfo_MetatronCreds) ProtoMessage()    {}
+func (*ContainerInfo_MetatronCreds) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 4}
+}
+func (m *ContainerInfo_MetatronCreds) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo_MetatronCreds.Unmarshal(m, b)
+}
+func (m *ContainerInfo_MetatronCreds) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo_MetatronCreds.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo_MetatronCreds) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_MetatronCreds.Merge(dst, src)
+}
+func (m *ContainerInfo_MetatronCreds) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo_MetatronCreds.Size(m)
+}
+func (m *ContainerInfo_MetatronCreds) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo_MetatronCreds.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContainerInfo_MetatronCreds proto.InternalMessageInfo
 
 func (m *ContainerInfo_MetatronCreds) GetAppMetadata() string {
 	if m != nil && m.AppMetadata != nil {
@@ -988,15 +1231,36 @@ func (m *ContainerInfo_MetatronCreds) GetMetadataSig() string {
 
 // The s3 log location used when uploading logs
 type ContainerInfo_S3LogLocation struct {
-	Bucket           *string `protobuf:"bytes,1,req,name=bucket" json:"bucket,omitempty"`
-	Prefix           *string `protobuf:"bytes,2,req,name=prefix" json:"prefix,omitempty"`
-	XXX_unrecognized []byte  `json:"-"`
+	Bucket               *string  `protobuf:"bytes,1,req,name=bucket" json:"bucket,omitempty"`
+	Prefix               *string  `protobuf:"bytes,2,req,name=prefix" json:"prefix,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ContainerInfo_S3LogLocation) Reset()                    { *m = ContainerInfo_S3LogLocation{} }
-func (m *ContainerInfo_S3LogLocation) String() string            { return proto.CompactTextString(m) }
-func (*ContainerInfo_S3LogLocation) ProtoMessage()               {}
-func (*ContainerInfo_S3LogLocation) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{4, 7} }
+func (m *ContainerInfo_S3LogLocation) Reset()         { *m = ContainerInfo_S3LogLocation{} }
+func (m *ContainerInfo_S3LogLocation) String() string { return proto.CompactTextString(m) }
+func (*ContainerInfo_S3LogLocation) ProtoMessage()    {}
+func (*ContainerInfo_S3LogLocation) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 7}
+}
+func (m *ContainerInfo_S3LogLocation) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo_S3LogLocation.Unmarshal(m, b)
+}
+func (m *ContainerInfo_S3LogLocation) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo_S3LogLocation.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo_S3LogLocation) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_S3LogLocation.Merge(dst, src)
+}
+func (m *ContainerInfo_S3LogLocation) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo_S3LogLocation.Size(m)
+}
+func (m *ContainerInfo_S3LogLocation) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo_S3LogLocation.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContainerInfo_S3LogLocation proto.InternalMessageInfo
 
 func (m *ContainerInfo_S3LogLocation) GetBucket() string {
 	if m != nil && m.Bucket != nil {
@@ -1020,14 +1284,35 @@ type ContainerInfo_Process struct {
 	// when set, will override ENTRYPOINT baked into the image, and cause CMD from the image to be ignored
 	Entrypoint []string `protobuf:"bytes,1,rep,name=entrypoint" json:"entrypoint,omitempty"`
 	// when set, will override CMD baked into the image
-	Command          []string `protobuf:"bytes,2,rep,name=command" json:"command,omitempty"`
-	XXX_unrecognized []byte   `json:"-"`
+	Command              []string `protobuf:"bytes,2,rep,name=command" json:"command,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ContainerInfo_Process) Reset()                    { *m = ContainerInfo_Process{} }
-func (m *ContainerInfo_Process) String() string            { return proto.CompactTextString(m) }
-func (*ContainerInfo_Process) ProtoMessage()               {}
-func (*ContainerInfo_Process) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{4, 9} }
+func (m *ContainerInfo_Process) Reset()         { *m = ContainerInfo_Process{} }
+func (m *ContainerInfo_Process) String() string { return proto.CompactTextString(m) }
+func (*ContainerInfo_Process) ProtoMessage()    {}
+func (*ContainerInfo_Process) Descriptor() ([]byte, []int) {
+	return fileDescriptor_agent_35348f2eafb90a68, []int{4, 9}
+}
+func (m *ContainerInfo_Process) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContainerInfo_Process.Unmarshal(m, b)
+}
+func (m *ContainerInfo_Process) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContainerInfo_Process.Marshal(b, m, deterministic)
+}
+func (dst *ContainerInfo_Process) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_Process.Merge(dst, src)
+}
+func (m *ContainerInfo_Process) XXX_Size() int {
+	return xxx_messageInfo_ContainerInfo_Process.Size(m)
+}
+func (m *ContainerInfo_Process) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContainerInfo_Process.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContainerInfo_Process proto.InternalMessageInfo
 
 func (m *ContainerInfo_Process) GetEntrypoint() []string {
 	if m != nil {
@@ -1050,6 +1335,9 @@ func init() {
 	proto.RegisterType((*TaskInfo)(nil), "messages.TaskInfo")
 	proto.RegisterType((*TaskInfo_EnvironmentVariable)(nil), "messages.TaskInfo.EnvironmentVariable")
 	proto.RegisterType((*ContainerInfo)(nil), "messages.ContainerInfo")
+	proto.RegisterMapType((map[string]string)(nil), "messages.ContainerInfo.PassthroughAttributesEntry")
+	proto.RegisterMapType((map[string]string)(nil), "messages.ContainerInfo.TitusProvidedEnvEntry")
+	proto.RegisterMapType((map[string]string)(nil), "messages.ContainerInfo.UserProvidedEnvEntry")
 	proto.RegisterType((*ContainerInfo_EnvironmentVariable)(nil), "messages.ContainerInfo.EnvironmentVariable")
 	proto.RegisterType((*ContainerInfo_NetworkConfigInfo)(nil), "messages.ContainerInfo.NetworkConfigInfo")
 	proto.RegisterType((*ContainerInfo_EfsConfigInfo)(nil), "messages.ContainerInfo.EfsConfigInfo")
@@ -1064,9 +1352,9 @@ func init() {
 	proto.RegisterEnum("messages.ContainerInfo_Capabilities_Capability", ContainerInfo_Capabilities_Capability_name, ContainerInfo_Capabilities_Capability_value)
 }
 
-func init() { proto.RegisterFile("netflix/titus/agent.proto", fileDescriptor2) }
+func init() { proto.RegisterFile("netflix/titus/agent.proto", fileDescriptor_agent_35348f2eafb90a68) }
 
-var fileDescriptor2 = []byte{
+var fileDescriptor_agent_35348f2eafb90a68 = []byte{
 	// 1922 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x57, 0xdd, 0x76, 0xdb, 0xc6,
 	0x11, 0x0e, 0x49, 0xfd, 0x8e, 0x44, 0x6a, 0xb5, 0x92, 0x12, 0x98, 0x71, 0x6c, 0x86, 0xb1, 0x5d,
