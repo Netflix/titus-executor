@@ -71,17 +71,10 @@ export {{ $key }}='{{ $val | escape_sq }}'
 {{ end }}
 `
 
-const (
-	bandwidthMode = "bandwidth"
-	nanocpusMode  = "nanocpus"
-	sharesMode    = "shares"
-)
-
 // Config represents the configuration for the Docker titus runtime
 type Config struct { // nolint: maligned
 	userNamespaceFDEnabled          bool
 	cfsBandwidthPeriod              uint64
-	cfsBandwidthMode                string
 	tiniVerbosity                   int
 	batchSize                       int
 	burst                           bool
@@ -106,11 +99,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "titus.executor.cfsBandwidthPeriod",
 			Value:       100000,
 			Destination: &cfg.cfsBandwidthPeriod,
-		},
-		cli.StringFlag{
-			Name:        "titus.executor.cfsBandwidthMode",
-			Value:       bandwidthMode,
-			Destination: &cfg.cfsBandwidthMode,
 		},
 		cli.IntFlag{
 			Name:        "titus.executor.tiniVerbosity",
@@ -332,9 +320,9 @@ func setupLoggingInfra(dockerRuntime *DockerRuntime) error {
 	return nil
 }
 
-func maybeSetCFSBandwidth(cfsBandwidthMode string, cfsBandwidthPeriod uint64, c *runtimeTypes.Container, hostCfg *container.HostConfig) {
+func maybeSetCFSBandwidth(cfsBandwidthPeriod uint64, c *runtimeTypes.Container, hostCfg *container.HostConfig) {
 	cpuBurst := c.TitusInfo.GetAllowCpuBursting()
-	logEntry := log.WithField("taskID", c.TaskID).WithField("bandwidthMode", cfsBandwidthMode).WithField("cpuBurst", cpuBurst)
+	logEntry := log.WithField("taskID", c.TaskID).WithField("cpuBurst", cpuBurst)
 
 	if cpuBurst {
 		logEntry.Info("Falling back to shares since CPU bursting is enabled")
@@ -342,22 +330,7 @@ func maybeSetCFSBandwidth(cfsBandwidthMode string, cfsBandwidthPeriod uint64, c 
 		return
 	}
 
-	if c.Resources.CPU == 0 {
-		logEntry.WithField("shares", 1).Info("Setting shares as this is an opportunistic workload")
-		hostCfg.CPUShares = 1
-	}
-
-	switch cfsBandwidthMode {
-	case bandwidthMode:
-		setCFSBandwidth(logEntry, cfsBandwidthPeriod, c, hostCfg)
-	case nanocpusMode:
-		setNanoCPUs(logEntry, c, hostCfg)
-	case sharesMode:
-		setShares(logEntry, c, hostCfg)
-	default:
-		logEntry.Error("Unknown bandwidth mode, defaulting to nanocpus")
-		setNanoCPUs(logEntry, c, hostCfg)
-	}
+	setCFSBandwidth(logEntry, cfsBandwidthPeriod, c, hostCfg)
 }
 
 func setCFSBandwidth(logEntry *log.Entry, cfsBandwidthPeriod uint64, c *runtimeTypes.Container, hostCfg *container.HostConfig) {
@@ -475,7 +448,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	hostCfg.CPUShares = 100 * c.Resources.CPU
 
 	// Maybe set cfs bandwidth has to be called _after_
-	maybeSetCFSBandwidth(r.dockerCfg.cfsBandwidthMode, r.dockerCfg.cfsBandwidthPeriod, c, hostCfg)
+	maybeSetCFSBandwidth(r.dockerCfg.cfsBandwidthPeriod, c, hostCfg)
 
 	if r.storageOptEnabled {
 		hostCfg.StorageOpt = map[string]string{
