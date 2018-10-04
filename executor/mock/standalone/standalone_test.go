@@ -122,6 +122,8 @@ func TestStandalone(t *testing.T) {
 		testNoCPUBursting,
 		testCPUBursting,
 		testTwoCPUs,
+		testTty,
+		testTtyNegative,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -844,6 +846,32 @@ func testTwoCPUs(t *testing.T, jobID string) {
 		CPU:           &cpuCount,
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testTty(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		EntrypointOld: `/usr/bin/tty`,
+		JobID:         jobID,
+		Tty:           true,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testTtyNegative(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		EntrypointOld: `/usr/bin/tty`,
+		JobID:         jobID,
+		// Tty not specified
+	}
+	if !mock.RunJobExpectingFailure(ji) {
 		t.Fail()
 	}
 }
