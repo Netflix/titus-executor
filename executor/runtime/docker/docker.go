@@ -39,7 +39,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
-	"gopkg.in/urfave/cli.v1"
 )
 
 // units
@@ -216,6 +215,10 @@ type DockerRuntime struct { // nolint: golint
 
 // NewDockerRuntime provides a Runtime implementation on Docker
 func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config) (runtimeTypes.Runtime, error) {
+	if err := validate(&dockerCfg); err != nil {
+		return nil, err
+	}
+
 	log.Info("New Docker client, to host ", cfg.DockerHost)
 	client, err := docker.NewClient(cfg.DockerHost, "1.26", nil, map[string]string{})
 
@@ -337,12 +340,6 @@ func setCFSBandwidth(logEntry *log.Entry, cfsBandwidthPeriod uint64, c *runtimeT
 	}
 
 	logEntry.WithField("quota", quota).WithField("period", cfsBandwidthPeriod).Info("Configuring with CFS Bandwidth")
-
-	if cfsBandwidthPeriod < 1000 || cfsBandwidthPeriod > 1000000 {
-		logEntry.WithField("quota", quota).WithField("period", cfsBandwidthPeriod).Error("Invalid CFS Bandwidth, falling back to NanoCPUs")
-		setNanoCPUs(logEntry, c, hostCfg)
-		return
-	}
 
 	hostCfg.CPUPeriod = int64(cfsBandwidthPeriod)
 	hostCfg.CPUQuota = quota

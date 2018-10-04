@@ -90,7 +90,6 @@ func TestProperties(t *testing.T) {
 	})
 	assert.NoError(t, app.Run([]string{"fooexec", "--TestString", "test"}))
 	assert.True(t, run)
-
 }
 
 func TestPropertiesWithoutAltsrc(t *testing.T) {

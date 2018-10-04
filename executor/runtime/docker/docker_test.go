@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/properties"
+
+	"github.com/Netflix/metrics-client-go/metrics"
 	docker "github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 )
