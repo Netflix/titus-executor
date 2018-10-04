@@ -46,6 +46,16 @@ If you want to build a dpkg, without Docker, once the code is checked out, you c
 make build-standalone
 ```
 
+## Linting
+Linting is done via the [gometalinter](https://github.com/alecthomas/gometalinter) package, which runs various linters. In order to ensure
+consistent versions of linters, install version 2.0.11 as per the instructions in "Initial setup steps" above.
+
+To run lint checks:
+```sh-session
+make validate
+# Run lint checks inside a docker container:
+make validate-docker
+```
 
 ## Testing
 ### Local Testing
