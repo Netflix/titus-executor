@@ -117,7 +117,7 @@ if [[ $num_debs -ne 1 ]]; then
     exit 1
 fi
 
-filename=${outdir}/*.deb
+filename=$(ls -t ${outdir}/*.deb | grep -v latest | head -n 1)
 
 # TODO: only run the linter on the file above
 # see: nebula/src/main/groovy/netflix/nebula/ospackage/NebulaOsPackageDebRepositoryPublish.groovy
