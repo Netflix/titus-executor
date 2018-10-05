@@ -52,7 +52,10 @@ consistent versions of linters, install version 2.0.11 as per the instructions i
 
 To run lint checks:
 ```sh-session
+# Lint all files:
 make validate
+# Lint only the files that have changed in git:
+make validate FAST=1
 # Run lint checks inside a docker container:
 make validate-docker
 ```
