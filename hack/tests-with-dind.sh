@@ -8,6 +8,14 @@ set -eu -o pipefail
 #    ... technically, this runs docker-on-systemd-in-docker
 #  - tests run against the docker daemon above
 #  - this script tries to automatically teardown the systemd container running in background
+#
+# Environment variables that this script pays attention to:
+# - BUILD_ID: Jenkins build ID
+# - DEBUG: Run the agent in debug mode?
+# - GO_PKG: Can be used to override the working dir under GOPATH
+# - JOB_NAME: Jenkins job name
+# - TEST_TIMEOUT: timeout for `go test`
+# - TEST_FLAGS: flags passed to `go test`
 
 # portable uuidgen
 random_uuid=$(od -N 16 -x /dev/urandom | head -1 | awk '{OFS="-"; print $2$3,$4,$5,$6,$7$8$9}')
@@ -51,7 +59,7 @@ docker run --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:/sys
 log "Running integration tests against the $titus_agent_name daemon"
 # --privileged is needed here since we are reading FDs from a unix socket
 docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} -e GOCACHE=off "$titus_agent_name" \
-  go test -timeout 3m ${TEST_FLAGS:-} \
+  go test -timeout ${TEST_TIMEOUT:-3m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
     -coverpkg=github.com/Netflix/... ./executor/mock/standalone/... -standalone=true 2>&1 | tee test-standalone.log
 

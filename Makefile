@@ -140,5 +140,5 @@ $(GOVENDOR):
 .PHONY: testdeps
 testdeps: $(GOVENDOR)
 	$(GOVENDOR) install +local
-	# Fail if gometalinter is not present in $PATH:
+	# Fail if gometalinter is not present in PATH:
 	which gometalinter
