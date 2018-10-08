@@ -154,3 +154,14 @@ func TestIPv6AddressAssignment(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, assignIPv6Address)
 }
+
+func TestTtyEnabled(t *testing.T) {
+	c := Container{
+		TitusInfo: &titus.ContainerInfo{
+			PassthroughAttributes: map[string]string{ttyEnabledParam: "true"},
+		},
+	}
+	tty, err := c.GetTty()
+	assert.NoError(t, err)
+	assert.True(t, tty)
+}

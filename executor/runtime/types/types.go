@@ -27,6 +27,7 @@ const (
 	// FuseEnabledParam is a container atttribute set to enable FUSE
 	FuseEnabledParam       = "titusParameter.agent.fuseEnabled"
 	assignIPv6AddressParam = "titusParameter.agent.assignIPv6Address"
+	ttyEnabledParam        = "titusParameter.agent.ttyEnabled"
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -272,6 +273,20 @@ func (c *Container) AssignIPv6Address() (bool, error) {
 		return false, nil
 	}
 	val, err := strconv.ParseBool(assignIPv6AddressStr)
+	if err != nil {
+		return false, err
+	}
+
+	return val, nil
+}
+
+// GetTty should the container be assigned a tty?
+func (c *Container) GetTty() (bool, error) {
+	ttyEnabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[ttyEnabledParam]
+	if !ok {
+		return false, nil
+	}
+	val, err := strconv.ParseBool(ttyEnabledStr)
 	if err != nil {
 		return false, err
 	}

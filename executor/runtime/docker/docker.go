@@ -407,6 +407,11 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		return nil, nil, err
 	}
 
+	tty, err := c.GetTty()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	containerCfg := &container.Config{
 		Image:      c.QualifiedImageName(),
 		Entrypoint: entrypoint,
@@ -414,6 +419,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Labels:     c.Labels,
 		Volumes:    map[string]struct{}{},
 		Hostname:   hostname,
+		Tty:        tty,
 	}
 
 	useInit := true

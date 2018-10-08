@@ -57,6 +57,8 @@ type JobInput struct {
 	CPU *int64
 	// StopTimeoutSeconds is the duration we wait after SIGTERM for the container to exit
 	KillWaitSeconds uint32
+	// Tty attaches a tty to the container via a passthrough attribute
+	Tty bool
 }
 
 // JobRunResponse returned from RunJob
@@ -201,14 +203,16 @@ func (jobRunner *JobRunner) StopExecutorAsync() {
 }
 
 // StartJob starts a job on an existing JobRunner and returns once the job is started
-func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
+func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // nolint: gocyclo
 	// Define some stock job to run
 	var jobID string
+
 	if jobInput.JobID == "" {
 		jobID = fmt.Sprintf("Titus-%v%v", r.Intn(1000), time.Now().Second())
 	} else {
 		jobID = jobInput.JobID
 	}
+
 	taskID := fmt.Sprintf("Titus-%v%v-Worker-0-2", r.Intn(1000), time.Now().Second())
 	env := map[string]string{
 		"TITUS_TASK_ID":          taskID,
@@ -248,6 +252,9 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse {
 	}
 	if jobInput.Batch == "idle" {
 		ci.PassthroughAttributes["titusParameter.agent.batchPriority"] = "idle"
+	}
+	if jobInput.Tty {
+		ci.PassthroughAttributes["titusParameter.agent.ttyEnabled"] = "true"
 	}
 
 	if jobInput.KillWaitSeconds > 0 {
