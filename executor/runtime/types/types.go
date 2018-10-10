@@ -125,6 +125,12 @@ type Container struct {
 	Config config.Config
 }
 
+// ImageHasDigest returns true if the image was specified by digest
+func (c *Container) ImageHasDigest() bool {
+	digest := c.TitusInfo.GetImageDigest()
+	return digest != ""
+}
+
 // QualifiedImageName appends the registry and version to the Image name
 func (c *Container) QualifiedImageName() string {
 	if c == nil {
@@ -132,9 +138,9 @@ func (c *Container) QualifiedImageName() string {
 	}
 	image := c.TitusInfo.GetImageName()
 	baseRef := c.Config.DockerRegistry + "/" + image
-	if digest := c.TitusInfo.GetImageDigest(); digest != "" {
+	if c.ImageHasDigest() {
 		// digest has precedence
-		return baseRef + "@" + digest
+		return baseRef + "@" + c.TitusInfo.GetImageDigest()
 	}
 	return baseRef + ":" + c.TitusInfo.GetVersion()
 }

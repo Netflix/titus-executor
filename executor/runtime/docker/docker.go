@@ -553,8 +553,53 @@ func sleepWithCtx(parentCtx context.Context, d time.Duration) error {
 	}
 }
 
-func (r *DockerRuntime) dockerPull(ctx context.Context, c *runtimeTypes.Container) error {
-	return pullWithRetries(ctx, r.metrics, r.client, c, doDockerPull)
+func imageExists(ctx context.Context, client *docker.Client, ref string) (*types.ImageInspect, error) {
+	resp, _, err := client.ImageInspectWithRaw(ctx, ref)
+	if err != nil {
+		if docker.IsErrImageNotFound(err) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	log.WithField("imageName", ref).Debugf("Image exists. Response: %+v", resp)
+	return &resp, nil
+}
+
+// DockerImageRemove removes an image from the docker host
+func (r *DockerRuntime) DockerImageRemove(ctx context.Context, imgName string) error {
+	_, err := r.client.ImageRemove(ctx, imgName, types.ImageRemoveOptions{})
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		return nil
+	}
+
+	return err
+}
+
+// DockerPull returns an ImageInspect pointer if the image was cached, and we didn't need to pull, nil otherwise
+func (r *DockerRuntime) DockerPull(ctx context.Context, c *runtimeTypes.Container) (*types.ImageInspect, error) {
+	imgName := c.QualifiedImageName()
+	logger := log.WithField("imageName", imgName)
+
+	if c.ImageHasDigest() {
+		// Only check for a cached image if a digest was specified: image tags are mutable
+		imgInfo, err := imageExists(ctx, r.client, imgName)
+		if err != nil {
+			logger.WithError(err).Errorf("DockerPull: error inspecting image")
+			return nil, err
+		}
+
+		if imgInfo != nil {
+			logger.Info("DockerPull: image exists: not pulling image")
+			r.metrics.Counter("titus.executor.dockerImageCachedPulls", 1, nil)
+			return imgInfo, nil
+		}
+	}
+
+	r.metrics.Counter("titus.executor.dockerImagePulls", 1, nil)
+	log.Infof("DockerPull: pulling image")
+	return nil, pullWithRetries(ctx, r.metrics, r.client, c, doDockerPull)
 }
 
 type dockerPuller func(context.Context, metrics.Reporter, *docker.Client, string) error
@@ -784,14 +829,18 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 
 	group.Go(func() error {
-		if pullErr := r.dockerPull(errGroupCtx, c); pullErr != nil {
+		imageInfo, pullErr := r.DockerPull(errGroupCtx, c)
+		if pullErr != nil {
 			return pullErr
 		}
 
-		imageInfo, _, inspectErr := r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
-		if inspectErr != nil {
-			l.Errorf("Error in inspecting docker image %s: %v", c.QualifiedImageName(), err)
-			return inspectErr
+		if imageInfo == nil {
+			inspected, _, inspectErr := r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
+			if inspectErr != nil {
+				l.WithField("imageName", c.QualifiedImageName()).WithError(inspectErr).Errorf("Error inspecting docker image")
+				return inspectErr
+			}
+			imageInfo = &inspected
 		}
 
 		size = r.reportDockerImageSizeMetric(c, imageInfo)
@@ -799,7 +848,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			return NoEntrypointError
 		}
 
-		myImageInfo = &imageInfo
+		myImageInfo = imageInfo
 		return nil
 	})
 
@@ -1846,14 +1895,14 @@ func (r *DockerRuntime) Cleanup(c *runtimeTypes.Container) error {
 }
 
 // reportDockerImageSizeMetric reports a metric that represents the container image's size
-func (r *DockerRuntime) reportDockerImageSizeMetric(c *runtimeTypes.Container, imageInfo types.ImageInspect) int64 {
+func (r *DockerRuntime) reportDockerImageSizeMetric(c *runtimeTypes.Container, imageInfo *types.ImageInspect) int64 {
 	// reporting image size in KB
 	r.metrics.Gauge("titus.executor.dockerImageSize", int(imageInfo.Size/KB), c.ImageTagForMetrics())
 	return imageInfo.Size
 }
 
 // hasEntrypointOrCmd checks if the image has a an entrypoint, or if we were passed one
-func (r *DockerRuntime) hasEntrypointOrCmd(imageInfo types.ImageInspect, c *runtimeTypes.Container) bool {
+func (r *DockerRuntime) hasEntrypointOrCmd(imageInfo *types.ImageInspect, c *runtimeTypes.Container) bool {
 	entrypoint, cmd, err := c.Process()
 	if err != nil {
 		// If this happens, we return true, because this error will bubble up elsewhere

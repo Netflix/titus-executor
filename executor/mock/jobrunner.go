@@ -152,10 +152,8 @@ type JobRunner struct {
 	shutdownChannel chan struct{}
 }
 
-// NewJobRunner creates a new JobRunner with its executor started
-// in the background and the test driver configured to use it.
-func NewJobRunner() *JobRunner {
-	// Load a specific config for testing and disable metrics
+// GenerateConfigs generates test configs
+func GenerateConfigs() (*config.Config, *docker.Config) {
 	cfg, err := config.GenerateConfiguration([]string{"--copy-uploader", "/var/tmp/titus-executor/tests"})
 	if err != nil {
 		panic(err)
@@ -167,6 +165,14 @@ func NewJobRunner() *JobRunner {
 	if err != nil {
 		panic(err)
 	}
+
+	return cfg, dockerCfg
+}
+
+// NewJobRunner creates a new JobRunner with its executor started
+// in the background and the test driver configured to use it.
+func NewJobRunner() *JobRunner {
+	cfg, dockerCfg := GenerateConfigs()
 
 	// Create an executor
 	logUploaders, err := uploader.NewUploaders(cfg, metrics.Discard)
@@ -181,7 +187,8 @@ func NewJobRunner() *JobRunner {
 	}
 
 	jobRunner := &JobRunner{
-		ctx: ctx, cancel: cancel,
+		ctx:             ctx,
+		cancel:          cancel,
 		runner:          r,
 		shutdownChannel: make(chan struct{}),
 	}

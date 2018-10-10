@@ -13,12 +13,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/mock"
 	"github.com/Netflix/titus-executor/executor/runner"
+	"github.com/Netflix/titus-executor/executor/runtime/docker"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	dockerTypes "github.com/docker/docker/api/types"
+	protobuf "github.com/golang/protobuf/proto"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var standalone bool
@@ -32,8 +39,9 @@ func init() {
 }
 
 type testImage struct {
-	name string
-	tag  string
+	name   string
+	tag    string
+	digest string
 }
 
 var (
@@ -48,16 +56,18 @@ var (
 	}
 	// TODO: Determine how this got built, and add it to the auto image builders?
 	byDigest = testImage{
-		name: "titusoss/by-digest",
-		tag:  "latest",
+		name:   "titusoss/by-digest",
+		tag:    "latest",
+		digest: "sha256:2fc24d2a383c452ffe1332a60f94c618f34ece3e400c0b30c8f943bd7aeec033",
 	}
 	bigImage = testImage{
 		name: "titusoss/big-image",
 		tag:  "20171025-1508900976",
 	}
 	noEntrypoint = testImage{
-		name: "titusoss/no-entrypoint",
-		tag:  "20180501-1525157430",
+		name:   "titusoss/no-entrypoint",
+		tag:    "20180501-1525157430",
+		digest: "sha256:e0ca04b07a20070c946b7a8d429b51b49eeb2f2953152fea7b6953ddc195540c",
 	}
 	shellEntrypoint = testImage{
 		name: "titusoss/shell-entrypoint",
@@ -124,6 +134,7 @@ func TestStandalone(t *testing.T) {
 		testTwoCPUs,
 		testTty,
 		testTtyNegative,
+		testCachedDockerPull,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -156,6 +167,46 @@ func addImageNameToTest(f func(*testing.T, string), funTitle string) func(*testi
 		jobID := fmt.Sprintf("%s-%d-%d", funTitle, rand.Intn(1000), time.Now().Second())
 		f(t, jobID)
 	}
+}
+
+func dockerImageRemove(t *testing.T, imgName string) {
+	cfg, dockerCfg := mock.GenerateConfigs()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
+	require.NoError(t, err, "No error creating docker runtime")
+
+	drt, ok := rt.(*docker.DockerRuntime)
+	require.True(t, ok, "DockerRuntime cast should succeed")
+	err = drt.DockerImageRemove(ctx, imgName)
+	require.NoErrorf(t, err, "No error removing docker image %s: +%v", imgName, err)
+}
+
+func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
+	cfg, dockerCfg := mock.GenerateConfigs()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
+	require.NoError(t, err, "No error creating docker runtime")
+
+	drt, ok := rt.(*docker.DockerRuntime)
+	require.True(t, ok, "DockerRuntime cast should succeed")
+	ctr := &runtimeTypes.Container{
+		Config: *cfg,
+		TitusInfo: &titus.ContainerInfo{
+			ImageName:   protobuf.String(imgName),
+			ImageDigest: protobuf.String(imgDigest),
+		},
+	}
+
+	res, err := drt.DockerPull(ctx, ctr)
+	require.NoError(t, err, "No error doing a docker pull")
+
+	return res, err
 }
 
 func testSimpleJob(t *testing.T, jobID string) {
@@ -392,11 +443,10 @@ func testStderrGoesToLogFile(t *testing.T, jobID string) {
 }
 
 func testImageByDigest(t *testing.T, jobID string) {
-	digest := "sha256:2fc24d2a383c452ffe1332a60f94c618f34ece3e400c0b30c8f943bd7aeec033"
 	cmd := `grep not-latest /etc/who-am-i`
 	ji := &mock.JobInput{
 		ImageName:     byDigest.name,
-		ImageDigest:   digest,
+		ImageDigest:   byDigest.digest,
 		EntrypointOld: cmd,
 		JobID:         jobID,
 	}
@@ -406,7 +456,6 @@ func testImageByDigest(t *testing.T, jobID string) {
 }
 
 func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
-	digest := "sha256:2fc24d2a383c452ffe1332a60f94c618f34ece3e400c0b30c8f943bd7aeec033"
 	cmd := `grep not-latest /etc/who-am-i`
 	ji := &mock.JobInput{
 		ImageName: byDigest.name,
@@ -414,7 +463,7 @@ func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
 		// This version (tag) of the image has the digest:
 		// sha256:652d2dd17041cb520feae4de0a976df29af4cd1d002d19ec7c8d5204f8ab1518
 		// and it doesn't have not-latest in /etc/who-am-i
-		ImageDigest:   digest,
+		ImageDigest:   byDigest.digest,
 		EntrypointOld: cmd,
 		JobID:         jobID,
 	}
@@ -874,4 +923,21 @@ func testTtyNegative(t *testing.T, jobID string) {
 	if !mock.RunJobExpectingFailure(ji) {
 		t.Fail()
 	}
+}
+
+func testCachedDockerPull(t *testing.T, jobID string) {
+	// The no entrypoint image should never be in use by any running
+	// containers, so it should be safe to delete
+	dockerImageRemove(t, noEntrypoint.name+"@"+noEntrypoint.digest)
+	res, err := dockerPull(t, noEntrypoint.name, noEntrypoint.digest)
+	require.NoError(t, err, "No error from first docker pull")
+
+	assert.Nil(t, res, "image shouldn't be cached")
+
+	res, err = dockerPull(t, noEntrypoint.name, noEntrypoint.digest)
+	require.NoError(t, err, "No error from second docker pull")
+
+	assert.NotNil(t, res, "image should now be cached")
+	assert.Len(t, res.RepoDigests, 1, "digest should be present")
+	assert.EqualValues(t, noEntrypoint.name+"@"+noEntrypoint.digest, res.RepoDigests[0], "Correct digest should be returned")
 }
