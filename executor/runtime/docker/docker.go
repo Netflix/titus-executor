@@ -73,7 +73,6 @@ export {{ $key }}='{{ $val | escape_sq }}'
 
 // Config represents the configuration for the Docker titus runtime
 type Config struct { // nolint: maligned
-	userNamespaceFDEnabled          bool
 	cfsBandwidthPeriod              uint64
 	tiniVerbosity                   int
 	batchSize                       int
@@ -91,10 +90,6 @@ type Config struct { // nolint: maligned
 func NewConfig() (*Config, []cli.Flag) {
 	cfg := &Config{}
 	flags := []cli.Flag{
-		cli.BoolTFlag{
-			Name:        "titus.executor.userNamespacesFDEnabled",
-			Destination: &cfg.userNamespaceFDEnabled,
-		},
 		cli.Uint64Flag{
 			Name:        "titus.executor.cfsBandwidthPeriod",
 			Value:       100000,
@@ -1405,7 +1400,7 @@ const (
 )
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeTypes.Container, rootFile *os.File, cred *ucred, efsMountInfos []efsMountInfo) error {
-	baseMountOptions := []string{"nofsc,nosharecache,vers=4"}
+	baseMountOptions := []string{"vers=4.1,nosharecache,rsize=1048576,wsize=1048576,timeo=600,retrans=2,noresvport"}
 
 	mntNSPath := filepath.Join("/proc", strconv.Itoa(int(cred.pid)), "ns", "mnt")
 	mntNSFile, err := os.OpenFile(mntNSPath, os.O_RDONLY, 0444)
@@ -1414,19 +1409,12 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 	}
 	defer shouldClose(mntNSFile)
 
-	extraFiles := []*os.File{mntNSFile}
-
-	userNSPath := filepath.Join("/proc", strconv.Itoa(int(cred.pid)), "ns", "user")
-	userNSFile, err := os.OpenFile(userNSPath, os.O_RDONLY, 0444)
+	netNSPath := filepath.Join("/proc", strconv.Itoa(int(cred.pid)), "ns", "net")
+	netNSFile, err := os.OpenFile(netNSPath, os.O_RDONLY, 0444)
 	if err != nil {
 		return err
 	}
-	defer shouldClose(userNSFile)
-
-	if r.dockerCfg.userNamespaceFDEnabled {
-		baseMountOptions = append(baseMountOptions, "user_ns_fd=4")
-		extraFiles = append(extraFiles, userNSFile)
-	}
+	defer shouldClose(netNSFile)
 
 	for _, efsMountInfo := range efsMountInfos {
 		// Todo: Make into a const
@@ -1443,18 +1431,20 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 			flags = flags | MS_RDONLY
 		}
 
-		cmd.ExtraFiles = extraFiles
+		cmd.ExtraFiles = []*os.File{mntNSFile, netNSFile}
 
 		mountOptions := append(
 			baseMountOptions,
 			fmt.Sprintf("addr=%s", efsMountInfo.remoteIP.String()),
 			fmt.Sprintf("clientaddr=%s", efsMountInfo.localIP.String()),
+			fmt.Sprintf("fsc=%s", c.TaskID),
 		)
 		cmd.Env = []string{
 			// Go-ism
 			// If you pass file descriptors over os/cmd, it will be 3+n where N is the index of the file descriptor in the slice you pass.
 			// See above for "math"
 			"MOUNT_NS=3",
+			"NET_NS=4",
 			fmt.Sprintf("MOUNT_TARGET=%s", efsMountInfo.cleanMountPoint),
 			fmt.Sprintf("MOUNT_SOURCE=%s:%s", efsMountInfo.hostname, efsMountInfo.cleanEfsFsRelativeMntPoint),
 			fmt.Sprintf("MOUNT_FLAGS=%d", flags),

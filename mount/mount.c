@@ -24,8 +24,8 @@ static char* get_fs_type() {
 }
 
 int main() {
+	int mnt_ns_fd, net_ns_fd;
 	unsigned long flags_ul;
-	int mnt_ns_fd;
 	int rc;
 	/*
 	 * We do this because parsing args is a bigger pain than passing
@@ -33,6 +33,7 @@ int main() {
 	 * variable has a "cost" in that they are limited in size
 	 */
 	const char *mnt_ns = getenv("MOUNT_NS");
+	const char *net_ns = getenv("NET_NS");
 	const char *source = getenv("MOUNT_SOURCE");
 	const char *target = getenv("MOUNT_TARGET");
 	const char *flags = getenv("MOUNT_FLAGS");
@@ -51,6 +52,28 @@ int main() {
 	if (!flags_ul) {
 		fprintf(stderr, "Invalid flags\n");
 		return 1;
+	}
+
+	if (net_ns) {
+		net_ns_fd = strtol(net_ns, NULL, 10);
+		if (errno) {
+			perror("net_ns");
+			return 1;
+		}
+		if (net_ns_fd == 0) {
+			fprintf(stderr, "Unable to get net NS fd\n");
+			return 1;
+		}
+		/* Validate that we have this file descriptor */
+		if (fcntl(net_ns_fd, F_GETFD) == -1) {
+			perror("net_ns: f_getfd");
+			return 1;
+		}
+		rc = setns(net_ns_fd, CLONE_NEWNET);
+		if (rc) {
+			perror("netns");
+			return 1;
+		}
 	}
 
 	if (mnt_ns) {
