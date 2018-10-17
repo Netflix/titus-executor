@@ -12,12 +12,17 @@ import (
 func NewContainer(taskID string, titusInfo *titus.ContainerInfo, constraints *runtimeTypes.Resources, labels map[string]string, cfg config.Config) *runtimeTypes.Container {
 	networkCfgParams := titusInfo.GetNetworkConfigInfo()
 
-	env := cfg.GetNetflixEnvForTask(titusInfo,
-		strconv.FormatInt(constraints.Mem, 10),
-		strconv.FormatInt(constraints.CPU, 10),
-		strconv.FormatUint(constraints.Disk, 10),
-		strconv.FormatUint(uint64(networkCfgParams.GetBandwidthLimitMbps()), 10))
+	strCPU := strconv.FormatInt(constraints.CPU, 10)
+	strMem := strconv.FormatInt(constraints.Mem, 10)
+	strDisk := strconv.FormatUint(constraints.Disk, 10)
+	strNetwork := strconv.FormatUint(uint64(networkCfgParams.GetBandwidthLimitMbps()), 10)
+
+	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
 	labels["TITUS_TASK_INSTANCE_ID"] = env["TITUS_TASK_INSTANCE_ID"]
+	labels["com.netflix.titus.cpu"] = strCPU
+	labels["com.netflix.titus.mem"] = strMem
+	labels["com.netflix.titus.disk"] = strDisk
+	labels["com.netflix.titus.network"] = strNetwork
 
 	c := &runtimeTypes.Container{
 		TaskID:             taskID,
