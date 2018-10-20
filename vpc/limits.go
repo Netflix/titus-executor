@@ -87,7 +87,7 @@ var interfaceLimits = map[string]map[string]limits{
 		},
 		"24xlarge": limits{
 			interfaces:               15,
-			ipAddressesPerInterface:  30,
+			ipAddressesPerInterface:  50,
 			ip6AddressesPerInterface: 2,
 			networkThroughput:        23000,
 		},
@@ -126,6 +126,44 @@ var interfaceLimits = map[string]map[string]limits{
 		"16xlarge": limits{
 			interfaces:               15,
 			ipAddressesPerInterface:  24,
+			ip6AddressesPerInterface: 2,
+			networkThroughput:        23000,
+		},
+	},
+	"r5": {
+		"large": limits{
+			interfaces:               3,
+			ipAddressesPerInterface:  10,
+			ip6AddressesPerInterface: 2,
+			networkThroughput:        1000,
+		},
+		"xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  15,
+			ip6AddressesPerInterface: 2,
+			networkThroughput:        1000,
+		},
+		"2xlarge": limits{
+			interfaces:               4,
+			ipAddressesPerInterface:  15,
+			ip6AddressesPerInterface: 2,
+			networkThroughput:        2000,
+		},
+		"4xlarge": limits{
+			interfaces:               8,
+			ipAddressesPerInterface:  30,
+			ip6AddressesPerInterface: 2,
+			networkThroughput:        4000,
+		},
+		"8xlarge": limits{
+			interfaces:               8,
+			ipAddressesPerInterface:  30,
+			ip6AddressesPerInterface: 2,
+			networkThroughput:        9000,
+		},
+		"16xlarge": limits{
+			interfaces:               15,
+			ipAddressesPerInterface:  50,
 			ip6AddressesPerInterface: 2,
 			networkThroughput:        23000,
 		},
