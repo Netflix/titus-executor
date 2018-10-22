@@ -19,7 +19,8 @@ const (
 )
 
 // Config contains the executor configuration
-type Config struct { // nolint: maligned
+type Config struct {
+	// nolint: maligned
 	// MetatronEnabled returns if Metatron is enabled
 	MetatronEnabled bool
 	// PrivilegedContainersEnabled returns whether to give tasks CAP_SYS_ADMIN

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -77,4 +78,49 @@ func TestImageByDigestIgnoresTag(t *testing.T) {
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
 	}
+}
+
+func TestNewContainer(t *testing.T) {
+	taskID := "task-id"
+	expectedCPU := int64(2)
+	expectedMem := int64(1024)
+	expectedDisk := uint64(15000)
+	expectedNetwork := uint32(256)
+	expectedWorkloadType := BurstWorkloadType
+	batch := true
+
+	containerInfo := &titus.ContainerInfo{
+		ImageName: protobuf.String("titusoss/alpine"),
+		Version:   protobuf.String("latest"),
+		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			BandwidthLimitMbps: &expectedNetwork,
+		},
+		AllowCpuBursting: &batch,
+	}
+
+	resources := &runtimeTypes.Resources{
+		CPU:  expectedCPU,
+		Mem:  expectedMem,
+		Disk: expectedDisk,
+	}
+
+	labels := make(map[string]string)
+	config := config.Config{}
+
+	container := NewContainer(taskID, containerInfo, resources, labels, config)
+
+	actualCPU, _ := strconv.ParseInt(container.Labels[cpuLabelKey], 10, 64)
+	assert.Equal(t, expectedCPU, actualCPU)
+
+	actualMem, _ := strconv.ParseInt(container.Labels[memLabelKey], 10, 64)
+	assert.Equal(t, expectedMem, actualMem)
+
+	actualDisk, _ := strconv.ParseUint(container.Labels[diskLabelKey], 10, 64)
+	assert.Equal(t, expectedDisk, actualDisk)
+
+	actualNetwork, _ := strconv.ParseUint(container.Labels[networkLabelKey], 10, 32)
+	assert.Equal(t, expectedNetwork, uint32(actualNetwork))
+
+	actualWorkloadType := container.Labels[workloadTypeLabelKey]
+	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadType))
 }
