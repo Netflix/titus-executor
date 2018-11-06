@@ -1,0 +1,17 @@
+[Unit]
+Description=SSHD for container %s
+ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
+
+[Service]
+Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
+EnvironmentFile=/var/lib/titus-environments/%i.env
+ExecStart=/apps/titus-executor/bin/titus-nsenter /titus/sshd/usr/sbin/sshd -D -e
+LimitNOFILE=65535
+## TODO: Wire up more "lockdown" so this unit can't wreck havoc if it gets compromised
+PrivateTmp=yes
+
+Restart=on-failure
+KillMode=mixed
+
+# TODO: Setup Memory / CPU / PID limits since this isn't running under the same cgroup
+# as the PID, and a bad user could wipe out the host.

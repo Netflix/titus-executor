@@ -22,7 +22,7 @@ func TestDockerPullRetries(t *testing.T) {
 		retries = retries + 1
 		return myErr
 	}
-	err := pullWithRetries(context.Background(), metrics.Discard, nil, nil, fakePuller)
+	err := pullWithRetries(context.Background(), metrics.Discard, nil, "", fakePuller)
 	if retries != 5 {
 		t.Fatal("Not enough retries: ", retries)
 	}
@@ -50,7 +50,7 @@ func TestDockerCancel(t *testing.T) {
 	c := make(chan error)
 	go func() {
 		defer close(c)
-		c <- pullWithRetries(ctx, metrics.Discard, nil, nil, fakePuller)
+		c <- pullWithRetries(ctx, metrics.Discard, nil, "", fakePuller)
 	}()
 	time.AfterFunc(time.Second*15, cancel)
 	if err := <-c; err == nil {

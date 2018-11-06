@@ -38,6 +38,13 @@ type Config struct {
 	DockerHost     string
 	DockerRegistry string
 
+	// Do we enable a container-specific SSHD?
+	ContainerSSHD       bool
+	ContainerSSHDImage  string
+	ContainerSSHDCAFile string
+	ContainerSSHDUsers  cli.StringSlice
+	EC2AccountID        string
+
 	KeepLocalFileAfterUpload bool
 	LogUploadThresholdTime   time.Duration
 	LogUploadCheckInterval   time.Duration
@@ -77,6 +84,9 @@ func NewConfig() (*Config, []cli.Flag) {
 			 */
 			"AWS_METADATA_SERVICE_TIMEOUT=5",
 			"AWS_METADATA_SERVICE_NUM_ATTEMPTS=3",
+		},
+		ContainerSSHDUsers: []string{
+			"root",
 		},
 	}
 
@@ -125,6 +135,31 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value:       "docker.io",
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
+		},
+		cli.BoolTFlag{
+			Name:        "container-sshd",
+			Destination: &cfg.ContainerSSHD,
+			EnvVar:      "CONTAINER_SSHD",
+		},
+		cli.StringFlag{
+			Name:        "container-sshd-image",
+			Value:       "titusoss/titus-sshd@sha256:8704839b0f44800b62795b0d9f5829bc1e81929052762f090737d8db8bf30faa",
+			Destination: &cfg.ContainerSSHDImage,
+			EnvVar:      "CONTAINER_SSHD_IMAGE",
+		},
+		cli.StringFlag{
+			Name:        "container-sshd-ca-file",
+			Value:       "/etc/ssh/titus_user_ssh_key_cas.pub",
+			Destination: &cfg.ContainerSSHDCAFile,
+		},
+		cli.StringSliceFlag{
+			Name:  "container-sshd-users",
+			Value: &cfg.ContainerSSHDUsers,
+		},
+		cli.StringFlag{
+			Name:        "ec2-account-id",
+			Destination: &cfg.EC2AccountID,
+			EnvVar:      "EC2_OWNER_ID",
 		},
 		cli.BoolFlag{
 			Name:        "keep-local-file-after-upload",

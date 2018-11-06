@@ -16,6 +16,7 @@ SET(CMAKE_C_FLAGS "-Wall -Werror -D_GNU_SOURCE=1")
 SET(CMAKE_C_STANDARD 11)
 
 add_executable(titus-inject-metadataproxy titus-inject-metadataproxy.c)
-
 target_link_libraries(titus-inject-metadataproxy "libnl-3.a" "libnl-route-3.a" pthread)
 
+add_executable(titus-nsenter titus-nsenter.c)
+target_link_libraries(titus-nsenter pthread)
