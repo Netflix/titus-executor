@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -36,6 +35,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
 	"github.com/hashicorp/go-multierror"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
@@ -383,7 +383,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
-func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64) (*container.Config, *container.HostConfig, error) {
+func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64, sshdContainerName string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
 	entrypoint, cmd, err := c.Process()
@@ -431,6 +431,10 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv6.conf.default.stable_secret": stableSecret(), // This is to ensure each container sets their addresses differently
 		},
 		Init: &useInit,
+	}
+	if sshdContainerName != "" {
+		log.Info("Setting up SSHD container bind mount")
+		hostCfg.VolumesFrom = []string{fmt.Sprintf("%s:ro", sshdContainerName)}
 	}
 	maybeAddOptimisticDad(hostCfg.Sysctls)
 	hostCfg.CgroupParent = r.pidCgroupPath
@@ -599,83 +603,12 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c *runtimeTypes.Containe
 
 	r.metrics.Counter("titus.executor.dockerImagePulls", 1, nil)
 	log.Infof("DockerPull: pulling image")
-	return nil, pullWithRetries(ctx, r.metrics, r.client, c, doDockerPull)
-}
-
-type dockerPuller func(context.Context, metrics.Reporter, *docker.Client, string) error
-
-func pullWithRetries(ctx context.Context, metrics metrics.Reporter, client *docker.Client, c *runtimeTypes.Container, puller dockerPuller) error {
-	var err error
-
 	pullStartTime := time.Now()
-	for sleep := 0; sleep < 5; sleep++ {
-		// The initial sleep wil be 0
-		if sleepErr := sleepWithCtx(ctx, time.Second*1<<uint(sleep)-1); sleepErr != nil {
-			return err
-		}
-
-		err = puller(ctx, metrics, client, c.QualifiedImageName())
-		if err == nil {
-			metrics.Timer("titus.executor.imagePullTime", time.Since(pullStartTime), c.ImageTagForMetrics())
-			return nil
-		} else if isBadImageErr(err) {
-			return &runtimeTypes.RegistryImageNotFoundError{Reason: err}
-		}
+	if err := pullWithRetries(ctx, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
+		return nil, err
 	}
-
-	return err
-
-}
-
-func isBadImageErr(err error) bool {
-	return strings.Contains(err.Error(), "not found") ||
-		strings.Contains(err.Error(), "invalid reference format")
-}
-
-func doDockerPull(ctx context.Context, metrics metrics.Reporter, client *docker.Client, ref string) error {
-	resp, err := client.ImagePull(ctx, ref, types.ImagePullOptions{})
-	defer func() {
-		if resp != nil {
-			// We really don't care what the error is here, we can't do anything about it
-			shouldClose(resp)
-		}
-	}()
-	if err != nil {
-		metrics.Counter("titus.executor.dockerPullImageError", 1, nil)
-		log.Warningf("Error pulling image '%s', due to reason: %+v", ref, err)
-		return err
-	}
-
-	// This is an odd case, and it (probably) shouldn't happen
-	if resp == nil {
-		log.Warning("Error-free pull from Docker client resulted in nil response")
-		return nil
-	}
-	decoder := json.NewDecoder(resp)
-
-	pullMessages := []map[string]interface{}{}
-
-	// Wait for EOF, or error..
-	for {
-		var msg map[string]interface{}
-
-		if err = decoder.Decode(&msg); err == io.EOF {
-			// Success, pull is finished
-			return nil
-		} else if err != nil {
-			// Something unknown went wrong
-			log.Warning("Error pulling image: ", err)
-			for _, pullMessage := range pullMessages {
-				log.Warning("Pull Message: ", pullMessage)
-			}
-			return err
-		}
-		pullMessages = append(pullMessages, msg)
-		if errorMessage, ok := msg["error"]; ok {
-			log.Warning("Pull error message: ", msg)
-			return fmt.Errorf("Error while pulling Docker image: %s", errorMessage)
-		}
-	}
+	r.metrics.Timer("titus.executor.imagePullTime", time.Since(pullStartTime), c.ImageTagForMetrics())
+	return nil, nil
 }
 
 func vpcToolPath() string {
@@ -806,8 +739,76 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	return nil
 }
 
+func (r *DockerRuntime) doSetupSSHdContainer(ctx context.Context, containerName *string) error { // nolint: gocyclo
+	tmpImageInfo, err := imageExists(ctx, r.client, r.cfg.ContainerSSHDImage)
+	if err != nil {
+		return err
+	}
+
+	if tmpImageInfo == nil {
+		err = pullWithRetries(ctx, r.metrics, r.client, r.cfg.ContainerSSHDImage, doDockerPull)
+		if err != nil {
+			return err
+		}
+		_, _, err = r.client.ImageInspectWithRaw(ctx, r.cfg.ContainerSSHDImage)
+		if err != nil {
+			return err
+		}
+	}
+
+	// so we replace @ with - to match Docker's image naming scheme, a la:
+	// [a-zA-Z0-9][a-zA-Z0-9_.-]
+	noDashes := strings.Replace(r.cfg.ContainerSSHDImage, ":", "-", -1)
+	noAts := strings.Replace(noDashes, "@", "-", -1)
+	noSlashes := strings.Replace(noAts, "/", "_", -1)
+	*containerName = "titus-sshd-" + noSlashes
+	_, err = r.client.ContainerInspect(ctx, *containerName)
+	if err == nil {
+		return nil
+	}
+
+	if !docker.IsErrNotFound(err) {
+		return err
+	}
+
+	cfg := &container.Config{
+		Hostname: "titus-sshd",
+		Volumes: map[string]struct{}{
+			"/titus/sshd": {},
+		},
+		Entrypoint: []string{"/bin/bash"},
+		Image:      r.cfg.ContainerSSHDImage,
+	}
+	hostConfig := &container.HostConfig{
+		NetworkMode: "none",
+	}
+	// Check if this container exists, if not create it.
+	// We don't check the error here, because there's no way
+	// to prevent us from accidentally calling this concurrently
+	_, tmpErr := r.client.ContainerCreate(ctx, cfg, hostConfig, nil, *containerName)
+	if tmpErr == nil {
+		return nil
+	}
+
+	// Do this with backoff
+	timer := time.NewTicker(100 * time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			_, err = r.client.ContainerInspect(ctx, *containerName)
+			if err == nil {
+				return nil
+			}
+		case <-ctx.Done():
+			return multierror.Append(err, tmpErr, ctx.Err())
+		}
+	}
+}
+
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string) error { // nolint: gocyclo
+	var sshdContainerName string
 	l := log.WithField("taskID", c.TaskID)
 	l.WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
 
@@ -852,6 +853,16 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		return nil
 	})
 
+	if r.cfg.ContainerSSHD {
+		group.Go(func() error {
+			l.Info("Setting up SSHd container")
+			sshdSetuperr := r.doSetupSSHdContainer(ctx, &sshdContainerName)
+			if sshdSetuperr != nil {
+				return errors.Wrap(sshdSetuperr, "Unable to setup SSHd container")
+			}
+			return nil
+		})
+	}
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func() error {
 			prepareNetworkStartTime := time.Now()
@@ -879,7 +890,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 
 	binds = append(binds, getLXCFsBindMounts()...)
-	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size)
+	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, sshdContainerName)
 	if err != nil {
 		goto error
 	}
@@ -1109,6 +1120,20 @@ func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *ty
 		Typeflag: tar.TypeDir,
 	}); err != nil {
 		log.Fatal(err)
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "titus",
+		Mode:     0644,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.Fatal(err)
+	}
+
+	if r.cfg.ContainerSSHD {
+		if err := addContainerSSHDConfig(c, tw, r.cfg); err != nil {
+			return err
+		}
 	}
 
 	for _, efsMount := range c.TitusInfo.GetEfsConfigInfo() {
@@ -1642,7 +1667,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return os.Remove(darionRoot)
 	})
 
-	if err := setupSystemPods(parentCtx, c, cred); err != nil {
+	if err := setupSystemPods(parentCtx, c, r.cfg, cred); err != nil {
 		log.Warning("Unable to launch pod: ", err)
 		return err
 	}

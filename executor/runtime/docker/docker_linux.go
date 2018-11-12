@@ -16,6 +16,7 @@ import (
 	"io/ioutil"
 	"strings"
 
+	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/coreos/go-systemd/dbus"
 	"github.com/hashicorp/go-multierror"
@@ -41,6 +42,7 @@ const (
 	titusInits                 = "/var/lib/titus-inits"
 	atlasSystemdUnit           = "atlas-titus-agent"
 	metadataServiceSystemdUnit = "titus-metadata-proxy"
+	sshdSystemdUnit            = "titus-sshd"
 	metricStartTimeout         = time.Minute
 	umountNoFollow             = 0x8
 	sysFsCgroup                = "/sys/fs/cgroup"
@@ -82,7 +84,7 @@ func setupScheduler(cred ucred) error {
 	return nil
 }
 
-func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error {
 	ctx, cancel := context.WithTimeout(parentCtx, metricStartTimeout)
 	defer cancel()
 
@@ -111,8 +113,14 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cred 
 		return unix.Unmount(path, unix.MNT_DETACH|umountNoFollow)
 	})
 	/* 2. Tell systemd about it */
+	// TODO: Make concurrent
 	if err := startSystemdUnit(ctx, conn, false, c.TaskID, atlasSystemdUnit); err != nil {
 		return err
+	}
+	if cfg.ContainerSSHD {
+		if err := startSystemdUnit(ctx, conn, true, c.TaskID, sshdSystemdUnit); err != nil {
+			return err
+		}
 	}
 	if err := startSystemdUnit(ctx, conn, true, c.TaskID, metadataServiceSystemdUnit); err != nil {
 		return err

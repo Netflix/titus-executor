@@ -30,12 +30,13 @@ mv build/tini/tini-static build/bin/linux-amd64
 
 # metadata service injector
 (
-	mkdir -p build/inject-metadataproxy
-	cd build/inject-metadataproxy
-	cmake ../../inject-metadataproxy
+	mkdir -p build/inject
+	cd build/inject
+	cmake ../../inject
 	make V=1
 )
-mv build/inject-metadataproxy/titus-inject-metadataproxy build/bin/linux-amd64
+mv build/inject/titus-inject-metadataproxy build/bin/linux-amd64
+mv build/inject/titus-nsenter build/bin/linux-amd64
 
 install -t root/apps/titus-executor/bin build/bin/linux-amd64/*
 

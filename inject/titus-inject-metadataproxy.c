@@ -25,6 +25,7 @@
 #include <netlink/route/route.h>
 /* Kernel netlink headers */
 #include <linux/rtnetlink.h>
+#include "shared.h"
 
 #define IN_CONTAINER_INTERFACE_NAME	"metadataservice"
 #define IN_PRIVATE_NS_INTERFACE_NAME	"tocontainer"
@@ -44,18 +45,7 @@ The metadata proxy injector operates on having a TITUS_PID_1_DIR environment var
 10. It calls the metadata proxy code
 */
 
-/* Print Error, and Quit */
-#define BUG(message, ...)	do { fprintf(stderr, "%s:%s:%d: " message "\n", "BUG", __func__, __LINE__, ##__VA_ARGS__); exit(1); } while(0)
-#define BUG_ON(expr, message, ...)	do { if(expr) { fprintf(stderr, "%s:%s:%d: " message "\n", "BUG", __func__, __LINE__, ##__VA_ARGS__); exit(1); } } while(0)
-#define BUG_ON_PERROR(expr, message, ...) do { if(expr) { fprintf(stderr, "%s:%s:%d:%s " message "\n", "BUG", __func__, __LINE__, strerror(errno), ##__VA_ARGS__); exit(1); } } while(0)
-
-#define WARN(message, ...)	do { fprintf(stderr, "%s:%s:%d: " message "\n", "BUG", __func__, __LINE__, ##__VA_ARGS__); } while(0)
-#define WARN_ON(expr, message, ...)	do { if(expr) { fprintf(stderr, "%s:%s:%d: " message "\n", "BUG", __func__, __LINE__, ##__VA_ARGS__); } } while(0)
-#define WARN_ON_PERROR(expr, message, ...) do { if(expr) { fprintf(stderr, "%s:%s:%d:%s " message "\n", "BUG", __func__, __LINE__, strerror(errno), ##__VA_ARGS__); } } while(0)
-
-
 #define PASSED_FD	169
-#define TITUS_PID_1_DIR	"TITUS_PID_1_DIR"
 
 /* This will drop us into the new namespace */
 static void setup_namespaces(int *original_ns, int *container_ns, int *new_ns, int *container_pid_ns) {
