@@ -151,6 +151,7 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-sshd-ca-file",
 			Value:       "/etc/ssh/titus_user_ssh_key_cas.pub",
 			Destination: &cfg.ContainerSSHDCAFile,
+			EnvVar:      "CONTAINER_SSHD_CA_FILE",
 		},
 		cli.StringSliceFlag{
 			Name:  "container-sshd-users",
