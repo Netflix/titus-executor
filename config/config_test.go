@@ -22,12 +22,10 @@ func TestDefaultLogDir(t *testing.T) {
 	assert.Equal(t, cfg.LogsTmpDir, "/var/lib/titus-container-logs", "Log dir set to unexpected value")
 }
 
-func TestDefaultDurations(t *testing.T) {
+func TestDefaults(t *testing.T) {
 	cfg := GetDefaultConfiguration(t, nil)
 
 	assert.Equal(t, cfg.Stack, "mainvpc")
-	assert.Equal(t, cfg.LogUploadThresholdTime, defaultLogUploadThreshold)
-	assert.Equal(t, cfg.LogUploadCheckInterval, defaultLogUploadCheckInterval)
 
 }
 

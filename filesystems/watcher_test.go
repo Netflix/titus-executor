@@ -34,7 +34,7 @@ func makeWatcher(localDir, uploadDir string) *Watcher {
 		uploadDir:                uploadDir,
 		uploadRegexp:             nil,
 		uploaders:                uploaders,
-		UploadThreshold:          time.Duration(time.Second * 10),
+		UploadThresholdTime:      time.Duration(time.Second * 10),
 		UploadCheckInterval:      time.Duration(time.Second * 2),
 		stdioLogCheckInterval:    time.Duration(time.Second * 2),
 		keepLocalFileAfterUpload: false,

@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/hashicorp/go-multierror"
@@ -75,8 +74,8 @@ type Watcher struct {
 	uploaders    *uploader.Uploaders
 	// UploadCheckInterval returns how often files are checked if they need to be uploaded
 	UploadCheckInterval time.Duration
-	// UploadThreshold returns how long a file must be untouched prior to uploading it
-	UploadThreshold          time.Duration
+	// UploadThresholdTime returns how long a file must be untouched prior to uploading it
+	UploadThresholdTime      time.Duration
 	stdioLogCheckInterval    time.Duration
 	keepLocalFileAfterUpload bool
 	retError                 error
@@ -87,16 +86,16 @@ type Watcher struct {
 }
 
 // NewWatcher returns a fully instantiated instance of Watcher, which will run until Stop is called.
-func NewWatcher(m metrics.Reporter, localDir, uploadDir, uploadRegexpStr string, uploaders *uploader.Uploaders, cfg config.Config) (*Watcher, error) {
+func NewWatcher(m metrics.Reporter, localDir, uploadDir, uploadRegexpStr string, uploaders *uploader.Uploaders, uploadCheckInterval time.Duration, uploadThresholdTime time.Duration, stdioLogCheckInterval time.Duration, keepLocalFileAfterUpload bool) (*Watcher, error) {
 	watcher := &Watcher{
 		metrics:                  m,
 		localDir:                 localDir,
 		uploadDir:                uploadDir,
 		uploaders:                uploaders,
-		UploadCheckInterval:      cfg.LogUploadCheckInterval,
-		UploadThreshold:          cfg.LogUploadThresholdTime,
-		stdioLogCheckInterval:    cfg.StdioLogCheckInterval,
-		keepLocalFileAfterUpload: cfg.KeepLocalFileAfterUpload,
+		UploadCheckInterval:      uploadCheckInterval,
+		UploadThresholdTime:      uploadThresholdTime,
+		stdioLogCheckInterval:    stdioLogCheckInterval,
+		keepLocalFileAfterUpload: keepLocalFileAfterUpload,
 	}
 
 	if uploadRegexpStr != "" {
@@ -294,7 +293,7 @@ func (w *Watcher) traditionalRotateLoop(parentCtx context.Context, wg *sync.Wait
 // Traditional rotate doesn't actually rotate at all
 // it goes through a list of files, and checks when they were modified, and based upon that it uploads them and optionally deletes them
 func (w *Watcher) traditionalRotate(ctx context.Context) {
-	logFileList, err := buildFileListInDir(w.localDir, true, w.UploadThreshold)
+	logFileList, err := buildFileListInDir(w.localDir, true, w.UploadThresholdTime)
 	if err == nil {
 		for _, logFile := range logFileList {
 			w.uploadLogfile(ctx, logFile)
@@ -427,7 +426,7 @@ func (w *Watcher) doStdioUploadAndReclaimVirtualFile(ctx context.Context, mode s
 	now := time.Now()
 	age := now.Sub(creationTime)
 
-	if mode == normalRotate && now.Add(-1*w.UploadThreshold).Before(creationTime) {
+	if mode == normalRotate && now.Add(-1*w.UploadThresholdTime).Before(creationTime) {
 		log.Debugf("Virtual file %s of real file %s not old enough to upload and discard because only %s old", virtualFileName, file.Name(), age.String())
 		return
 	}
@@ -587,7 +586,7 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 	var errs *multierror.Error
 
-	logFileList, err := buildFileListInDir(w.localDir, false, w.UploadThreshold)
+	logFileList, err := buildFileListInDir(w.localDir, false, w.UploadThresholdTime)
 	if err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 		log.Printf("Error uploading directory %s : %s\n", w.localDir, err)

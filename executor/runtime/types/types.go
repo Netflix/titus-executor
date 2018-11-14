@@ -4,12 +4,12 @@ import "fmt"
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -20,6 +20,7 @@ import (
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/aws/aws-sdk-go/aws/arn"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -28,6 +29,18 @@ const (
 	FuseEnabledParam       = "titusParameter.agent.fuseEnabled"
 	assignIPv6AddressParam = "titusParameter.agent.assignIPv6Address"
 	ttyEnabledParam        = "titusParameter.agent.ttyEnabled"
+)
+
+const (
+	logUploadThresholdTimeParam = "titusParameter.agent.log.uploadThresholdTime"
+	logUploadCheckIntervalParam = "titusParameter.agent.log.uploadCheckInterval"
+	logStdioCheckIntervalParam  = "titusParameter.agent.log.stdioCheckInterval"
+	// LogKeepLocalFileAfterUploadParam is the container attribute to specify whether the log file rotator should delete files after uploading
+	LogKeepLocalFileAfterUploadParam = "titusParameter.agent.log.keepLocalFileAfterUpload"
+
+	defaultLogUploadThresholdTime = 6 * time.Hour
+	defaultLogUploadCheckInterval = 15 * time.Minute
+	defaultStdioLogCheckInterval  = 1 * time.Minute
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -298,6 +311,73 @@ func (c *Container) GetTty() (bool, error) {
 	}
 
 	return val, nil
+}
+
+// GetLogUploadThresholdTime indicates how long since a file was modified before we should upload it and delete it
+func (c *Container) GetLogUploadThresholdTime() (time.Duration, error) {
+	logUploadThresholdTimeStr, ok := c.TitusInfo.GetPassthroughAttributes()[logUploadThresholdTimeParam]
+	if !ok {
+		return defaultLogUploadThresholdTime, nil
+	}
+	duration, err := time.ParseDuration(logUploadThresholdTimeStr)
+	if err != nil {
+		return 0, errors.Wrap(err, "Cannot parse log upload threshold time")
+	}
+	// Must be at least 2 * logUploadCheckInterval
+	logUploadCheckInterval, err := c.GetLogUploadCheckInterval()
+	if err != nil {
+		return 0, err
+	}
+	if duration <= logUploadCheckInterval*2 {
+		return 0, fmt.Errorf("Log upload threshold time %s must be at least 2 * %s, the log upload check interval", duration, logUploadCheckInterval)
+	}
+	logStdioCheckInterval, err := c.GetLogStdioCheckInterval()
+	if err != nil {
+		return 0, err
+	}
+	if duration <= logStdioCheckInterval*2 {
+		return 0, fmt.Errorf("Log upload threshold time %s must be at least 2 * %s, the stdio check interval", duration, logUploadCheckInterval)
+	}
+
+	return duration, nil
+}
+
+// GetLogUploadCheckInterval indicates how often we should scan the continers log directory to see if files need to be uploaded
+func (c *Container) GetLogUploadCheckInterval() (time.Duration, error) {
+	logUploadCheckIntervalStr, ok := c.TitusInfo.GetPassthroughAttributes()[logUploadCheckIntervalParam]
+	if !ok {
+		return defaultLogUploadCheckInterval, nil
+	}
+	duration, err := time.ParseDuration(logUploadCheckIntervalStr)
+	if err != nil {
+		return 0, errors.Wrap(err, "Cannot parse log upload check interval")
+	}
+	if duration < time.Minute {
+		return 0, fmt.Errorf("Log upload check interval '%s' must be at least 1 minute", duration)
+	}
+	return duration, nil
+}
+
+// GetLogStdioCheckInterval indicates how often we should scan the stdio log files to determine whether they should be uploaded
+func (c *Container) GetLogStdioCheckInterval() (time.Duration, error) {
+	logStdioCheckIntervalStr, ok := c.TitusInfo.GetPassthroughAttributes()[logStdioCheckIntervalParam]
+	if !ok {
+		return defaultStdioLogCheckInterval, nil
+	}
+	duration, err := time.ParseDuration(logStdioCheckIntervalStr)
+	if err != nil {
+		return 0, errors.Wrap(err, "Cannot parse log stdio check interval")
+	}
+	return duration, nil
+}
+
+// GetKeepLocalFileAfterUpload indicates whether or not we should delete log files after uploading them
+func (c *Container) GetKeepLocalFileAfterUpload() (bool, error) {
+	keepLocalFileAfterUploadStr, ok := c.TitusInfo.GetPassthroughAttributes()[LogKeepLocalFileAfterUploadParam]
+	if !ok {
+		return false, nil
+	}
+	return strconv.ParseBool(keepLocalFileAfterUploadStr)
 }
 
 // Resources specify constraints to be applied to a Container

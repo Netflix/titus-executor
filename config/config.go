@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -12,10 +11,7 @@ import (
 )
 
 const (
-	defaultLogUploadThreshold     = 6 * time.Hour
-	defaultLogUploadCheckInterval = 15 * time.Minute
-	defaultStdioLogCheckInterval  = 1 * time.Minute
-	defaultLogsTmpDir             = "/var/lib/titus-container-logs"
+	defaultLogsTmpDir = "/var/lib/titus-container-logs"
 )
 
 // Config contains the executor configuration
@@ -44,11 +40,6 @@ type Config struct {
 	ContainerSSHDCAFile string
 	ContainerSSHDUsers  cli.StringSlice
 	EC2AccountID        string
-
-	KeepLocalFileAfterUpload bool
-	LogUploadThresholdTime   time.Duration
-	LogUploadCheckInterval   time.Duration
-	StdioLogCheckInterval    time.Duration
 
 	// CopiedFromHost indicates which environment variables to lift from the current config
 	copiedFromHostEnv cli.StringSlice
@@ -161,25 +152,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "ec2-account-id",
 			Destination: &cfg.EC2AccountID,
 			EnvVar:      "EC2_OWNER_ID",
-		},
-		cli.BoolFlag{
-			Name:        "keep-local-file-after-upload",
-			Destination: &cfg.KeepLocalFileAfterUpload,
-		},
-		cli.DurationFlag{
-			Name:        "log-upload-threshold-time",
-			Value:       defaultLogUploadThreshold,
-			Destination: &cfg.LogUploadThresholdTime,
-		},
-		cli.DurationFlag{
-			Name:        "log-upload-check-interval",
-			Value:       defaultLogUploadCheckInterval,
-			Destination: &cfg.LogUploadCheckInterval,
-		},
-		cli.DurationFlag{
-			Name:        "stdio-check-interval",
-			Value:       defaultStdioLogCheckInterval,
-			Destination: &cfg.StdioLogCheckInterval,
 		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",
