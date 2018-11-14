@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"fmt"
 	"io/ioutil"
-
 	"strings"
 
 	"github.com/Netflix/titus-executor/config"
@@ -103,10 +102,10 @@ func addContainerSSHDConfig(c *runtimeTypes.Container, tw *tar.Writer, cfg confi
 	if err != nil {
 		return err
 	}
-	return addContainerSSHDConfigWithData(c, tw, caData, iamProfile.AccountID)
+	return addContainerSSHDConfigWithData(c, tw, caData, iamProfile.AccountID, cfg.EC2AccountID)
 }
 
-func addContainerSSHDConfigWithData(c *runtimeTypes.Container, tw *tar.Writer, caData []byte, accountID string) error {
+func addContainerSSHDConfigWithData(c *runtimeTypes.Container, tw *tar.Writer, caData []byte, accountIDs ...string) error {
 	sshConfigBytes := []byte(sshdConfig)
 	err := tw.WriteHeader(&tar.Header{
 		Name: "/titus/etc/ssh/sshd_config",
@@ -136,13 +135,18 @@ func addContainerSSHDConfigWithData(c *runtimeTypes.Container, tw *tar.Writer, c
 
 	// The format that is used for SSH Users is:
 	// $(unix username):$(app name):$(aws account id):$(task id)
+
 	for _, username := range c.Config.ContainerSSHDUsers {
-		lines := []string{
-			fmt.Sprintf("%s:%s:%s:%s", username, c.TitusInfo.GetAppName(), accountID, c.TaskID), // key scoped to username, appname, account ID, and task ID
-			fmt.Sprintf("%s:%s:%s", c.TitusInfo.GetAppName(), accountID, c.TaskID),              // key has access to any username for this given app in this given account, with this task ID
-			fmt.Sprintf("%s:%s", c.TitusInfo.GetAppName(), accountID),                           // key has access to any username for this given app in this given account
-			c.TaskID,                                 // key has access to any username on this task ID
-			fmt.Sprintf("%s:%s", username, c.TaskID), // key has access to this given username on this task ID
+		lines := []string{}
+		for _, accountID := range accountIDs {
+			lines = append(
+				lines,
+				fmt.Sprintf("%s:%s:%s:%s", username, c.TitusInfo.GetAppName(), accountID, c.TaskID), // key scoped to username, appname, account ID, and task ID
+				fmt.Sprintf("%s:%s:%s", c.TitusInfo.GetAppName(), accountID, c.TaskID),              // key has access to any username for this given app in this given account, with this task ID
+				fmt.Sprintf("%s:%s", c.TitusInfo.GetAppName(), accountID),                           // key has access to any username for this given app in this given account
+				c.TaskID,                                 // key has access to any username on this task ID
+				fmt.Sprintf("%s:%s", username, c.TaskID), // key has access to this given username on this task ID
+			)
 		}
 		line := []byte(strings.Join(lines, "\n"))
 		err = tw.WriteHeader(&tar.Header{
