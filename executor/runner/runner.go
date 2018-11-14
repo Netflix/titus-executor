@@ -449,11 +449,26 @@ func (r *Runner) wasKilled() bool {
 }
 
 func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) error {
-	var err error
+	logUploadCheckInterval, err := r.container.GetLogStdioCheckInterval()
+	if err != nil {
+		return err
+	}
+	logUploadThresholdTime, err := r.container.GetLogUploadThresholdTime()
+	if err != nil {
+		return err
+	}
+	logStdioCheckInterval, err := r.container.GetLogStdioCheckInterval()
+	if err != nil {
+		return err
+	}
+	keepLocalLogFileAfterUpload, err := r.container.GetKeepLocalFileAfterUpload()
+	if err != nil {
+		return err
+	}
 
 	uploadDir := r.container.UploadDir("logs")
 	uploadRegex := r.container.TitusInfo.GetLogUploadRegexp()
-	r.watcher, err = filesystems.NewWatcher(r.metrics, logDir, uploadDir, uploadRegex, r.logUploaders, r.config)
+	r.watcher, err = filesystems.NewWatcher(r.metrics, logDir, uploadDir, uploadRegex, r.logUploaders, logUploadCheckInterval, logUploadThresholdTime, logStdioCheckInterval, keepLocalLogFileAfterUpload)
 	if err != nil {
 		return err
 	}

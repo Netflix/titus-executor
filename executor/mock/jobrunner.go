@@ -14,6 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/uploader"
 	protobuf "github.com/golang/protobuf/proto"
 	"github.com/pborman/uuid"
@@ -158,7 +159,6 @@ func GenerateConfigs() (*config.Config, *docker.Config) {
 	if err != nil {
 		panic(err)
 	}
-	cfg.KeepLocalFileAfterUpload = true
 	cfg.MetatronEnabled = false
 
 	dockerCfg, err := docker.GenerateConfiguration(nil)
@@ -240,12 +240,15 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // no
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
 			EniLabel: protobuf.String("1"),
 		},
-		IamProfile:            protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-		Capabilities:          jobInput.Capabilities,
-		TitusProvidedEnv:      env,
-		IgnoreLaunchGuard:     protobuf.Bool(jobInput.IgnoreLaunchGuard),
-		PassthroughAttributes: make(map[string]string),
+		IamProfile:        protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
+		Capabilities:      jobInput.Capabilities,
+		TitusProvidedEnv:  env,
+		IgnoreLaunchGuard: protobuf.Bool(jobInput.IgnoreLaunchGuard),
+		PassthroughAttributes: map[string]string{
+			runtimeTypes.LogKeepLocalFileAfterUploadParam: "true",
+		},
 	}
+
 	if p := jobInput.Process; p != nil {
 		ci.Process = &titus.ContainerInfo_Process{
 			Entrypoint: p.Entrypoint,
