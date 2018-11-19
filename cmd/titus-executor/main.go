@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
@@ -56,6 +57,14 @@ var flags = []cli.Flag{
 	},
 }
 
+func isQuiteliteShortCircuited() (bool, error) {
+	shortCircuitQuiteLite := os.Getenv("SHORT_CIRCUIT_QUITELITE")
+	if shortCircuitQuiteLite == "" {
+		return false, nil
+	}
+	return strconv.ParseBool(shortCircuitQuiteLite)
+}
+
 func main() {
 	app := cli.NewApp()
 	app.Name = "titus-executor"
@@ -72,7 +81,12 @@ func main() {
 	}
 
 	app.Flags = properties.ConvertFlagsForAltSrc(app.Flags)
-	app.Before = altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource())
+
+	if quiteliteShortCircuited, err := isQuiteliteShortCircuited(); err != nil {
+		panic(err)
+	} else if !quiteliteShortCircuited {
+		app.Before = altsrc.InitInputSourceWithContext(app.Flags, properties.NewQuiteliteSource())
+	}
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
