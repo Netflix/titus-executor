@@ -58,7 +58,8 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 		mtu = 1500
 	}
 
-	containerInterfaceName := fmt.Sprintf("tmp-%d", rand.Intn(10000))
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	containerInterfaceName := fmt.Sprintf("tmp-%d", r.Intn(10000))
 	ipvlan := netlink.IPVlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name:        containerInterfaceName,
