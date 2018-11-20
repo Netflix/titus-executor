@@ -102,6 +102,7 @@ fpm -t deb -s dir -C root \
   --depends 'docker-ce >= 5:18.09.1~3-0~ubuntu-xenial' \
   --deb-recommends lxcfs \
   --deb-recommends atlas-titus-agent \
+  --deb-recommends nvidia-container-runtime-hook \
   ${provides:-} \
   --after-install /tmp/post-install.sh \
   --package "${outdir}/"

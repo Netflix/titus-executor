@@ -72,6 +72,7 @@ type Config struct { // nolint: maligned
 	batchSize                       int
 	burst                           bool
 	securityConvergenceTimeout      time.Duration
+	nvidiaOciRuntime                string
 	pidLimit                        int
 	prepareTimeout                  time.Duration
 	startTimeout                    time.Duration
@@ -110,6 +111,15 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "titus.executor.networking.securityConvergenceTimeout",
 			Destination: &cfg.securityConvergenceTimeout,
 			Value:       time.Second * 10,
+		},
+		cli.StringFlag{
+			Name: "titus.executor.nvidiaOciRuntime",
+			// runc-compliant OCI runtime that's capable of running the `nvidia-container-runtime` hook.
+			// Defaults to https://github.com/Netflix-Skunkworks/oci-add-hooks to avoid running a patched
+			// version of runc, though https://github.com/NVIDIA/nvidia-container-runtime should also work.
+			Value:       "oci-add-hooks",
+			Destination: &cfg.nvidiaOciRuntime,
+			EnvVar:      "NVIDIA_OCI_RUNTIME",
 		},
 		cli.IntFlag{
 			Name:        "titus.executor.pidLimit",
@@ -1025,8 +1035,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 
-	// setupGPU will override the current Volume driver if there is one
-	err = r.setupGPU(c, dockerCfg, hostCfg)
+	err = r.setupGPU(ctx, c, dockerCfg, hostCfg)
 	if err != nil {
 		goto error
 	}
@@ -1864,33 +1873,16 @@ func launchTini(conn *net.UnixConn) error {
 	return err
 }
 
-// setupGPU overrides the volume driver in the provided configuration when there are GPUs to be added to the Container.
-func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
-	// Setup GPU
+func (r *DockerRuntime) setupGPU(ctx context.Context, c *runtimeTypes.Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
+	logger := log.WithField("taskID", c.TaskID)
+
 	if c.TitusInfo.GetNumGpus() <= 0 {
 		return nil
 	}
 
-	gpuInfo, err := nvidia.NewNvidiaInfo(r.client)
+	gpuInfo, err := nvidia.NewNvidiaInfo(ctx)
 	if err != nil {
 		return err
-	}
-	// Use nvidia volume plugin that will mount the appropriate
-	// libraries/binaries into the container based on host nvidia driver.
-
-	for _, volume := range gpuInfo.Volumes {
-		parts := strings.Split(volume, ":")
-		dockerCfg.Volumes[parts[1]] = struct{}{}
-		hostCfg.Binds = append(hostCfg.Binds, volume)
-	}
-
-	// Add control devices to container.
-	for _, ctrlDevice := range gpuInfo.GetCtrlDevices() {
-		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{
-			PathOnHost:        ctrlDevice,
-			PathInContainer:   ctrlDevice,
-			CgroupPermissions: "rmw",
-		})
 	}
 
 	// Allocate a specific GPU to add to the container
@@ -1899,14 +1891,8 @@ func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container
 		return fmt.Errorf("Cannot allocate %d requested GPU device: %v", c.TitusInfo.GetNumGpus(), err)
 	}
 
-	log.Printf("Allocated %d GPU devices %s for task %s", c.TitusInfo.GetNumGpus(), c.GPUInfo, c.TaskID)
-	for _, gpuDevicePath := range c.GPUInfo.Devices() {
-		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{
-			PathOnHost:        gpuDevicePath,
-			PathInContainer:   gpuDevicePath,
-			CgroupPermissions: "rmw",
-		})
-	}
+	gpuInfo.UpdateContainerConfig(c, dockerCfg, hostCfg, r.dockerCfg.nvidiaOciRuntime)
+	logger.WithField("numGPUs", c.TitusInfo.GetNumGpus()).WithField("gpuDevices", c.GPUInfo.Devices()).Info("Allocated GPUs")
 	return nil
 }
 
