@@ -500,6 +500,7 @@ func mkGetMetatronConfigFunc(mts *metatron.TrustStore) func(ctx context.Context,
 		titusMetadata := metatron.TitusMetadata{
 			App:          c.TitusInfo.GetAppName(),
 			Stack:        c.TitusInfo.GetJobGroupStack(),
+			Detail:       c.TitusInfo.GetJobGroupDetail(),
 			ImageName:    c.TitusInfo.GetImageName(),
 			ImageVersion: c.TitusInfo.GetVersion(),
 			ImageDigest:  c.TitusInfo.GetImageDigest(),
