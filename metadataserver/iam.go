@@ -1,16 +1,16 @@
 package metadataserver
 
 import (
-	"net/http"
-
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -265,15 +265,20 @@ func (proxy *iamProxy) notifyRoleAccessed(ctx context.Context, r *http.Request) 
 			ran.overriddenSessionLifetime = &dur
 		}
 	}
+	metrics.PublishIncrementCounter("iam.notifyRoleAccessed.count")
 	select {
 	case <-ctx.Done():
 		log.Warning("Context done, before notify role access message sent: ", ctx.Err())
+		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.sent.timeout")
 	case proxy.roleAcccessed <- ran:
+		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.sent.success")
 	}
 	select {
 	case <-ctx.Done():
 		log.Warning("Context done, before notify role access message processed: ", ctx.Err())
+		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.processed.timeout")
 	case <-ran.processed:
+		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.processed.success")
 	}
 }
 
@@ -321,7 +326,9 @@ func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
 		RoleArn:         aws.String(proxy.arn.String()),
 		RoleSessionName: aws.String(generateSessionName(proxy.titusTaskInstanceID)),
 	}
+	now := time.Now()
 	result, err := proxy.sts.AssumeRoleWithContext(ctx, input)
+	metrics.PublishTimer("iam.assumeRoleTime", time.Since(now))
 	output := &roleAssumptionState{
 		assumeRoleGenerated: time.Now(),
 		assumeRoleOutput:    result,
