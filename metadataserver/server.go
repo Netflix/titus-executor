@@ -71,7 +71,7 @@ func dumpRoutes(r *mux.Router) {
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
-func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titusTaskInstanceID, ipv4Address string) *MetadataServer {
+func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titusTaskInstanceID, ipv4Address, region string, optimistic bool) *MetadataServer {
 	ms := &MetadataServer{
 		httpClient:          &http.Client{},
 		internalMux:         mux.NewRouter(),
@@ -98,7 +98,7 @@ func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titus
 	metaData.Handle("/instance-type", http.NotFoundHandler())
 
 	/* IAM Stuffs */
-	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), iamArn, titusTaskInstanceID)
+	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), iamArn, titusTaskInstanceID, region, optimistic)
 
 	/* Dump debug routes if anyone cares */
 	dumpRoutes(ms.internalMux)
