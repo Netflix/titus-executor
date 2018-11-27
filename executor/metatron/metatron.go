@@ -135,6 +135,7 @@ type TitusMetadata struct {
 	TaskID       string            `json:"instanceId"`
 	LaunchTime   int64             `json:"launchTime"`
 	IPAddress    string            `json:"ipAddress"`
+	Detail       string            `json:"detail,omitempty"`
 }
 
 // PassportRequest contains the fields
