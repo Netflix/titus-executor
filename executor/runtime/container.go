@@ -61,6 +61,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 		TitusInfo:          titusInfo,
 		Resources:          resources,
 		Env:                env,
+		IsSystemD:          false,
 		Labels:             labels,
 		SecurityGroupIDs:   networkCfgParams.GetSecurityGroups(),
 		BandwidthLimitMbps: networkCfgParams.GetBandwidthLimitMbps(),
