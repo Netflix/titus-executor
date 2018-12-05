@@ -361,6 +361,7 @@ func waitForSecurityGroupToConverge(ctx *context.VPCContext, networkInterface *e
 			return err
 		}
 		if reflect.DeepEqual(securityGroups, networkInterface.SecurityGroupIds) {
+			ctx.Logger.WithField("duration", time.Since(now).String()).Info("Changed security groups successfully")
 			return nil
 		}
 		time.Sleep(time.Second)
