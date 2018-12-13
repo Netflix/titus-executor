@@ -813,7 +813,7 @@ func testNewEnvironmentLocationPositive(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
 		ImageName:     envLabel.name,
 		Version:       envLabel.tag,
-		EntrypointOld: `cat /etc/nflx/base-environment.d/titus`,
+		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
@@ -849,7 +849,7 @@ func testOldEnvironmentLocationNegative(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
-		EntrypointOld: `cat /etc/nflx/base-environment.d/titus`,
+		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingFailure(ji) {
