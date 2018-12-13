@@ -88,6 +88,7 @@ checkstyle-result.xml
 /root/apps/titus-executor/bin/titus-launchguard-server
 /root/apps/titus-executor/bin/titus-standalone
 /root/apps/titus-executor/bin/titus-vpc-tool
+/root/apps/titus-executor/bin/titus-nsenter
 
 /mount/titus-mount
 
