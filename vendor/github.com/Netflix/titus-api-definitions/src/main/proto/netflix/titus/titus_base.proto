@@ -30,10 +30,12 @@ message CallMetadata {
     bool debug = 4;
 }
 
-/// An entity representing single page of a collection. Either pageNumber or cursor must be set on requests.
+/// An entity representing single page of a collection. Prefer using cursor-based pagination, pageNumber is being retired.
+//  For the first page, leave both pageNumber and cursor empty.
 message Page {
     /// (Optional) Requested page number, starting from 0 (defaults to 0 if not specified).
-    int32 pageNumber = 1;
+    //  (Deprecated) Use cursor-based pagination instead.
+    int32 pageNumber = 1 [deprecated=true];
 
     /// (Required) Requested page size (if not specified, default size is operation specific).
     int32 pageSize = 2;
@@ -50,11 +52,11 @@ message Pagination {
     /// (Required) Requested page details.
     Page currentPage = 1;
 
-    /// Are there any more items to return.
+    /// Are there any more items to return? Use the cursor to fetch the next page when required.
     bool hasMore = 2;
 
-    /// Total number of pages.
-    int32 totalPages = 3;
+    /// (Deprecated) Use cursor-based pagination instead. Total number of pages.
+    int32 totalPages = 3 [deprecated=true];
 
     /// Total number of items.
     int32 totalItems = 4;
@@ -137,7 +139,7 @@ enum Tier {
 
 /// Titus hierarchy level.
 enum Level {
-    GlobalLevel = 0;
+    SystemLevel = 0;
     TierLevel = 1;
     CapacityGroupLevel = 2;
     JobLevel = 3;
@@ -146,12 +148,12 @@ enum Level {
 
 /// A reference to an entity in the Titus hierarchy.
 message Reference {
-    message Global {
+    message System {
     }
 
     oneof Reference {
-        /// Global level.
-        Global global = 1;
+        /// System level.
+        System system = 1;
 
         /// Tier level
         Tier tier = 2;
@@ -190,4 +192,47 @@ message ResourceDimension {
     uint32 diskMB = 4;
 
     uint32 networkMbps = 5;
+}
+
+// Time related data structures.
+
+enum Day {
+    Monday = 0;
+    Tuesday = 1;
+    Wednesday = 2;
+    Thursday = 3;
+    Friday = 4;
+    Saturday = 5;
+    Sunday = 6;
+}
+
+/// Time window descriptor.
+message TimeWindow {
+
+    message HourlyTimeWindow {
+        /// (Required) Starting hour.
+        uint32 startHour = 1;
+
+        /// (Required) Ending hour.
+        uint32 endHour = 2;
+    }
+
+    /// (Required) Included days.
+    repeated Day days = 1;
+
+    /// (Optional) Included hour ranges. If not set, defaults to 0-24.
+    repeated HourlyTimeWindow hourlyTimeWindows = 2;
+
+    /// (Optional) If not set, UTC time zone is set as a default.
+    string timeZone = 3;
+}
+
+/// A provider for container health
+message ContainerHealthProvider {
+
+    /// (Required) The name of the provider.
+    string name = 1;
+
+    /// (Optional) Attributes to be used by the provider.
+    map<string, string> attributes = 3;
 }

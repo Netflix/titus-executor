@@ -15,13 +15,15 @@ import (
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/uploader"
 	protobuf "github.com/golang/protobuf/proto"
-	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
+
+const metatronTestImage = "titusoss/metatron:20190115-1547588673"
 
 // Process describes what runs inside the container
 type Process struct {
@@ -60,6 +62,8 @@ type JobInput struct {
 	KillWaitSeconds uint32
 	// Tty attaches a tty to the container via a passthrough attribute
 	Tty bool
+	// MetatronEnabled enables running with the metatron sidecar container
+	MetatronEnabled bool
 }
 
 // JobRunResponse returned from RunJob
@@ -154,12 +158,16 @@ type JobRunner struct {
 }
 
 // GenerateConfigs generates test configs
-func GenerateConfigs() (*config.Config, *docker.Config) {
+func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	cfg, err := config.GenerateConfiguration([]string{"--copy-uploader", "/var/tmp/titus-executor/tests"})
 	if err != nil {
 		panic(err)
 	}
-	cfg.MetatronEnabled = false
+
+	if jobInput != nil && jobInput.MetatronEnabled {
+		cfg.MetatronEnabled = true
+		cfg.ContainerMetatronImage = metatronTestImage
+	}
 
 	dockerCfg, err := docker.GenerateConfiguration(nil)
 	if err != nil {
@@ -171,8 +179,8 @@ func GenerateConfigs() (*config.Config, *docker.Config) {
 
 // NewJobRunner creates a new JobRunner with its executor started
 // in the background and the test driver configured to use it.
-func NewJobRunner() *JobRunner {
-	cfg, dockerCfg := GenerateConfigs()
+func NewJobRunner(jobInput *JobInput) *JobRunner {
+	cfg, dockerCfg := GenerateConfigs(jobInput)
 
 	// Create an executor
 	logUploaders, err := uploader.NewUploaders(cfg, metrics.Discard)
@@ -220,11 +228,19 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // no
 		jobID = jobInput.JobID
 	}
 
+	// TODO: refactor this all to use NewContainer()
 	taskID := fmt.Sprintf("Titus-%v%v-Worker-0-2", r.Intn(1000), time.Now().Second())
+
 	env := map[string]string{
 		"TITUS_TASK_ID":          taskID,
-		"TITUS_TASK_INSTANCE_ID": uuid.New(),
+		"TITUS_TASK_INSTANCE_ID": taskID,
 		"EC2_LOCAL_IPV4":         "1.2.3.4",
+	}
+
+	if jobInput.MetatronEnabled {
+		env[metadataserverTypes.TitusMetatronVariableName] = "true"
+	} else {
+		env[metadataserverTypes.TitusMetatronVariableName] = "false"
 	}
 
 	// range over nil is safe
@@ -238,7 +254,8 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // no
 		JobId:     protobuf.String(jobID),
 		AppName:   protobuf.String("myapp"),
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
-			EniLabel: protobuf.String("1"),
+			EniLabel:  protobuf.String("1"),
+			EniLablel: protobuf.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
 		},
 		IamProfile:        protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
 		Capabilities:      jobInput.Capabilities,
@@ -267,6 +284,12 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // no
 		ci.PassthroughAttributes["titusParameter.agent.ttyEnabled"] = "true"
 	}
 
+	if jobInput.MetatronEnabled {
+		ci.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
+			AppMetadata: protobuf.String("fake-metatron-app"),
+			MetadataSig: protobuf.String("fake-metatron-sig"),
+		}
+	}
 	if jobInput.KillWaitSeconds > 0 {
 		ci.KillWaitSeconds = protobuf.Uint32(jobInput.KillWaitSeconds)
 	}
@@ -309,7 +332,7 @@ func (jobRunner *JobRunner) KillTask() error {
 
 // RunJobExpectingSuccess is similar to RunJob but returns true when the task completes successfully.
 func RunJobExpectingSuccess(jobInput *JobInput) bool {
-	jobRunner := NewJobRunner()
+	jobRunner := NewJobRunner(jobInput)
 	defer jobRunner.StopExecutor()
 
 	jobResult := jobRunner.StartJob(jobInput)
@@ -318,7 +341,7 @@ func RunJobExpectingSuccess(jobInput *JobInput) bool {
 
 // RunJobExpectingFailure is similar to RunJob but returns true when the task completes successfully.
 func RunJobExpectingFailure(jobInput *JobInput) bool {
-	jobRunner := NewJobRunner()
+	jobRunner := NewJobRunner(jobInput)
 	defer jobRunner.StopExecutor()
 
 	jobResult := jobRunner.StartJob(jobInput)
@@ -327,7 +350,7 @@ func RunJobExpectingFailure(jobInput *JobInput) bool {
 
 // RunJob runs a single Titus task based on provided JobInput
 func RunJob(jobInput *JobInput) (string, error) {
-	jobRunner := NewJobRunner()
+	jobRunner := NewJobRunner(jobInput)
 	defer jobRunner.StopExecutor()
 
 	jobResult := jobRunner.StartJob(jobInput)

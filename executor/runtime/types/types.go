@@ -13,7 +13,6 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor/metatron"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
@@ -30,6 +29,9 @@ const (
 	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
+	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
+	TitusEnvironmentsDir            = "/var/lib/titus-environments"
+	titusContainerIDEnvVariableName = "TITUS_CONTAINER_ID"
 )
 
 const (
@@ -113,9 +115,6 @@ type Container struct {
 	Ports     []string
 	TitusInfo *titus.ContainerInfo
 	Resources *Resources
-
-	// Metatron fields
-	GetMetatronConfig func(ctx context.Context, c *Container) (*metatron.CredentialsConfig, error)
 
 	// cleanup callbacks that runtime implementations can register to do cleanup
 	// after a launchGuard on the taskID has been lifted
@@ -390,6 +389,60 @@ func (c *Container) GetOptimisticIAMTokenFetch() (bool, error) {
 	return strconv.ParseBool(optimisticIAMTokenFetchStr)
 }
 
+// GetConfig returns the container config with all necessary fields for validating its identity with Metatron
+func (c *Container) GetConfig(startTime time.Time) (*titus.ContainerInfo, error) {
+	launchTime := uint64(startTime.Unix())
+	ti := c.TitusInfo
+	containerHostname, err := c.ComputeHostname()
+	if err != nil {
+		return nil, err
+	}
+
+	if ti.GetRunState() == nil {
+		ti.RunState = &titus.RunningContainerInfo{}
+	}
+
+	if ti.RunState.LaunchTimeUnixSec == nil {
+		ti.RunState.LaunchTimeUnixSec = &launchTime
+	}
+	if ti.RunState.TaskId == nil {
+		ti.RunState.TaskId = &c.TaskID
+	}
+	if ti.RunState.HostName == nil {
+		ti.RunState.HostName = &containerHostname
+	}
+
+	var cmd []string
+	var entrypoint []string
+
+	// The identity server looks at the Process object for the entrypoint. For legacy apps
+	// that pass entrypoint as a string, use the whole string as the entrypoint rather than
+	// parsing it: this matches how the entrypoint is signed in the first place.
+	//
+	// See Process() above for more details.
+	if ti.EntrypointStr != nil {
+		entrypoint = append(entrypoint, *ti.EntrypointStr)
+	} else {
+		entrypoint, cmd, err = c.Process()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ti.Process = &titus.ContainerInfo_Process{
+		Entrypoint: entrypoint,
+		Command:    cmd,
+	}
+
+	return ti, nil
+}
+
+// SetID sets the container ID for this container, updating internal data structures as necessary
+func (c *Container) SetID(id string) {
+	c.ID = id
+	c.Env[titusContainerIDEnvVariableName] = c.ID
+}
+
 // Resources specify constraints to be applied to a Container
 type Resources struct {
 	Mem       int64 // in MiB
@@ -422,7 +475,7 @@ type Runtime interface {
 	// TODO(fabio): better (non-Docker specific) abstraction for binds
 	// The context passed to the Prepare, and Start function is valid over the lifetime of the container,
 	// NOT per-operation
-	Prepare(containerCtx context.Context, c *Container, bindMounts []string) error
+	Prepare(containerCtx context.Context, c *Container, bindMounts []string, startTime time.Time) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
 	Start(containerCtx context.Context, c *Container) (string, *Details, <-chan StatusMessage, error)
 	// Kill a container

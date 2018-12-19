@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+// TitusMaster Supervisor API specification. This API provides access to TitusMaster operational state
+// (leader/non-leader, activation time, etc), as well as provides management operations.
+// The supervisor API is intended to be used by internal tools, which should make the calls directly to the desired
+// TitusMaster instance (not via the Titus gateway). The API calls tunneled via gateway are executed
+// against any available master instance.
+//
+
+package com.netflix.titus;
+
+import "google/protobuf/empty.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "TitusMasterProto";
+
+option go_package = "titus";
+
+// ----------------------------------------------------------------------------
+// Titus supervisor data model.
+
+message MasterStatus {
+
+    enum MasterState {
+
+        /// TitusMaster instance is starting, and its operational state is not known yet.
+        Starting = 0;
+
+        /// TitusMaster is inactive, and does not participate in the leader election process. Predefined
+        //  reason codes in this state:
+        //  * 'outOfService' - the instance is healthy, but taken of out of service by an administrator
+        //  * 'unhealthy' - the instance is not healthy
+        Inactive = 1;
+
+        /// TitusMaster is healthy, and participates in the leader election process, but is not the leader yet.
+        NonLeader = 2;
+
+        /// TitusMaster bocame a leader, and is activating all components. It does not accept client requests yet.
+        LeaderActivating = 3;
+
+        /// TitusMaster is a fully activated leader.
+        LeaderActivated = 4;
+    }
+
+    /// (Required) TitusMaster instance state
+    MasterState state = 1;
+
+    /// (Optional) Detailed code for being in a specific state.
+    string reasonCode = 2;
+
+    /// (Optional) Textual description accompanying the 'reasonCode'.
+    string reasonMessage = 3;
+
+    /// Time when a transition to a state happened.
+    uint64 timestamp = 4;
+
+}
+
+/// A descriptor of a single TitusMaster instance.
+message MasterInstance {
+
+    string instanceId = 1;
+
+    string ipAddress = 2;
+
+    MasterStatus status = 3;
+
+    repeated MasterStatus statusHistory = 4;
+}
+
+message SupervisorEvent {
+    message MasterInstanceUpdate {
+        MasterInstance instance = 1;
+    }
+
+    message MasterInstanceRemoved {
+        string instanceId = 1;
+    }
+
+    oneof Event {
+        MasterInstanceUpdate masterInstanceUpdate = 1;
+        MasterInstanceRemoved masterInstanceRemoved = 2;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// GRPC services
+
+message MasterInstanceId {
+    string instanceId = 1;
+}
+
+message MasterInstances {
+    repeated MasterInstance instances = 1;
+}
+
+service SupervisorService {
+
+    /// Get all known TitusMaster instances.
+    rpc GetMasterInstances (google.protobuf.Empty) returns (MasterInstances) {
+    }
+
+    /// Get TitusMaster instance with the given id.
+    rpc GetMasterInstance (MasterInstanceId) returns (MasterInstance) {
+    }
+
+    /// Requests the TitusMaster instance that handles this request to stop being leader. If the given instance
+    //  is not a leader, the request is ignored.
+    rpc StopBeingLeader (google.protobuf.Empty) returns (google.protobuf.Empty) {
+    }
+
+    /// Supervisor event stream.
+    rpc ObserveEvents (google.protobuf.Empty) returns (stream SupervisorEvent) {
+    }
+}

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/Netflix/quitelite-client-go/properties"
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/logging"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/gorilla/mux"
@@ -52,6 +54,8 @@ type MetadataServer struct {
 	*/
 	titusTaskInstanceID string
 	ipv4Address         string
+	container           *titus.ContainerInfo
+	signer              *identity.Signer
 }
 
 func dumpRoutes(r *mux.Router) {
@@ -71,12 +75,14 @@ func dumpRoutes(r *mux.Router) {
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
-func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titusTaskInstanceID, ipv4Address, region string, optimistic bool) *MetadataServer {
+func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, ipv4Address, region string, optimistic bool, container *titus.ContainerInfo, signer *identity.Signer) *MetadataServer {
 	ms := &MetadataServer{
 		httpClient:          &http.Client{},
 		internalMux:         mux.NewRouter(),
-		titusTaskInstanceID: titusTaskInstanceID,
+		titusTaskInstanceID: *container.RunState.TaskId,
 		ipv4Address:         ipv4Address,
+		container:           container,
+		signer:              signer,
 	}
 
 	/* wire up routing */
@@ -98,7 +104,14 @@ func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titus
 	metaData.Handle("/instance-type", http.NotFoundHandler())
 
 	/* IAM Stuffs */
-	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), iamArn, titusTaskInstanceID, region, optimistic)
+	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), iamArn, *container.RunState.TaskId, region, optimistic)
+
+	/* Titus-specific routes */
+	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()
+	if signer != nil {
+		titusRouter.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
+		titusRouter.HandleFunc("/task-identity", ms.taskIdentity)
+	}
 
 	/* Dump debug routes if anyone cares */
 	dumpRoutes(ms.internalMux)

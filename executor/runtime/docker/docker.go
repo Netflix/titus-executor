@@ -23,7 +23,6 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor/metatron"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/nvidia"
@@ -58,7 +57,6 @@ const (
 	fuseDev = "/dev/fuse"
 	// See: TITUS-1231, this is added as extra padding for container initialization
 	builtInDiskBuffer       = 1100 // In megabytes, includes extra space for /logs.
-	titusEnvironments       = "/var/lib/titus-environments"
 	defaultNetworkBandwidth = 128 * MB
 	defaultKillWait         = 10 * time.Second
 	trueString              = "true"
@@ -169,6 +167,14 @@ func GenerateConfiguration(args []string) (*Config, error) {
 	args = append([]string{"fakename"}, args...)
 
 	return cfg, app.Run(args)
+}
+
+func shouldStartMetatronSync(cfg *config.Config, c *runtimeTypes.Container) bool {
+	if cfg.MetatronEnabled && c.TitusInfo.GetMetatronCreds() != nil {
+		return true
+	}
+
+	return false
 }
 
 func escapeSQ(str string) string {
@@ -384,7 +390,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
-func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64, sshdContainerName string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
+func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
 	entrypoint, cmd, err := c.Process()
@@ -439,9 +445,9 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		},
 		Init: &useInit,
 	}
-	if sshdContainerName != "" {
-		log.Info("Setting up SSHD container bind mount")
-		hostCfg.VolumesFrom = []string{fmt.Sprintf("%s:ro", sshdContainerName)}
+	for _, containerName := range volumeContainers {
+		log.Infof("Setting up VolumesFrom from container %s", containerName)
+		hostCfg.VolumesFrom = append(hostCfg.VolumesFrom, fmt.Sprintf("%s:ro", containerName))
 	}
 	maybeAddOptimisticDad(hostCfg.Sysctls)
 	hostCfg.CgroupParent = r.pidCgroupPath
@@ -598,6 +604,11 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c *runtimeTypes.Containe
 		imgInfo, err := imageExists(ctx, r.client, imgName)
 		if err != nil {
 			logger.WithError(err).Errorf("DockerPull: error inspecting image")
+
+			// Can get "invalid reference format" error: return "not found" to be consistent with pull by tag
+			if isBadImageErr(err) {
+				return nil, &runtimeTypes.RegistryImageNotFoundError{Reason: err}
+			}
 			return nil, err
 		}
 
@@ -609,7 +620,7 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c *runtimeTypes.Containe
 	}
 
 	r.metrics.Counter("titus.executor.dockerImagePulls", 1, nil)
-	log.Infof("DockerPull: pulling image")
+	logger.Infof("DockerPull: pulling image")
 	pullStartTime := time.Now()
 	if err := pullWithRetries(ctx, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
 		return nil, err
@@ -746,38 +757,33 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	return nil
 }
 
-func (r *DockerRuntime) doSetupSSHdContainer(ctx context.Context, containerName *string) error { // nolint: gocyclo
-	tmpImageInfo, err := imageExists(ctx, r.client, r.cfg.ContainerSSHDImage)
-	if err != nil {
-		return err
-	}
-
-	if tmpImageInfo == nil {
-		err = pullWithRetries(ctx, r.metrics, r.client, r.cfg.ContainerSSHDImage, doDockerPull)
-		if err != nil {
-			return err
-		}
-		_, _, err = r.client.ImageInspectWithRaw(ctx, r.cfg.ContainerSSHDImage)
-		if err != nil {
-			return err
-		}
-	}
-
+// cleanContainerName creates a "clean" container name that adheres to docker's allowed character list
+func cleanContainerName(prefix string, imageName string) string {
 	// so we replace @ with - to match Docker's image naming scheme, a la:
 	// [a-zA-Z0-9][a-zA-Z0-9_.-]
-	noDashes := strings.Replace(r.cfg.ContainerSSHDImage, ":", "-", -1)
+	noDashes := strings.Replace(imageName, ":", "-", -1)
 	noAts := strings.Replace(noDashes, "@", "-", -1)
 	noSlashes := strings.Replace(noAts, "/", "_", -1)
-	*containerName = "titus-sshd-" + noSlashes
-	_, err = r.client.ContainerInspect(ctx, *containerName)
-	if err == nil {
-		return nil
+	return prefix + "-" + noSlashes
+}
+
+func (r *DockerRuntime) doSetupMetatronContainer(ctx context.Context, containerName *string) error {
+	cfg := &container.Config{
+		Hostname: "titus-metatron",
+		Volumes: map[string]struct{}{
+			"/titus/metatron": {},
+		},
+		Entrypoint: []string{"/bin/bash"},
+		Image:      r.cfg.ContainerMetatronImage,
+	}
+	hostConfig := &container.HostConfig{
+		NetworkMode: "none",
 	}
 
-	if !docker.IsErrNotFound(err) {
-		return err
-	}
+	return r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
+}
 
+func (r *DockerRuntime) doSetupSSHdContainer(ctx context.Context, containerName *string) error {
 	cfg := &container.Config{
 		Hostname: "titus-sshd",
 		Volumes: map[string]struct{}{
@@ -789,7 +795,54 @@ func (r *DockerRuntime) doSetupSSHdContainer(ctx context.Context, containerName 
 	hostConfig := &container.HostConfig{
 		NetworkMode: "none",
 	}
+
+	return r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
+}
+
+// createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
+func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
+	var image string = cfg.Image
+	tmpImageInfo, err := imageExists(ctx, r.client, image)
+	if err != nil {
+		return err
+	}
+
+	imageSpecifiedByTag := !strings.Contains(image, "@")
+	logger := log.WithField("hostName", cfg.Hostname).WithField("imageName", image)
+
+	if tmpImageInfo == nil || imageSpecifiedByTag {
+		logger.WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
+		err = pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
+		if err != nil {
+			return err
+		}
+		resp, _, iErr := r.client.ImageInspectWithRaw(ctx, image)
+		if iErr != nil {
+			return iErr
+		}
+
+		// If the image was specified as a tag, resolve it to a digest in case the tag was updated
+		image = resp.RepoDigests[0]
+		cfg.Image = image
+	} else {
+		logger.Info("createVolumeContainer: image exists: not pulling image")
+	}
+
+	*containerName = cleanContainerName(cfg.Hostname, image)
+	logger = log.WithField("hostName", cfg.Hostname).WithField("imageName", image).WithField("containerName", *containerName)
+
 	// Check if this container exists, if not create it.
+	_, err = r.client.ContainerInspect(ctx, *containerName)
+	if err == nil {
+		logger.Info("createVolumeContainer: container exists: not creating")
+		return nil
+	}
+
+	if !docker.IsErrNotFound(err) {
+		return err
+	}
+
+	logger.Info("createVolumeContainer: creating container")
 	// We don't check the error here, because there's no way
 	// to prevent us from accidentally calling this concurrently
 	_, tmpErr := r.client.ContainerCreate(ctx, cfg, hostConfig, nil, *containerName)
@@ -814,8 +867,8 @@ func (r *DockerRuntime) doSetupSSHdContainer(ctx context.Context, containerName 
 }
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
-func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string) error { // nolint: gocyclo
-	var sshdContainerName string
+func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string, startTime time.Time) error { // nolint: gocyclo
+	var volumeContainers []string
 	l := log.WithField("taskID", c.TaskID)
 	l.WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
 
@@ -860,16 +913,33 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		return nil
 	})
 
+	if shouldStartMetatronSync(&r.cfg, c) {
+		group.Go(func() error {
+			var metatronContainerName string
+			l.Info("Setting up metatron container")
+			mSetupErr := r.doSetupMetatronContainer(ctx, &metatronContainerName)
+			if mSetupErr != nil {
+				return errors.Wrap(mSetupErr, "Unable to setup metatron container")
+			}
+
+			volumeContainers = append(volumeContainers, metatronContainerName)
+			return nil
+		})
+	}
 	if r.cfg.ContainerSSHD {
 		group.Go(func() error {
+			var sshdContainerName string
 			l.Info("Setting up SSHd container")
 			sshdSetuperr := r.doSetupSSHdContainer(ctx, &sshdContainerName)
 			if sshdSetuperr != nil {
 				return errors.Wrap(sshdSetuperr, "Unable to setup SSHd container")
 			}
+
+			volumeContainers = append(volumeContainers, sshdContainerName)
 			return nil
 		})
 	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func() error {
 			prepareNetworkStartTime := time.Now()
@@ -897,7 +967,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 
 	binds = append(binds, getLXCFsBindMounts()...)
-	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, sshdContainerName)
+	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, volumeContainers)
 	if err != nil {
 		goto error
 	}
@@ -911,7 +981,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	l.Infof("create with Docker config %#v and Host config: %#v", *dockerCfg, *hostCfg)
 
 	containerCreateBody, err = r.client.ContainerCreate(ctx, dockerCfg, hostCfg, nil, c.TaskID)
-	c.ID = containerCreateBody.ID
+	c.SetID(containerCreateBody.ID)
+
 	r.metrics.Timer("titus.executor.dockerCreateTime", time.Since(dockerCreateStartTime), c.ImageTagForMetrics())
 	if docker.IsErrImageNotFound(err) {
 		return &runtimeTypes.RegistryImageNotFoundError{Reason: err}
@@ -922,27 +993,22 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	l = l.WithField("containerID", c.ID)
 	l.Info("Container successfully created")
 
-	// pushMetatron MUST be called after setting up the network driver, because it relies on
-	// c.Allocation being set
-	err = r.pushMetatron(parentCtx, c)
-	if err != nil {
-		goto error
-	}
-	l.Info("Metatron pushed")
-
 	err = r.createTitusEnvironmentFile(c)
 	if err != nil {
 		goto error
 	}
 	l.Info("Titus environment pushed")
 
-	err = r.createTitusContainerConfigFile(c)
+	err = r.createTitusContainerConfigFile(c, startTime)
 	if err != nil {
 		goto error
 	}
 	l.Info("Titus Configuration pushed")
 
 	err = r.pushEnvironment(c, myImageInfo)
+	if err != nil {
+		goto error
+	}
 	l.Info("Titus environment pushed")
 
 error:
@@ -955,8 +1021,13 @@ error:
 
 // Creates the file $titusEnvironments/ContainerID.json as a serialized version of the ContainerInfo protobuf struct
 // so other systems can load it
-func (r *DockerRuntime) createTitusContainerConfigFile(c *runtimeTypes.Container) error {
-	containerConfigFile := filepath.Join(titusEnvironments, fmt.Sprintf("%s.json", c.TaskID))
+func (r *DockerRuntime) createTitusContainerConfigFile(c *runtimeTypes.Container, startTime time.Time) error {
+	containerConfigFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", c.TaskID))
+
+	cfg, err := c.GetConfig(startTime)
+	if err != nil {
+		return err
+	}
 
 	f, err := os.OpenFile(containerConfigFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gosec
 	if err != nil {
@@ -967,12 +1038,12 @@ func (r *DockerRuntime) createTitusContainerConfigFile(c *runtimeTypes.Container
 		return os.Remove(containerConfigFile)
 	})
 
-	return json.NewEncoder(f).Encode(c.TitusInfo)
+	return json.NewEncoder(f).Encode(cfg)
 }
 
 // Creates the file $titusEnvironments/ContainerID.env filled with newline delimited set of environment variables
 func (r *DockerRuntime) createTitusEnvironmentFile(c *runtimeTypes.Container) error {
-	envFile := filepath.Join(titusEnvironments, fmt.Sprintf("%s.env", c.TaskID))
+	envFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.env", c.TaskID))
 	f, err := os.OpenFile(envFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gosec
 	if err != nil {
 		return err
@@ -1006,101 +1077,6 @@ func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
 
 func (r *DockerRuntime) logDir(c *runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
-}
-
-func metatronTarWalk(tw *tar.Writer, mcc *metatron.CredentialsConfig) error {
-	// Iterate the Metatron credentials path and add contents to the tar
-	if err := filepath.Walk(mcc.HostCredentialsPath, func(path string, fileInfo os.FileInfo, inErr error) error {
-		var (
-			data    []byte
-			written int
-		)
-
-		if inErr != nil {
-			return inErr
-		}
-
-		header, err := tar.FileInfoHeader(fileInfo, fileInfo.Name())
-		if err != nil {
-			return err
-		}
-		// Add full path name to header, not base name
-		if header.Name, err = filepath.Rel(mcc.HostCredentialsPrefix, path); err != nil {
-			return err
-		}
-
-		if err = tw.WriteHeader(header); err != nil {
-			return err
-		}
-
-		if fileInfo.IsDir() {
-			return nil
-		}
-
-		data, err = ioutil.ReadFile(path) // nolint: gosec
-		if err != nil {
-			return err
-		}
-
-		written, err = tw.Write(data)
-		if err != nil {
-			return err
-		}
-		if int64(written) != header.Size {
-			return fmt.Errorf("Failed to fully write file %s to Metatron tar: Only write %d bytes of %d", path, written, header.Size)
-		}
-
-		return nil
-	}); err != nil {
-		return fmt.Errorf("Walking Metatron host credentials path %s failed: %s", mcc.HostCredentialsPath, err)
-	}
-
-	return nil
-}
-
-// pushMetatron adds Metatron credentials to the container
-func (r *DockerRuntime) pushMetatron(parentCtx context.Context, c *runtimeTypes.Container) error {
-	if c.GetMetatronConfig == nil {
-		return nil
-	}
-
-	ctx, cancel := context.WithCancel(parentCtx)
-	defer cancel()
-
-	mcc, err := c.GetMetatronConfig(ctx, c)
-	if err != nil {
-		return err
-	}
-
-	cco := types.CopyToContainerOptions{
-		AllowOverwriteDirWithFile: true,
-	}
-
-	// TODO: Collapse these two into one tarball extract / copy, and not two
-
-	// Push trust store tar
-	if err := r.client.CopyToContainer(ctx, c.ID, "/", mcc.TruststoreTarBuf, cco); err != nil {
-		return err
-	}
-
-	// Push app credentials
-	log.WithFields(log.Fields{
-		"container": c.ID,
-		"taskID":    c.TaskID,
-	}).Info("Copying Metatron credentials")
-
-	tarBuf := new(bytes.Buffer)
-	tw := tar.NewWriter(tarBuf)
-	defer func() {
-		if err := tw.Close(); err != nil {
-			log.Errorf("Failed to close tar writer while creating Metatron tar: %s", err)
-		}
-	}()
-
-	if err := metatronTarWalk(tw, mcc); err != nil {
-		return err
-	}
-	return r.client.CopyToContainer(ctx, c.ID, "/", tarBuf, cco)
 }
 
 func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo

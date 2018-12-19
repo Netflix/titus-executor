@@ -50,6 +50,18 @@ message TaskInfo {
     repeated EnvironmentVariable environmentVariable = 7;
 }
 
+// Agent-only structure: stores container info for a currently running container
+message RunningContainerInfo {
+    // Container hostname (not necessarily the same as task ID)
+    optional string hostName = 1;
+
+    // Container task ID
+    optional string taskId = 2;
+
+    // Container launch timestamp, in Unix epoch seconds
+    optional uint64 launchTimeUnixSec = 3;
+}
+
 message ContainerInfo {
 
     optional string imageName = 1;
@@ -269,4 +281,79 @@ message ContainerInfo {
     }
     // Process to be executed inside the container
     optional Process process = 38;
+
+    // Used internally by the agent to store information about a running container
+    optional RunningContainerInfo runState = 39;
+}
+
+// For the identity client to query the metadata server to confirm the
+// currently running task's identity
+message TaskIdentity {
+    // (Required) Current state of the task
+    optional messages.TaskInfo task = 1;
+
+    // (Required) Container details, including:
+    //  - app name, stack, detail
+    //  - image name, digest, label
+    //  - environment variables
+    //  - command, entrypoint
+    //  - metadata string and signature from caller
+    optional messages.ContainerInfo container = 2;
+
+    // (Required) Timestamp, in Unix epoch seconds, when request was made.
+    optional uint64 unixTimestampSec = 3;
+
+    // (Required) IP address of container
+    optional string ipv4Address = 4;
+}
+
+enum SignatureAlgorithm {
+    SHA256withRSAandMGF1 = 0;
+    SHA384withRSAandMGF1 = 1;
+    SHA512withRSAandMGF1 = 2;
+    SHA256withECDSA = 3;
+    SHA384withECDSA = 4;
+    SHA512withECDSA = 5;
+}
+
+message CertificateSignature {
+    // (Required) Raw signature produced from signing input bytes using the
+    // private key of the titus agent’s certificate.
+    optional bytes signature = 1;
+
+    // (Required) Signature algorithm used (e.g. SHA512withRSAandMGF1)
+    optional SignatureAlgorithm algorithm = 2;
+
+    // (Required) The agent’s public certificate in DER form, followed by its trust chain.
+    repeated bytes certChain = 3;
+}
+
+// Version of CertificateSignature that encodes all byte[]s as human-readable strings
+message CertificateStringSignature {
+    // (Required) Base64 signature produced from signing input bytes using the
+    // private key of the titus agent’s certificate.
+    optional string signature = 1;
+
+    // (Required) Signature algorithm used (e.g. SHA512withRSAandMGF1)
+    optional SignatureAlgorithm algorithm = 2;
+
+    // (Required) The agent’s public certificate in DER form, followed by its trust chain.
+    repeated string certChain = 3;
+}
+
+message TaskIdentityDocument {
+    // (Required) Serialized form of a TaskIdentity protobuf.
+    optional bytes identity = 1;
+
+    // (Required) Signature produced by signing identity bytes.
+    optional CertificateSignature signature = 2;
+}
+
+// Version of TaskIdentityDocument that encodes all byte[]s as human-readable strings
+message TaskIdentityStringDocument {
+    // (Required) Task Identity
+    optional TaskIdentity identity = 1;
+
+    // (Required) Signature produced by signing identity bytes.
+    optional CertificateStringSignature signature = 2;
 }

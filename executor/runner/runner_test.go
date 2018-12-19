@@ -46,7 +46,7 @@ type runtimeMock struct {
 	killCallback    func(c *runtimeTypes.Container) error
 }
 
-func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string) error {
+func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string, startTime time.Time) error {
 	r.t.Log("runtimeMock.Prepare", c.TaskID)
 	if r.prepareCallback != nil {
 		return r.prepareCallback(ctx)
