@@ -25,6 +25,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/metatron"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/nvidia"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/docker/docker/api/types"
@@ -394,6 +395,12 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	c.Env["TITUS_IAM_ROLE"], err = c.GetIamProfile()
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if optimisticTokenFetch, parseErr := c.GetOptimisticIAMTokenFetch(); parseErr != nil {
+		return nil, nil, parseErr
+	} else if optimisticTokenFetch {
+		c.Env[metadataserverTypes.TitusOptimisticIAMVariableName] = "true"
 	}
 
 	// hostname style: ip-{ip-addr} or {task ID}

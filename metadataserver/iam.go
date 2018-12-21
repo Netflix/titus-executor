@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"time"
+
+	"sync"
 
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/aws/aws-sdk-go/aws"
@@ -34,8 +36,10 @@ type iamProxy struct {
 	arn                 arn.ARN
 	sts                 *sts.STS
 
-	roleAcccessed       chan *roleAccessedNotification
-	roleAssumptionState atomic.Value
+	roleAssumptionState     *roleAssumptionState
+	roleAssumptionStateLock *sync.RWMutex
+	// This is used to start the role assumer
+	roleAssumerOnce *sync.Once
 }
 
 const (
@@ -50,33 +54,31 @@ var (
 	invalidSessionNameRegexp = regexp.MustCompile(`[^\w+=,.@-]`)
 )
 
-type roleAccessedNotification struct {
-	processed                 chan struct{}
-	overriddenSessionLifetime *time.Duration
-}
-
 /* This sets up an iam "proxy" and sets up the routes under /{apiVersion}/meta-data/iam/... */
-func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInstanceID string) {
+func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInstanceID, region string, optimistic bool) {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
 	parsedArn, err := arn.Parse(iamArn)
 	if err != nil {
 		log.Fatal("Unable to parse ARN: ", err)
 	}
 
+	awsCfg := aws.NewConfig().WithMaxRetries(3)
 	s := session.Must(session.NewSession())
+	if region != "" {
+		awsCfg = awsCfg.WithRegion(region)
+		log.WithField("region", region).Info("Configure STS client with region")
+	}
+
 	proxy := &iamProxy{
 		ctx:                 ctx,
 		titusTaskInstanceID: titusTaskInstanceID,
 		awsSession:          s,
 		arn:                 parsedArn,
-		sts:                 sts.New(s),
-		// This is intentionally >0, so it doesn't explicitly block, allowing the first actor which hits the endpoint
-		// to progress and run startRoleAssumer(),
-		// And so that during the refresh window,
-		roleAcccessed: make(chan *roleAccessedNotification),
+		sts:                 sts.New(s, awsCfg),
+
+		roleAssumerOnce:         &sync.Once{},
+		roleAssumptionStateLock: &sync.RWMutex{},
 	}
-	// This is to store the type so it just doesn't return nothing on the first load
-	proxy.roleAssumptionState.Store((*roleAssumptionState)(nil))
 
 	splitRole := strings.Split(proxy.arn.Resource, "/")
 	if len(splitRole) != 2 {
@@ -92,7 +94,11 @@ func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInsta
 	   than just blindly returning
 	*/
 	router.HandleFunc("/security-credentials/{iamProfile}", proxy.specificInstanceProfile)
-	go proxy.roleAssumer()
+
+	if optimistic {
+		// No need to block here
+		go proxy.startRoleAssumer()
+	}
 }
 
 // An EC2IAMInfo provides the shape for marshaling
@@ -110,8 +116,7 @@ func (proxy *iamProxy) info(w http.ResponseWriter, r *http.Request) {
 	*/
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	proxy.notifyRoleAccessed(ctx, r)
-	roleAssumptionState := proxy.getRoleAssumptionState()
+	roleAssumptionState := proxy.getRoleAssumptionState(ctx)
 
 	if roleAssumptionState == nil {
 		http.Error(w, "Role assumption state is nil", http.StatusServiceUnavailable)
@@ -195,8 +200,7 @@ type ec2RoleCredRespBody struct {
 func (proxy *iamProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	proxy.notifyRoleAccessed(ctx, r)
-	roleAssumptionState := proxy.getRoleAssumptionState()
+	roleAssumptionState := proxy.getRoleAssumptionState(ctx)
 
 	if roleAssumptionState == nil {
 		http.Error(w, "Role assumption state is nil", http.StatusServiceUnavailable)
@@ -254,63 +258,50 @@ func (proxy *iamProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Re
 
 }
 
-func (proxy *iamProxy) notifyRoleAccessed(ctx context.Context, r *http.Request) {
-	ran := &roleAccessedNotification{
-		processed: make(chan struct{}),
-	}
-	if val := r.Header.Get("X-Override-Session-Lifetime"); val != "" {
-		if dur, err := time.ParseDuration(val); err != nil {
-			log.Warning("Unable to parse session override duration: ", err)
-		} else {
-			ran.overriddenSessionLifetime = &dur
-		}
-	}
-	metrics.PublishIncrementCounter("iam.notifyRoleAccessed.count")
-	select {
-	case <-ctx.Done():
-		log.Warning("Context done, before notify role access message sent: ", ctx.Err())
-		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.sent.timeout")
-	case proxy.roleAcccessed <- ran:
-		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.sent.success")
-	}
-	select {
-	case <-ctx.Done():
-		log.Warning("Context done, before notify role access message processed: ", ctx.Err())
-		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.processed.timeout")
-	case <-ran.processed:
-		metrics.PublishIncrementCounter("iam.notifyRoleAccessed.processed.success")
-	}
+func (proxy *iamProxy) startRoleAssumer() {
+	proxy.roleAssumerOnce.Do(func() {
+		log.Info("Starting role assumer")
+		proxy.doAssumeRole(defaultSessionLifetime)
+		log.Info("Ran first assume role")
+
+		go proxy.roleAssumer()
+	})
 }
 
 func (proxy *iamProxy) roleAssumer() {
-	for roleAccessed := range proxy.roleAcccessed {
-		sessionLifetime := defaultSessionLifetime
-		if roleAccessed.overriddenSessionLifetime != nil {
-			if *roleAccessed.overriddenSessionLifetime > defaultSessionLifetime {
-				log.Warning("User is trying to ask for an extra long session")
-			} else {
-				sessionLifetime = *roleAccessed.overriddenSessionLifetime
-			}
-		}
-		proxy.maybeAssumeRole(sessionLifetime)
-		close(roleAccessed.processed)
+	// This is a state machine which will wait until we're in a window of being < 5 minutes until our assumerole window is up,
+	// and when we hit that, it will keep trying to assume role  every minute until succcessful
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for {
+		// Every second, we need to see if we need to do the assumerole dance.
+		proxy.maybeAssumeRole(defaultSessionLifetime)
+		// Return a number somewhere between 1 and 15 seconds.
+		time.Sleep(time.Second * time.Duration(r.Intn(14)+1))
 	}
 }
 
 func (proxy *iamProxy) maybeAssumeRole(sessionLifetime time.Duration) {
-	// proxy.roleAssumptionState is set when we're in this loop
-	roleAssumptionState := proxy.getRoleAssumptionState()
-	if roleAssumptionState == nil {
+	// The item the pointer points to is immutable.
+	// we only mutate the pointer
+	proxy.roleAssumptionStateLock.RLock()
+	currentRoleAssumptionState := proxy.roleAssumptionState
+	proxy.roleAssumptionStateLock.RUnlock()
+
+	if currentRoleAssumptionState == nil {
 		log.Debug("Renewing credentials for the first time")
 		proxy.doAssumeRole(sessionLifetime)
-	} else if roleAssumptionState.assumeRoleError == nil {
-		expiration := *roleAssumptionState.assumeRoleOutput.Credentials.Expiration
-		if time.Until(expiration) < renewalWindow {
-			log.Debug("Renewing credentials")
+		return
+	}
+
+	if currentRoleAssumptionState.assumeRoleError == nil {
+		expiration := *currentRoleAssumptionState.assumeRoleOutput.Credentials.Expiration
+		lifetimeRemaining := time.Until(expiration)
+		if lifetimeRemaining < renewalWindow {
+			log.WithField("lifetimeRemaining", lifetimeRemaining).Info("Renewing credentials")
 			proxy.doAssumeRole(sessionLifetime)
 		}
-	} else if time.Since(roleAssumptionState.assumeRoleGenerated) > time.Minute {
-		log.Info("Retrying IAM role assumption after failure occured, due to: ", roleAssumptionState.assumeRoleError)
+	} else if time.Since(currentRoleAssumptionState.assumeRoleGenerated) > 10*time.Second {
+		log.WithError(currentRoleAssumptionState.assumeRoleError).Info("Retrying IAM role assumption after failure occured")
 		proxy.doAssumeRole(sessionLifetime)
 	} else {
 		log.Info("Not retrying assume role")
@@ -336,18 +327,29 @@ func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
 	}
 	if err != nil {
 		log.Warning("Failed to assume role: ", err)
+	} else {
+		log.WithField("AccessKeyId", *result.Credentials.AccessKeyId).Info("Assumed role")
 	}
-	// Keep the lock window as short as possible
-	proxy.roleAssumptionState.Store(output)
+	proxy.roleAssumptionStateLock.Lock()
+	defer proxy.roleAssumptionStateLock.Unlock()
+	proxy.roleAssumptionState = output
 }
 
-func (proxy *iamProxy) getRoleAssumptionState() *roleAssumptionState {
-	return proxy.roleAssumptionState.Load().(*roleAssumptionState)
+func (proxy *iamProxy) getRoleAssumptionState(ctx context.Context) *roleAssumptionState {
+	// So this can potentially block for up to the upper bound of the request timeout
+	proxy.startRoleAssumer()
+	proxy.roleAssumptionStateLock.RLock()
+	defer proxy.roleAssumptionStateLock.RUnlock()
+	return proxy.roleAssumptionState
 }
 
 func generateSessionName(containerID string) string {
 	sessionName := fmt.Sprintf("titus-%s", containerID)
-	return invalidSessionNameRegexp.ReplaceAllString(sessionName, "_")[0:maxSessionNameLen]
+	sessionName = invalidSessionNameRegexp.ReplaceAllString(sessionName, "_")
+	if len(sessionName) <= maxSessionNameLen {
+		return sessionName
+	}
+	return sessionName[0:maxSessionNameLen]
 }
 
 func redirectSecurityCredentials(w http.ResponseWriter, r *http.Request) {

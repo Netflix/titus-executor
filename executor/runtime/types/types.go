@@ -26,9 +26,10 @@ import (
 const (
 	hostnameStyleParam = "titusParameter.agent.hostnameStyle"
 	// FuseEnabledParam is a container atttribute set to enable FUSE
-	FuseEnabledParam       = "titusParameter.agent.fuseEnabled"
-	assignIPv6AddressParam = "titusParameter.agent.assignIPv6Address"
-	ttyEnabledParam        = "titusParameter.agent.ttyEnabled"
+	FuseEnabledParam             = "titusParameter.agent.fuseEnabled"
+	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
+	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
+	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
 )
 
 const (
@@ -378,6 +379,15 @@ func (c *Container) GetKeepLocalFileAfterUpload() (bool, error) {
 		return false, nil
 	}
 	return strconv.ParseBool(keepLocalFileAfterUploadStr)
+}
+
+// GetOptimisticIAMTokenFetch indicates whether or not we should delete log files after uploading them
+func (c *Container) GetOptimisticIAMTokenFetch() (bool, error) {
+	optimisticIAMTokenFetchStr, ok := c.TitusInfo.GetPassthroughAttributes()[optimisticIAMTokenFetchParam]
+	if !ok {
+		return false, nil
+	}
+	return strconv.ParseBool(optimisticIAMTokenFetchStr)
 }
 
 // Resources specify constraints to be applied to a Container

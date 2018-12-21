@@ -160,7 +160,7 @@ func setupMetadataServer(t *testing.T, ss *stubServer) {
 	fakeTitusTaskInstanceID := "e3c16590-0e2f-440d-9797-a68a19f6101e"
 	fakeTitusTaskInstanceIPAddress := "1.2.3.4"
 	fakeEC2MetadataURI := "http://" + ss.fakeEC2MetdataServiceListener.Addr().String()
-	ms := NewMetaDataServer(context.Background(), fakeEC2MetadataURI, fakeARN, fakeTitusTaskInstanceID, fakeTitusTaskInstanceIPAddress)
+	ms := NewMetaDataServer(context.Background(), fakeEC2MetadataURI, fakeARN, fakeTitusTaskInstanceID, fakeTitusTaskInstanceIPAddress, "", false)
 
 	// Leaks connections, but this is okay in the time of testing
 	go func() {
