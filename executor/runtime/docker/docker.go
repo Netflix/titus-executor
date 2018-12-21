@@ -730,7 +730,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 			invalidSg.Reason = errors.New(c.Allocation.Error)
 			return &invalidSg
 		}
-		return fmt.Errorf("vpc network configuration error: %s; %v", c.Allocation.Error, c.AllocationCommand.Wait())
+		return fmt.Errorf("vpc network configuration error: %s", c.Allocation.Error)
 	}
 
 	allocateDone = true
@@ -1839,7 +1839,7 @@ func (r *DockerRuntime) setupGPU(c *runtimeTypes.Container, dockerCfg *container
 }
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
-func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
+func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error { // nolint: gocyclo
 	log.Infof("Killing %s", c.TaskID)
 
 	var errs *multierror.Error
@@ -1874,14 +1874,16 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error {
 	}
 
 stopped:
-	if c.SetupCommand != nil {
+	if c.SetupCommand != nil && c.SetupCommand.Process != nil {
 		_ = c.SetupCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
 	}
 	if c.AllocationCommand != nil {
-		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
-		time.AfterFunc(5*time.Second, func() {
-			_ = c.AllocationCommand.Process.Kill() // nolint: gosec
-		})
+		if c.AllocationCommand.Process != nil {
+			_ = c.AllocationCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
+			time.AfterFunc(5*time.Second, func() {
+				_ = c.AllocationCommand.Process.Kill() // nolint: gosec
+			})
+		}
 
 		log.WithField("taskId", c.TaskID).Info("Waiting for deallocation to finish")
 		_ = c.AllocationCommand.Wait() // nolint: gosec
