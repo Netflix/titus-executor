@@ -1157,7 +1157,7 @@ func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *ty
 
 	path := "etc/profile.d/netflix_environment.sh"
 	if version, ok := imageInfo.Config.Labels["nflxenv"]; ok && strings.HasPrefix(version, "1.") {
-		path = "etc/nflx/base-environment.d/titus"
+		path = "etc/nflx/base-environment.d/200titus"
 	}
 
 	hdr := &tar.Header{
