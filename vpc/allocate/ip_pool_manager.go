@@ -23,35 +23,39 @@ var (
 
 // IPPoolManager encapsulates all management, and locking for a given interface. It must be constructed with NewIPPoolManager
 type IPPoolManager struct {
-	networkInterface *ec2wrapper.EC2NetworkInterface
+	networkInterface       ec2wrapper.NetworkInterface
+	ipRefreshSleepInterval time.Duration
 }
 
 // NewIPPoolManager sets up an IP pool for this given interface
-func NewIPPoolManager(networkInterface *ec2wrapper.EC2NetworkInterface) *IPPoolManager {
-	return &IPPoolManager{networkInterface: networkInterface}
+func NewIPPoolManager(networkInterface ec2wrapper.NetworkInterface) *IPPoolManager {
+	return &IPPoolManager{
+		networkInterface:       networkInterface,
+		ipRefreshSleepInterval: 5 * time.Second,
+	}
 }
 
 func (mgr *IPPoolManager) lockConfiguration(parentCtx *context.VPCContext) (*fslocker.ExclusiveLock, error) {
 	timeout := time.Minute
-	path := filepath.Join(mgr.networkInterface.LockPath(), "ip-config")
+	path := filepath.Join(ec2wrapper.GetLockPath(mgr.networkInterface), "ip-config")
 	parentCtx.Logger.Debug("Taking exclusive lock for interface reconfiguration: ", path)
 	return parentCtx.FSLocker.ExclusiveLock(path, &timeout)
 }
 
 func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) error {
-	if len(mgr.networkInterface.IPv4Addresses) >= vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
+	if len(mgr.networkInterface.GetIPv4Addresses()) >= vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
 		return errMaxIPAddressesAllocated
 	}
 
-	if len(mgr.networkInterface.IPv4Addresses)+batchSize > vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
-		batchSize = vpc.GetMaxIPv4Addresses(ctx.InstanceType) - len(mgr.networkInterface.IPv4Addresses)
+	if len(mgr.networkInterface.GetIPv4Addresses())+batchSize > vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
+		batchSize = vpc.GetMaxIPv4Addresses(ctx.InstanceType) - len(mgr.networkInterface.GetIPv4Addresses())
 	}
 
 	ctx.Logger.Info("Unable to allocate, no IP addresses available, allocating new IPs")
 
 	// We failed to lock an IP address, let's retry.
 	assignPrivateIPAddressesInput := &ec2.AssignPrivateIpAddressesInput{
-		NetworkInterfaceId:             aws.String(mgr.networkInterface.InterfaceID),
+		NetworkInterfaceId:             aws.String(mgr.networkInterface.GetInterfaceID()),
 		SecondaryPrivateIpAddressCount: aws.Int64(int64(batchSize)),
 	}
 	_, err := ec2.New(ctx.AWSSession).AssignPrivateIpAddresses(assignPrivateIPAddressesInput)
@@ -60,7 +64,7 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, 
 		return err
 	}
 
-	originalIPSet := mgr.networkInterface.IPv4AddressesAsSet()
+	originalIPSet := ec2wrapper.GetIPv4AddressesAsSet(mgr.networkInterface)
 
 	now := time.Now()
 	for time.Since(now) < ipRefreshTimeout {
@@ -69,7 +73,7 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, 
 			return err
 		}
 
-		newIPSet := mgr.networkInterface.IPv4AddressesAsSet()
+		newIPSet := ec2wrapper.GetIPv4AddressesAsSet(mgr.networkInterface)
 
 		if len(newIPSet.Difference(originalIPSet).ToSlice()) > 0 {
 			// Retry allocating an IP Address from the pool, now that the metadata service says that we have at
@@ -83,7 +87,7 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, 
 	return errIPRefreshFailed
 }
 
-func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, networkinterface *ec2wrapper.EC2NetworkInterface) (string, *fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, networkinterface ec2wrapper.NetworkInterface) (string, *fslocker.ExclusiveLock, error) {
 	configLock, err := mgr.lockConfiguration(ctx)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
@@ -91,7 +95,7 @@ func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, networkinterface
 	}
 	defer configLock.Unlock()
 
-	iface, err := ctx.Cache.DescribeInterface(ctx, networkinterface.InterfaceID)
+	iface, err := ctx.Cache.DescribeInterface(ctx, networkinterface.GetInterfaceID())
 	if err != nil {
 		return "", nil, err
 	}
@@ -150,7 +154,7 @@ func (mgr *IPPoolManager) allocateIPv4(ctx *context.VPCContext, batchSize int, i
 func (mgr *IPPoolManager) doAllocate(ctx *context.VPCContext) (string, *fslocker.ExclusiveLock, error) {
 	// Let's see if we can lease a free IP address?
 	// Try locking the primary IP address first (always)
-	for _, ipAddress := range mgr.networkInterface.IPv4Addresses {
+	for _, ipAddress := range mgr.networkInterface.GetIPv4Addresses() {
 		lock, err := mgr.tryAllocate(ctx, ipAddress)
 		if err != nil {
 			ctx.Logger.Warning("Unable to do allocation: ", err)
@@ -165,7 +169,7 @@ func (mgr *IPPoolManager) doAllocate(ctx *context.VPCContext) (string, *fslocker
 }
 
 func (mgr *IPPoolManager) ipAddressesPath() string {
-	return filepath.Join(mgr.networkInterface.LockPath(), "ip-addresses")
+	return filepath.Join(ec2wrapper.GetLockPath(mgr.networkInterface), "ip-addresses")
 }
 
 func (mgr *IPPoolManager) ipAddressPath(ip string) string {
@@ -200,7 +204,7 @@ func (mgr *IPPoolManager) firstPass(parentCtx *context.VPCContext, gracePeriod t
 	}
 
 	// the first IP is always the primary IP on the interface, therefore it shouldn't be tested for removal
-	for _, ip := range mgr.networkInterface.IPv4Addresses[1:] {
+	for _, ip := range mgr.networkInterface.GetIPv4Addresses()[1:] {
 		logEntry := parentCtx.Logger.WithField("ip", ip)
 		logEntry.Debug("Checking IP address")
 
@@ -272,7 +276,7 @@ func (mgr *IPPoolManager) doFileCleanup(parentCtx *context.VPCContext, deallocat
 		recordsNotToDelete[ip] = struct{}{}
 	}
 
-	for _, ip := range mgr.networkInterface.IPv4Addresses {
+	for _, ip := range mgr.networkInterface.GetIPv4Addresses() {
 		recordsNotToDelete[ip] = struct{}{}
 	}
 
@@ -320,7 +324,7 @@ func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, dea
 			parentCtx.Logger.Error("Could not refresh IPs: ", err)
 		} else {
 			allocMap := make(map[string]struct{})
-			for _, ip := range mgr.networkInterface.IPv4Addresses {
+			for _, ip := range mgr.networkInterface.GetIPv4Addresses() {
 				allocMap[ip] = struct{}{}
 			}
 
@@ -342,25 +346,20 @@ func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, dea
 				successCount = 0
 			}
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(mgr.ipRefreshSleepInterval)
 	}
 	return false
 }
 
 func (mgr *IPPoolManager) freeIPs(parentCtx *context.VPCContext, deallocationList []string) error {
 	// Prioritize giving IPs back to Amazon
-	oldIPList := mgr.networkInterface.IPv4Addresses
+	oldIPList := mgr.networkInterface.GetIPv4Addresses()
 	if len(deallocationList) == 0 {
 		return nil
 	}
 
 	parentCtx.Logger.Info("Deallocating Ip addresses: ", deallocationList)
-	unassignPrivateIPAddressesInput := &ec2.UnassignPrivateIpAddressesInput{
-		PrivateIpAddresses: aws.StringSlice(deallocationList),
-		NetworkInterfaceId: aws.String(mgr.networkInterface.InterfaceID),
-	}
-
-	if _, err := ec2.New(parentCtx.AWSSession).UnassignPrivateIpAddressesWithContext(parentCtx, unassignPrivateIPAddressesInput); err != nil {
+	if err := mgr.networkInterface.FreeIPv4Addresses(parentCtx, parentCtx.AWSSession, deallocationList); err != nil {
 		return err
 	}
 

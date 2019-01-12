@@ -88,8 +88,8 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, networkInterface, ip4, ip6)
 }
 
-func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, nsHandle *netlink.Handle, link netlink.Link, ip net.IP) error {
-	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, networkInterface.SubnetID)
+func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, nsHandle *netlink.Handle, link netlink.Link, ip net.IP) error {
+	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, networkInterface.GetSubnetID())
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface *ec2
 	return nil
 }
 
-func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface *ec2wrapper.EC2NetworkInterface, ip4, ip6 net.IP) error {
+func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface ec2wrapper.NetworkInterface, ip4, ip6 net.IP) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -290,12 +290,12 @@ func setupIFBClass(parentCtx *context.VPCContext, bandwidth uint64, burst bool, 
 	return nil
 }
 
-func getLink(networkInterface *ec2wrapper.EC2NetworkInterface) (netlink.Link, error) {
+func getLink(networkInterface ec2wrapper.NetworkInterface) (netlink.Link, error) {
 	links, err := netlink.LinkList()
 	if err != nil {
 		return nil, err
 	}
-	mac, err := net.ParseMAC(networkInterface.MAC)
+	mac, err := net.ParseMAC(networkInterface.GetMAC())
 	if err != nil {
 		return nil, err
 	}

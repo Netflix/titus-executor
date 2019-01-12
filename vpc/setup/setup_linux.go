@@ -56,7 +56,7 @@ func configureQdiscs(ctx *context.VPCContext) error {
 		if networkInterface, ok := networkInterfaces[link.Attrs().HardwareAddr.String()]; !ok {
 			ctx.Logger.Debug("Skipping work on link, as it's not an ENI: ", link)
 			continue
-		} else if networkInterface.DeviceNumber == 0 {
+		} else if networkInterface.GetDeviceNumber() == 0 {
 			continue
 		}
 		ctx.Logger.Debugf("Configuring link: %+v", link)

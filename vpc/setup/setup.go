@@ -72,10 +72,10 @@ func setupInterfaces(ctx *context.VPCContext) error {
 	}
 	ctx.Logger.Infof("%d interfaces missing, adding them", vpc.GetMaxInterfaces(ctx.InstanceType)-len(allInterfaces))
 
-	interfaceByIdx := make(map[int]ec2wrapper.EC2NetworkInterface)
+	interfaceByIdx := make(map[int]ec2wrapper.NetworkInterface)
 
 	for _, networkInterface := range allInterfaces {
-		interfaceByIdx[networkInterface.DeviceNumber] = networkInterface
+		interfaceByIdx[networkInterface.GetDeviceNumber()] = networkInterface
 	}
 
 	defaultMac, err := ctx.EC2metadataClientWrapper.PrimaryInterfaceMac()
@@ -87,7 +87,7 @@ func setupInterfaces(ctx *context.VPCContext) error {
 		ctx.Logger.Warning("Unable to find default interface")
 		return errors.New("Unable to find default interface")
 	}
-	subnetID := defaultInterface.SubnetID
+	subnetID := defaultInterface.GetSubnetID()
 
 	// Ignore interface device index 0 -- that's always the default network adapter
 	for i := 1; i < vpc.GetMaxInterfaces(ctx.InstanceType); i++ {
@@ -170,7 +170,7 @@ func waitForInterfaces(ctx *context.VPCContext) error {
 	return errors.New("All interfaces not seen via metadata service")
 }
 
-func waitForInterfacesUp(ctx *context.VPCContext, allInterfaces map[string]ec2wrapper.EC2NetworkInterface) error {
+func waitForInterfacesUp(ctx *context.VPCContext, allInterfaces map[string]ec2wrapper.NetworkInterface) error {
 	waitUntil := time.Now().Add(time.Minute)
 
 	for time.Until(waitUntil) > 0 {

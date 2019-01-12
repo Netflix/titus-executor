@@ -55,8 +55,8 @@ func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
 	parentCtx.Logger.Debug("Examining interfaces: ", interfaces)
 
 	for _, iface := range interfaces {
-		ctx := parentCtx.WithField("interface", iface.InterfaceID)
-		err = doGcInterface(ctx, gracePeriod, &iface)
+		ctx := parentCtx.WithField("interface", iface.GetInterfaceID())
+		err = doGcInterface(ctx, gracePeriod, iface)
 		if err != nil {
 			return err
 		}
@@ -65,9 +65,9 @@ func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
 	return nil
 }
 
-func doGcInterface(parentCtx *context.VPCContext, gracePeriod time.Duration, networkInterface *ec2wrapper.EC2NetworkInterface) error {
+func doGcInterface(parentCtx *context.VPCContext, gracePeriod time.Duration, networkInterface ec2wrapper.NetworkInterface) error {
 	// Don't run GC on the primary interface
-	if networkInterface.DeviceNumber == 0 {
+	if networkInterface.GetDeviceNumber() == 0 {
 		parentCtx.Logger.Debug("Not running GC on this interface")
 		return nil
 	}
