@@ -220,7 +220,7 @@ func getDefaultSecurityGroups(parentCtx *context.VPCContext) (map[string]struct{
 	if err != nil {
 		return nil, err
 	}
-	return primaryInterface.SecurityGroupIds, nil
+	return primaryInterface.GetSecurityGroupIds(), nil
 }
 
 func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, allocateIPv6Address bool) (*allocation, error) {
@@ -234,7 +234,7 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 		return nil, err
 	}
 	allocation := &allocation{
-		eni: networkInterface.InterfaceID,
+		eni: networkInterface.GetInterfaceID(),
 	}
 	allocation.sharedSGLock, err = setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
 	if err != nil {
@@ -260,7 +260,7 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 	return allocation, nil
 }
 
-func upgradeSecurityGroupLock(networkInterface *ec2wrapper.EC2NetworkInterface, sgConfigurationLock *fslocker.SharedLock, waitForSgLockTimeout time.Duration) (*fslocker.ExclusiveLock, error) {
+func upgradeSecurityGroupLock(networkInterface ec2wrapper.NetworkInterface, sgConfigurationLock *fslocker.SharedLock, waitForSgLockTimeout time.Duration) (*fslocker.ExclusiveLock, error) {
 	sgReconfigurationLock, err := sgConfigurationLock.ToExclusiveLock(&waitForSgLockTimeout)
 	if err == nil {
 		return sgReconfigurationLock, nil
@@ -268,18 +268,18 @@ func upgradeSecurityGroupLock(networkInterface *ec2wrapper.EC2NetworkInterface, 
 
 	sgConfigurationLock.Unlock()
 	if err == unix.EWOULDBLOCK {
-		return nil, fmt.Errorf("Interface currently in use by other security groups: %v", networkInterface.SecurityGroupIds)
+		return nil, fmt.Errorf("Interface currently in use by other security groups: %v", networkInterface.GetSecurityGroupIds())
 	}
 
 	if err == unix.ETIMEDOUT {
 		// Now we fall back
-		return nil, fmt.Errorf("Interface currently in use by other security groups: %v, and timed out waiting for other user after %s", networkInterface.SecurityGroupIds, waitForSgLockTimeout.String())
+		return nil, fmt.Errorf("Interface currently in use by other security groups: %v, and timed out waiting for other user after %s", networkInterface.GetSecurityGroupIds(), waitForSgLockTimeout.String())
 	}
 
 	return nil, err
 }
 
-func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, securityGroups map[string]struct{}, sgConfigurationLock *fslocker.SharedLock, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
+func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, securityGroups map[string]struct{}, sgConfigurationLock *fslocker.SharedLock, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
 	// If we're supposed to reconfigure security groups, it means no one else should have a lock on the interface
 	sgExclusiveReconfigurationLock, err := upgradeSecurityGroupLock(networkInterface, sgConfigurationLock, waitForSgLockTimeout)
 	if err != nil {
@@ -291,7 +291,7 @@ func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wra
 		groups = append(groups, aws.String(sgID))
 	}
 	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
-		NetworkInterfaceId: aws.String(networkInterface.InterfaceID),
+		NetworkInterfaceId: aws.String(networkInterface.GetInterfaceID()),
 		Groups:             groups,
 	}
 
@@ -312,9 +312,9 @@ func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wra
 	return sgExclusiveReconfigurationLock.ToSharedLock(), nil
 }
 
-func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
+func setupSecurityGroups(ctx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
 	lockTimeout := time.Minute
-	maybeReconfigurationLockPath := filepath.Join(networkInterface.LockPath(), "security-group-reconfig")
+	maybeReconfigurationLockPath := filepath.Join(ec2wrapper.GetLockPath(networkInterface), "security-group-reconfig")
 	maybeReconfigurationLock, err := ctx.FSLocker.ExclusiveLock(maybeReconfigurationLockPath, &lockTimeout)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get security-group-reconfig lock: ", err)
@@ -324,14 +324,14 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.E
 
 	// Although nobody should be holding an exclusive lock on security-group-current-config in the critical section, we
 	// should still get the shared lock for safety.
-	sgConfigureLockPath := filepath.Join(networkInterface.LockPath(), "security-group-current-config")
+	sgConfigureLockPath := filepath.Join(ec2wrapper.GetLockPath(networkInterface), "security-group-current-config")
 	sgConfigurationLock, err := ctx.FSLocker.SharedLock(sgConfigureLockPath, &lockTimeout)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get security-group-current-config lock: ", err)
 		return nil, err
 	}
-	ctx.Logger.WithField("networkInterface.SecurityGroupIds", networkInterface.SecurityGroupIds).WithField("securityGroups", securityGroups).Debug("Checking security groups")
-	if reflect.DeepEqual(securityGroups, networkInterface.SecurityGroupIds) {
+	ctx.Logger.WithField("networkInterface.SecurityGroupIds", networkInterface.GetSecurityGroupIds()).WithField("securityGroups", securityGroups).Debug("Checking security groups")
+	if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
 		return sgConfigurationLock, nil
 	}
 	err = networkInterface.Refresh()
@@ -339,7 +339,7 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.E
 		sgConfigurationLock.Unlock()
 		return nil, err
 	}
-	if reflect.DeepEqual(securityGroups, networkInterface.SecurityGroupIds) {
+	if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
 		return sgConfigurationLock, nil
 	}
 
@@ -352,7 +352,7 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface *ec2wrapper.E
 	return sharedLock, nil
 }
 
-func waitForSecurityGroupToConverge(ctx *context.VPCContext, networkInterface *ec2wrapper.EC2NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout time.Duration) error {
+func waitForSecurityGroupToConverge(ctx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout time.Duration) error {
 	now := time.Now()
 	for time.Since(now) < securityConvergenceTimeout {
 		err := networkInterface.Refresh()
@@ -360,7 +360,7 @@ func waitForSecurityGroupToConverge(ctx *context.VPCContext, networkInterface *e
 			ctx.Logger.Warning("Unable to refresh interface while waiting for security group change, bailing: ", err)
 			return err
 		}
-		if reflect.DeepEqual(securityGroups, networkInterface.SecurityGroupIds) {
+		if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
 			ctx.Logger.WithField("duration", time.Since(now).String()).Info("Changed security groups successfully")
 			return nil
 		}
@@ -369,17 +369,17 @@ func waitForSecurityGroupToConverge(ctx *context.VPCContext, networkInterface *e
 	return errSecurityGroupsNotConverged
 }
 
-func getInterfaceByIdx(parentCtx *context.VPCContext, idx int) (*ec2wrapper.EC2NetworkInterface, error) {
+func getInterfaceByIdx(parentCtx *context.VPCContext, idx int) (ec2wrapper.NetworkInterface, error) {
 	allInterfaces, err := parentCtx.EC2metadataClientWrapper.Interfaces()
 	if err != nil {
-		return &ec2wrapper.EC2NetworkInterface{}, err
+		return nil, err
 	}
 
 	for _, networkInterface := range allInterfaces {
-		if networkInterface.DeviceNumber == idx {
-			return &networkInterface, nil
+		if networkInterface.GetDeviceNumber() == idx {
+			return networkInterface, nil
 		}
 	}
 
-	return &ec2wrapper.EC2NetworkInterface{}, errInterfaceNotFoundAtIndex
+	return nil, errInterfaceNotFoundAtIndex
 }

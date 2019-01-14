@@ -1,16 +1,20 @@
 package ec2wrapper
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/aws/aws-sdk-go/aws"
 
 	"math/rand"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
 	"github.com/sirupsen/logrus"
 )
@@ -21,24 +25,36 @@ type EC2MetadataClientWrapper struct {
 	logger      *logrus.Entry
 }
 
+// NetworkInterface represents an ENI, or a similar thing
+type NetworkInterface interface {
+	GetDeviceNumber() int
+	GetInterfaceID() string
+	GetSubnetID() string
+	GetMAC() string
+	GetSecurityGroupIds() map[string]struct{}
+	GetIPv4Addresses() []string
+	Refresh() error
+	FreeIPv4Addresses(context.Context, client.ConfigProvider, []string) error
+	// TODO: Add IPv6 addresses
+}
+
 // EC2NetworkInterface encapsulates information about network interfaces
 type EC2NetworkInterface struct {
 	mdc *EC2MetadataClientWrapper
-	// DeviceNumber is the AWS / EC2 device index, it should correlate to eth${DEVICEIDX}
-	DeviceNumber int
-	// InterfaceID is the ENI ID
-	InterfaceID string
-	// SubnetID is the Id of the subnet which the interface is in
-	SubnetID string
-	// MAC is the mac address in fully expanded form, i.e. 00:00:00:00:00:00
-	MAC string
-	// SecurityGroupIds is the set of SGs (IDs) on the interface
-	SecurityGroupIds map[string]struct{}
+	// deviceNumber is the AWS / EC2 device index, it should correlate to eth${DEVICEIDX}
+	deviceNumber int
+	// interfaceID is the ENI ID
+	interfaceID string
+	// subnetID is the Id of the subnet which the interface is in
+	subnetID string
+	// mac is the mac address in fully expanded form, i.e. 00:00:00:00:00:00
+	mac string
+	// securityGroupIds is the set of SGs (IDs) on the interface
+	securityGroupIds map[string]struct{}
 	// We don't use type net.IP here, because the same IP can end up being duplicated as a key
 	// even though they're equal
-	// IPv4Addresses is the set of currently assigned IPs -- The primary IPv4 address is the first in this list
-	IPv4Addresses []string
-	// TODO: Add IPv6 addresses
+	// ipv4Addresses is the set of currently assigned IPs -- The primary IPv4 address is the first in this list
+	ipv4Addresses []string
 }
 
 // NewEC2MetadataClientWrapper creates a new ec2metadata wrapper instance
@@ -78,8 +94,8 @@ func (mdc *EC2MetadataClientWrapper) AvailabilityZone() (string, error) {
 }
 
 // Interfaces returns a map of mac addresses to interfaces
-func (mdc *EC2MetadataClientWrapper) Interfaces() (map[string]EC2NetworkInterface, error) {
-	ret := make(map[string]EC2NetworkInterface)
+func (mdc *EC2MetadataClientWrapper) Interfaces() (map[string]NetworkInterface, error) {
+	ret := make(map[string]NetworkInterface)
 	val, err := mdc.getMetadata("network/interfaces/macs/")
 	if err != nil {
 		return ret, err
@@ -97,9 +113,9 @@ func (mdc *EC2MetadataClientWrapper) Interfaces() (map[string]EC2NetworkInterfac
 }
 
 // GetInterface fetches a populated interface by mac address
-func (mdc *EC2MetadataClientWrapper) GetInterface(mac string) (EC2NetworkInterface, error) {
-	ret := EC2NetworkInterface{
-		MAC: mac,
+func (mdc *EC2MetadataClientWrapper) GetInterface(mac string) (NetworkInterface, error) {
+	ret := &EC2NetworkInterface{
+		mac: mac,
 		mdc: mdc,
 	}
 
@@ -108,17 +124,17 @@ func (mdc *EC2MetadataClientWrapper) GetInterface(mac string) (EC2NetworkInterfa
 		return ret, err
 	}
 
-	ret.DeviceNumber, err = strconv.Atoi(devNumberString)
+	ret.deviceNumber, err = strconv.Atoi(devNumberString)
 	if err != nil {
 		return ret, err
 	}
 
-	ret.InterfaceID, err = mdc.getDataForInterface(mac, "interface-id")
+	ret.interfaceID, err = mdc.getDataForInterface(mac, "interface-id")
 	if err != nil {
 		return ret, err
 	}
 
-	ret.SubnetID, err = mdc.getDataForInterface(mac, "subnet-id")
+	ret.subnetID, err = mdc.getDataForInterface(mac, "subnet-id")
 	if err != nil {
 		return ret, err
 	}
@@ -160,37 +176,82 @@ func (mdc *EC2MetadataClientWrapper) getMetadata(path string) (string, error) {
 
 // Refresh updates the security groups. and local IPv4 addresses for an interface
 func (ni *EC2NetworkInterface) Refresh() error {
-	ni.SecurityGroupIds = make(map[string]struct{})
+	ni.securityGroupIds = make(map[string]struct{})
 
-	securityGroupIdsString, err := ni.mdc.getDataForInterface(ni.MAC, "security-group-ids")
+	securityGroupIdsString, err := ni.mdc.getDataForInterface(ni.mac, "security-group-ids")
 	if err != nil {
 		return err
 	}
 	for _, sgID := range strings.Split(securityGroupIdsString, "\n") {
-		ni.SecurityGroupIds[sgID] = struct{}{}
+		ni.securityGroupIds[sgID] = struct{}{}
 	}
 
-	localIPv4s, err := ni.mdc.getDataForInterface(ni.MAC, "local-ipv4s")
+	localIPv4s, err := ni.mdc.getDataForInterface(ni.mac, "local-ipv4s")
 	if err != nil {
 		return err
 	}
-	ni.IPv4Addresses = strings.Split(localIPv4s, "\n")
-	for idx, addr := range ni.IPv4Addresses {
-		ni.IPv4Addresses[idx] = strings.Trim(strings.TrimSpace(addr), "\x00")
+	ni.ipv4Addresses = strings.Split(localIPv4s, "\n")
+	for idx, addr := range ni.ipv4Addresses {
+		ni.ipv4Addresses[idx] = strings.Trim(strings.TrimSpace(addr), "\x00")
 	}
 
 	return nil
 }
 
-// LockPath returns the path you should use for locks on this interface
-func (ni *EC2NetworkInterface) LockPath() string {
-	return filepath.Join("interfaces", ni.MAC)
+// GetDeviceNumber get the AWS / EC2 device index, it should correlate to eth${DEVICEIDX}
+func (ni *EC2NetworkInterface) GetDeviceNumber() int {
+	return ni.deviceNumber
 }
 
-// IPv4AddressesAsSet returns a copy of the IPv4Addresses from this network interface as a set
-func (ni *EC2NetworkInterface) IPv4AddressesAsSet() set.Set {
+// GetInterfaceID returns the ENI ID
+func (ni *EC2NetworkInterface) GetInterfaceID() string {
+	return ni.interfaceID
+}
+
+// GetSubnetID gets the Id of the subnet which the interface is in
+func (ni *EC2NetworkInterface) GetSubnetID() string {
+	return ni.subnetID
+}
+
+// GetMAC is the mac address in fully expanded form, i.e. 00:00:00:00:00:00
+func (ni *EC2NetworkInterface) GetMAC() string {
+	if len(ni.mac) != len("00:00:00:00:00:00") {
+		panic("Corrupted mac address")
+	}
+	return ni.mac
+}
+
+// GetSecurityGroupIds is the set of SGs (IDs) on the interface
+func (ni *EC2NetworkInterface) GetSecurityGroupIds() map[string]struct{} {
+	return ni.securityGroupIds
+}
+
+// GetIPv4Addresses is the set of currently assigned IPs -- The primary IPv4 address is the first in this list
+func (ni *EC2NetworkInterface) GetIPv4Addresses() []string {
+	return ni.ipv4Addresses
+}
+
+// FreeIPv4Addresses calls the EC2 / AWS API to free IP addresses
+func (ni *EC2NetworkInterface) FreeIPv4Addresses(ctx context.Context, session client.ConfigProvider, deallocationList []string) error {
+
+	unassignPrivateIPAddressesInput := &ec2.UnassignPrivateIpAddressesInput{
+		PrivateIpAddresses: aws.StringSlice(deallocationList),
+		NetworkInterfaceId: aws.String(ni.GetInterfaceID()),
+	}
+
+	_, err := ec2.New(session).UnassignPrivateIpAddressesWithContext(ctx, unassignPrivateIPAddressesInput)
+	return err
+}
+
+// GetLockPath returns the path you should use for locks on this interface
+func GetLockPath(ni NetworkInterface) string {
+	return filepath.Join("interfaces", ni.GetMAC())
+}
+
+// GetIPv4AddressesAsSet returns a copy of the IPv4Addresses from this network interface as a set
+func GetIPv4AddressesAsSet(ni NetworkInterface) set.Set {
 	s := set.NewThreadUnsafeSet()
-	for _, ip := range ni.IPv4Addresses {
+	for _, ip := range ni.GetIPv4Addresses() {
 		s.Add(ip)
 	}
 	return s
