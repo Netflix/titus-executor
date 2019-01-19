@@ -250,7 +250,7 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 
 	// Optionally, get an IPv6 address
 	if allocateIPv6Address {
-		allocation.ip6Address, allocation.exclusiveIP6Lock, err = ipPoolManager.allocateIPv6(ctx, networkInterface)
+		allocation.ip6Address, allocation.exclusiveIP6Lock, err = ipPoolManager.allocateIPv6(ctx, batchSize, ipRefreshTimeout)
 		if err != nil {
 			allocation.deallocate(ctx)
 			return nil, err
