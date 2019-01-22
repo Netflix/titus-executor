@@ -22,9 +22,18 @@ var Setup = cli.Command{ // nolint: golint
 	Name:   "setup",
 	Usage:  "Setup",
 	Action: context.WrapFunc(setup),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:   "disable-ipv6",
+			Usage:  "Disable IPv6 allocation",
+			EnvVar: "DISABLE_IPV6",
+		},
+	},
 }
 
 func setup(parentCtx *context.VPCContext) error {
+	disableIPv6 := parentCtx.CLIContext.Bool("disable-ipv6")
+
 	lockTimeout := time.Second
 	exclusiveLock, err := parentCtx.FSLocker.ExclusiveLock("setup", &lockTimeout)
 	if err != nil {
@@ -35,7 +44,7 @@ func setup(parentCtx *context.VPCContext) error {
 	ctx, cancel := parentCtx.WithTimeout(maxSetupTime)
 	defer cancel()
 	// setup interfaces
-	err = setupInterfaces(ctx)
+	err = setupInterfaces(ctx, disableIPv6)
 	if err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to setup interfaces", 1), err)
 	}
@@ -60,7 +69,7 @@ func setup(parentCtx *context.VPCContext) error {
 }
 
 // TODO: Wrap in CLI errrors
-func setupInterfaces(ctx *context.VPCContext) error {
+func setupInterfaces(ctx *context.VPCContext, disableIPv6 bool) error {
 	allInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces()
 	if err != nil {
 		return err
@@ -92,7 +101,7 @@ func setupInterfaces(ctx *context.VPCContext) error {
 	// Ignore interface device index 0 -- that's always the default network adapter
 	for i := 1; i < vpc.GetMaxInterfaces(ctx.InstanceType); i++ {
 		if _, ok := interfaceByIdx[i]; !ok {
-			err = attachInterfaceAtIdx(ctx, ctx.InstanceID, subnetID, i)
+			err = attachInterfaceAtIdx(ctx, disableIPv6, ctx.InstanceID, subnetID, i)
 			if err != nil {
 				ctx.Logger.Warning("Unable to attach interface: ", err)
 				return err
@@ -103,7 +112,7 @@ func setupInterfaces(ctx *context.VPCContext) error {
 	return nil
 }
 
-func attachInterfaceAtIdx(ctx *context.VPCContext, instanceID, subnetID string, idx int) error {
+func attachInterfaceAtIdx(ctx *context.VPCContext, disableIPv6 bool, instanceID, subnetID string, idx int) error {
 	ctx.Logger.WithField("idx", idx).Info("Attaching interface")
 	// TODO: Check DescribeInstances to make sure an existing interface is not in attaching
 	svc := ec2.New(ctx.AWSSession)
@@ -113,7 +122,9 @@ func attachInterfaceAtIdx(ctx *context.VPCContext, instanceID, subnetID string, 
 		SubnetId:    aws.String(subnetID),
 		// We know there will always be at least 1 IPv6 address, and this way we also can check if the subnet is wired
 		// up with v6
-		Ipv6AddressCount: aws.Int64(1),
+	}
+	if !disableIPv6 {
+		createNetworkInterfaceInput.Ipv6AddressCount = aws.Int64(1)
 	}
 	createNetworkInterfaceResult, err := svc.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
 	if err != nil {

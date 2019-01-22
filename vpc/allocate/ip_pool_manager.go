@@ -107,11 +107,14 @@ func (mgr *IPPoolManager) allocateIP(ctx *context.VPCContext, batchSize int, ipR
 		ctx.Logger.WithField("ip", ip).Debug("Successfully allocated IP")
 		return ip, lock, err
 	} else if err == errNoFreeIPAddressFound {
+		ctx.Logger.Info("No free IP addresses available, trying to assign more")
+		now := time.Now()
 		err = assignMoreIPs(ctx, batchSize, ipRefreshTimeout, mgr.networkInterface, ipAssignmentFunction, ipFetchFunction)
 		if err != nil {
-			ctx.Logger.Warning("Unable assign more IPs: ", err)
+			ctx.Logger.WithField("duration", time.Since(now)).WithError(err).Warning("Unable assign more IPs")
 			return "", nil, err
 		}
+		ctx.Logger.WithField("duration", time.Since(now)).Info("Successfully completed IP allocation")
 		return mgr.doAllocate(ctx, ipFetchFunction)
 	}
 
