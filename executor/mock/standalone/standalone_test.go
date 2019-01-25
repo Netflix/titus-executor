@@ -135,6 +135,7 @@ func TestStandalone(t *testing.T) {
 		testTty,
 		testTtyNegative,
 		testCachedDockerPull,
+		testMetatron,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -170,7 +171,7 @@ func addImageNameToTest(f func(*testing.T, string), funTitle string) func(*testi
 }
 
 func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, dockerCfg := mock.GenerateConfigs()
+	cfg, dockerCfg := mock.GenerateConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -185,7 +186,7 @@ func dockerImageRemove(t *testing.T, imgName string) {
 }
 
 func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, dockerCfg := mock.GenerateConfigs()
+	cfg, dockerCfg := mock.GenerateConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -261,7 +262,7 @@ func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -295,7 +296,7 @@ func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -314,7 +315,7 @@ func testOverrideCmdFromImage(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -334,7 +335,7 @@ func testResetEntrypointFromImage(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -524,7 +525,7 @@ func testImagePullError(t *testing.T, jobID string) {
 }
 
 func testCancelPullBigImage(t *testing.T, jobID string) { // nolint: gocyclo
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 
 	testResultBigImage := jobRunner.StartJob(&mock.JobInput{
 		JobID:     jobID,
@@ -611,7 +612,7 @@ func testShutdown(t *testing.T, jobID string) {
 		JobID:         jobID,
 	}
 
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 	testResult := jobRunner.StartJob(ji)
 	taskRunning := make(chan bool, 10)
 	go func() {
@@ -666,7 +667,7 @@ func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
 
 func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uint32) (*runner.Update, time.Duration) {
 	// Start the executor
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for a long time and does
@@ -744,7 +745,7 @@ func testOOMAdj(t *testing.T, jobID string) {
 
 func testOOMKill(t *testing.T, jobID string) {
 	// Start the executor
-	jobRunner := mock.NewJobRunner()
+	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutorAsync()
 
 	ji := &mock.JobInput{
@@ -940,4 +941,19 @@ func testCachedDockerPull(t *testing.T, jobID string) {
 	assert.NotNil(t, res, "image should now be cached")
 	assert.Len(t, res.RepoDigests, 1, "digest should be present")
 	assert.EqualValues(t, noEntrypoint.name+"@"+noEntrypoint.digest, res.RepoDigests[0], "Correct digest should be returned")
+}
+
+func testMetatron(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:       ubuntu.name,
+		Version:         ubuntu.tag,
+		MetatronEnabled: true,
+		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
+		// Wait for 10 seconds max to give the first iteration of the service to run.
+		EntrypointOld: "grep " + jobID + " /task-identity",
+		JobID:         jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
 }

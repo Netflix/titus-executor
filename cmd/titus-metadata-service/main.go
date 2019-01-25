@@ -2,15 +2,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logsutil"
 	"github.com/Netflix/titus-executor/metadataserver"
+	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/types"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -51,6 +58,23 @@ func makeFDListener(fd int64) net.Listener {
 	return l
 }
 
+func readTaskConfigFile(taskID string) (*titus.ContainerInfo, error) {
+	confFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", taskID))
+	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
+	if err != nil {
+		log.WithError(err).Errorf("Error reading file %s", confFile)
+		return nil, err
+	}
+
+	var cInfo titus.ContainerInfo
+	if err = json.Unmarshal(contents, &cInfo); err != nil {
+		log.WithError(err).Errorf("Error parsing JSON in file %s", confFile)
+		return nil, err
+	}
+
+	return &cInfo, nil
+}
+
 func main() {
 	app := cli.NewApp()
 	app.Name = "titus-metadata-service"
@@ -58,6 +82,7 @@ func main() {
 	var listenPort int
 	var debug bool
 	var backingMetadataServer string
+	var metatronEnabled bool
 	var optimistic bool
 	var region string
 	var iamARN string
@@ -115,6 +140,12 @@ func main() {
 			EnvVar:      "EC2_LOCAL_IPV4",
 			Destination: &ipv4Address,
 		},
+		cli.BoolFlag{
+			Name:        "metatron",
+			Usage:       "If set to true, the server will load certificates and use them to sign task identity documents",
+			EnvVar:      types.TitusMetatronVariableName,
+			Destination: &metatronEnabled,
+		},
 	}
 	app.Action = func(c *cli.Context) error {
 		if debug {
@@ -126,7 +157,21 @@ func main() {
 
 		/* Get the requisite configuration from environment variables */
 		listener := getListener(listenPort, listenerFd)
-		ms := metadataserver.NewMetaDataServer(context.Background(), backingMetadataServer, iamARN, titusTaskInstanceID, ipv4Address, region, optimistic)
+
+		var err error
+		var container *titus.ContainerInfo
+		var signer *identity.Signer
+
+		if container, err = readTaskConfigFile(titusTaskInstanceID); err != nil {
+			log.Fatal(err)
+		}
+		if metatronEnabled {
+			log.Info("Metatron enabled!")
+			if signer, err = identity.NewDefaultSigner(); err != nil {
+				log.Fatal(err)
+			}
+		}
+		ms := metadataserver.NewMetaDataServer(context.Background(), backingMetadataServer, iamARN, ipv4Address, region, optimistic, container, signer)
 		go notifySystemd()
 		if err := http.Serve(listener, ms); err != nil {
 			return err

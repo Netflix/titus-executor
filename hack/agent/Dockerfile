@@ -23,11 +23,11 @@ STOPSIGNAL SIGRTMIN+3
 ###
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y apt-transport-https ca-certificates
 
-RUN echo "deb [arch=amd64] https://apt.dockerproject.org/repo ubuntu-xenial main" > /etc/apt/sources.list.d/docker.list
-RUN apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
+RUN echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable" > /etc/apt/sources.list.d/docker.list
+RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
-    apt-get install -y build-essential make cmake libattr1-dev dbus docker-engine wget
+    apt-get install -y build-essential make cmake libattr1-dev dbus docker-ce=18.06.1~ce~3-0~ubuntu wget
 
 COPY --from=golang:1.11-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
@@ -42,7 +42,7 @@ RUN systemctl enable dbus.service
 RUN systemctl enable docker.service
 
 # TODO(fabio): detect what storage-driver to use at runtime
-RUN mkdir -p /etc/docker
+RUN mkdir -p /etc/docker /run/metatron/certificates
 COPY hack/agent/daemon.json /etc/docker/daemon.json
 COPY hack/agent/titus-shared.env /etc/titus-shared.env
 COPY hack/agent/10-disable-atlas-agent.conf /etc/systemd/system/atlas-titus-agent@.service.d/10-disable-atlas-agent.conf
@@ -65,6 +65,10 @@ RUN touch /etc/ssh/titus_user_ssh_key_cas.pub
 # build scripts are expected to produce it
 COPY build/distributions/titus-executor*.deb /var/cache/apt/archives/
 RUN dpkg -i /var/cache/apt/archives/titus-executor_latest.deb
+
+# Test Metatron certificates - these are needed for running standalone tests that
+# test the metadata server's task identity endpoint:
+COPY hack/agent/certs/* /metatron/certificates/
 
 # Workaround for docker/docker#27202, technique based on comments from docker/docker#9212
 CMD ["/bin/bash", "-c", "exec /sbin/init --log-target=journal 3>&1"]

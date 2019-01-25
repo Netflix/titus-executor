@@ -3,6 +3,7 @@ package runtime
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -88,6 +89,15 @@ func TestNewContainer(t *testing.T) {
 	expectedNetwork := uint32(256)
 	expectedWorkloadType := BurstWorkloadType
 	batch := true
+	startTime := time.Now()
+	expectedCmd := "/usr/bin/yes"
+	expectedUserEnv := map[string]string{
+		"MY_ENV": "is set",
+	}
+	expectedJobDetail := "detail"
+	expectedJobStack := "stack"
+	expectedJobSeq := "seq"
+	expectedDigest := "abcd0123"
 
 	containerInfo := &titus.ContainerInfo{
 		ImageName: protobuf.String("titusoss/alpine"),
@@ -96,6 +106,12 @@ func TestNewContainer(t *testing.T) {
 			BandwidthLimitMbps: &expectedNetwork,
 		},
 		AllowCpuBursting: &batch,
+		Command:          &expectedCmd,
+		UserProvidedEnv:  expectedUserEnv,
+		JobGroupDetail:   &expectedJobDetail,
+		JobGroupStack:    &expectedJobStack,
+		JobGroupSequence: &expectedJobSeq,
+		ImageDigest:      &expectedDigest,
 	}
 
 	resources := &runtimeTypes.Resources{
@@ -123,4 +139,45 @@ func TestNewContainer(t *testing.T) {
 
 	actualWorkloadType := container.Labels[workloadTypeLabelKey]
 	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadType))
+
+	// Default to false unless metatron is explicitly configured
+	assert.Equal(t, container.Env["TITUS_METATRON_ENABLED"], "false")
+
+	containerConfig, err := container.GetConfig(startTime)
+	assert.NoError(t, err)
+
+	assert.Equal(t, containerInfo, containerConfig)
+	assert.NotNil(t, containerConfig.RunState)
+	assert.Equal(t, *containerConfig.RunState.LaunchTimeUnixSec, uint64(startTime.Unix()))
+	assert.Equal(t, *containerConfig.RunState.TaskId, taskID)
+	assert.Equal(t, *containerConfig.RunState.HostName, taskID)
+}
+
+func TestMetatronEnabled(t *testing.T) {
+	taskID := "task-id"
+	expectedNetwork := uint32(256)
+	batch := true
+
+	containerInfo := &titus.ContainerInfo{
+		ImageName: protobuf.String("titusoss/alpine"),
+		Version:   protobuf.String("latest"),
+		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			BandwidthLimitMbps: &expectedNetwork,
+		},
+		AllowCpuBursting: &batch,
+	}
+
+	resources := &runtimeTypes.Resources{
+		CPU:  int64(2),
+		Mem:  int64(1024),
+		Disk: uint64(15000),
+	}
+
+	labels := make(map[string]string)
+	config := config.Config{
+		MetatronEnabled: true,
+	}
+
+	container := NewContainer(taskID, containerInfo, resources, labels, config)
+	assert.Equal(t, container.Env["TITUS_METATRON_ENABLED"], "true")
 }

@@ -56,6 +56,9 @@ docker run --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:/sys
   -v ${GOPATH}:${GOPATH} -w ${GOPATH}/src/${go_pkg} --rm --name "$titus_agent_name" -e DEBUG=${debug} \
   -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} --label "$run_id" -d titusoss/titus-agent
 
+log "Copying test metatron certs to their correct location"
+docker exec "$titus_agent_name" /metatron/certificates/setup-metatron-certs.sh
+
 log "Running integration tests against the $titus_agent_name daemon"
 # --privileged is needed here since we are reading FDs from a unix socket
 docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} -e GOCACHE=off "$titus_agent_name" \

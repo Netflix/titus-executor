@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -17,8 +18,12 @@ const (
 // Config contains the executor configuration
 type Config struct {
 	// nolint: maligned
+
 	// MetatronEnabled returns if Metatron is enabled
 	MetatronEnabled bool
+	// Docker image for running the metatron certificate refresh executable
+	ContainerMetatronImage string
+
 	// PrivilegedContainersEnabled returns whether to give tasks CAP_SYS_ADMIN
 	PrivilegedContainersEnabled bool
 	// UseNewNetworkDriver returns which network driver to use
@@ -127,6 +132,13 @@ func NewConfig() (*Config, []cli.Flag) {
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
 		},
+		cli.StringFlag{
+			Name: "container-metatron-image",
+			// This image fetches the task identity document and writes it to `/task-identity`. See `hack/test-images/metatron/`.
+			Value:       "titusoss/metatron@sha256:a850a47bda1238f4bad36fd599679ef518cc40874c0102713982d1058b5a3a88",
+			Destination: &cfg.ContainerMetatronImage,
+			EnvVar:      "CONTAINER_METATRON_IMAGE",
+		},
 		cli.BoolTFlag{
 			Name:        "container-sshd",
 			Destination: &cfg.ContainerSSHD,
@@ -180,12 +192,20 @@ func NewConfig() (*Config, []cli.Flag) {
 }
 
 // GetNetflixEnvForTask fetches the "base" environment configuration, and adds in titus-specific environment variables
-// based on the ContainerInfo, and resources.
+// based on the ContainerInfo, config and resources.
 func (c *Config) GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string {
 	env := c.getEnvHardcoded()
 	env = appendMap(env, c.getEnvFromHost())
 	env = appendMap(env, c.getEnvBasedOnTask(taskInfo, mem, cpu, disk, networkBandwidth))
 	env = appendMap(env, c.getUserProvided(taskInfo))
+
+	if c.MetatronEnabled {
+		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron
+		env[metadataserverTypes.TitusMetatronVariableName] = "true"
+	} else {
+		env[metadataserverTypes.TitusMetatronVariableName] = "false"
+	}
+
 	return env
 }
 

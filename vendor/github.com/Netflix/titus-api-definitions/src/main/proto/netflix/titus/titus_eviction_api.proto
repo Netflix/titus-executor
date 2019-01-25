@@ -20,17 +20,7 @@ option go_package = "titus";
 // ----------------------------------------------------------------------------
 // Eviction core data structures
 
-/// The system distruption budget provides an upper bound on allowed number of task evictions. The system
-//  disruption budget is defined at the global, tier and a capacity group level.
-message SystemDisruptionBudget {
-    /// System layer/entity refrence.
-    Reference target = 1;
-
-    /// (Required) The admision control policy.
-    TokenBucketPolicy admissionControlPolicy = 2;
-}
-
-/// Current eviction quota at the global, tier, capacity group, and job level. The total amount of tasks that
+/// Current eviction quota at the system, tier, capacity group, and job level. The total amount of tasks that
 //  can be evicted at a given point in time is constraint by this number.
 message EvictionQuota {
     /// System layer/entity refrence.
@@ -38,6 +28,9 @@ message EvictionQuota {
 
     /// (Required) Total number of tasks that can be evicted at a given point in time.
     uint32 quota = 2;
+
+    /// (Optional) Additional information associated with the current quota level.
+    string message = 3;
 }
 
 // ----------------------------------------------------------------------------
@@ -81,10 +74,6 @@ message EvictionServiceEvent {
     message SnapshotEnd {
     }
 
-    message SystemDisruptionBudgetUpdateEvent {
-        SystemDisruptionBudget current = 1;
-    }
-
     message EvictionQuotaEvent {
         EvictionQuota quota = 1;
     }
@@ -92,23 +81,21 @@ message EvictionServiceEvent {
     message TaskTerminationEvent {
         string taskId = 1;
         bool approved = 2;
+        string reason = 3;
+        string restrictionCode = 4;
+        string restrictionMessage = 5;
     }
 
     oneof Event {
         SnapshotEnd snapshotEnd = 1;
 
-        SystemDisruptionBudgetUpdateEvent systemDisruptionBudgetUpdateEvent = 2;
+        EvictionQuotaEvent evictionQuotaEvent = 2;
 
-        EvictionQuotaEvent evictionQuotaEvent = 3;
-
-        TaskTerminationEvent taskTerminationEvent = 4;
+        TaskTerminationEvent taskTerminationEvent = 3;
     }
 }
 
 service EvictionService {
-
-    rpc GetDisruptionBudget (Reference) returns (SystemDisruptionBudget) {
-    }
 
     rpc GetEvictionQuota (Reference) returns (EvictionQuota) {
     }

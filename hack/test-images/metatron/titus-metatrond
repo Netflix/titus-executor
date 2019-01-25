@@ -1,0 +1,19 @@
+#!/titus/metatron/bin/busybox sh
+# vi:syntax=sh
+#
+# The real refresh image uses a busybox-static script, so do the same here to make sure it works
+#
+
+echo "titus-metatrond: start"
+
+if [[ "$1" == "--init" ]]; then
+    echo "titus-metatrond: init"
+    exec /titus/metatron/bin/metatron-identity
+fi
+
+while [[ true ]]; do
+    echo "running metatron-identity"
+
+    /titus/metatron/bin/metatron-identity -sleep 10
+    touch /last-metatron-refresh
+done

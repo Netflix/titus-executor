@@ -42,6 +42,7 @@ const (
 	titusInits                 = "/var/lib/titus-inits"
 	atlasSystemdUnit           = "atlas-titus-agent"
 	metadataServiceSystemdUnit = "titus-metadata-proxy"
+	metatronServiceSystemdUnit = "titus-metatron-sync"
 	sshdSystemdUnit            = "titus-sshd"
 	metricStartTimeout         = time.Minute
 	umountNoFollow             = 0x8
@@ -84,7 +85,7 @@ func setupScheduler(cred ucred) error {
 	return nil
 }
 
-func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error {
+func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(parentCtx, metricStartTimeout)
 	defer cancel()
 
@@ -112,18 +113,30 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg c
 		// 0x8 is
 		return unix.Unmount(path, unix.MNT_DETACH|umountNoFollow)
 	})
+
 	/* 2. Tell systemd about it */
 	// TODO: Make concurrent
 	if err := startSystemdUnit(ctx, conn, false, c.TaskID, atlasSystemdUnit); err != nil {
+		logrus.WithError(err).Error("Error starting atlas systemd unit")
 		return err
 	}
 	if cfg.ContainerSSHD {
 		if err := startSystemdUnit(ctx, conn, true, c.TaskID, sshdSystemdUnit); err != nil {
+			logrus.WithError(err).Error("Error starting ssh systemd unit")
 			return err
 		}
 	}
 	if err := startSystemdUnit(ctx, conn, true, c.TaskID, metadataServiceSystemdUnit); err != nil {
+		logrus.WithError(err).Error("Error starting metadata service systemd unit")
 		return err
+	}
+
+	if shouldStartMetatronSync(&cfg, c) {
+		// The metatron sync service queries the metadata server, so it needs to be started after
+		if err := startSystemdUnit(ctx, conn, true, c.TaskID, metatronServiceSystemdUnit); err != nil {
+			logrus.WithError(err).Error("Error starting metatron systemd unit")
+			return err
+		}
 	}
 
 	return nil
@@ -131,7 +144,9 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg c
 
 func startSystemdUnit(ctx context.Context, conn *dbus.Conn, required bool, taskID, unitName string) error {
 	qualifiedUnitName := fmt.Sprintf("%s@%s.service", unitName, taskID)
-	logrus.WithField("taskID", taskID).WithField("unit", unitName).Debug("Starting unit")
+	l := logrus.WithField("taskID", taskID).WithField("unit", unitName)
+	l.Infof("Starting systemd unit %s", qualifiedUnitName)
+
 	ch := make(chan string, 1)
 	if _, err := conn.StartUnit(qualifiedUnitName, "fail", ch); err != nil {
 		return err
@@ -142,9 +157,9 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, required bool, taskI
 	case val := <-ch:
 		if val != "done" {
 			if required {
-				return fmt.Errorf("Could not start systemd unit '%s' because %s", unitName, val)
+				return fmt.Errorf("Could not start systemd unit '%s' because %s", qualifiedUnitName, val)
 			}
-			logrus.WithField("taskID", taskID).Error("Unknown response when starting systemd unit: ", val)
+			l.Errorf("Unknown response when starting systemd unit '%s': %s", qualifiedUnitName, val)
 		}
 	}
 	return nil

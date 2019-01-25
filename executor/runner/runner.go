@@ -5,7 +5,6 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/metatron"
 	"github.com/Netflix/titus-executor/executor/runtime"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -178,16 +177,6 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	}
 	r.container = runtime.NewContainer(taskConfig.taskID, taskConfig.titusInfo, resources, labels, r.config)
 
-	if r.config.MetatronEnabled {
-		err = r.setupMetatron()
-		if err != nil {
-			r.err = err
-			r.logger.Error("Failed to acquire Metatron certificates: ", err)
-			r.updateStatusWithDetails(ctx, titusdriver.Lost, err.Error(), nil)
-			return
-		}
-	}
-
 	updateChan := make(chan update, 10)
 	go r.runContainer(ctx, startTime, updateChan)
 
@@ -219,7 +208,7 @@ type update struct {
 	details *runtimeTypes.Details
 }
 
-func (r *Runner) prepareContainer(ctx context.Context, updateChan chan update) update {
+func (r *Runner) prepareContainer(ctx context.Context, updateChan chan update, startTime time.Time) update {
 	r.logger.Debug("Running prepare")
 	prepareCtx, prepareCancel := context.WithCancel(ctx)
 	defer prepareCancel()
@@ -234,7 +223,7 @@ func (r *Runner) prepareContainer(ctx context.Context, updateChan chan update) u
 	// When Create() returns the host may have been modified to create storage and pull the image.
 	// These steps may or may not have completed depending on if/where a failure occurred.
 	bindMounts := []string{}
-	if err := r.runtime.Prepare(prepareCtx, r.container, bindMounts); err != nil {
+	if err := r.runtime.Prepare(prepareCtx, r.container, bindMounts, startTime); err != nil {
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		r.logger.Error("task failed to create container: ", err)
 		// Treat registry pull errors as LOST and non-existent images as FAILED.
@@ -266,7 +255,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 	r.maybeSetDefaultTags() // initialize metrics.Reporter default tags
 	updateChan <- update{status: titusdriver.Starting, msg: "creating"}
 
-	prepareUpdate := r.prepareContainer(ctx, updateChan)
+	prepareUpdate := r.prepareContainer(ctx, updateChan, startTime)
 	updateChan <- prepareUpdate
 	if prepareUpdate.status.IsTerminalStatus() {
 		r.logger.WithField("prepareUpdate", prepareUpdate).Debug("Prepare was terminal")
@@ -474,68 +463,6 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 	}
 
 	return r.watcher.Watch(ctx)
-}
-
-// mkGetMetatronConfigFunc is broken out into its own function to prevent accidentally capturing environment we shouldn't.
-func mkGetMetatronConfigFunc(mts *metatron.TrustStore) func(ctx context.Context, c *runtimeTypes.Container) (*metatron.CredentialsConfig, error) {
-	return func(ctx context.Context, c *runtimeTypes.Container) (*metatron.CredentialsConfig, error) {
-		envMap := c.TitusInfo.GetUserProvidedEnv()
-		if envMap == nil {
-			envMap = make(map[string]string)
-		}
-
-		var (
-			entrypoint []string
-			cmd        []string
-		)
-		if e := c.TitusInfo.EntrypointStr; e != nil {
-			// legacy entrypoints as flat strings, no support for CMD
-			entrypoint = []string{*e}
-			cmd = nil
-		} else {
-			entrypoint = c.TitusInfo.GetProcess().GetEntrypoint()
-			cmd = c.TitusInfo.GetProcess().GetCommand()
-		}
-
-		titusMetadata := metatron.TitusMetadata{
-			App:          c.TitusInfo.GetAppName(),
-			Stack:        c.TitusInfo.GetJobGroupStack(),
-			Detail:       c.TitusInfo.GetJobGroupDetail(),
-			ImageName:    c.TitusInfo.GetImageName(),
-			ImageVersion: c.TitusInfo.GetVersion(),
-			ImageDigest:  c.TitusInfo.GetImageDigest(),
-			Entrypoint:   entrypoint,
-			Command:      cmd,
-			IPAddress:    c.Allocation.IPV4Address,
-			Env:          envMap,
-			TaskID:       c.TaskID,
-			LaunchTime:   (time.Now().UnixNano() / int64(time.Millisecond)),
-		}
-		metatronConfig, err := mts.GetPassports(
-			ctx,
-			c.TitusInfo.GetMetatronCreds().GetAppMetadata(),
-			c.TitusInfo.GetMetatronCreds().GetMetadataSig(),
-			titusMetadata,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("Get Metatron Passport credentials failed: %s", err.Error())
-		}
-		return metatronConfig, nil
-	}
-}
-
-// setupMetatron returns a Docker formatted string bind mount for a container for a directory that will contain
-func (r *Runner) setupMetatron() error {
-	if r.container.TitusInfo.GetMetatronCreds() == nil {
-		return nil
-	}
-	mts, err := metatron.InitMetatronTruststore()
-	if err != nil {
-		return fmt.Errorf("Failed to initialize Metatron trust store: %s", err)
-	}
-
-	r.container.GetMetatronConfig = mkGetMetatronConfigFunc(mts)
-	return nil
 }
 
 func (r *Runner) waitForTask(parentCtx, ctx context.Context) (*task, error) {
