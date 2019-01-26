@@ -197,6 +197,9 @@ func (mdc *EC2MetadataClientWrapper) getMetadata(path string) (string, error) {
 }
 
 func ipStringToList(ips string) []string {
+	if ips == "" {
+		return []string{}
+	}
 	// This expects a non-\n terminated list of IPs separated by \n, and returns a normalized form
 	addresses := strings.Split(ips, "\n")
 	result := make([]string, len(addresses))
