@@ -2,7 +2,6 @@ package allocate
 
 import (
 	"errors"
-	"math/rand"
 	"path/filepath"
 	"time"
 
@@ -10,8 +9,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	"golang.org/x/sys/unix"
 )
 
@@ -42,38 +39,31 @@ func (mgr *IPPoolManager) lockConfiguration(parentCtx *context.VPCContext) (*fsl
 	return parentCtx.FSLocker.ExclusiveLock(path, &timeout)
 }
 
-func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) error {
-	if len(mgr.networkInterface.GetIPv4Addresses()) >= vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
+func assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration, networkInterface ec2wrapper.NetworkInterface, ipAssignmentFunction ec2wrapper.IPAssignmentFunction, ipFetchFunction ec2wrapper.IPFetchFunction) error {
+	if len(ipFetchFunction()) >= vpc.GetMaxIPAddresses(ctx.InstanceType) {
 		return errMaxIPAddressesAllocated
 	}
 
-	if len(mgr.networkInterface.GetIPv4Addresses())+batchSize > vpc.GetMaxIPv4Addresses(ctx.InstanceType) {
-		batchSize = vpc.GetMaxIPv4Addresses(ctx.InstanceType) - len(mgr.networkInterface.GetIPv4Addresses())
+	if len(ipFetchFunction())+batchSize > vpc.GetMaxIPAddresses(ctx.InstanceType) {
+		batchSize = vpc.GetMaxIPAddresses(ctx.InstanceType) - len(ipFetchFunction())
 	}
 
 	ctx.Logger.Info("Unable to allocate, no IP addresses available, allocating new IPs")
 
-	// We failed to lock an IP address, let's retry.
-	assignPrivateIPAddressesInput := &ec2.AssignPrivateIpAddressesInput{
-		NetworkInterfaceId:             aws.String(mgr.networkInterface.GetInterfaceID()),
-		SecondaryPrivateIpAddressCount: aws.Int64(int64(batchSize)),
-	}
-	_, err := ec2.New(ctx.AWSSession).AssignPrivateIpAddresses(assignPrivateIPAddressesInput)
-	if err != nil {
+	originalIPSet := ec2wrapper.GetIPAddressesAsSet(ipFetchFunction)
+
+	if err := ipAssignmentFunction(ctx, ctx.AWSSession, batchSize); err != nil {
 		ctx.Logger.Warning("Unable to assign IPs from AWS: ", err)
 		return err
 	}
 
-	originalIPSet := ec2wrapper.GetIPv4AddressesAsSet(mgr.networkInterface)
-
 	now := time.Now()
 	for time.Since(now) < ipRefreshTimeout {
-		err = mgr.networkInterface.Refresh()
-		if err != nil {
+		if err := networkInterface.Refresh(); err != nil {
 			return err
 		}
 
-		newIPSet := ec2wrapper.GetIPv4AddressesAsSet(mgr.networkInterface)
+		newIPSet := ec2wrapper.GetIPAddressesAsSet(ipFetchFunction)
 
 		if len(newIPSet.Difference(originalIPSet).ToSlice()) > 0 {
 			// Retry allocating an IP Address from the pool, now that the metadata service says that we have at
@@ -87,37 +77,15 @@ func (mgr *IPPoolManager) assignMoreIPs(ctx *context.VPCContext, batchSize int, 
 	return errIPRefreshFailed
 }
 
-func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, networkinterface ec2wrapper.NetworkInterface) (string, *fslocker.ExclusiveLock, error) {
-	configLock, err := mgr.lockConfiguration(ctx)
-	if err != nil {
-		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
-		return "", nil, err
-	}
-	defer configLock.Unlock()
-
-	iface, err := ctx.Cache.DescribeInterface(ctx, networkinterface.GetInterfaceID())
-	if err != nil {
-		return "", nil, err
-	}
-	ipv6Addresses := iface.Ipv6Addresses
-	rand.Shuffle(len(ipv6Addresses), func(i, j int) {
-		ipv6Addresses[i], ipv6Addresses[j] = ipv6Addresses[j], ipv6Addresses[i]
-	})
-	for _, ipAddress := range iface.Ipv6Addresses {
-		lock, err := mgr.tryAllocate(ctx, *ipAddress.Ipv6Address)
-		if err != nil {
-			ctx.Logger.Warning("Unable to do allocation: ", err)
-			return "", nil, err
-		}
-		if lock != nil {
-			lock.Bump()
-			return *ipAddress.Ipv6Address, lock, nil
-		}
-	}
-	return "", nil, errNoFreeIPAddressFound
+func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) (string, *fslocker.ExclusiveLock, error) {
+	return mgr.allocateIP(ctx, batchSize, ipRefreshTimeout, mgr.networkInterface.AddIPv6Addresses, mgr.networkInterface.GetIPv6Addresses)
 }
 
 func (mgr *IPPoolManager) allocateIPv4(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) (string, *fslocker.ExclusiveLock, error) {
+	return mgr.allocateIP(ctx, batchSize, ipRefreshTimeout, mgr.networkInterface.AddIPv4Addresses, mgr.networkInterface.GetIPv4Addresses)
+}
+
+func (mgr *IPPoolManager) allocateIP(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration, ipAssignmentFunction ec2wrapper.IPAssignmentFunction, ipFetchFunction ec2wrapper.IPFetchFunction) (string, *fslocker.ExclusiveLock, error) {
 	configLock, err := mgr.lockConfiguration(ctx)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get lock during allocation: ", err)
@@ -131,30 +99,31 @@ func (mgr *IPPoolManager) allocateIPv4(ctx *context.VPCContext, batchSize int, i
 		return "", nil, err
 	}
 
-	ip, lock, err := mgr.doAllocate(ctx)
-	if err == errNoFreeIPAddressFound {
-
-	} else if err != nil {
-		ctx.Logger.WithError(err).Warning("Unable to allocate IP")
+	ip, lock, err := mgr.doAllocate(ctx, ipFetchFunction)
+	if err == nil {
+		if lock == nil {
+			ctx.Logger.Fatal("Err is nil, but lock is nil too")
+		}
+		ctx.Logger.WithField("ip", ip).Debug("Successfully allocated IP")
 		return ip, lock, err
-	} else if lock != nil { // We assume we only get a non-nil lock when we get a non-nil IP address
-		return ip, lock, err
+	} else if err == errNoFreeIPAddressFound {
+		err = assignMoreIPs(ctx, batchSize, ipRefreshTimeout, mgr.networkInterface, ipAssignmentFunction, ipFetchFunction)
+		if err != nil {
+			ctx.Logger.Warning("Unable assign more IPs: ", err)
+			return "", nil, err
+		}
+		return mgr.doAllocate(ctx, ipFetchFunction)
 	}
 
-	err = mgr.assignMoreIPs(ctx, batchSize, ipRefreshTimeout)
-	if err != nil {
-		ctx.Logger.Warning("Unable assign more IPs: ", err)
-		return "", nil, err
-	}
-
-	return mgr.doAllocate(ctx)
-
+	return "", nil, err
 }
 
-func (mgr *IPPoolManager) doAllocate(ctx *context.VPCContext) (string, *fslocker.ExclusiveLock, error) {
+func (mgr *IPPoolManager) doAllocate(ctx *context.VPCContext, ipFetchFunction ec2wrapper.IPFetchFunction) (string, *fslocker.ExclusiveLock, error) {
 	// Let's see if we can lease a free IP address?
 	// Try locking the primary IP address first (always)
-	for _, ipAddress := range mgr.networkInterface.GetIPv4Addresses() {
+	ips := ipFetchFunction()
+	ctx.Logger.WithField("ips", ips).Debug("Trying to allocate IP")
+	for _, ipAddress := range ips {
 		lock, err := mgr.tryAllocate(ctx, ipAddress)
 		if err != nil {
 			ctx.Logger.Warning("Unable to do allocation: ", err)

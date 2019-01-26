@@ -26,9 +26,29 @@ var (
 )
 
 type testNetworkInterface struct {
-	ipv4Addresses []string
-	freeIPs       func([]string) error
-	refresh       func() error
+	ipv4Addresses    []string
+	freeIPs          func([]string) error
+	refresh          func() error
+	addIPv4Addresses func(count int) error
+	addIPv6Addresses func(count int) error
+}
+
+func (tni *testNetworkInterface) GetIPv6Addresses() []string {
+	panic("implement me")
+}
+
+func (tni *testNetworkInterface) AddIPv4Addresses(ctx context.Context, session client.ConfigProvider, count int) error {
+	if tni.addIPv4Addresses != nil {
+		return tni.addIPv4Addresses(count)
+	}
+	panic("AddIPv4Addresses not implemented")
+}
+
+func (tni *testNetworkInterface) AddIPv6Addresses(ctx context.Context, session client.ConfigProvider, count int) error {
+	if tni.addIPv6Addresses != nil {
+		return tni.addIPv6Addresses(count)
+	}
+	panic("AddIPv6Addresses not implemented")
 }
 
 func (tni *testNetworkInterface) FreeIPv4Addresses(ctx context.Context, _ client.ConfigProvider, deallocationList []string) error {
@@ -77,6 +97,59 @@ func testFreeIPsOneIP(t *testing.T, ctx *vpcContext.VPCContext, tni *testNetwork
 	assert.NoError(t, ipPoolManager.DoGc(ctx, time.Second))
 }
 
+func testipv4Allocation(t *testing.T, ctx *vpcContext.VPCContext, tni *testNetworkInterface, ipPoolManager *IPPoolManager) {
+	tni.ipv4Addresses = []string{"1.2.3.4"}
+	tni.refresh = func() error {
+		return nil
+	}
+	ip, lock, err := ipPoolManager.allocateIPv4(ctx, 4, time.Second)
+	assert.NoError(t, err)
+	assert.NotNil(t, lock)
+	defer lock.Unlock()
+	assert.Equal(t, tni.ipv4Addresses[0], ip)
+}
+
+func testipv4AllocationNoneFree(t *testing.T, ctx *vpcContext.VPCContext, tni *testNetworkInterface, ipPoolManager *IPPoolManager) {
+	var ipList = []string{"1.2.3.4", "5.6.7.8", "9.8.10.11"}
+	tni.ipv4Addresses = ipList[:1]
+	tni.refresh = func() error {
+		return nil
+	}
+	called := 0
+	tni.addIPv4Addresses = func(count int) error {
+		called = +1
+		assert.Equal(t, 2, count)
+		tni.ipv4Addresses = ipList
+		return nil
+	}
+
+	ip1, lock1, err1 := ipPoolManager.allocateIPv4(ctx, 2, time.Second)
+	assert.NoError(t, err1)
+	assert.NotNil(t, lock1)
+	defer lock1.Unlock()
+	assert.Equal(t, ipList[0], ip1)
+
+	ip2, lock2, err2 := ipPoolManager.allocateIPv4(ctx, 2, time.Second)
+	assert.NoError(t, err2)
+	assert.NotNil(t, lock2)
+	assert.Equal(t, ipList[1], ip2)
+
+	ip3, lock3, err3 := ipPoolManager.allocateIPv4(ctx, 2, time.Second)
+	assert.NoError(t, err3)
+	assert.NotNil(t, lock3)
+	defer lock3.Unlock()
+	assert.Equal(t, ipList[2], ip3)
+
+	lock2.Unlock()
+	ip2_2, lock2_2, err2_2 := ipPoolManager.allocateIPv4(ctx, 2, time.Second)
+	assert.NoError(t, err2_2)
+	assert.NotNil(t, lock2_2)
+	defer lock2_2.Unlock()
+	assert.Equal(t, ipList[1], ip2_2)
+
+	assert.Equal(t, 1, called)
+}
+
 func testFreeIPsTwoIP(t *testing.T, ctx *vpcContext.VPCContext, tni *testNetworkInterface, ipPoolManager *IPPoolManager) {
 	ipPoolManager.ipRefreshSleepInterval = 0
 	var ipList = []string{"1.2.3.4", "5.6.7.8", "9.8.10.11"}
@@ -107,6 +180,8 @@ func TestIPPoolManager(t *testing.T) {
 	testFunctions := []func(*testing.T, *vpcContext.VPCContext, *testNetworkInterface, *IPPoolManager){
 		testFreeIPsOneIP,
 		testFreeIPsTwoIP,
+		testipv4Allocation,
+		testipv4AllocationNoneFree,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -144,6 +219,8 @@ func wrapTest(fun func(*testing.T, *vpcContext.VPCContext, *testNetworkInterface
 			Context:  context.Background(),
 			Logger:   logrus.NewEntry(logger),
 			FSLocker: locker,
+			// Has a limit of 10 IPs
+			InstanceType: "m4.2xlarge",
 		}
 		fun(t2, ctx, tni, ipPoolManager)
 	}

@@ -3,14 +3,14 @@ package ec2wrapper
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-
-	"math/rand"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
@@ -19,9 +19,26 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// IPAssignmentFunction calls AWS to assign IP addresses to this interface
+type IPAssignmentFunction func(ctx context.Context, session client.ConfigProvider, count int) error
+
+// IPFetchFunction tells us what IPs are currently assigned to this interface. It may require refresh to be called to
+// get updated information
+type IPFetchFunction func() []string
+
+type ec2MetadataClient interface {
+	Available() bool
+	GetDynamicData(p string) (string, error)
+	GetInstanceIdentityDocument() (ec2metadata.EC2InstanceIdentityDocument, error)
+	GetMetadata(p string) (string, error)
+	GetUserData() (string, error)
+	IAMInfo() (ec2metadata.EC2IAMInfo, error)
+	Region() (string, error)
+}
+
 // EC2MetadataClientWrapper wraps the EC2 library and provides some helper functions
 type EC2MetadataClientWrapper struct {
-	ec2metadata *ec2metadata.EC2Metadata
+	ec2metadata ec2MetadataClient
 	logger      *logrus.Entry
 }
 
@@ -33,6 +50,9 @@ type NetworkInterface interface {
 	GetMAC() string
 	GetSecurityGroupIds() map[string]struct{}
 	GetIPv4Addresses() []string
+	GetIPv6Addresses() []string
+	AddIPv4Addresses(ctx context.Context, session client.ConfigProvider, count int) error
+	AddIPv6Addresses(ctx context.Context, session client.ConfigProvider, count int) error
 	Refresh() error
 	FreeIPv4Addresses(context.Context, client.ConfigProvider, []string) error
 	// TODO: Add IPv6 addresses
@@ -55,6 +75,8 @@ type EC2NetworkInterface struct {
 	// even though they're equal
 	// ipv4Addresses is the set of currently assigned IPs -- The primary IPv4 address is the first in this list
 	ipv4Addresses []string
+
+	ipv6Addresses []string
 }
 
 // NewEC2MetadataClientWrapper creates a new ec2metadata wrapper instance
@@ -174,6 +196,18 @@ func (mdc *EC2MetadataClientWrapper) getMetadata(path string) (string, error) {
 	return val, err
 }
 
+func ipStringToList(ips string) []string {
+	// This expects a non-\n terminated list of IPs separated by \n, and returns a normalized form
+	addresses := strings.Split(ips, "\n")
+	result := make([]string, len(addresses))
+	for idx, addr := range addresses {
+		sanitized := strings.Trim(strings.TrimSpace(addr), "\x00")
+		ip := net.ParseIP(sanitized)
+		result[idx] = ip.String()
+	}
+	return result
+}
+
 // Refresh updates the security groups. and local IPv4 addresses for an interface
 func (ni *EC2NetworkInterface) Refresh() error {
 	ni.securityGroupIds = make(map[string]struct{})
@@ -190,10 +224,14 @@ func (ni *EC2NetworkInterface) Refresh() error {
 	if err != nil {
 		return err
 	}
-	ni.ipv4Addresses = strings.Split(localIPv4s, "\n")
-	for idx, addr := range ni.ipv4Addresses {
-		ni.ipv4Addresses[idx] = strings.Trim(strings.TrimSpace(addr), "\x00")
+
+	ni.ipv4Addresses = ipStringToList(localIPv4s)
+
+	localIPv6s, err := ni.mdc.getDataForInterface(ni.mac, "ipv6s")
+	if err != nil {
+		return err
 	}
+	ni.ipv6Addresses = ipStringToList(localIPv6s)
 
 	return nil
 }
@@ -231,6 +269,11 @@ func (ni *EC2NetworkInterface) GetIPv4Addresses() []string {
 	return ni.ipv4Addresses
 }
 
+// GetIPv6Addresses is the set of currently assigned IPv6 IPs
+func (ni *EC2NetworkInterface) GetIPv6Addresses() []string {
+	return ni.ipv6Addresses
+}
+
 // FreeIPv4Addresses calls the EC2 / AWS API to free IP addresses
 func (ni *EC2NetworkInterface) FreeIPv4Addresses(ctx context.Context, session client.ConfigProvider, deallocationList []string) error {
 
@@ -243,15 +286,37 @@ func (ni *EC2NetworkInterface) FreeIPv4Addresses(ctx context.Context, session cl
 	return err
 }
 
+// AddIPv4Addresses calls the EC2 / AWS API to add IPv4 addresses
+func (ni *EC2NetworkInterface) AddIPv4Addresses(ctx context.Context, session client.ConfigProvider, count int) error {
+	assignPrivateIPAddressesInput := &ec2.AssignPrivateIpAddressesInput{
+		NetworkInterfaceId:             aws.String(ni.GetInterfaceID()),
+		SecondaryPrivateIpAddressCount: aws.Int64(int64(count)),
+	}
+
+	_, err := ec2.New(session).AssignPrivateIpAddresses(assignPrivateIPAddressesInput)
+	return err
+}
+
+// AddIPv6Addresses calls the EC2 / AWS API to add IPv6 addresses
+func (ni *EC2NetworkInterface) AddIPv6Addresses(ctx context.Context, session client.ConfigProvider, count int) error {
+	assignPrivateIPAddressesInput := &ec2.AssignIpv6AddressesInput{
+		NetworkInterfaceId: aws.String(ni.GetInterfaceID()),
+		Ipv6AddressCount:   aws.Int64(int64(count)),
+	}
+
+	_, err := ec2.New(session).AssignIpv6Addresses(assignPrivateIPAddressesInput)
+	return err
+}
+
 // GetLockPath returns the path you should use for locks on this interface
 func GetLockPath(ni NetworkInterface) string {
 	return filepath.Join("interfaces", ni.GetMAC())
 }
 
-// GetIPv4AddressesAsSet returns a copy of the IPv4Addresses from this network interface as a set
-func GetIPv4AddressesAsSet(ni NetworkInterface) set.Set {
+// GetIPAddressesAsSet converts a function which returns a slice of strings to a set
+func GetIPAddressesAsSet(ipAddresses IPFetchFunction) set.Set {
 	s := set.NewThreadUnsafeSet()
-	for _, ip := range ni.GetIPv4Addresses() {
+	for _, ip := range ipAddresses() {
 		s.Add(ip)
 	}
 	return s
