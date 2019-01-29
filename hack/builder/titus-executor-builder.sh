@@ -105,6 +105,7 @@ fpm -t deb -s dir -C root \
   --deb-activate ldconfig \
   --depends libc6 \
   --depends 'apparmor >= 2.12-4ubuntu7' \
+  --depends 'docker-ce >= 5:18.09.1~3-0~ubuntu-xenial' \
   --deb-recommends lxcfs \
   --deb-recommends atlas-titus-agent \
   ${provides:-} \
