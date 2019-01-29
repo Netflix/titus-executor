@@ -27,7 +27,7 @@ RUN echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stabl
 RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
-    apt-get install -y build-essential make cmake libattr1-dev dbus docker-ce=18.06.1~ce~3-0~ubuntu wget
+    apt-get install -y build-essential make cmake libattr1-dev dbus docker-ce=5:18.09.1~3-0~ubuntu-xenial wget
 
 COPY --from=golang:1.11-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
