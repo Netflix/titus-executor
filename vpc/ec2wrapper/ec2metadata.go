@@ -185,6 +185,11 @@ func (mdc *EC2MetadataClientWrapper) getMetadata(path string) (string, error) {
 			// Sleep a minimum of 10 milliseconds, and up to 100 ms
 			jitter := time.Millisecond * time.Duration(rand.Intn(90)+10)
 			time.Sleep(jitter)
+		} else if strings.HasSuffix(path, "ipv6s") && strings.Contains(err.Error(), "404") {
+			// This is terrible. The IMDS returns 404 if you have no IPv6 addresses assigned...
+			// it seems weird to put this behaviour above this layer, but it also seems like endpoint-specific
+			// error handling is weird too?
+			return "", nil
 		} else {
 			// "Fatal error"
 			break
