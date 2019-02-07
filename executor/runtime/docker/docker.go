@@ -868,7 +868,10 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string, startTime time.Time) error { // nolint: gocyclo
+	var metatronContainerName string
+	var sshdContainerName string
 	var volumeContainers []string
+
 	l := log.WithField("taskID", c.TaskID)
 	l.WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
 
@@ -915,27 +918,23 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 
 	if shouldStartMetatronSync(&r.cfg, c) {
 		group.Go(func() error {
-			var metatronContainerName string
 			l.Info("Setting up metatron container")
 			mSetupErr := r.doSetupMetatronContainer(ctx, &metatronContainerName)
 			if mSetupErr != nil {
 				return errors.Wrap(mSetupErr, "Unable to setup metatron container")
 			}
 
-			volumeContainers = append(volumeContainers, metatronContainerName)
 			return nil
 		})
 	}
 	if r.cfg.ContainerSSHD {
 		group.Go(func() error {
-			var sshdContainerName string
 			l.Info("Setting up SSHd container")
 			sshdSetuperr := r.doSetupSSHdContainer(ctx, &sshdContainerName)
 			if sshdSetuperr != nil {
 				return errors.Wrap(sshdSetuperr, "Unable to setup SSHd container")
 			}
 
-			volumeContainers = append(volumeContainers, sshdContainerName)
 			return nil
 		})
 	}
@@ -967,6 +966,14 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 
 	binds = append(binds, getLXCFsBindMounts()...)
+
+	if metatronContainerName != "" {
+		volumeContainers = append(volumeContainers, metatronContainerName)
+	}
+	if sshdContainerName != "" {
+		volumeContainers = append(volumeContainers, sshdContainerName)
+	}
+
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, volumeContainers)
 	if err != nil {
 		goto error
