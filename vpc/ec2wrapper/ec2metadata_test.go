@@ -143,5 +143,5 @@ func TestMetadataService(t *testing.T) {
 
 func TestIPStringToList(t *testing.T) {
 	assert.Equal(t, []string{}, ipStringToList(""))
-	assert.Equal(t, []string{"1.2.3.4", "4.5.6.8"}, ipStringToList("1.2.3.4\n4.5.6.8"))
+	assert.Equal(t, []string{"1.2.3.4", "4.5.6.8"}, ipStringToList("1.2.3.4\n4.5.6.8\n"))
 }
