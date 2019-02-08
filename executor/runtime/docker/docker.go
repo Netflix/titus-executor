@@ -83,6 +83,9 @@ type Config struct { // nolint: maligned
 	bumpTiniSchedPriority           bool
 	waitForSecurityGroupLockTimeout time.Duration
 	ipRefreshTimeout                time.Duration
+
+	titusIsolateBlockTime   time.Duration
+	enableTitusIsolateBlock bool
 }
 
 // NewConfig generates a configuration, with a set of flags tied to it for the docker runtime
@@ -137,6 +140,19 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "titus.executor.networking.ipRefreshTimeout",
 			Destination: &cfg.ipRefreshTimeout,
 			Value:       time.Second * 10,
+		},
+		cli.DurationFlag{
+			Name:   "titus.executor.titusIsolateBlockTime",
+			EnvVar: "TITUS_EXECUTOR_TITUS_ISOLATE_BLOCK_TIME",
+			// The default value inside of the Titus Isolate code is 10 seconds.
+			// we can wait longer than it
+			Value:       30 * time.Second,
+			Destination: &cfg.titusIsolateBlockTime,
+		},
+		cli.BoolFlag{
+			Name:        "titus.executor.enableTitusIsolateBlock",
+			EnvVar:      "ENABLE_TITUS_ISOLATE_BLOCK",
+			Destination: &cfg.enableTitusIsolateBlock,
 		},
 		// Allow the usage of a realtime scheduling policy to be optional on systems that don't have it properly configured
 		// by default, i.e.: docker-for-mac.
@@ -801,7 +817,7 @@ func (r *DockerRuntime) doSetupSSHdContainer(ctx context.Context, containerName 
 
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
 func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
-	var image string = cfg.Image
+	image := cfg.Image
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
 		return err
@@ -1265,6 +1281,27 @@ func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountI
 	return efsMountInfos, nil
 }
 
+func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListener, efsMountInfos []efsMountInfo, c *runtimeTypes.Container) (string, error) {
+	// This can block for up to the full ctx timeout
+	logDir, containerCred, rootFile, unixConn, err := r.setupPostStartLogDirTini(ctx, listener, c)
+	if err != nil {
+		return logDir, err
+	}
+
+	if len(efsMountInfos) > 0 {
+		err = r.setupEFSMounts(ctx, c, rootFile, containerCred, efsMountInfos)
+		if err != nil {
+			return logDir, err
+		}
+	}
+
+	err = launchTini(unixConn)
+	if err != nil {
+		shouldClose(unixConn)
+	}
+	return logDir, err
+}
+
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
 // valid if err == nil, otherwise it will block indefinitely.
 func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
@@ -1289,6 +1326,9 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 			return "", nil, statusMessageChan, err
 		}
 	} else {
+		if len(efsMountInfos) > 0 {
+			entry.Fatal("Cannot perform EFS mounts without Tini")
+		}
 		entry.Warning("Starting Without Tini, no logging (globally disabled)")
 	}
 
@@ -1333,27 +1373,15 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 	}
 
 	if r.tiniEnabled {
-		// This can block for up the the full ctx timeout
-		logDir, containerCred, rootFile, unixConn, err := r.setupPostStartLogDirTini(ctx, listener, c)
+		logDir, err := r.waitForTini(ctx, listener, efsMountInfos, c)
 		if err != nil {
 			eventCancel()
-			return "", nil, statusMessageChan, err
+		} else {
+			go r.statusMonitor(eventCancel, c, eventChan, eventErrChan, statusMessageChan)
 		}
-		err = r.setupEFSMounts(ctx, c, rootFile, containerCred, efsMountInfos)
-		if err != nil {
-			eventCancel()
-			return "", nil, statusMessageChan, err
-		}
-
-		err = launchTini(unixConn)
-		if err != nil {
-			shouldClose(unixConn)
-			eventCancel()
-			return "", nil, statusMessageChan, err
-		}
-		go r.statusMonitor(eventCancel, c, eventChan, eventErrChan, statusMessageChan)
-		return logDir, details, statusMessageChan, nil
+		return logDir, details, statusMessageChan, err
 	}
+
 	go r.statusMonitor(eventCancel, c, eventChan, eventErrChan, statusMessageChan)
 	// We already logged above that we aren't using Tini
 	// This means that the log watcher is not started
@@ -1620,11 +1648,24 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 	return r.logDir(c), &cred, rootFile, err
 }
 
-func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx context.Context, c *runtimeTypes.Container, cred ucred, rootFile *os.File) error {
+func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx context.Context, c *runtimeTypes.Container, cred ucred, rootFile *os.File) error { // nolint: gocyclo
+	group, errGroupCtx := errgroup.WithContext(parentCtx)
+
 	if r.cfg.UseNewNetworkDriver && c.Allocation.IPV4Address != "" {
-		if err := setupNetworking(r.dockerCfg.burst, c, cred); err != nil {
-			return err
-		}
+		group.Go(func() error {
+			return setupNetworking(r.dockerCfg.burst, c, cred)
+		})
+	}
+
+	if r.dockerCfg.enableTitusIsolateBlock {
+		group.Go(func() error {
+			waitForTitusIsolate(errGroupCtx, c.TaskID, r.dockerCfg.titusIsolateBlockTime)
+			return nil
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return err
 	}
 
 	if r.dockerCfg.bumpTiniSchedPriority {
