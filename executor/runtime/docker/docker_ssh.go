@@ -38,7 +38,7 @@ PermitRootLogin without-password
 StrictModes yes
 
 PubkeyAuthentication yes
-#AuthorizedKeysFile	%h/.ssh/authorized_keys
+AuthorizedKeysFile	/titus/ssh_keys/%u
 
 TrustedUserCAKeys /titus/etc/ssh/trusted_user_ca_keys.pub
 AuthorizedPrincipalsFile /titus/etc/ssh/authorized_principals_%u
