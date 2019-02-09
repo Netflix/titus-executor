@@ -38,6 +38,7 @@ jobs:
       - run: ./build.sh ignore-signals
       - run: ./build.sh pty
       - run: ./build.sh ubuntu-env-label
+      - run: ./build.sh user-set
       - run: BUILD_FROM_CHECKOUT_ROOT=true ./build.sh metatron
   ci-builder:
     docker:
