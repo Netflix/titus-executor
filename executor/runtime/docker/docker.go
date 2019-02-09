@@ -489,12 +489,12 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	// Always setup tmpfs: it's needed to ensure Metatron credentials don't persist across reboots and for SystemD to work
 	hostCfg.Tmpfs = map[string]string{
-		"/run": "rw,exec,suid,size=" + defaultRunTmpFsSize,
+		"/run": "rw,exec,size=" + defaultRunTmpFsSize,
 	}
 
 	if c.IsSystemD {
 		// systemd requires `/run/lock` to be a separate mount from `/run`
-		hostCfg.Tmpfs["/run/lock"] = "rw,noexec,nosuid,size=" + defaultRunLockTmpFsSize
+		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
 	}
 
 	if r.storageOptEnabled {
@@ -672,17 +672,18 @@ func setSystemdRunning(log *log.Entry, imageInfo types.ImageInspect, c *runtimeT
 	l := log.WithField("imageName", c.QualifiedImageName())
 
 	if systemdBool, ok := imageInfo.Config.Labels[systemdImageLabel]; ok {
-		l.Infof("SystemD image label set to %s", systemdBool)
+		l.WithField("systemdLabel", systemdBool).Info("SystemD image label set")
+
 		val, err := strconv.ParseBool(systemdBool)
 		if err != nil {
-			return errors.Wrap(err, "Error parsing SystemD image label")
+			l.WithError(err).Error("Error parsing systemd image label")
+			return errors.Wrap(err, "error parsing systemd image label")
 		}
 
 		c.IsSystemD = val
 		return nil
 	}
 
-	l.Info("SystemD image label not set: not configuring container to run SystemD")
 	return nil
 }
 
@@ -1725,6 +1726,11 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	}
 
 	if err := setupOOMAdj(c, cred); err != nil {
+		return err
+	}
+
+	if err := setCgroupOwnership(parentCtx, c, cred); err != nil {
+		log.WithError(err).Error("Unable to change cgroup ownership")
 		return err
 	}
 

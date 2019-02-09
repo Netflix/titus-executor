@@ -38,7 +38,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 	if err != nil {
 		return err
 	}
-	if fuseEnabled || c.TitusInfo.GetAllowNestedContainers() {
+	if fuseEnabled {
 		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
 			hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
 		}
@@ -56,6 +56,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		seccompProfile = "fuse-container.json"
 
 	}
+
 	// We can do this here because nested containers can do everything fuse containers can
 	if c.TitusInfo.GetAllowNestedContainers() {
 		return errors.New("Nested containers no longer supported")

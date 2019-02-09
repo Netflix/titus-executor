@@ -5,10 +5,12 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -42,6 +44,7 @@ const (
 	sshdSystemdUnit            = "titus-sshd"
 	metricStartTimeout         = time.Minute
 	umountNoFollow             = 0x8
+	sysFsCgroup                = "/sys/fs/cgroup"
 )
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
@@ -176,6 +179,41 @@ func cleanupCgroups(cgroupPath string) error {
 		if err != nil {
 			logrus.Warn("Cannot remove cgroup mount: ", err)
 		}
+	}
+
+	return nil
+}
+
+func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+	if !c.IsSystemD {
+		return nil
+	}
+
+	cgroupPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "cgroup")
+	cgroups, err := ioutil.ReadFile(cgroupPath) // nolint: gosec
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(cgroups), "\n") {
+		cgroupInfo := strings.Split(strings.TrimSpace(line), ":")
+		if len(cgroupInfo) != 3 {
+			continue
+		}
+		controllerType := cgroupInfo[1]
+		if len(controllerType) == 0 {
+			continue
+		}
+		// This is to handle the name=systemd cgroup, we should probably parse /proc/mounts, but this is a little bit easier
+		controllerType = strings.TrimPrefix(controllerType, "name=")
+		if controllerType != "systemd" {
+			continue
+		}
+
+		// systemd needs to be the owner of its systemd cgroup in order to start up
+		controllerPath := cgroupInfo[2]
+		fsPath := filepath.Join(sysFsCgroup, controllerType, controllerPath)
+		logrus.Infof("chowning systemd cgroup path: %s", fsPath)
+		return os.Chown(fsPath, int(cred.uid), int(cred.gid))
 	}
 
 	return nil

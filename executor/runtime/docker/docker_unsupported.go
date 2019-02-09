@@ -38,6 +38,10 @@ func cleanupCgroups(cgroupPath string) error {
 	return errUnsupported
 }
 
+func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+	return errUnsupported
+}
+
 func setupOOMAdj(c *runtimeTypes.Container, cred ucred) error {
 	return errUnsupported
 }
