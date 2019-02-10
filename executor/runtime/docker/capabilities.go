@@ -42,7 +42,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		}
 	}
 	seccompProfile := "default.json"
-	apparmorProfile := ""
+	apparmorProfile := "docker-titus"
 
 	if fuseEnabled {
 		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
@@ -63,9 +63,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		c.Env["TINI_UNSHARE"] = trueString
 	}
 
-	if apparmorProfile != "" {
-		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
-	}
+	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
 	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(seccomp.MustAsset(seccompProfile))))
 
 	return nil

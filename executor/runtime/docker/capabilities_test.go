@@ -20,7 +20,8 @@ func TestDefaultProfile(t *testing.T) {
 
 	assert.Len(t, hostConfig.CapAdd, 0)
 	assert.Len(t, hostConfig.CapDrop, 0)
-	assert.Len(t, hostConfig.SecurityOpt, 1)
+	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker-titus")
+	assert.Len(t, hostConfig.SecurityOpt, 2)
 }
 
 func TestFuseProfile(t *testing.T) {

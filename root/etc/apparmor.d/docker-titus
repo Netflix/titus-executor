@@ -1,26 +1,15 @@
 #include <tunables/global>
 
-profile docker-fuse flags=(attach_disconnected,mediate_deleted) {
+profile docker-titus flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
   network,
   capability,
   file,
   umount,
-  mount,
 
-  deny mount fstype=tmpfs,
-  deny mount fstype=ramfs,
-  deny mount fstype=sysfs,
-  deny mount fstype=proc,
-  deny mount fstype=debugfs,
-  deny mount fstype=devtmpfs,
-  deny mount fstype=cgroup,
-  deny mount fstype=cgroup2,
+  signal (send,receive) peer=docker-titus,
 
-  deny mount ** -> /,
-  deny mount ** -> /titus/**,
-  deny mount ** -> /titus/,
   deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
   # deny write to files not in /proc/<number>/** or /proc/sys/**
   deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9]*}/** w,
@@ -28,7 +17,7 @@ profile docker-fuse flags=(attach_disconnected,mediate_deleted) {
   deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
   deny @{PROC}/sysrq-trigger rwklx,
   deny @{PROC}/kcore rwklx,
-
+  deny mount,
   deny /sys/[^f]*/** wklx,
   deny /sys/f[^s]*/** wklx,
   deny /sys/fs/[^c]*/** wklx,
@@ -37,8 +26,8 @@ profile docker-fuse flags=(attach_disconnected,mediate_deleted) {
   deny /sys/firmware/** rwklx,
   deny /sys/kernel/security/** rwklx,
 
-  ptrace (trace,read) peer=docker-fuse,
+  # suppress ptrace denials when using 'docker ps' or using 'ps' inside a container
+  ptrace (trace,read) peer=docker-default,
 
   deny /titus/** wl,
 }
-
