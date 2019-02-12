@@ -85,6 +85,10 @@ var (
 		name: "titusoss/ubuntu-env-label",
 		tag:  "20180621-1529540359",
 	}
+	userSet = testImage{
+		name: "titusoss/user-set",
+		tag:  "20190209-1549676483",
+	}
 )
 
 // This file still uses log as opposed to using the testing library's built-in logging framework.
@@ -945,8 +949,8 @@ func testCachedDockerPull(t *testing.T, jobID string) {
 
 func testMetatron(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
-		ImageName:       ubuntu.name,
-		Version:         ubuntu.tag,
+		ImageName:       userSet.name,
+		Version:         userSet.tag,
 		MetatronEnabled: true,
 		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
 		// Wait for 10 seconds max to give the first iteration of the service to run.
