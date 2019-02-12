@@ -59,6 +59,7 @@ const (
 	builtInDiskBuffer       = 1100 // In megabytes, includes extra space for /logs.
 	defaultNetworkBandwidth = 128 * MB
 	defaultKillWait         = 10 * time.Second
+	defaultRunTmpFsSize     = "134217728" // 128 MiB
 	trueString              = "true"
 	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
 )
@@ -483,6 +484,11 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	// Maybe set cfs bandwidth has to be called _after_
 	maybeSetCFSBandwidth(r.dockerCfg.cfsBandwidthPeriod, c, hostCfg)
+
+	// Always setup tmpfs: it's needed to ensure Metatron credentials don't persist across reboots and for SystemD to work
+	hostCfg.Tmpfs = map[string]string{
+		"/run": "rw,noexec,nosuid,size=" + defaultRunTmpFsSize,
+	}
 
 	if r.storageOptEnabled {
 		hostCfg.StorageOpt = map[string]string{

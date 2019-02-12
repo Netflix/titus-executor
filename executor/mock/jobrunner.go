@@ -64,6 +64,8 @@ type JobInput struct {
 	Tty bool
 	// MetatronEnabled enables running with the metatron sidecar container
 	MetatronEnabled bool
+	// Mem sets the memory resource attribute in MiB
+	Mem *int64
 }
 
 // JobRunResponse returned from RunJob
@@ -303,6 +305,9 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // no
 		cpu = *jobInput.CPU
 	}
 	memMiB := int64(400)
+	if jobInput.Mem != nil {
+		memMiB = *jobInput.Mem
+	}
 	diskMiB := uint64(100)
 
 	// Get a reference to the executor and somewhere to stash results
