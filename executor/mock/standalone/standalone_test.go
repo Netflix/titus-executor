@@ -140,6 +140,7 @@ func TestStandalone(t *testing.T) {
 		testTtyNegative,
 		testCachedDockerPull,
 		testMetatron,
+		testRunTmpFsMount,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -955,6 +956,21 @@ func testMetatron(t *testing.T, jobID string) {
 		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
 		// Wait for 10 seconds max to give the first iteration of the service to run.
 		EntrypointOld: "grep " + jobID + " /task-identity",
+		JobID:         jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+// Test that `/run` is a tmpfs mount, and has the default size
+func testRunTmpFsMount(t *testing.T, jobID string) {
+	var mem int64 = 256
+	ji := &mock.JobInput{
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		Mem:           &mem,
+		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run[^/]" | grep 128M'`,
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
