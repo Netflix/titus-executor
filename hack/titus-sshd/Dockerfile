@@ -22,11 +22,11 @@ RUN emerge --prefix=/titus/sshd --buildpkg glibc
 RUN ln -s /usr/bin/python3.6 /titus/sshd/usr/bin/
 RUN sed -i s/with-privsep-user=sshd/with-privsep-user=nobody/ /usr/portage/net-misc/openssh/*.ebuild # |grep =ssh
 RUN cd /usr/portage/net-misc/openssh && repoman manifest
-RUN emerge --prefix=/titus/sshd --buildpkg openssh nss libnss-compat
+RUN emerge --prefix=/titus/sshd --buildpkg openssh nss libnss-compat busybox
 # Now we want to discard our temp build dir
 RUN rm -r /titus/sshd
 RUN emerge --prefix=/titus/sshd --nodeps -K glibc
-RUN emerge --prefix=/titus/sshd -K glibc openssh nss libnss-compat
+RUN emerge --prefix=/titus/sshd -K glibc openssh nss libnss-compat busybox
 RUN ln -s /etc/hosts /titus/sshd/etc/
 # Here, the LD_LIBRARY_PATH under /titus/sshd is are the primary ones we look at, and if those don't work,
 # we fall back to the ubuntu ones
