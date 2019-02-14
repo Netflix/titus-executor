@@ -136,7 +136,8 @@ func addContainerSSHDConfigWithData(c *runtimeTypes.Container, tw *tar.Writer, c
 	// The format that is used for SSH Users is:
 	// $(unix username):$(app name):$(aws account id):$(task id)
 
-	for _, username := range c.Config.ContainerSSHDUsers {
+	users := append(c.Config.ContainerSSHDUsers, c.TitusInfo.GetAppName())
+	for _, username := range users {
 		lines := []string{}
 		for _, accountID := range accountIDs {
 			lines = append(

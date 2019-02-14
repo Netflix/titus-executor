@@ -83,6 +83,8 @@ func NewConfig() (*Config, []cli.Flag) {
 		},
 		ContainerSSHDUsers: []string{
 			"root",
+			"nfsuper",
+			"nfbasic",
 		},
 	}
 
