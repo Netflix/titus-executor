@@ -148,7 +148,7 @@ func NewConfig() (*Config, []cli.Flag) {
 		},
 		cli.StringFlag{
 			Name:        "container-sshd-image",
-			Value:       "titusoss/titus-sshd@sha256:8704839b0f44800b62795b0d9f5829bc1e81929052762f090737d8db8bf30faa",
+			Value:       "titusoss/titus-sshd@sha256:6f6f89250771a50e13d5a3559712defc256c37b144ca22e46c69f35f06d848a0",
 			Destination: &cfg.ContainerSSHDImage,
 			EnvVar:      "CONTAINER_SSHD_IMAGE",
 		},
