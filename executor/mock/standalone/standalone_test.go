@@ -141,6 +141,7 @@ func TestStandalone(t *testing.T) {
 		testCachedDockerPull,
 		testMetatron,
 		testRunTmpFsMount,
+		testExecSlashRun,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -971,6 +972,19 @@ func testRunTmpFsMount(t *testing.T, jobID string) {
 		Version:       ubuntu.tag,
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run[^/]" | grep 128M'`,
+		JobID:         jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+// Test that we can execute files in `/run`
+func testExecSlashRun(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		EntrypointOld: `/bin/bash -c 'cp /bin/ls /run/ && /run/ls'`,
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji) {

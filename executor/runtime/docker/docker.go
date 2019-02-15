@@ -487,7 +487,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	// Always setup tmpfs: it's needed to ensure Metatron credentials don't persist across reboots and for SystemD to work
 	hostCfg.Tmpfs = map[string]string{
-		"/run": "rw,noexec,nosuid,size=" + defaultRunTmpFsSize,
+		"/run": "rw,exec,suid,size=" + defaultRunTmpFsSize,
 	}
 
 	if r.storageOptEnabled {
