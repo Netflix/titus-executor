@@ -3,7 +3,7 @@ package testdriver
 import (
 	"time"
 
-	"github.com/Netflix/titus-executor/executor/drivers"
+	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	log "github.com/sirupsen/logrus"

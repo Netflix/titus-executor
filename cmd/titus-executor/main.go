@@ -11,7 +11,7 @@ import (
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor/drivers/mesos"
+	titusmesosdriver "github.com/Netflix/titus-executor/executor/drivers/mesos"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/Netflix/titus-executor/logsutil"

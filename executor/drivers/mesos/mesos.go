@@ -14,7 +14,7 @@ import (
 	"sync"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/executor/drivers"
+	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	mesosExecutor "github.com/mesos/mesos-go/executor"
 	"github.com/mesos/mesos-go/mesosproto"
