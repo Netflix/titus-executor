@@ -1684,10 +1684,6 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return err
 	}
 
-	if err := setupContainerNesting(parentCtx, c, cred); err != nil {
-		log.Error("Unable to setup container nesting: ", err)
-		return err
-	}
 	/* This can be "broken" if the titus-executor crashes. The link will be dangling, and point to a
 	 * /proc/${PID}/fd/${FD}. It's not "bad", because Titus Task names should be unique
 	 */
