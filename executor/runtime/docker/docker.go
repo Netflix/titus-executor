@@ -996,6 +996,21 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		volumeContainers = append(volumeContainers, sshdContainerName)
 	}
 
+	/*
+	 * This merges the environment variables from the image / config into the runtime configuration's environment
+	 * because not all paths go through runc exec. -- specifically titus-sshd
+	 */
+	for _, environmentVariable := range myImageInfo.Config.Env {
+		splitEnvironmentVariable := strings.SplitN(environmentVariable, "=", 2)
+		if len(splitEnvironmentVariable) != 2 {
+			log.WithField("environmentVariable", environmentVariable).Warning("Cannot parse environment variable")
+			continue
+		}
+		if _, ok := c.Env[splitEnvironmentVariable[0]]; !ok {
+			c.Env[splitEnvironmentVariable[0]] = splitEnvironmentVariable[1]
+		}
+	}
+
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, volumeContainers)
 	if err != nil {
 		goto error
