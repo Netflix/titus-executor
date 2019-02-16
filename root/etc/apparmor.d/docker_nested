@@ -1,7 +1,7 @@
 #include <tunables/global>
 
 
-profile docker-nested flags=(attach_disconnected,mediate_deleted) {
+profile docker_nested flags=(attach_disconnected,mediate_deleted) {
 
   #include <abstractions/base>
 

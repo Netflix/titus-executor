@@ -20,7 +20,7 @@ func TestDefaultProfile(t *testing.T) {
 
 	assert.Len(t, hostConfig.CapAdd, 0)
 	assert.Len(t, hostConfig.CapDrop, 0)
-	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker-titus")
+	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker_titus")
 	assert.Len(t, hostConfig.SecurityOpt, 2)
 }
 
@@ -39,7 +39,7 @@ func TestFuseProfile(t *testing.T) {
 	assert.Contains(t, hostConfig.CapAdd, "SYS_ADMIN")
 	assert.Len(t, hostConfig.CapDrop, 0)
 	assert.Len(t, hostConfig.SecurityOpt, 2)
-	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker-fuse")
+	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker_fuse")
 }
 
 func TestNestedContainerProfile(t *testing.T) {
@@ -56,7 +56,7 @@ func TestNestedContainerProfile(t *testing.T) {
 	assert.Contains(t, hostConfig.CapAdd, "SYS_ADMIN")
 	assert.Len(t, hostConfig.CapDrop, 0)
 	assert.Len(t, hostConfig.SecurityOpt, 2)
-	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker-nested")
+	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker_nested")
 
 }
 

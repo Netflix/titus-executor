@@ -1,6 +1,6 @@
 #include <tunables/global>
 
-profile docker-fuse flags=(attach_disconnected,mediate_deleted) {
+profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
   network,
@@ -8,6 +8,8 @@ profile docker-fuse flags=(attach_disconnected,mediate_deleted) {
   file,
   umount,
   mount,
+
+  signal (send,receive) peer=@{profile_name},
 
   deny mount fstype=tmpfs,
   deny mount fstype=ramfs,
@@ -37,8 +39,39 @@ profile docker-fuse flags=(attach_disconnected,mediate_deleted) {
   deny /sys/firmware/** rwklx,
   deny /sys/kernel/security/** rwklx,
 
-  ptrace (trace,read) peer=docker-fuse,
+  ptrace (trace,read) peer=@{profile_name},
 
   deny /titus/** wl,
+
+/titus/sshd/usr/sbin/sshd Cx,
+
+  profile sshd /titus/sshd/usr/sbin/sshd {
+    signal (send,receive) peer=@{profile_name},
+
+    network,
+    capability,
+
+    # We trust everything under /titus
+    # No writes though...
+    /titus/** rmlk,
+    /titus/sshd/usr/sbin/sshd ix,
+
+    # I don't think that memory mapping, or locking can lead to any attacks
+    /** mk,
+    # If we exec anything under /** then go back to the OG role.
+    /** Px -> docker_fuse,
+
+    # You're allowed to do anything with yourself
+    @{PROC}/@{pid}/** rwmlk,
+    @{PROC}/self/** rwmlk,
+
+    # Apparently SSH wants to read /proc/sys/kernel/ngroups_max
+    @{PROC}/sys/** rmkl,
+
+    /dev/{null,ptmx,tty,urandom,log} rwmlk,
+    /dev/pts/* rwmlk,
+
+    /etc/{gai.conf,group,nsswitch.conf,passwd,shadow} rmkl,
+  }
 }
 
