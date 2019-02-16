@@ -1136,7 +1136,7 @@ func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *ty
 
 	if err := tw.WriteHeader(&tar.Header{
 		Name:     "titus",
-		Mode:     0644,
+		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
 		log.Fatal(err)
