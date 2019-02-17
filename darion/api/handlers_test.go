@@ -219,6 +219,15 @@ func TestReadLogsMissingContainer(t *testing.T) {
 	testReadLogs(verifyFun, "/logs/Titus-fake-container-missing?f=missing", t)
 }
 
+func TestReadLogsLeakedFile(t *testing.T) {
+	verifyFun := func(resp *http.Response, t *testing.T) {
+		if resp.StatusCode != 404 {
+			t.Fatal("Received non-404 return code: ", resp.StatusCode)
+		}
+	}
+	testReadLogs(verifyFun, "/logs/Titus-fake-container?f=../../leak", t)
+}
+
 func verifyHelper(resp *http.Response, t *testing.T) string {
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
