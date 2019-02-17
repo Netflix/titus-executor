@@ -337,6 +337,12 @@
 			"revisionTime": "2017-04-05T07:26:53Z"
 		},
 		{
+			"checksumSHA1": "Ov+ja3hmONKxbhq9HAgK/vHSi/0=",
+			"path": "github.com/cyphar/filepath-securejoin",
+			"revision": "7efe413b52e1bceaaee7efafebe396f9d648f258",
+			"revisionTime": "2019-02-05T14:40:30Z"
+		},
+		{
 			"checksumSHA1": "CSPbwbyzqA6sfORicn4HFtIhF/c=",
 			"path": "github.com/davecgh/go-spew/spew",
 			"revision": "d8f796af33cc11cb798c1aaeb27a4ebc5099927d",

@@ -15,6 +15,7 @@ import (
 	"github.com/Netflix/titus-executor/darion/conf"
 	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
+	securejoin "github.com/cyphar/filepath-securejoin"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -39,7 +40,14 @@ func LogHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string) {
-	filePath := filepath.Join(conf.ContainersHome, containerID, "logs", fileName)
+	containerLogsRoot := filepath.Join(conf.ContainersHome, containerID, "logs")
+	filePath, err := securejoin.SecureJoin(containerLogsRoot, fileName)
+	log.Infof("Joined log file %s and %s", containerLogsRoot, filePath)
+	if err != nil {
+		log.WithError(err).Error("Unable to build secure path")
+		http.Error(w, "Cannot build log file path: "+err.Error(), 503)
+		return
+	}
 	fout, err := os.Open(filePath) // nolint: gosec
 	if os.IsNotExist(err) {
 		err = maybeVirtualFileStdioLogHandler(w, r, containerID, fileName)
