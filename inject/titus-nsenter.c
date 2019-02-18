@@ -97,10 +97,28 @@ int populate_namespaces(int titus_pid_1_fd, int namespace_fds[]) {
 	return ret;
 }
 
-int __set_up_apparmor(int titus_pid_1_fd) {
+static int set_up_apparmor(char apparmor_profile[1024], int apparmor_fd) {
 	// This will break on older kernels
-	int containerfd, our_fd, n;
-	char buf[1024], writebuf[1024];
+	char writebuf[1024];
+	int n, ret = 0;
+
+	// we can use dprintf, but this just makes error handling cleaner
+	memset(writebuf, 0, sizeof(writebuf));
+	n = sprintf(writebuf, "changeprofile %s", apparmor_profile);
+	BUG_ON(n < 0 || n >= sizeof(writebuf), "Could not generate exec changehat command");
+
+	if (write(apparmor_fd, writebuf, n) != n) {
+		perror("Writing apparmor changeprofile");
+		ret = 1;
+	}
+
+	close(apparmor_fd);
+	return ret;
+}
+
+static int __get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[1024], int *apparmor_fd) {
+	int containerfd;
+	char buf[1024];
 	char *profile;
 
 	memset(buf, 0, sizeof(buf));
@@ -116,37 +134,28 @@ int __set_up_apparmor(int titus_pid_1_fd) {
 		return 1;
 	}
 	close(containerfd);
+
 	if (strcmp("unconfined", buf) == 0) {
 		fprintf(stderr, "Container unconfined, not setting change exec hat profile\n");
 		return 0;
 	}
-
 	profile = strtok(buf, " ");
+	strcpy(apparmor_profile, profile);
 
-	our_fd = open("/proc/self/attr/exec", O_WRONLY);
-	if (our_fd == -1) {
-		perror("Open /proc/self/attr/exec");
+	*apparmor_fd = open("/proc/self/attr/current", O_WRONLY);
+	if (*apparmor_fd == -1) {
+		perror("Open /proc/self/attr/current");
 		return 1;
 	}
 
-	// we can us dprintf, but this just makes error handling cleaner
-	memset(writebuf, 0, sizeof(writebuf));
-	n = sprintf(writebuf, "exec %s", profile);
-	BUG_ON(n < 0 || n >= sizeof(writebuf), "Could not generate exec changehat command");
-
-	if (write(our_fd, writebuf, n) != n) {
-		perror("Writing apparmor exec hat");
-		close(our_fd);
-		return 1;
-	}
-	close(our_fd);
 	return 0;
 }
 
-int set_up_apparmor(int titus_pid_1_fd) {
+int get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[1024], int *apparmor_fd) {
 	char lsm_buf[1024];
 	int fd;
 
+	*apparmor_fd = -1;
 	memset(lsm_buf, 0, sizeof(lsm_buf));
 	fd = open("/sys/kernel/security/lsm", O_RDONLY | O_CLOEXEC);
 	if (fd == -1) {
@@ -167,7 +176,7 @@ int set_up_apparmor(int titus_pid_1_fd) {
 		return 0;
 	}
 
-	return __set_up_apparmor(titus_pid_1_fd);
+	return __get_apparmor_profile(titus_pid_1_fd, apparmor_profile, apparmor_fd);
 }
 
 int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
@@ -178,22 +187,24 @@ int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
 	// 4. We do the seccomp thing
 	// 5. We do the execve
 	int namespace_fds[ARRAY_SIZE(namespaces)];
-	int status, i;
+	int status, i, apparmor_fd;
+	char apparmor_profile[1024];
 	pid_t pid;
 
 	struct stat my_user_ns, other_user_ns;
 
-	if (set_up_apparmor(titus_pid_1_fd)) {
+	memset(apparmor_profile, 0, sizeof(apparmor_profile));
+	if (get_apparmor_profile(titus_pid_1_fd, apparmor_profile, &apparmor_fd)) {
 		return 1;
 	}
 
 	if (stat("/proc/self/ns/user", &my_user_ns) == -1) {
 		perror("Stat my user ns");
-		return 1;
+		goto fail_presetns;
 	}
 
 	if (populate_namespaces(titus_pid_1_fd, namespace_fds)) {
-		return 1;
+		goto fail_presetns;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(namespaces); i++) {
@@ -213,6 +224,10 @@ int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
 skip_setns:
 		close(namespace_fds[i]);
 	}
+
+	if (apparmor_fd != -1)
+		BUG_ON(set_up_apparmor(apparmor_profile, apparmor_fd), "Unable to change / setup apparmor profile");
+
 
 	BUG_ON_PERROR(setgid(0), "Unable to drop GID");
 	BUG_ON_PERROR(setuid(0), "Unable to drop UID");
@@ -234,6 +249,9 @@ fail:
 	for (; i < ARRAY_SIZE(namespaces); i++) {
 		close(namespace_fds[i]);
 	}
+
+fail_presetns:
+	close(apparmor_fd);
 	return 1;
 }
 

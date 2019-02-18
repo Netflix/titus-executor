@@ -1,11 +1,12 @@
 package docker
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/Netflix/titus-executor/executor/runtime/docker/seccomp"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/docker/docker/api/types/container"
-
-	"fmt"
 )
 
 const (
@@ -42,7 +43,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		}
 	}
 	seccompProfile := "default.json"
-	apparmorProfile := "docker-titus"
+	apparmorProfile := "docker_titus"
 
 	if fuseEnabled {
 		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
@@ -50,17 +51,13 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 			PathInContainer:   fuseDev,
 			CgroupPermissions: "rmw",
 		})
-		apparmorProfile = "docker-fuse"
+		apparmorProfile = "docker_fuse"
 		seccompProfile = "fuse-container.json"
 
 	}
 	// We can do this here because nested containers can do everything fuse containers can
 	if c.TitusInfo.GetAllowNestedContainers() {
-		apparmorProfile = "docker-nested"
-		seccompProfile = "nested-container.json"
-
-		c.Env["TINI_HANDOFF"] = trueString
-		c.Env["TINI_UNSHARE"] = trueString
+		return errors.New("Nested containers no longer supported")
 	}
 
 	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
