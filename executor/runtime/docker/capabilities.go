@@ -2,12 +2,11 @@ package docker
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/Netflix/titus-executor/executor/runtime/docker/seccomp"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/docker/docker/api/types/container"
-
-	"fmt"
 )
 
 const (
