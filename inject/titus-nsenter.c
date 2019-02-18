@@ -102,7 +102,7 @@ static int set_up_apparmor(char apparmor_profile[1024], int apparmor_fd) {
 	char writebuf[1024];
 	int n, ret = 0;
 
-	// we can us dprintf, but this just makes error handling cleaner
+	// we can use dprintf, but this just makes error handling cleaner
 	memset(writebuf, 0, sizeof(writebuf));
 	n = sprintf(writebuf, "changeprofile %s", apparmor_profile);
 	BUG_ON(n < 0 || n >= sizeof(writebuf), "Could not generate exec changehat command");
