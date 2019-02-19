@@ -32,7 +32,7 @@ jobs:
           name: Login into Docker hub
           command: docker login -u $DOCKER_USER -p $DOCKER_PASS
       - run: ./build.sh ubuntu
-      - run: ./build.sh ubuntu-systemd-xenial
+      - run: ./build.sh ubuntu-systemd-bionic
       - run: ./build.sh no-entrypoint
       - run: ./build.sh shell-entrypoint
       - run: ./build.sh ignore-signals

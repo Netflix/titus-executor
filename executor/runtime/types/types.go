@@ -127,6 +127,9 @@ type Container struct {
 	NormalizedENIIndex int
 	BandwidthLimitMbps uint32
 
+	// Is this container meant to run SystemD?
+	IsSystemD bool
+
 	// GPU devices
 	GPUInfo GPUContainer
 

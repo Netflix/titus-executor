@@ -34,10 +34,11 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 
 	// Privileged containers automaticaly deactivate seccomp and friends, no need to do this
 	fuseEnabled, err := c.GetFuseEnabled()
+
 	if err != nil {
 		return err
 	}
-	if fuseEnabled || c.TitusInfo.GetAllowNestedContainers() {
+	if fuseEnabled {
 		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
 			hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
 		}
@@ -55,9 +56,15 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		seccompProfile = "fuse-container.json"
 
 	}
+
 	// We can do this here because nested containers can do everything fuse containers can
 	if c.TitusInfo.GetAllowNestedContainers() {
 		return errors.New("Nested containers no longer supported")
+	}
+
+	if c.IsSystemD {
+		// Tell Tini to exec systemd so it's pid 1
+		c.Env["TINI_HANDOFF"] = trueString
 	}
 
 	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)

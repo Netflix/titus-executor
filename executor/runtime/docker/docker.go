@@ -60,8 +60,10 @@ const (
 	defaultNetworkBandwidth = 128 * MB
 	defaultKillWait         = 10 * time.Second
 	defaultRunTmpFsSize     = "134217728" // 128 MiB
+	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
 	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
+	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
 const envFileTemplateStr = `
@@ -487,7 +489,12 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	// Always setup tmpfs: it's needed to ensure Metatron credentials don't persist across reboots and for SystemD to work
 	hostCfg.Tmpfs = map[string]string{
-		"/run": "rw,exec,suid,size=" + defaultRunTmpFsSize,
+		"/run": "rw,exec,size=" + defaultRunTmpFsSize,
+	}
+
+	if c.IsSystemD {
+		// systemd requires `/run/lock` to be a separate mount from `/run`
+		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
 	}
 
 	if r.storageOptEnabled {
@@ -658,6 +665,26 @@ func vpcToolPath() string {
 		panic(err)
 	}
 	return ret
+}
+
+// Use image labels to determine if the container should be configured to run SystemD
+func setSystemdRunning(log *log.Entry, imageInfo types.ImageInspect, c *runtimeTypes.Container) error {
+	l := log.WithField("imageName", c.QualifiedImageName())
+
+	if systemdBool, ok := imageInfo.Config.Labels[systemdImageLabel]; ok {
+		l.WithField("systemdLabel", systemdBool).Info("SystemD image label set")
+
+		val, err := strconv.ParseBool(systemdBool)
+		if err != nil {
+			l.WithError(err).Error("Error parsing systemd image label")
+			return errors.Wrap(err, "error parsing systemd image label")
+		}
+
+		c.IsSystemD = val
+		return nil
+	}
+
+	return nil
 }
 
 // This will setup c.Allocation
@@ -987,6 +1014,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 
+	if err = setSystemdRunning(l, *myImageInfo, c); err != nil {
+		goto error
+	}
 	binds = append(binds, getLXCFsBindMounts()...)
 
 	if metatronContainerName != "" {
@@ -1696,6 +1726,11 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	}
 
 	if err := setupOOMAdj(c, cred); err != nil {
+		return err
+	}
+
+	if err := setCgroupOwnership(parentCtx, c, cred); err != nil {
+		log.WithError(err).Error("Unable to change cgroup ownership")
 		return err
 	}
 

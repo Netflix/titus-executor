@@ -1,5 +1,6 @@
-FROM ubuntu:xenial
+FROM ubuntu:bionic
 
+LABEL "com.netflix.titus.systemd"="true"
 ENV container docker
 ENV DEBIAN_FRONTEND noninteractive
 
