@@ -841,6 +841,12 @@
 			"revisionTime": "2017-03-08T15:04:45Z"
 		},
 		{
+			"checksumSHA1": "sz6aGqiHwtkpDFBCsOu/Rk97keE=",
+			"path": "gopkg.in/alessio/shellescape.v1",
+			"revision": "52074bc9df61e0d2af85c160b3a325403955d7fb",
+			"revisionTime": "2017-01-05T08:38:45Z"
+		},
+		{
 			"checksumSHA1": "Yx1MU40fyGe7hhqW9+dkv8kXa60=",
 			"path": "gopkg.in/urfave/cli.v1",
 			"revision": "cfb38830724cc34fedffe9a2a29fb54fa9169cd1",
