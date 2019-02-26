@@ -19,6 +19,7 @@ import (
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/coreos/go-systemd/dbus"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
@@ -42,7 +43,7 @@ const (
 	metadataServiceSystemdUnit = "titus-metadata-proxy"
 	metatronServiceSystemdUnit = "titus-metatron-sync"
 	sshdSystemdUnit            = "titus-sshd"
-	metricStartTimeout         = time.Minute
+	systemServiceStartTimeout  = 90 * time.Second
 	umountNoFollow             = 0x8
 	sysFsCgroup                = "/sys/fs/cgroup"
 )
@@ -84,7 +85,7 @@ func setupScheduler(cred ucred) error {
 }
 
 func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
-	ctx, cancel := context.WithTimeout(parentCtx, metricStartTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 
 	conn, connErr := dbus.New()
@@ -151,7 +152,12 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, required bool, taskI
 	}
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		doneErr := ctx.Err()
+
+		if doneErr == context.DeadlineExceeded {
+			return errors.Wrapf(doneErr, "timeout starting %s service", unitName)
+		}
+		return doneErr
 	case val := <-ch:
 		if val != "done" {
 			if required {
