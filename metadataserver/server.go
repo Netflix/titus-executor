@@ -75,11 +75,11 @@ func dumpRoutes(r *mux.Router) {
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
-func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, ipv4Address, region string, optimistic bool, container *titus.ContainerInfo, signer *identity.Signer) *MetadataServer {
+func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titusTaskInstanceID, ipv4Address, region string, optimistic bool, container *titus.ContainerInfo, signer *identity.Signer) *MetadataServer {
 	ms := &MetadataServer{
 		httpClient:          &http.Client{},
 		internalMux:         mux.NewRouter(),
-		titusTaskInstanceID: *container.RunState.TaskId,
+		titusTaskInstanceID: titusTaskInstanceID,
 		ipv4Address:         ipv4Address,
 		container:           container,
 		signer:              signer,
@@ -104,7 +104,7 @@ func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, ipv4A
 	metaData.Handle("/instance-type", http.NotFoundHandler())
 
 	/* IAM Stuffs */
-	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), iamArn, *container.RunState.TaskId, region, optimistic)
+	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), iamArn, titusTaskInstanceID, region, optimistic)
 
 	/* Titus-specific routes */
 	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()

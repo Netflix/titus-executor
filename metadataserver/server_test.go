@@ -425,7 +425,7 @@ func setupMetadataServer(t *testing.T, ss *stubServer, certType string) {
 		}
 	}
 
-	ms := NewMetaDataServer(context.Background(), fakeEC2MetadataURI, fakeARN, fakeTitusTaskInstanceIPAddress, "", false, fakeTaskIdent.Container, signer)
+	ms := NewMetaDataServer(context.Background(), fakeEC2MetadataURI, fakeARN, *fakeTaskIdent.Container.RunState.TaskId, fakeTitusTaskInstanceIPAddress, "", false, fakeTaskIdent.Container, signer)
 
 	// Leaks connections, but this is okay in the time of testing
 	go func() {
