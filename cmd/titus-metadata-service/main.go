@@ -171,7 +171,7 @@ func main() {
 				log.Fatal(err)
 			}
 		}
-		ms := metadataserver.NewMetaDataServer(context.Background(), backingMetadataServer, iamARN, ipv4Address, region, optimistic, container, signer)
+		ms := metadataserver.NewMetaDataServer(context.Background(), backingMetadataServer, iamARN, titusTaskInstanceID, ipv4Address, region, optimistic, container, signer)
 		go notifySystemd()
 		if err := http.Serve(listener, ms); err != nil {
 			return err
