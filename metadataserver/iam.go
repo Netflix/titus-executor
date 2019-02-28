@@ -65,8 +65,9 @@ func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInsta
 	awsCfg := aws.NewConfig().WithMaxRetries(3)
 	s := session.Must(session.NewSession())
 	if region != "" {
-		awsCfg = awsCfg.WithRegion(region)
-		log.WithField("region", region).Info("Configure STS client with region")
+		awsCfg = awsCfg.WithRegion(region).WithEndpoint(fmt.Sprintf("sts.%s.amazonaws.com", region))
+		c := s.ClientConfig(sts.EndpointsID, awsCfg)
+		log.WithField("region", region).WithField("endpoint", c.Endpoint).Info("Configure STS client with region")
 	}
 
 	proxy := &iamProxy{
