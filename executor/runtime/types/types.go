@@ -152,8 +152,11 @@ func (c *Container) QualifiedImageName() string {
 	if c == nil {
 		return ""
 	}
-	image := c.TitusInfo.GetImageName()
-	baseRef := c.Config.DockerRegistry + "/" + image
+	baseRef := c.TitusInfo.GetFullyQualifiedImage()
+	if baseRef == "" {
+		image := c.TitusInfo.GetImageName()
+		baseRef = c.Config.DockerRegistry + "/" + image
+	}
 	if c.ImageHasDigest() {
 		// digest has precedence
 		return baseRef + "@" + c.TitusInfo.GetImageDigest()
