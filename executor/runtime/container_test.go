@@ -83,6 +83,7 @@ func TestImageByDigestIgnoresTag(t *testing.T) {
 
 func TestNewContainer(t *testing.T) {
 	taskID := "task-id"
+	expectedAppName := "appName"
 	expectedCPU := int64(2)
 	expectedMem := int64(1024)
 	expectedDisk := uint64(15000)
@@ -100,6 +101,7 @@ func TestNewContainer(t *testing.T) {
 	expectedDigest := "abcd0123"
 
 	containerInfo := &titus.ContainerInfo{
+		AppName:   &expectedAppName,
 		ImageName: protobuf.String("titusoss/alpine"),
 		Version:   protobuf.String("latest"),
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
@@ -124,6 +126,9 @@ func TestNewContainer(t *testing.T) {
 	config := config.Config{}
 
 	container := NewContainer(taskID, containerInfo, resources, labels, config)
+
+	actualAppName := container.Labels[appNameLabelKey]
+	assert.Equal(t, expectedAppName, actualAppName)
 
 	actualCPU, _ := strconv.ParseInt(container.Labels[cpuLabelKey], 10, 64)
 	assert.Equal(t, expectedCPU, actualCPU)

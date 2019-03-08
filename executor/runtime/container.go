@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	appNameLabelKey        = "com.netflix.titus.appName"
 	cpuLabelKey            = "com.netflix.titus.cpu"
 	memLabelKey            = "com.netflix.titus.mem"
 	diskLabelKey           = "com.netflix.titus.disk"
@@ -43,6 +44,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 	strNetwork := strconv.FormatUint(uint64(networkCfgParams.GetBandwidthLimitMbps()), 10)
 
 	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
+	labels[appNameLabelKey] = titusInfo.GetAppName()
 	labels[titusTaskInstanceIDKey] = env[titusTaskInstanceIDKey]
 	labels[cpuLabelKey] = strCPU
 	labels[memLabelKey] = strMem
