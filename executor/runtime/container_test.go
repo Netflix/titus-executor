@@ -99,6 +99,12 @@ func TestNewContainer(t *testing.T) {
 	expectedJobStack := "stack"
 	expectedJobSeq := "seq"
 	expectedDigest := "abcd0123"
+	expectedOwnerEmail := "user@email.org"
+	expectedJobType := "SERVICE"
+
+	expectedPassthroughAttributes := make(map[string]string)
+	expectedPassthroughAttributes[ownerEmailPassThroughKey] = expectedOwnerEmail
+	expectedPassthroughAttributes[jobTypePassThroughKey] = expectedJobType
 
 	containerInfo := &titus.ContainerInfo{
 		AppName:   &expectedAppName,
@@ -107,13 +113,14 @@ func TestNewContainer(t *testing.T) {
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
 			BandwidthLimitMbps: &expectedNetwork,
 		},
-		AllowCpuBursting: &batch,
-		Command:          &expectedCmd,
-		UserProvidedEnv:  expectedUserEnv,
-		JobGroupDetail:   &expectedJobDetail,
-		JobGroupStack:    &expectedJobStack,
-		JobGroupSequence: &expectedJobSeq,
-		ImageDigest:      &expectedDigest,
+		AllowCpuBursting:      &batch,
+		Command:               &expectedCmd,
+		UserProvidedEnv:       expectedUserEnv,
+		JobGroupDetail:        &expectedJobDetail,
+		JobGroupStack:         &expectedJobStack,
+		JobGroupSequence:      &expectedJobSeq,
+		ImageDigest:           &expectedDigest,
+		PassthroughAttributes: expectedPassthroughAttributes,
 	}
 
 	resources := &runtimeTypes.Resources{
@@ -129,6 +136,12 @@ func TestNewContainer(t *testing.T) {
 
 	actualAppName := container.Labels[appNameLabelKey]
 	assert.Equal(t, expectedAppName, actualAppName)
+
+	actualOwnerEmail := container.Labels[ownerEmailLabelKey]
+	assert.Equal(t, expectedOwnerEmail, actualOwnerEmail)
+
+	actualJobType := container.Labels[jobTypeLabelKey]
+	assert.Equal(t, expectedJobType, actualJobType)
 
 	actualCPU, _ := strconv.ParseInt(container.Labels[cpuLabelKey], 10, 64)
 	assert.Equal(t, expectedCPU, actualCPU)

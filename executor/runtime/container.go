@@ -9,13 +9,17 @@ import (
 )
 
 const (
-	appNameLabelKey        = "com.netflix.titus.appName"
-	cpuLabelKey            = "com.netflix.titus.cpu"
-	memLabelKey            = "com.netflix.titus.mem"
-	diskLabelKey           = "com.netflix.titus.disk"
-	networkLabelKey        = "com.netflix.titus.network"
-	workloadTypeLabelKey   = "com.netflix.titus.workload.type"
-	titusTaskInstanceIDKey = "TITUS_TASK_INSTANCE_ID"
+	appNameLabelKey          = "com.netflix.titus.appName"
+	cpuLabelKey              = "com.netflix.titus.cpu"
+	memLabelKey              = "com.netflix.titus.mem"
+	diskLabelKey             = "com.netflix.titus.disk"
+	networkLabelKey          = "com.netflix.titus.network"
+	workloadTypeLabelKey     = "com.netflix.titus.workload.type"
+	ownerEmailLabelKey       = "com.netflix.titus.owner.email"
+	ownerEmailPassThroughKey = "titus.agent.ownerEmail"
+	jobTypeLabelKey          = "com.netflix.titus.job.type"
+	jobTypePassThroughKey    = "titus.agent.jobType"
+	titusTaskInstanceIDKey   = "TITUS_TASK_INSTANCE_ID"
 )
 
 // WorkloadType classifies isolation behaviors on resources (e.g. CPU).  The exact implementation details of the
@@ -50,6 +54,12 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 	labels[memLabelKey] = strMem
 	labels[diskLabelKey] = strDisk
 	labels[networkLabelKey] = strNetwork
+
+	passthroughAttributes := titusInfo.GetPassthroughAttributes()
+	if passthroughAttributes != nil {
+		labels[ownerEmailLabelKey] = passthroughAttributes[ownerEmailPassThroughKey]
+		labels[jobTypeLabelKey] = passthroughAttributes[jobTypePassThroughKey]
+	}
 
 	workloadType := StaticWorkloadType
 	if titusInfo.GetAllowCpuBursting() {
