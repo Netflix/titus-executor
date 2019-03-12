@@ -3,6 +3,7 @@ package metadataserver
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/logging"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
+	"github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 )
@@ -53,7 +55,10 @@ type MetadataServer struct {
 		I'd rather not break it into owns struct
 	*/
 	titusTaskInstanceID string
-	ipv4Address         string
+	ipv4Address         net.IP
+	ipv6Address         *net.IP
+	vpcID               string
+	eniID               string
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
 }
@@ -75,19 +80,22 @@ func dumpRoutes(r *mux.Router) {
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
-func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titusTaskInstanceID, ipv4Address, region string, optimistic bool, container *titus.ContainerInfo, signer *identity.Signer) *MetadataServer {
+func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) *MetadataServer {
 	ms := &MetadataServer{
 		httpClient:          &http.Client{},
 		internalMux:         mux.NewRouter(),
-		titusTaskInstanceID: titusTaskInstanceID,
-		ipv4Address:         ipv4Address,
-		container:           container,
-		signer:              signer,
+		titusTaskInstanceID: config.TitusTaskInstanceID,
+		ipv4Address:         config.Ipv4Address,
+		ipv6Address:         config.Ipv6Address,
+		vpcID:               config.VpcID,
+		eniID:               config.EniID,
+		container:           config.Container,
+		signer:              config.Signer,
 	}
 
 	/* wire up routing */
 	apiVersion := ms.internalMux.PathPrefix("/latest").Subrouter()
-	apiVersion.NotFoundHandler = newProxy(backingMetadataServer)
+	apiVersion.NotFoundHandler = newProxy(config.BackingMetadataServer)
 
 	apiVersion.HandleFunc("/ping", ms.ping)
 	/* Wire up the routes under /{VERSION}/meta-data */
@@ -104,11 +112,11 @@ func NewMetaDataServer(ctx context.Context, backingMetadataServer, iamArn, titus
 	metaData.Handle("/instance-type", http.NotFoundHandler())
 
 	/* IAM Stuffs */
-	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), iamArn, titusTaskInstanceID, region, optimistic)
+	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), config)
 
 	/* Titus-specific routes */
 	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()
-	if signer != nil {
+	if config.Signer != nil {
 		titusRouter.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
 		titusRouter.HandleFunc("/task-identity", ms.taskIdentity)
 	}
@@ -196,16 +204,12 @@ type proxy struct {
 	reverseProxy     *httputil.ReverseProxy
 }
 
-func newProxy(backingMetadataServer string) *proxy {
-	u, err := url.Parse(backingMetadataServer)
-	if err != nil {
-		panic(err)
-	}
+func newProxy(backingMetadataServer *url.URL) *proxy {
 
 	p := &proxy{
 		whitelistLock: &sync.RWMutex{},
 		whitelist:     make(map[string]struct{}),
-		reverseProxy:  httputil.NewSingleHostReverseProxy(u),
+		reverseProxy:  httputil.NewSingleHostReverseProxy(backingMetadataServer),
 	}
 	if whiteListEnabledByDefault {
 		p.whitelistEnabled = 1

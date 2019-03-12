@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Netflix/titus-executor/ec2util"
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/context"
-	"github.com/Netflix/titus-executor/vpc/ec2util"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"gopkg.in/urfave/cli.v1"

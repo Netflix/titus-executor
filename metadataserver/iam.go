@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Netflix/titus-executor/metadataserver/types"
+	"github.com/aws/aws-sdk-go/service/ec2"
 
 	"sync"
 
@@ -32,7 +36,6 @@ type iamProxy struct {
 	ctx                 context.Context
 	roleName            string
 	titusTaskInstanceID string
-	awsSession          *session.Session
 	arn                 arn.ARN
 	sts                 *sts.STS
 
@@ -40,6 +43,10 @@ type iamProxy struct {
 	roleAssumptionStateLock *sync.RWMutex
 	// This is used to start the role assumer
 	roleAssumerOnce *sync.Once
+
+	vpcID              string
+	apiProtectPolicy   *string
+	apiProtectInfoLock sync.Locker
 }
 
 const (
@@ -55,30 +62,37 @@ var (
 )
 
 /* This sets up an iam "proxy" and sets up the routes under /{apiVersion}/meta-data/iam/... */
-func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInstanceID, region string, optimistic bool) {
+func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataServerConfiguration) {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
-	parsedArn, err := arn.Parse(iamArn)
+	parsedArn, err := arn.Parse(config.IAMARN)
 	if err != nil {
 		log.Fatal("Unable to parse ARN: ", err)
 	}
 
-	awsCfg := aws.NewConfig().WithMaxRetries(3)
-	s := session.Must(session.NewSession())
-	if region != "" {
-		awsCfg = awsCfg.WithRegion(region).WithEndpoint(fmt.Sprintf("sts.%s.amazonaws.com", region))
-		c := s.ClientConfig(sts.EndpointsID, awsCfg)
-		log.WithField("region", region).WithField("endpoint", c.Endpoint).Info("Configure STS client with region")
-	}
+	apiProtectInfoLock := &sync.RWMutex{}
 
 	proxy := &iamProxy{
 		ctx:                 ctx,
-		titusTaskInstanceID: titusTaskInstanceID,
-		awsSession:          s,
+		titusTaskInstanceID: config.TitusTaskInstanceID,
 		arn:                 parsedArn,
-		sts:                 sts.New(s, awsCfg),
+		vpcID:               config.VpcID,
 
 		roleAssumerOnce:         &sync.Once{},
 		roleAssumptionStateLock: &sync.RWMutex{},
+
+		apiProtectInfoLock: apiProtectInfoLock.RLocker(),
+	}
+	s := session.Must(session.NewSession())
+
+	if config.Region != "" {
+		stsAwsCfg := aws.NewConfig().
+			WithRegion(config.Region).
+			WithEndpoint(fmt.Sprintf("sts.%s.amazonaws.com", config.Region))
+		c := s.ClientConfig(sts.EndpointsID, stsAwsCfg)
+		log.WithField("region", config.Region).WithField("endpoint", c.Endpoint).Info("Configure STS client with region")
+		proxy.sts = sts.New(s, stsAwsCfg)
+	} else {
+		proxy.sts = sts.New(s)
 	}
 
 	splitRole := strings.Split(proxy.arn.Resource, "/")
@@ -88,6 +102,7 @@ func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInsta
 	proxy.roleName = splitRole[1]
 
 	router.HandleFunc("/info", proxy.info)
+	router.HandleFunc("/policy", proxy.policy)
 	router.HandleFunc("/security-credentials/", proxy.securityCredentials)
 	router.HandleFunc("/security-credentials", redirectSecurityCredentials)
 
@@ -96,7 +111,18 @@ func newIamProxy(ctx context.Context, router *mux.Router, iamArn, titusTaskInsta
 	*/
 	router.HandleFunc("/security-credentials/{iamProfile}", proxy.specificInstanceProfile)
 
-	if optimistic {
+	if config.APIProtectEnabled {
+		apiProtectInfoLock.Lock()
+		ec2AWSCfg := aws.NewConfig().WithMaxRetries(3)
+		if config.Region != "" {
+			ec2AWSCfg = ec2AWSCfg.WithRegion(config.Region)
+		}
+
+		ec2Client := ec2.New(s, ec2AWSCfg)
+		go proxy.getProtectInfo(ec2Client, apiProtectInfoLock, &config.Ipv4Address, config.Ipv6Address)
+	}
+
+	if config.Optimistic {
 		// No need to block here
 		go proxy.startRoleAssumer()
 	}
@@ -109,6 +135,34 @@ type ec2IAMInfo struct {
 	LastUpdated        string
 	InstanceProfileArn string
 	InstanceProfileID  string
+}
+
+// getProtectInfo is supposed to populate, and unlock proxy.apiProtectInfoLock
+func (proxy *iamProxy) getProtectInfo(ec2Client *ec2.EC2, lock *sync.RWMutex, ipv4Address, ipv6Address *net.IP) {
+	defer lock.Unlock()
+
+	proxy.apiProtectPolicy = getAPIProtectPolicy(proxy.ctx, ec2Client, proxy.vpcID, ipv4Address, ipv6Address)
+	if proxy.apiProtectPolicy == nil {
+		log.Warning("API Protect not generated, failing open")
+	} else {
+		log.WithField("policy", proxy.apiProtectPolicy).Debug("Generated policy")
+	}
+}
+
+func (proxy *iamProxy) policy(w http.ResponseWriter, r *http.Request) {
+	proxy.apiProtectInfoLock.Lock()
+	defer proxy.apiProtectInfoLock.Unlock()
+
+	if proxy.apiProtectPolicy == nil {
+		w.WriteHeader(404)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	_, err := w.Write([]byte(*proxy.apiProtectPolicy))
+	if err != nil {
+		log.WithError(err).Error("Unable to write API protect policy")
+	}
 }
 
 func (proxy *iamProxy) info(w http.ResponseWriter, r *http.Request) {
@@ -318,6 +372,25 @@ func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
 		RoleArn:         aws.String(proxy.arn.String()),
 		RoleSessionName: aws.String(generateSessionName(proxy.titusTaskInstanceID)),
 	}
+
+	// This should be safe because this method should be serialized
+	// and in addition this is an rlock, which means multiple reads
+	// can be in this critical section
+
+	// the only (primary) problem is that this can block forever, and
+	// we're protected by the apiProtectInfoFetchTimeout, but who
+	// knows how good that codepath is, so we do some futzing here
+	proxy.apiProtectInfoLock.Lock()
+	defer proxy.apiProtectInfoLock.Unlock()
+	if err := ctx.Err(); err != nil {
+		log.WithError(err).Error("Context canceled while waiting for api protect info lock")
+	}
+
+	if proxy.apiProtectPolicy != nil {
+		input.Policy = proxy.apiProtectPolicy
+	}
+	log.WithField("assumeRoleInput", input).Debug("Assume role input")
+
 	now := time.Now()
 	result, err := proxy.sts.AssumeRoleWithContext(ctx, input)
 	metrics.PublishTimer("iam.assumeRoleTime", time.Since(now))

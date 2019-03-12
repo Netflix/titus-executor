@@ -15,9 +15,10 @@ import (
 func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
 	now := uint64(time.Now().Unix())
 	taskStatus := titus.TaskInfo_RUNNING
+	ipv4Address := ms.ipv4Address.String()
 	return &titus.TaskIdentity{
 		Container:   ms.container,
-		Ipv4Address: &ms.ipv4Address,
+		Ipv4Address: &ipv4Address,
 		Task: &titus.TaskInfo{
 			ContainerId: ms.container.RunState.TaskId,
 			TaskId:      ms.container.RunState.TaskId,
