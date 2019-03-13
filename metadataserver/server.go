@@ -8,16 +8,14 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/Netflix/quitelite-client-go/properties"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/logging"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/Netflix/titus-executor/metadataserver/types"
+	set "github.com/deckarep/golang-set"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 )
@@ -25,18 +23,16 @@ import (
 // Derived from big data portal reports
 const defaultMacAddress = "00:00:00:00:00:00"
 
-const defaultWhiteList = `
-/latest/meta-data/
-/latest/meta-data/network/interfaces/macs/null/vpc-id
-/latest/meta-data/network/interfaces/macs/00:00:00:00:00:00/vpc-id
-/latest/dynamic/instance-identity
-/latest/user-data
-/latest/meta-data/placement/availability-zone
-/latest/dynamic/instance-identity/document
-/latest/meta-data/iam/
-`
-
-const whiteListEnabledByDefault = true
+var whitelist = set.NewSetFromSlice([]interface{}{
+	"/latest/meta-data",
+	"/latest/meta-data/network/interfaces/macs/null/vpc-id",
+	"/latest/meta-data/network/interfaces/macs/00:00:00:00:00:00/vpc-id",
+	"/latest/dynamic/instance-identity",
+	"/latest/user-data",
+	"/latest/meta-data/placement/availability-zone",
+	"/latest/dynamic/instance-identity/document",
+	"/latest/meta-data/iam",
+})
 
 /*
  * The processing pipeline should go ->
@@ -198,38 +194,19 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type proxy struct {
-	whitelistEnabled int32
-	whitelistLock    *sync.RWMutex
-	whitelist        map[string]struct{}
-	reverseProxy     *httputil.ReverseProxy
+	reverseProxy *httputil.ReverseProxy
 }
 
 func newProxy(backingMetadataServer *url.URL) *proxy {
-
 	p := &proxy{
-		whitelistLock: &sync.RWMutex{},
-		whitelist:     make(map[string]struct{}),
-		reverseProxy:  httputil.NewSingleHostReverseProxy(backingMetadataServer),
+		reverseProxy: httputil.NewSingleHostReverseProxy(backingMetadataServer),
 	}
-	if whiteListEnabledByDefault {
-		p.whitelistEnabled = 1
-	} else {
-		p.whitelistEnabled = 0
-	}
-
-	p.maintainWhitelist()
 
 	return p
 }
 
 func (p *proxy) checkProxyAllowed(path string) bool {
-	if atomic.LoadInt32(&p.whitelistEnabled) == 0 {
-		return true
-	}
-	p.whitelistLock.RLock()
-	defer p.whitelistLock.RUnlock()
-	_, ok := p.whitelist[path]
-	return ok
+	return whitelist.Contains(strings.TrimSuffix(path, "/"))
 }
 
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -247,71 +224,4 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("api.proxy_request.success.count")
 	p.reverseProxy.ServeHTTP(w, r)
 
-}
-
-func defaultWhitelistValue() string {
-	if whiteListEnabledByDefault {
-		return "true"
-	}
-	return "false"
-}
-
-func (p *proxy) maintainWhitelist() {
-	whitelistEnabled := properties.NewDynamicProperty(context.TODO(), "titus.metadata.service.whitelist.enabled", defaultWhitelistValue(), "", nil)
-	whitelist := properties.NewDynamicProperty(context.TODO(), "titus.metadata.service.whitelist.enabled", defaultWhiteList, "", nil)
-	p.handleWhiteListEnabledValue(whitelistEnabled.Read())
-	p.handleWhiteListValue(whitelistEnabled.Read())
-	go p.maintainWhitelistEnabledValue(whitelistEnabled)
-	go p.maintainWhitelistValue(whitelist)
-}
-
-func (p *proxy) maintainWhitelistEnabledValue(dp *properties.DynamicProperty) {
-	for val := range dp.C {
-		p.handleWhiteListEnabledValue(val)
-	}
-}
-
-func (p *proxy) maintainWhitelistValue(dp *properties.DynamicProperty) {
-	for val := range dp.C {
-		p.handleWhiteListValue(val)
-	}
-}
-
-func (p *proxy) handleWhiteListEnabledValue(whitelistEnabled *properties.DynamicPropertyValue) {
-	if val, err := whitelistEnabled.AsBool(); err != nil {
-		log.Error("Could not parse whitelist value, because: ", err)
-	} else if val {
-		atomic.StoreInt32(&p.whitelistEnabled, 1)
-	} else {
-		atomic.StoreInt32(&p.whitelistEnabled, 0)
-	}
-}
-
-func (p *proxy) handleWhiteListValue(whitelistPropertyValue *properties.DynamicPropertyValue) {
-
-	whitelist, err := whitelistPropertyValue.AsString()
-	if err != nil {
-		log.Error("Could not get whitelist string: ", err)
-		return
-	}
-	newWhiteList := map[string]struct{}{}
-	// We split on , or "\n"
-	newLineSplitWhiteListValue := strings.Split(whitelist, "\n")
-
-	splitWhiteListValue := []string{}
-	for _, val := range newLineSplitWhiteListValue {
-		splitWhiteListValue = append(splitWhiteListValue, strings.Split(val, ",")...)
-	}
-	/* We normalize the list so if someone puts /foo/bar/ in the list, then /foo/bar is also allowed,
-	 * similarly if someone puts /foo/bar in the whitelist, then /foo/bar/ is allowed
-	 */
-	for _, val := range splitWhiteListValue {
-		noTrailingSlash := strings.TrimSuffix(val, "/")
-		withTrailingSlash := noTrailingSlash + "/"
-		newWhiteList[noTrailingSlash] = struct{}{}
-		newWhiteList[withTrailingSlash] = struct{}{}
-	}
-	p.whitelistLock.Lock()
-	defer p.whitelistLock.Unlock()
-	p.whitelist = newWhiteList
 }
