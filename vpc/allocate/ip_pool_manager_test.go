@@ -82,7 +82,7 @@ func (tni *testNetworkInterface) GetIPv4Addresses() []string {
 	return tni.ipv4Addresses
 }
 
-func (tni *testNetworkInterface) Refresh() error {
+func (tni *testNetworkInterface) Refresh(ctx context.Context, session client.ConfigProvider) error {
 	if tni.refresh != nil {
 		return tni.refresh()
 	}

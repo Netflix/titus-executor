@@ -39,9 +39,10 @@ func (mgr *IPPoolManager) lockConfiguration(parentCtx *context.VPCContext) (*fsl
 	return parentCtx.FSLocker.ExclusiveLock(path, &timeout)
 }
 
-func assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration, networkInterface ec2wrapper.NetworkInterface, ipAssignmentFunction ec2wrapper.IPAssignmentFunction, ipFetchFunction ec2wrapper.IPFetchFunction) error {
+// returns number of refreshes done, and error
+func assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration, networkInterface ec2wrapper.NetworkInterface, ipAssignmentFunction ec2wrapper.IPAssignmentFunction, ipFetchFunction ec2wrapper.IPFetchFunction) (int, error) {
 	if len(ipFetchFunction()) >= vpc.GetMaxIPAddresses(ctx.InstanceType) {
-		return errMaxIPAddressesAllocated
+		return 0, errMaxIPAddressesAllocated
 	}
 
 	if len(ipFetchFunction())+batchSize > vpc.GetMaxIPAddresses(ctx.InstanceType) {
@@ -54,27 +55,29 @@ func assignMoreIPs(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time
 
 	if err := ipAssignmentFunction(ctx, ctx.AWSSession, batchSize); err != nil {
 		ctx.Logger.Warning("Unable to assign IPs from AWS: ", err)
-		return err
+		return 0, err
 	}
 
 	now := time.Now()
+	i := 0
 	for time.Since(now) < ipRefreshTimeout {
-		if err := networkInterface.Refresh(); err != nil {
-			return err
+		if err := networkInterface.Refresh(ctx, ctx.AWSSession); err != nil {
+			return i, err
 		}
+		i++
 
 		newIPSet := ec2wrapper.GetIPAddressesAsSet(ipFetchFunction)
 
 		if len(newIPSet.Difference(originalIPSet).ToSlice()) > 0 {
 			// Retry allocating an IP Address from the pool, now that the metadata service says that we have at
 			// least one more IP available from EC2
-			return nil
+			return i, nil
 		}
 		time.Sleep(time.Second)
 	}
 
 	ctx.Logger.Warning("Refreshed allocations seconds failed")
-	return errIPRefreshFailed
+	return i, errIPRefreshFailed
 }
 
 func (mgr *IPPoolManager) allocateIPv6(ctx *context.VPCContext, batchSize int, ipRefreshTimeout time.Duration) (string, *fslocker.ExclusiveLock, error) {
@@ -93,7 +96,7 @@ func (mgr *IPPoolManager) allocateIP(ctx *context.VPCContext, batchSize int, ipR
 	}
 	defer configLock.Unlock()
 
-	err = mgr.networkInterface.Refresh()
+	err = mgr.networkInterface.Refresh(ctx, ctx.AWSSession)
 	if err != nil {
 		ctx.Logger.Warning("Unable to refresh interface before attempting to do allocate: ", err)
 		return "", nil, err
@@ -109,12 +112,12 @@ func (mgr *IPPoolManager) allocateIP(ctx *context.VPCContext, batchSize int, ipR
 	} else if err == errNoFreeIPAddressFound {
 		ctx.Logger.Info("No free IP addresses available, trying to assign more")
 		now := time.Now()
-		err = assignMoreIPs(ctx, batchSize, ipRefreshTimeout, mgr.networkInterface, ipAssignmentFunction, ipFetchFunction)
-		if err != nil {
+		n, err2 := assignMoreIPs(ctx, batchSize, ipRefreshTimeout, mgr.networkInterface, ipAssignmentFunction, ipFetchFunction)
+		if err2 != nil {
 			ctx.Logger.WithField("duration", time.Since(now)).WithError(err).Warning("Unable assign more IPs")
-			return "", nil, err
+			return "", nil, err2
 		}
-		ctx.Logger.WithField("duration", time.Since(now)).Info("Successfully completed IP allocation")
+		ctx.Logger.WithField("duration", time.Since(now)).WithField("refreshes", n).Info("Successfully completed IP allocation")
 		return mgr.doAllocate(ctx, ipFetchFunction)
 	}
 
@@ -288,12 +291,12 @@ func (mgr *IPPoolManager) doFileCleanup(parentCtx *context.VPCContext, deallocat
 	return nil
 }
 
-func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, deallocationList []string) bool {
+func (mgr *IPPoolManager) ipsFreed(ctx *context.VPCContext, oldIPList, deallocationList []string) bool {
 	successCount := 0
 	for i := 0; i < 180; i++ {
-		err := mgr.networkInterface.Refresh()
+		err := mgr.networkInterface.Refresh(ctx, ctx.AWSSession)
 		if err != nil {
-			parentCtx.Logger.Error("Could not refresh IPs: ", err)
+			ctx.Logger.Error("Could not refresh IPs: ", err)
 		} else {
 			allocMap := make(map[string]struct{})
 			for _, ip := range mgr.networkInterface.GetIPv4Addresses() {
@@ -307,13 +310,13 @@ func (mgr *IPPoolManager) ipsFreed(parentCtx *context.VPCContext, oldIPList, dea
 				}
 			}
 			if missingIPs > 0 {
-				parentCtx.Logger.Infof("%d IPs successfully freed; intended to free: %d", missingIPs, len(deallocationList))
+				ctx.Logger.Infof("%d IPs successfully freed; intended to free: %d", missingIPs, len(deallocationList))
 				successCount++
 				if successCount > 3 {
 					return true
 				}
 			} else {
-				parentCtx.Logger.Info("Resetting freed success count to 0")
+				ctx.Logger.Info("Resetting freed success count to 0")
 				// Reset the success count
 				successCount = 0
 			}

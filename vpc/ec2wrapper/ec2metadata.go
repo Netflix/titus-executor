@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -53,9 +51,20 @@ type NetworkInterface interface {
 	GetIPv6Addresses() []string
 	AddIPv4Addresses(ctx context.Context, session client.ConfigProvider, count int) error
 	AddIPv6Addresses(ctx context.Context, session client.ConfigProvider, count int) error
-	Refresh() error
+	Refresh(ctx context.Context, session client.ConfigProvider) error
 	FreeIPv4Addresses(context.Context, client.ConfigProvider, []string) error
 	// TODO: Add IPv6 addresses
+}
+
+type mdcNetworkInterface struct {
+	// deviceNumber is the AWS / EC2 device index, it should correlate to eth${DEVICEIDX}
+	deviceNumber int
+	// interfaceID is the ENI ID
+	interfaceID string
+	// subnetID is the Id of the subnet which the interface is in
+	subnetID string
+	// mac is the mac address in fully expanded form, i.e. 00:00:00:00:00:00
+	mac string
 }
 
 // EC2NetworkInterface encapsulates information about network interfaces
@@ -96,6 +105,23 @@ func (mdc *EC2MetadataClientWrapper) PrimaryInterfaceMac() (string, error) {
 	return strings.TrimSpace(val), nil
 }
 
+// PrimaryInterfaceSecurityGroups returns the security groups of the primary interface
+func (mdc *EC2MetadataClientWrapper) PrimaryInterfaceSecurityGroups() (map[string]struct{}, error) {
+	primaryInterfaceMAC, err := mdc.PrimaryInterfaceMac()
+	if err != nil {
+		return nil, err
+	}
+	securityGroupIdsString, err := mdc.getDataForInterface(primaryInterfaceMAC, "security-group-ids")
+	if err != nil {
+		return nil, err
+	}
+	securityGroupIds := make(map[string]struct{})
+	for _, sgID := range strings.Split(securityGroupIdsString, "\n") {
+		securityGroupIds[sgID] = struct{}{}
+	}
+	return securityGroupIds, nil
+}
+
 // InstanceID returns the i- of the instance
 func (mdc *EC2MetadataClientWrapper) InstanceID() (string, error) {
 	val, err := mdc.getMetadata("instance-id")
@@ -116,8 +142,148 @@ func (mdc *EC2MetadataClientWrapper) AvailabilityZone() (string, error) {
 }
 
 // Interfaces returns a map of mac addresses to interfaces
-func (mdc *EC2MetadataClientWrapper) Interfaces() (map[string]NetworkInterface, error) {
-	ret := make(map[string]NetworkInterface)
+func (mdc *EC2MetadataClientWrapper) Interfaces(parentCtx context.Context, session client.ConfigProvider, instanceID *string) (map[string]NetworkInterface, error) {
+	ec2Client := ec2.New(session)
+
+	if instanceID == nil {
+		myInstanceID, err := mdc.InstanceID()
+		if err != nil {
+			return nil, err
+		}
+		instanceID = &myInstanceID
+	}
+	describeInstancesOutput, err := ec2Client.DescribeInstancesWithContext(parentCtx, &ec2.DescribeInstancesInput{
+		InstanceIds: []*string{instanceID},
+		MaxResults:  aws.Int64(1),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if l := len(describeInstancesOutput.Reservations); l != 1 {
+		return nil, fmt.Errorf("Received unexpected number of reservations: %d", l)
+	}
+	if l := len(describeInstancesOutput.Reservations[0].Instances); l != 1 {
+		return nil, fmt.Errorf("Received unexpected number of instances: %d", l)
+	}
+
+	instance := describeInstancesOutput.Reservations[0].Instances[0]
+	ret := make(map[string]NetworkInterface, len(instance.NetworkInterfaces))
+
+	for _, ni := range instance.NetworkInterfaces {
+		ret[*ni.MacAddress] = fromInstanceNetworkInterface(ni)
+	}
+
+	return ret, nil
+}
+
+func fromInstanceNetworkInterface(ni *ec2.InstanceNetworkInterface) *EC2NetworkInterface {
+	securityGroupIds := make(map[string]struct{}, len(ni.Groups))
+	for _, group := range ni.Groups {
+		securityGroupIds[*group.GroupId] = struct{}{}
+	}
+
+	ipv6Addresses := make([]string, len(ni.Ipv6Addresses))
+	for idx, ipv6Address := range ni.Ipv6Addresses {
+		ipv6Addresses[idx] = *ipv6Address.Ipv6Address
+	}
+
+	ipv4Addresses := make([]string, len(ni.PrivateIpAddresses))
+	for _, ipv4Address := range ni.PrivateIpAddresses {
+		if *ipv4Address.Primary {
+			ipv4Addresses[0] = *ipv4Address.PrivateIpAddress
+		}
+	}
+	i := 1
+	for _, ipv4Address := range ni.PrivateIpAddresses {
+		if !(*ipv4Address.Primary) {
+			ipv4Addresses[i] = *ipv4Address.PrivateIpAddress
+			i++
+		}
+	}
+
+	return &EC2NetworkInterface{
+		mac:              *ni.MacAddress,
+		deviceNumber:     int(*ni.Attachment.DeviceIndex),
+		interfaceID:      *ni.NetworkInterfaceId,
+		subnetID:         *ni.SubnetId,
+		securityGroupIds: securityGroupIds,
+		ipv6Addresses:    ipv6Addresses,
+		ipv4Addresses:    ipv4Addresses,
+	}
+}
+
+// GetInterfaceByID fetches an ENI by ID. This results in (only) one AWS call
+func (mdc *EC2MetadataClientWrapper) GetInterfaceByID(ctx context.Context, session client.ConfigProvider, id string) (*EC2NetworkInterface, error) {
+	ec2Client := ec2.New(session)
+	describeNetworkInterfacesOutput, err := ec2Client.DescribeNetworkInterfacesWithContext(ctx, &ec2.DescribeNetworkInterfacesInput{
+		NetworkInterfaceIds: aws.StringSlice([]string{id}),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if l := len(describeNetworkInterfacesOutput.NetworkInterfaces); l != 1 {
+		return nil, fmt.Errorf("DescribeNetwork interfaces returned %d interfaces, expected 1", l)
+	}
+	return fromNetworkInterface(describeNetworkInterfacesOutput.NetworkInterfaces[0]), nil
+}
+
+// GetInterfaceByIdx fetches an ENI by attachment index on this host. This results in a handful of metadata service
+// calls to enumerate the ENIs, and one to get the interface itself
+func (mdc *EC2MetadataClientWrapper) GetInterfaceByIdx(ctx context.Context, session client.ConfigProvider, idx int) (*EC2NetworkInterface, error) {
+
+	ifaces, err := mdc.interfacesFromMDC()
+	if err != nil {
+		return nil, err
+	}
+	for _, iface := range ifaces {
+		if iface.deviceNumber == idx {
+			return mdc.GetInterfaceByID(ctx, session, iface.interfaceID)
+		}
+	}
+
+	return nil, fmt.Errorf("No interface found at index %d", idx)
+}
+
+func fromNetworkInterface(ni *ec2.NetworkInterface) *EC2NetworkInterface {
+	securityGroupIds := make(map[string]struct{}, len(ni.Groups))
+	for _, group := range ni.Groups {
+		securityGroupIds[*group.GroupId] = struct{}{}
+	}
+
+	ipv6Addresses := make([]string, len(ni.Ipv6Addresses))
+	for idx, ipv6Address := range ni.Ipv6Addresses {
+		ipv6Addresses[idx] = *ipv6Address.Ipv6Address
+	}
+
+	ipv4Addresses := make([]string, len(ni.PrivateIpAddresses))
+	for _, ipv4Address := range ni.PrivateIpAddresses {
+		if *ipv4Address.Primary {
+			ipv4Addresses[0] = *ipv4Address.PrivateIpAddress
+		}
+	}
+	i := 1
+	for _, ipv4Address := range ni.PrivateIpAddresses {
+		if !(*ipv4Address.Primary) {
+			ipv4Addresses[i] = *ipv4Address.PrivateIpAddress
+			i++
+		}
+	}
+
+	return &EC2NetworkInterface{
+		mac:              *ni.MacAddress,
+		deviceNumber:     int(*ni.Attachment.DeviceIndex),
+		interfaceID:      *ni.NetworkInterfaceId,
+		subnetID:         *ni.SubnetId,
+		securityGroupIds: securityGroupIds,
+		ipv6Addresses:    ipv6Addresses,
+		ipv4Addresses:    ipv4Addresses,
+	}
+}
+
+// interfacesFrom returns a map of mac addresses to interfaces
+func (mdc *EC2MetadataClientWrapper) interfacesFromMDC() (map[string]mdcNetworkInterface, error) {
+	ret := make(map[string]mdcNetworkInterface)
 	val, err := mdc.getMetadata("network/interfaces/macs/")
 	if err != nil {
 		return ret, err
@@ -125,7 +291,7 @@ func (mdc *EC2MetadataClientWrapper) Interfaces() (map[string]NetworkInterface, 
 
 	for _, mac := range strings.Split(strings.TrimSpace(val), "\n") {
 		actualMac := strings.TrimRight(mac, "/")
-		ret[actualMac], err = mdc.GetInterface(actualMac)
+		ret[actualMac], err = mdc.getInterfaceFromMDCByMAC(actualMac)
 		if err != nil {
 			return ret, err
 		}
@@ -135,10 +301,9 @@ func (mdc *EC2MetadataClientWrapper) Interfaces() (map[string]NetworkInterface, 
 }
 
 // GetInterface fetches a populated interface by mac address
-func (mdc *EC2MetadataClientWrapper) GetInterface(mac string) (NetworkInterface, error) {
-	ret := &EC2NetworkInterface{
+func (mdc *EC2MetadataClientWrapper) getInterfaceFromMDCByMAC(mac string) (mdcNetworkInterface, error) {
+	ret := mdcNetworkInterface{
 		mac: mac,
-		mdc: mdc,
 	}
 
 	devNumberString, err := mdc.getDataForInterface(mac, "device-number")
@@ -157,11 +322,7 @@ func (mdc *EC2MetadataClientWrapper) GetInterface(mac string) (NetworkInterface,
 	}
 
 	ret.subnetID, err = mdc.getDataForInterface(mac, "subnet-id")
-	if err != nil {
-		return ret, err
-	}
-
-	return ret, ret.Refresh()
+	return ret, err
 }
 
 func (mdc *EC2MetadataClientWrapper) getDataForInterface(mac, data string) (string, error) {
@@ -201,46 +362,14 @@ func (mdc *EC2MetadataClientWrapper) getMetadata(path string) (string, error) {
 	return val, err
 }
 
-func ipStringToList(ips string) []string {
-	ips = strings.TrimSpace(ips)
-	if ips == "" {
-		return []string{}
-	}
-	addresses := strings.Split(ips, "\n")
-	result := make([]string, len(addresses))
-	for idx, addr := range addresses {
-		sanitized := strings.Trim(strings.TrimSpace(addr), "\x00")
-		ip := net.ParseIP(sanitized)
-		result[idx] = ip.String()
-	}
-	return result
-}
-
 // Refresh updates the security groups. and local IPv4 addresses for an interface
-func (ni *EC2NetworkInterface) Refresh() error {
-	ni.securityGroupIds = make(map[string]struct{})
-
-	securityGroupIdsString, err := ni.mdc.getDataForInterface(ni.mac, "security-group-ids")
-	if err != nil {
-		return err
-	}
-	for _, sgID := range strings.Split(securityGroupIdsString, "\n") {
-		ni.securityGroupIds[sgID] = struct{}{}
-	}
-
-	localIPv4s, err := ni.mdc.getDataForInterface(ni.mac, "local-ipv4s")
+func (ni *EC2NetworkInterface) Refresh(ctx context.Context, session client.ConfigProvider) error {
+	newNetworkInterface, err := ni.mdc.GetInterfaceByID(ctx, session, ni.interfaceID)
 	if err != nil {
 		return err
 	}
 
-	ni.ipv4Addresses = ipStringToList(localIPv4s)
-
-	localIPv6s, err := ni.mdc.getDataForInterface(ni.mac, "ipv6s")
-	if err != nil {
-		return err
-	}
-	ni.ipv6Addresses = ipStringToList(localIPv6s)
-
+	*ni = *newNetworkInterface
 	return nil
 }
 

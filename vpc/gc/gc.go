@@ -47,7 +47,7 @@ func gc(parentCtx *context.VPCContext) error {
 }
 
 func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
-	interfaces, err := parentCtx.EC2metadataClientWrapper.Interfaces()
+	interfaces, err := parentCtx.EC2metadataClientWrapper.Interfaces(parentCtx, parentCtx.AWSSession, &parentCtx.InstanceID)
 	if err != nil {
 		return err
 	}

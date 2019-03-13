@@ -23,7 +23,6 @@ import (
 )
 
 var (
-	errInterfaceNotFoundAtIndex   = errors.New("Network interface not found at index")
 	errSecurityGroupsNotConverged = errors.New("Security groups for interface not converged")
 )
 
@@ -153,11 +152,14 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 	err = json.NewEncoder(os.Stdout).
 		Encode(
 			types.Allocation{
-				IPV4Address: allocation.ip4Address,
-				IPV6Address: allocation.ip6Address,
-				DeviceIndex: deviceIdx,
-				Success:     true,
-				ENI:         allocation.eni})
+				IPV4Address:   allocation.ip4Address,
+				IPV6Address:   allocation.ip6Address,
+				DeviceIndex:   deviceIdx,
+				Success:       true,
+				ENI:           allocation.eni,
+				ENIMACAddress: allocation.macAddress,
+				SubnetID:      allocation.subnetID,
+			})
 	if err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to write allocation record", 1), err)
 	}
@@ -193,6 +195,8 @@ type allocation struct {
 	ip4Address       string
 	ip6Address       string
 	eni              string
+	macAddress       string
+	subnetID         string
 }
 
 func (a *allocation) refresh() error {
@@ -212,15 +216,7 @@ func (a *allocation) deallocate(ctx *context.VPCContext) {
 }
 
 func getDefaultSecurityGroups(parentCtx *context.VPCContext) (map[string]struct{}, error) {
-	primaryInterfaceMac, err := parentCtx.EC2metadataClientWrapper.PrimaryInterfaceMac()
-	if err != nil {
-		return nil, err
-	}
-	primaryInterface, err := parentCtx.EC2metadataClientWrapper.GetInterface(primaryInterfaceMac)
-	if err != nil {
-		return nil, err
-	}
-	return primaryInterface.GetSecurityGroupIds(), nil
+	return parentCtx.EC2metadataClientWrapper.PrimaryInterfaceSecurityGroups()
 }
 
 func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, allocateIPv6Address bool) (*allocation, error) {
@@ -228,13 +224,15 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 	ctx, cancel := parentCtx.WithTimeout(5 * time.Minute)
 	defer cancel()
 
-	networkInterface, err := getInterfaceByIdx(ctx, deviceIdx)
+	networkInterface, err := parentCtx.EC2metadataClientWrapper.GetInterfaceByIdx(ctx, parentCtx.AWSSession, deviceIdx)
 	if err != nil {
 		ctx.Logger.Warning("Unable to get interface by idx: ", err)
 		return nil, err
 	}
 	allocation := &allocation{
-		eni: networkInterface.GetInterfaceID(),
+		eni:        networkInterface.GetInterfaceID(),
+		macAddress: networkInterface.GetMAC(),
+		subnetID:   networkInterface.GetSubnetID(),
 	}
 	allocation.sharedSGLock, err = setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
 	if err != nil {
@@ -334,7 +332,7 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface ec2wrapper.Ne
 	if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
 		return sgConfigurationLock, nil
 	}
-	err = networkInterface.Refresh()
+	err = networkInterface.Refresh(ctx, ctx.AWSSession)
 	if err != nil {
 		sgConfigurationLock.Unlock()
 		return nil, err
@@ -354,32 +352,19 @@ func setupSecurityGroups(ctx *context.VPCContext, networkInterface ec2wrapper.Ne
 
 func waitForSecurityGroupToConverge(ctx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout time.Duration) error {
 	now := time.Now()
+	i := 0
 	for time.Since(now) < securityConvergenceTimeout {
-		err := networkInterface.Refresh()
+		err := networkInterface.Refresh(ctx, ctx.AWSSession)
+		i++
 		if err != nil {
 			ctx.Logger.Warning("Unable to refresh interface while waiting for security group change, bailing: ", err)
 			return err
 		}
 		if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
-			ctx.Logger.WithField("duration", time.Since(now).String()).Info("Changed security groups successfully")
+			ctx.Logger.WithField("duration", time.Since(now).String()).WithField("refreshes", i).Info("Changed security groups successfully")
 			return nil
 		}
 		time.Sleep(time.Second)
 	}
 	return errSecurityGroupsNotConverged
-}
-
-func getInterfaceByIdx(parentCtx *context.VPCContext, idx int) (ec2wrapper.NetworkInterface, error) {
-	allInterfaces, err := parentCtx.EC2metadataClientWrapper.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, networkInterface := range allInterfaces {
-		if networkInterface.GetDeviceNumber() == idx {
-			return networkInterface, nil
-		}
-	}
-
-	return nil, errInterfaceNotFoundAtIndex
 }

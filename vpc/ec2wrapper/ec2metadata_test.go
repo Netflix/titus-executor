@@ -132,16 +132,4 @@ func TestMetadataService(t *testing.T) {
 	mac, err := ec2MetadataClientWrapper.PrimaryInterfaceMac()
 	assert.Nil(t, err)
 	assert.Equal(t, primaryInterfaceMac, mac)
-
-	interfaces, err := ec2MetadataClientWrapper.Interfaces()
-	assert.Nil(t, err)
-	assert.Len(t, interfaces, 2)
-	assert.Equal(t, []string{"1.2.3.4", "9.8.1.2"}, interfaces[secondaryInterfaceMac].GetIPv4Addresses())
-	assert.Equal(t, []string{"2604:5000::bb", "aa::cc"}, interfaces[secondaryInterfaceMac].GetIPv6Addresses())
-	assert.Equal(t, []string{}, interfaces[primaryInterfaceMac].GetIPv6Addresses())
-}
-
-func TestIPStringToList(t *testing.T) {
-	assert.Equal(t, []string{}, ipStringToList(""))
-	assert.Equal(t, []string{"1.2.3.4", "4.5.6.8"}, ipStringToList("1.2.3.4\n4.5.6.8\n"))
 }

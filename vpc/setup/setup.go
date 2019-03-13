@@ -70,7 +70,7 @@ func setup(parentCtx *context.VPCContext) error {
 
 // TODO: Wrap in CLI errrors
 func setupInterfaces(ctx *context.VPCContext, disableIPv6 bool) error {
-	allInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces()
+	allInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces(ctx, ctx.AWSSession, &ctx.InstanceID)
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func attachInterfaceAtIdx(ctx *context.VPCContext, disableIPv6 bool, instanceID,
 func waitForInterfaces(ctx *context.VPCContext) error {
 	waitUntil := time.Now().Add(time.Minute)
 	for time.Until(waitUntil) > 0 {
-		allInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces()
+		allInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces(ctx, ctx.AWSSession, &ctx.InstanceID)
 		if err != nil {
 			return err
 		}

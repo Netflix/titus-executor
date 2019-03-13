@@ -47,7 +47,7 @@ func configureQdiscs(ctx *context.VPCContext) error {
 		return err
 	}
 
-	networkInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces()
+	networkInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces(ctx, ctx.AWSSession, &ctx.InstanceID)
 	if err != nil {
 		return err
 	}

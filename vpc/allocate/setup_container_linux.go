@@ -13,7 +13,6 @@ import (
 
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/context"
-	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/apparentlymart/go-cidr/cidr"
 	"github.com/vishvananda/netlink"
@@ -33,16 +32,9 @@ var (
 )
 
 func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
-
-	networkInterface, err := getInterfaceByIdx(parentCtx, allocation.DeviceIndex)
-	if err != nil {
-		parentCtx.Logger.Error("Cannot get interface by index: ", err)
-		return nil, err
-	}
-
 	ip4 := net.ParseIP(allocation.IPV4Address)
 	ip6 := net.ParseIP(allocation.IPV6Address)
-	parentLink, err := getLink(networkInterface)
+	parentLink, err := getLink(allocation.ENIMACAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -85,11 +77,11 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 		return nil, err
 	}
 
-	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, networkInterface, ip4, ip6)
+	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, allocation.SubnetID, ip4, ip6)
 }
 
-func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, nsHandle *netlink.Handle, link netlink.Link, ip net.IP) error {
-	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, networkInterface.GetSubnetID())
+func addIPv4AddressAndRoute(parentCtx *context.VPCContext, subnetID string, nsHandle *netlink.Handle, link netlink.Link, ip net.IP) error {
+	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, subnetID)
 	if err != nil {
 		return err
 	}
@@ -125,7 +117,7 @@ func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface ec2w
 	return nil
 }
 
-func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface ec2wrapper.NetworkInterface, ip4, ip6 net.IP) error {
+func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, subnetID string, ip4, ip6 net.IP) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -156,7 +148,7 @@ func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link
 		}
 	}
 
-	err = addIPv4AddressAndRoute(parentCtx, networkInterface, nsHandle, link, ip4)
+	err = addIPv4AddressAndRoute(parentCtx, subnetID, nsHandle, link, ip4)
 	if err != nil {
 		return err
 	}
@@ -290,12 +282,12 @@ func setupIFBClass(parentCtx *context.VPCContext, bandwidth uint64, burst bool, 
 	return nil
 }
 
-func getLink(networkInterface ec2wrapper.NetworkInterface) (netlink.Link, error) {
+func getLink(macAddress string) (netlink.Link, error) {
 	links, err := netlink.LinkList()
 	if err != nil {
 		return nil, err
 	}
-	mac, err := net.ParseMAC(networkInterface.GetMAC())
+	mac, err := net.ParseMAC(macAddress)
 	if err != nil {
 		return nil, err
 	}
