@@ -209,10 +209,12 @@ func main() {
 			log.Info("Metatron enabled!")
 			if signer, err := identity.NewDefaultSigner(); err != nil {
 				log.WithError(err).Fatal("Cannot instantiate new default signer")
+			} else {
 				mdscfg.Signer = signer
 			}
 			if container, err := readTaskConfigFile(titusTaskInstanceID); err != nil {
 				log.WithError(err).Fatal("Cannot read container config file")
+			} else {
 				mdscfg.Container = container
 			}
 		}
