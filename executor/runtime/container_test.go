@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,6 +106,7 @@ func TestNewContainer(t *testing.T) {
 	expectedPassthroughAttributes := make(map[string]string)
 	expectedPassthroughAttributes[ownerEmailPassThroughKey] = expectedOwnerEmail
 	expectedPassthroughAttributes[jobTypePassThroughKey] = expectedJobType
+	expectedCommand := "cmd arg0 arg1"
 
 	containerInfo := &titus.ContainerInfo{
 		AppName:   &expectedAppName,
@@ -121,6 +123,10 @@ func TestNewContainer(t *testing.T) {
 		JobGroupSequence:      &expectedJobSeq,
 		ImageDigest:           &expectedDigest,
 		PassthroughAttributes: expectedPassthroughAttributes,
+		Process: &titus.ContainerInfo_Process{
+			Command:    strings.Split(expectedCommand, " "),
+			Entrypoint: strings.Split(expectedCommand, " "),
+		},
 	}
 
 	resources := &runtimeTypes.Resources{
@@ -136,6 +142,12 @@ func TestNewContainer(t *testing.T) {
 
 	actualAppName := container.Labels[appNameLabelKey]
 	assert.Equal(t, expectedAppName, actualAppName)
+
+	actualCommand := container.Labels[commandLabelKey]
+	assert.Equal(t, expectedCommand, actualCommand)
+
+	actualEntrypoint := container.Labels[entrypointLabelKey]
+	assert.Equal(t, expectedCommand, actualEntrypoint)
 
 	actualOwnerEmail := container.Labels[ownerEmailLabelKey]
 	assert.Equal(t, expectedOwnerEmail, actualOwnerEmail)

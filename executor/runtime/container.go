@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -10,6 +11,8 @@ import (
 
 const (
 	appNameLabelKey          = "com.netflix.titus.appName"
+	commandLabelKey          = "com.netflix.titus.command"
+	entrypointLabelKey       = "com.netflix.titus.entrypoint"
 	cpuLabelKey              = "com.netflix.titus.cpu"
 	memLabelKey              = "com.netflix.titus.mem"
 	diskLabelKey             = "com.netflix.titus.disk"
@@ -48,25 +51,12 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 	strNetwork := strconv.FormatUint(uint64(networkCfgParams.GetBandwidthLimitMbps()), 10)
 
 	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
-	labels[appNameLabelKey] = titusInfo.GetAppName()
 	labels[titusTaskInstanceIDKey] = env[titusTaskInstanceIDKey]
 	labels[cpuLabelKey] = strCPU
 	labels[memLabelKey] = strMem
 	labels[diskLabelKey] = strDisk
 	labels[networkLabelKey] = strNetwork
-
-	passthroughAttributes := titusInfo.GetPassthroughAttributes()
-	if passthroughAttributes != nil {
-		labels[ownerEmailLabelKey] = passthroughAttributes[ownerEmailPassThroughKey]
-		labels[jobTypeLabelKey] = passthroughAttributes[jobTypePassThroughKey]
-	}
-
-	workloadType := StaticWorkloadType
-	if titusInfo.GetAllowCpuBursting() {
-		workloadType = BurstWorkloadType
-	}
-
-	labels[workloadTypeLabelKey] = string(workloadType)
+	addLabels(titusInfo, labels)
 
 	c := &runtimeTypes.Container{
 		TaskID:             taskID,
@@ -87,4 +77,59 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 	}
 
 	return c
+}
+
+func addLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
+	labels = addContainerLabels(containerInfo, labels)
+	labels = addPassThroughLabels(containerInfo, labels)
+	labels = addProcessLabels(containerInfo, labels)
+	return labels
+}
+
+func addContainerLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
+	labels[appNameLabelKey] = containerInfo.GetAppName()
+
+	workloadType := StaticWorkloadType
+	if containerInfo.GetAllowCpuBursting() {
+		workloadType = BurstWorkloadType
+	}
+
+	labels[workloadTypeLabelKey] = string(workloadType)
+
+	return labels
+}
+
+func addPassThroughLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
+	ownerEmail := ""
+	jobType := ""
+
+	passthroughAttributes := containerInfo.GetPassthroughAttributes()
+	if passthroughAttributes != nil {
+		ownerEmail = passthroughAttributes[ownerEmailPassThroughKey]
+		jobType = passthroughAttributes[jobTypePassThroughKey]
+	}
+
+	labels[ownerEmailLabelKey] = ownerEmail
+	labels[jobTypeLabelKey] = jobType
+
+	return labels
+}
+
+func addProcessLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
+	process := containerInfo.GetProcess()
+	if process != nil {
+		entryPoint := process.GetEntrypoint()
+		if entryPoint != nil {
+			entryPointStr := strings.Join(entryPoint[:], " ")
+			labels[entrypointLabelKey] = entryPointStr
+		}
+
+		command := process.GetCommand()
+		if command != nil {
+			commandStr := strings.Join(entryPoint[:], " ")
+			labels[commandLabelKey] = commandStr
+		}
+	}
+
+	return labels
 }
