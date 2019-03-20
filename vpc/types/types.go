@@ -10,6 +10,7 @@ type Allocation struct {
 	Success     bool   `json:"success"`
 	Error       string `json:"error"`
 	ENI         string `json:"eni"`
+	VPC         string `json:"vpc"`
 }
 
 // WiringStatus indicates whether or not wiring was successful

@@ -14,9 +14,12 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Netflix/titus-executor/metadataserver/types"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
@@ -409,9 +412,20 @@ func setupMetadataServer(t *testing.T, ss *stubServer, certType string) {
 	// 8675309 is a fake account ID
 	fakeARN := "arn:aws:iam::8675309:role/thisIsAFakeRole"
 	fakeTitusTaskInstanceIPAddress := "1.2.3.4"
-	fakeEC2MetadataURI := "http://" + ss.fakeEC2MetdataServiceListener.Addr().String()
-	var signer *identity.Signer
 	fakeTaskIdent := fakeTaskIdentity()
+
+	mdsCfg := types.MetadataServerConfiguration{
+		IAMARN:              fakeARN,
+		TitusTaskInstanceID: *fakeTaskIdent.Container.RunState.TaskId,
+		Ipv4Address:         net.ParseIP(fakeTitusTaskInstanceIPAddress),
+		VpcID:               "vpc-1234",
+		EniID:               "eni-1234",
+		BackingMetadataServer: &url.URL{
+			Scheme: "http",
+			Host:   ss.fakeEC2MetdataServiceListener.Addr().String(),
+		},
+		Container: fakeTaskIdent.Container,
+	}
 
 	if certType != "none" {
 		cert, err := testCertificate(certType)
@@ -419,13 +433,13 @@ func setupMetadataServer(t *testing.T, ss *stubServer, certType string) {
 			panic(err)
 		}
 
-		signer, err = identity.NewSigner(cert)
+		mdsCfg.Signer, err = identity.NewSigner(cert)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	ms := NewMetaDataServer(context.Background(), fakeEC2MetadataURI, fakeARN, *fakeTaskIdent.Container.RunState.TaskId, fakeTitusTaskInstanceIPAddress, "", false, fakeTaskIdent.Container, signer)
+	ms := NewMetaDataServer(context.Background(), mdsCfg)
 
 	// Leaks connections, but this is okay in the time of testing
 	go func() {

@@ -66,7 +66,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			"EC2_REGION",
 			"EC2_AVAILABILITY_ZONE",
 			"EC2_OWNER_ID",
-			"EC2_VPC_ID",
 			"EC2_RESERVATION_ID",
 		},
 		hardCodedEnv: []string{

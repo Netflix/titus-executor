@@ -84,7 +84,7 @@ func (sc *Cache) DescribeSubnet(parentCtx *VPCContext, subnetid string) (*ec2.Su
 	return subnet, nil
 }
 
-// DescribeInterface fetches the subnet from cache, or EC2, and automatically persists it to the persistent cache.
+// DescribeInterface interface the subnet from cache, or EC2, and automatically persists it to the persistent cache.
 // since interfaces are mutable IT SHOULD BE USED WITH CARE, and should not be used to access mutable interface
 // attributes
 func (sc *Cache) DescribeInterface(parentCtx *VPCContext, eniID string) (*ec2.NetworkInterface, error) {
@@ -109,7 +109,7 @@ func (sc *Cache) DescribeInterface(parentCtx *VPCContext, eniID string) (*ec2.Ne
 	}
 	iface, err = sc.fetchInterfaceFromEC2(ctx, eniID)
 	if err != nil {
-		ctx.Logger.Info("Subnet successfully loaded from EC2")
+		ctx.Logger.Info("Interface successfully loaded from EC2")
 		return nil, err
 	}
 	sc.persistInterfaceToCache(ctx, *iface)

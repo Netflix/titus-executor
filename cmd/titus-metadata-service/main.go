@@ -7,9 +7,11 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,16 +80,24 @@ func readTaskConfigFile(taskID string) (*titus.ContainerInfo, error) {
 func main() {
 	app := cli.NewApp()
 	app.Name = "titus-metadata-service"
-	var listenerFd int64
-	var listenPort int
-	var debug bool
-	var backingMetadataServer string
-	var metatronEnabled bool
-	var optimistic bool
-	var region string
-	var iamARN string
-	var titusTaskInstanceID string
-	var ipv4Address string
+	var (
+		listenerFd            int64
+		listenPort            int
+		debug                 bool
+		apiProtectEnabled     bool
+		backingMetadataServer string
+		metatronEnabled       bool
+		optimistic            bool
+		region                string
+		iamARN                string
+		titusTaskInstanceID   string
+		ipv4Address           string
+		ipv6Addresses         string
+
+		vpcID string
+		eniID string
+	)
+
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "backing-metadata-server",
@@ -118,6 +128,12 @@ func main() {
 			Destination: &optimistic,
 			EnvVar:      types.TitusOptimisticIAMVariableName,
 		},
+		cli.BoolFlag{
+			Name:        "api-protect",
+			Usage:       "Enable API protect",
+			Destination: &apiProtectEnabled,
+			EnvVar:      types.TitusAPIProtectEnabledVariableName,
+		},
 		cli.StringFlag{
 			Name:        "region",
 			Usage:       "The STS service region to use",
@@ -146,6 +162,21 @@ func main() {
 			EnvVar:      types.TitusMetatronVariableName,
 			Destination: &metatronEnabled,
 		},
+		cli.StringFlag{
+			Name:        "vpc-id",
+			EnvVar:      "EC2_VPC_ID",
+			Destination: &vpcID,
+		},
+		cli.StringFlag{
+			Name:        "eni-id",
+			EnvVar:      "EC2_INTERFACE_ID",
+			Destination: &eniID,
+		},
+		cli.StringFlag{
+			Name:        "ipv6-address",
+			EnvVar:      "EC2_IPV6S",
+			Destination: &ipv6Addresses,
+		},
 	}
 	app.Action = func(c *cli.Context) error {
 		if debug {
@@ -158,23 +189,45 @@ func main() {
 		/* Get the requisite configuration from environment variables */
 		listener := getListener(listenPort, listenerFd)
 
-		var err error
-		var container *titus.ContainerInfo
-		var signer *identity.Signer
-
-		if container, err = readTaskConfigFile(titusTaskInstanceID); err != nil {
-			log.Fatal(err)
+		mdscfg := types.MetadataServerConfiguration{
+			IAMARN:              iamARN,
+			TitusTaskInstanceID: titusTaskInstanceID,
+			Ipv4Address:         net.ParseIP(ipv4Address),
+			VpcID:               vpcID,
+			EniID:               eniID,
+			Region:              region,
+			Optimistic:          optimistic,
+			APIProtectEnabled:   apiProtectEnabled,
 		}
+		if parsedURL, err := url.Parse(backingMetadataServer); err == nil {
+			mdscfg.BackingMetadataServer = parsedURL
+		} else {
+			return cli.NewExitError(err.Error(), 1)
+		}
+
 		if metatronEnabled {
 			log.Info("Metatron enabled!")
-			if signer, err = identity.NewDefaultSigner(); err != nil {
-				log.Fatal(err)
+			if signer, err := identity.NewDefaultSigner(); err != nil {
+				log.WithError(err).Fatal("Cannot instantiate new default signer")
+			} else {
+				mdscfg.Signer = signer
+			}
+			if container, err := readTaskConfigFile(titusTaskInstanceID); err != nil {
+				log.WithError(err).Fatal("Cannot read container config file")
+			} else {
+				mdscfg.Container = container
 			}
 		}
-		ms := metadataserver.NewMetaDataServer(context.Background(), backingMetadataServer, iamARN, titusTaskInstanceID, ipv4Address, region, optimistic, container, signer)
+
+		if ipv6Addresses != "" {
+			parsedIPv6Address := net.ParseIP(strings.Split(ipv6Addresses, "\n")[0])
+			mdscfg.Ipv6Address = &parsedIPv6Address
+		}
+		ms := metadataserver.NewMetaDataServer(context.Background(), mdscfg)
 		go notifySystemd()
+		// TODO: Wire up logic to shut down mds on signal
 		if err := http.Serve(listener, ms); err != nil {
-			return err
+			return cli.NewExitError(err.Error(), 1)
 		}
 		log.Info("Done serving?")
 		time.Sleep(1 * time.Second)

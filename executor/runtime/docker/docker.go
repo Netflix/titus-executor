@@ -524,6 +524,11 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	// TODO(fabio): find a way to avoid regenerating the env map
 	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address
+	if c.Allocation.IPV6Address != "" {
+		c.Env["EC2_IPV6S"] = c.Allocation.IPV6Address
+	}
+	c.Env["EC2_VPC_ID"] = c.Allocation.VPC
+	c.Env["EC2_INTERFACE_ID"] = c.Allocation.ENI
 
 	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")

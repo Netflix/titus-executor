@@ -157,7 +157,9 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 				IPV6Address: allocation.ip6Address,
 				DeviceIndex: deviceIdx,
 				Success:     true,
-				ENI:         allocation.eni})
+				ENI:         allocation.eni,
+				VPC:         allocation.vpc,
+			})
 	if err != nil {
 		return cli.NewMultiError(cli.NewExitError("Unable to write allocation record", 1), err)
 	}
@@ -193,6 +195,7 @@ type allocation struct {
 	ip4Address       string
 	ip6Address       string
 	eni              string
+	vpc              string
 }
 
 func (a *allocation) refresh() error {
@@ -233,8 +236,16 @@ func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, 
 		ctx.Logger.Warning("Unable to get interface by idx: ", err)
 		return nil, err
 	}
+
+	ec2NetworkInterface, err := ctx.Cache.DescribeInterface(parentCtx, networkInterface.GetInterfaceID())
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Unable to get interface from cache")
+		return nil, err
+	}
+
 	allocation := &allocation{
 		eni: networkInterface.GetInterfaceID(),
+		vpc: *ec2NetworkInterface.VpcId,
 	}
 	allocation.sharedSGLock, err = setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
 	if err != nil {
