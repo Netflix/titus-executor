@@ -31,6 +31,10 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg c
 	return nil
 }
 
+func mountContainerProcPid1InTitusInits(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+	return nil
+}
+
 func getOwnCgroup(subsystem string) (string, error) {
 	return "", errUnsupported
 }
