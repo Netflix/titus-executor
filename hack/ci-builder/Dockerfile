@@ -23,5 +23,4 @@ RUN mkdir /gometalinter && cd /gometalinter \
 	&& rm gometalinter.tar.gz && mv * $GOPATH/bin && cd && rm -rf /gometalinter
 
 RUN go get -u github.com/kardianos/govendor
-RUN go get github.com/mattn/goveralls
 RUN go get github.com/mitchellh/gox

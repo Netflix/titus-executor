@@ -20,7 +20,6 @@ log "Installing go dependencies"
 
 go get -u github.com/kardianos/govendor
 go get -u github.com/wadey/gocovmerge
-go get -u github.com/mattn/goveralls
 
 log "Building executor"
 
@@ -30,5 +29,3 @@ make --output-sync -j16 builder all 2>&1 | tee build.log
 log "Running code coverage"
 
 bash <(curl -s https://codecov.io/bash)
-gocovmerge coverage-local.out coverage-standalone.out > coverage-combined.out
-goveralls -repotoken ${COVERALLS_TOKEN} -coverprofile=coverage-combined.out
