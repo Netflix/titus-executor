@@ -85,9 +85,6 @@ jobs:
           name: Local tests
           command: make test-local
       - run:
-          name: Upload code coverage result to coveralls
-          command: goveralls -coverprofile=coverage-local.out -service=circle-ci -repotoken $COVERALLS_TOKEN
-      - run:
           name: Upload code coverage reports to codecov.io
           command: bash <(curl -s https://codecov.io/bash)
       - run:

@@ -1669,6 +1669,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 	}
 
 	rootFile := files[0]
+	c.RegisterRuntimeCleanup(rootFile.Close)
 
 	// r.logDir(c), &cred, rootFile, nil
 	err = r.setupPostStartLogDirTiniHandleConnection2(parentCtx, c, cred, rootFile)
@@ -1678,7 +1679,16 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx context.Context, c *runtimeTypes.Container, cred ucred, rootFile *os.File) error { // nolint: gocyclo
 	group, errGroupCtx := errgroup.WithContext(parentCtx)
 
+	// This required (write) access to c.RegisterRuntimeCleanup
+	if err := mountContainerProcPid1InTitusInits(parentCtx, c, cred); err != nil {
+		return err
+	}
+
 	if r.cfg.UseNewNetworkDriver && c.Allocation.IPV4Address != "" {
+		// This writes to C, and registers runtime cleanup functions, this is a write
+		// and it writes to a bunch of pointers
+
+		// afaik, since this is the only one *modifying* data in the container object, we should be okay
 		group.Go(func() error {
 			return setupNetworking(r.dockerCfg.burst, c, cred)
 		})
@@ -1691,37 +1701,34 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		})
 	}
 
+	if r.dockerCfg.bumpTiniSchedPriority {
+		group.Go(func() error {
+			return setupScheduler(cred)
+		})
+	}
+
+	group.Go(func() error {
+		return setupOOMAdj(c, cred)
+	})
+
+	group.Go(func() error {
+		return setCgroupOwnership(parentCtx, c, cred)
+	})
+
 	if err := group.Wait(); err != nil {
 		return err
 	}
 
-	if r.dockerCfg.bumpTiniSchedPriority {
-		if err := setupScheduler(cred); err != nil {
-			return err
-		}
-	}
-
-	if err := setupOOMAdj(c, cred); err != nil {
-		return err
-	}
-
-	if err := setCgroupOwnership(parentCtx, c, cred); err != nil {
-		log.WithError(err).Error("Unable to change cgroup ownership")
-		return err
-	}
-
-	/* This can be "broken" if the titus-executor crashes. The link will be dangling, and point to a
-	 * /proc/${PID}/fd/${FD}. It's not "bad", because Titus Task names should be unique
-	 */
+	// This cannot be done concurrently, because it requires a call to c.RegisterRuntimeCleanup, which
+	// is not protected by a lock
 	pid := os.Getpid()
 	logsRoot := filepath.Join("/proc", strconv.Itoa(pid), "fd", strconv.Itoa(int(rootFile.Fd())))
 	darionRoot := netflixLoggerTempDir(r.cfg, c)
 	if err := os.Symlink(logsRoot, darionRoot); err != nil {
-		log.Warning("Unable to setup symlink for darion: ", err)
+		log.WithError(err).Warning("Unable to setup symlink for darion")
 		return err
 	}
 
-	c.RegisterRuntimeCleanup(rootFile.Close)
 	c.RegisterRuntimeCleanup(func() error {
 		return os.Remove(darionRoot)
 	})

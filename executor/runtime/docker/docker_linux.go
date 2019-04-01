@@ -84,19 +84,8 @@ func setupScheduler(cred ucred) error {
 	return nil
 }
 
-func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
-	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
-	defer cancel()
-
-	conn, connErr := dbus.New()
-	if connErr != nil {
-		return connErr
-	}
-	defer conn.Close()
-
-	/* 1. Setup bind mount for Titus container task */
-	// Bind mount:
-	// /proc/$PID -> $titusInits/$taskID
+// This mounts /proc/${PID1}/ to /var/lib/titus-inits for the container
+func mountContainerProcPid1InTitusInits(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
 	pidpath := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10))
 	path := filepath.Join(titusInits, c.TaskID)
 	if err := os.Mkdir(path, 0755); err != nil { // nolint: gosec
@@ -113,7 +102,19 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg c
 		return unix.Unmount(path, unix.MNT_DETACH|umountNoFollow)
 	})
 
-	/* 2. Tell systemd about it */
+	return nil
+}
+
+func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
+	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
+	defer cancel()
+
+	conn, connErr := dbus.New()
+	if connErr != nil {
+		return connErr
+	}
+	defer conn.Close()
+
 	// TODO: Make concurrent
 	if err := startSystemdUnit(ctx, conn, false, c.TaskID, atlasSystemdUnit); err != nil {
 		logrus.WithError(err).Error("Error starting atlas systemd unit")
@@ -198,6 +199,7 @@ func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cr
 	cgroupPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "cgroup")
 	cgroups, err := ioutil.ReadFile(cgroupPath) // nolint: gosec
 	if err != nil {
+		logrus.WithError(err).Error("Could not read container cgroups")
 		return err
 	}
 	for _, line := range strings.Split(string(cgroups), "\n") {
@@ -219,7 +221,11 @@ func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cr
 		controllerPath := cgroupInfo[2]
 		fsPath := filepath.Join(sysFsCgroup, controllerType, controllerPath)
 		logrus.Infof("chowning systemd cgroup path: %s", fsPath)
-		return os.Chown(fsPath, int(cred.uid), int(cred.gid))
+		err = os.Chown(fsPath, int(cred.uid), int(cred.gid))
+		if err != nil {
+			logrus.WithError(err).Error("Could not chown systemd cgroup path")
+		}
+		return err
 	}
 
 	return nil
