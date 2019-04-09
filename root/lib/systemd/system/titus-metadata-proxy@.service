@@ -9,7 +9,7 @@ WatchdogSec=30
 
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
 EnvironmentFile=/var/lib/titus-environments/%i.env
-ExecStart=/apps/titus-executor/bin/titus-inject-metadataproxy /apps/titus-executor/bin/titus-metadata-service --listener-fd=169
+ExecStart=/apps/titus-executor/bin/run-titus-metadata-proxy.sh
 LimitNOFILE=65535
 ## TODO: Wire up more "lockdown" so this unit can't wreck havoc if it gets compromised
 PrivateTmp=yes
