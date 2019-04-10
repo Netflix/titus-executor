@@ -100,6 +100,7 @@ func fetchDisconnectedENIs(parentCtx *context.VPCContext, vpcID string, networkI
 		}
 		describeAvailableResult, err := svc.DescribeNetworkInterfacesWithContext(parentCtx, describeAvailableRequest)
 		if err != nil {
+			parentCtx.Logger.WithError(err).Error("DescribeNetworkInterfaces error")
 			return err
 		}
 		for _, networkInterface := range describeAvailableResult.NetworkInterfaces {
@@ -139,13 +140,13 @@ func cleanupENI(parentCtx *context.VPCContext, svc *ec2.EC2, detachTime time.Dur
 		panic(fmt.Sprintf("Interface status is %s instead of available", *eni.Status))
 	}
 
-	parentCtx.Logger.WithField("eni-name", *eni.NetworkInterfaceId).Info("Destroying ENI")
+	ctx.Logger.Info("Destroying ENI")
 	deleteNetworkInterfaceInput := &ec2.DeleteNetworkInterfaceInput{
 		NetworkInterfaceId: aws.String(*eni.NetworkInterfaceId),
 	}
 	_, err = svc.DeleteNetworkInterfaceWithContext(ctx, deleteNetworkInterfaceInput)
 	if err != nil {
-		parentCtx.Logger.WithError(err).Error("Unable to delete ENI")
+		ctx.Logger.WithError(err).Error("Unable to delete ENI")
 	}
 
 	return nil
