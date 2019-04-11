@@ -28,8 +28,6 @@ And then you can check out `github.com/Netflix/titus-executor` to `${GOPATH}/src
 2. You also need to make sure that your build environment (i.e. VM) has the following commands prior to building:
 * make
 * gcc
-```
-
 
 ### Building and testing
 In order to build titus-executor, check out the project into your `$GOPATH/src/github.com/Netflix`, and run the following command:
