@@ -5,5 +5,5 @@
 package: main
 
 import:
-    - package: github.com/Sirupsen/logrus
+    - package: github.com/sirupsen/logrus
     - package: github.com/coreos/go-systemd/journal

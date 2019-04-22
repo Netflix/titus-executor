@@ -23,7 +23,7 @@ If you'd like not to do that, it's as easy as:
 
 import (
     "github.com/wercker/journalhook"
-    "github.com/Sirupsen/logrus"
+    "github.com/sirupsen/logrus"
 )
 
 logrus.AddHook(&journalhook.JournalHook{})

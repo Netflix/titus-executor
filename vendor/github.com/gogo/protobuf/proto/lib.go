@@ -66,7 +66,14 @@ for a protocol buffer variable v:
 	that contain it (if any) followed by the CamelCased name of the
 	extension field itself.  HasExtension, ClearExtension, GetExtension
 	and SetExtension are functions for manipulating extensions.
+  - Oneof field sets are given a single field in their message,
+	with distinguished wrapper types for each possible field value.
   - Marshal and Unmarshal are functions to encode and decode the wire format.
+
+When the .proto file specifies `syntax="proto3"`, there are some differences:
+
+  - Non-repeated fields of non-message type are values instead of pointers.
+  - Enum types do not get an Enum method.
 
 The simplest way to describe this is to see an example.
 Given file test.proto, containing
@@ -81,6 +88,10 @@ Given file test.proto, containing
 	  repeated int64 reps = 3;
 	  optional group OptionalGroup = 4 {
 	    required string RequiredField = 5;
+	  }
+	  oneof union {
+	    int32 number = 6;
+	    string name = 7;
 	  }
 	}
 
@@ -120,15 +131,40 @@ The resulting file, test.pb.go, is:
 	}
 
 	type Test struct {
-		Label            *string             `protobuf:"bytes,1,req,name=label" json:"label,omitempty"`
-		Type             *int32              `protobuf:"varint,2,opt,name=type,def=77" json:"type,omitempty"`
-		Reps             []int64             `protobuf:"varint,3,rep,name=reps" json:"reps,omitempty"`
-		Optionalgroup    *Test_OptionalGroup `protobuf:"group,4,opt,name=OptionalGroup" json:"optionalgroup,omitempty"`
-		XXX_unrecognized []byte              `json:"-"`
+		Label         *string             `protobuf:"bytes,1,req,name=label" json:"label,omitempty"`
+		Type          *int32              `protobuf:"varint,2,opt,name=type,def=77" json:"type,omitempty"`
+		Reps          []int64             `protobuf:"varint,3,rep,name=reps" json:"reps,omitempty"`
+		Optionalgroup *Test_OptionalGroup `protobuf:"group,4,opt,name=OptionalGroup" json:"optionalgroup,omitempty"`
+		// Types that are valid to be assigned to Union:
+		//	*Test_Number
+		//	*Test_Name
+		Union            isTest_Union `protobuf_oneof:"union"`
+		XXX_unrecognized []byte       `json:"-"`
 	}
 	func (m *Test) Reset()         { *m = Test{} }
 	func (m *Test) String() string { return proto.CompactTextString(m) }
-	func (*Test) ProtoMessage()    {}
+	func (*Test) ProtoMessage() {}
+
+	type isTest_Union interface {
+		isTest_Union()
+	}
+
+	type Test_Number struct {
+		Number int32 `protobuf:"varint,6,opt,name=number"`
+	}
+	type Test_Name struct {
+		Name string `protobuf:"bytes,7,opt,name=name"`
+	}
+
+	func (*Test_Number) isTest_Union() {}
+	func (*Test_Name) isTest_Union()   {}
+
+	func (m *Test) GetUnion() isTest_Union {
+		if m != nil {
+			return m.Union
+		}
+		return nil
+	}
 	const Default_Test_Type int32 = 77
 
 	func (m *Test) GetLabel() string {
@@ -165,13 +201,27 @@ The resulting file, test.pb.go, is:
 		return ""
 	}
 
+	func (m *Test) GetNumber() int32 {
+		if x, ok := m.GetUnion().(*Test_Number); ok {
+			return x.Number
+		}
+		return 0
+	}
+
+	func (m *Test) GetName() string {
+		if x, ok := m.GetUnion().(*Test_Name); ok {
+			return x.Name
+		}
+		return ""
+	}
+
 	func init() {
 		proto.RegisterEnum("example.FOO", FOO_name, FOO_value)
 	}
 
 To create and play with a Test object:
 
-package main
+	package main
 
 	import (
 		"log"
@@ -184,9 +234,11 @@ package main
 		test := &pb.Test{
 			Label: proto.String("hello"),
 			Type:  proto.Int32(17),
+			Reps:  []int64{1, 2, 3},
 			Optionalgroup: &pb.Test_OptionalGroup{
 				RequiredField: proto.String("good bye"),
 			},
+			Union: &pb.Test_Name{"fred"},
 		}
 		data, err := proto.Marshal(test)
 		if err != nil {
@@ -201,6 +253,11 @@ package main
 		if test.GetLabel() != newTest.GetLabel() {
 			log.Fatalf("data mismatch %q != %q", test.GetLabel(), newTest.GetLabel())
 		}
+		// Use a type switch to determine which oneof was set.
+		switch u := test.Union.(type) {
+		case *pb.Test_Number: // u.Number contains the number.
+		case *pb.Test_Name: // u.Name contains the string.
+		}
 		// etc.
 	}
 */
@@ -211,9 +268,71 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"sort"
 	"strconv"
 	"sync"
 )
+
+// RequiredNotSetError is an error type returned by either Marshal or Unmarshal.
+// Marshal reports this when a required field is not initialized.
+// Unmarshal reports this when a required field is missing from the wire data.
+type RequiredNotSetError struct{ field string }
+
+func (e *RequiredNotSetError) Error() string {
+	if e.field == "" {
+		return fmt.Sprintf("proto: required field not set")
+	}
+	return fmt.Sprintf("proto: required field %q not set", e.field)
+}
+func (e *RequiredNotSetError) RequiredNotSet() bool {
+	return true
+}
+
+type invalidUTF8Error struct{ field string }
+
+func (e *invalidUTF8Error) Error() string {
+	if e.field == "" {
+		return "proto: invalid UTF-8 detected"
+	}
+	return fmt.Sprintf("proto: field %q contains invalid UTF-8", e.field)
+}
+func (e *invalidUTF8Error) InvalidUTF8() bool {
+	return true
+}
+
+// errInvalidUTF8 is a sentinel error to identify fields with invalid UTF-8.
+// This error should not be exposed to the external API as such errors should
+// be recreated with the field information.
+var errInvalidUTF8 = &invalidUTF8Error{}
+
+// isNonFatal reports whether the error is either a RequiredNotSet error
+// or a InvalidUTF8 error.
+func isNonFatal(err error) bool {
+	if re, ok := err.(interface{ RequiredNotSet() bool }); ok && re.RequiredNotSet() {
+		return true
+	}
+	if re, ok := err.(interface{ InvalidUTF8() bool }); ok && re.InvalidUTF8() {
+		return true
+	}
+	return false
+}
+
+type nonFatal struct{ E error }
+
+// Merge merges err into nf and reports whether it was successful.
+// Otherwise it returns false for any fatal non-nil errors.
+func (nf *nonFatal) Merge(err error) (ok bool) {
+	if err == nil {
+		return true // not an error
+	}
+	if !isNonFatal(err) {
+		return false // fatal error
+	}
+	if nf.E == nil {
+		nf.E = err // store first instance of non-fatal error
+	}
+	return true
+}
 
 // Message is implemented by generated protocol buffer messages.
 type Message interface {
@@ -222,26 +341,6 @@ type Message interface {
 	ProtoMessage()
 }
 
-// Stats records allocation details about the protocol buffer encoders
-// and decoders.  Useful for tuning the library itself.
-type Stats struct {
-	Emalloc uint64 // mallocs in encode
-	Dmalloc uint64 // mallocs in decode
-	Encode  uint64 // number of encodes
-	Decode  uint64 // number of decodes
-	Chit    uint64 // number of cache hits
-	Cmiss   uint64 // number of cache misses
-	Size    uint64 // number of sizes
-}
-
-// Set to true to enable stats collection.
-const collectStats = false
-
-var stats Stats
-
-// GetStats returns a copy of the global Stats structure.
-func GetStats() Stats { return stats }
-
 // A Buffer is a buffer manager for marshaling and unmarshaling
 // protocol buffers.  It may be reused between invocations to
 // reduce memory usage.  It is not necessary to use a Buffer;
@@ -249,18 +348,9 @@ func GetStats() Stats { return stats }
 // temporary Buffer and are fine for most applications.
 type Buffer struct {
 	buf   []byte // encode/decode byte stream
-	index int    // write point
+	index int    // read point
 
-	// pools of basic types to amortize allocation.
-	bools   []bool
-	uint32s []uint32
-	uint64s []uint64
-
-	// extra pools, only used with pointer_reflect.go
-	int32s   []int32
-	int64s   []int64
-	float32s []float32
-	float64s []float64
+	deterministic bool
 }
 
 // NewBuffer allocates a new Buffer and initializes its internal data to
@@ -284,6 +374,30 @@ func (p *Buffer) SetBuf(s []byte) {
 
 // Bytes returns the contents of the Buffer.
 func (p *Buffer) Bytes() []byte { return p.buf }
+
+// SetDeterministic sets whether to use deterministic serialization.
+//
+// Deterministic serialization guarantees that for a given binary, equal
+// messages will always be serialized to the same bytes. This implies:
+//
+//   - Repeated serialization of a message will return the same bytes.
+//   - Different processes of the same binary (which may be executing on
+//     different machines) will serialize equal messages to the same bytes.
+//
+// Note that the deterministic serialization is NOT canonical across
+// languages. It is not guaranteed to remain stable over time. It is unstable
+// across different builds with schema changes due to unknown fields.
+// Users who need canonical serialization (e.g., persistent storage in a
+// canonical form, fingerprinting, etc.) should define their own
+// canonicalization specification and implement their own serializer rather
+// than relying on this API.
+//
+// If deterministic serialization is requested, map entries will be sorted
+// by keys in lexographical order. This is an implementation detail and
+// subject to change.
+func (p *Buffer) SetDeterministic(deterministic bool) {
+	p.deterministic = deterministic
+}
 
 /*
  * Helper routines for simplifying the creation of optional fields of basic type.
@@ -389,7 +503,7 @@ func (p *Buffer) DebugPrint(s string, b []byte) {
 	var u uint64
 
 	obuf := p.buf
-	index := p.index
+	sindex := p.index
 	p.buf = b
 	p.index = 0
 	depth := 0
@@ -459,7 +573,6 @@ out:
 				break out
 			}
 			fmt.Printf("%3d: t=%3d fix64 %d\n", index, tag, u)
-			break
 
 		case WireVarint:
 			u, err = p.DecodeVarint()
@@ -470,19 +583,11 @@ out:
 			fmt.Printf("%3d: t=%3d varint %d\n", index, tag, u)
 
 		case WireStartGroup:
-			if err != nil {
-				fmt.Printf("%3d: t=%3d start err %v\n", index, tag, err)
-				break out
-			}
 			fmt.Printf("%3d: t=%3d start\n", index, tag)
 			depth++
 
 		case WireEndGroup:
 			depth--
-			if err != nil {
-				fmt.Printf("%3d: t=%3d end err %v\n", index, tag, err)
-				break out
-			}
 			fmt.Printf("%3d: t=%3d end\n", index, tag)
 		}
 	}
@@ -493,7 +598,7 @@ out:
 	fmt.Printf("\n")
 
 	p.buf = obuf
-	p.index = index
+	p.index = sindex
 }
 
 // SetDefaults sets unset protocol buffer fields to their default values.
@@ -503,9 +608,11 @@ func SetDefaults(pb Message) {
 	setDefaults(reflect.ValueOf(pb), true, false)
 }
 
-// v is a pointer to a struct.
+// v is a struct.
 func setDefaults(v reflect.Value, recur, zeros bool) {
-	v = v.Elem()
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
 
 	defaultMu.RLock()
 	dm, ok := defaults[v.Type()]
@@ -607,8 +714,11 @@ func setDefaults(v reflect.Value, recur, zeros bool) {
 
 	for _, ni := range dm.nested {
 		f := v.Field(ni)
-		// f is *T or []*T or map[T]*T
+		// f is *T or T or []*T or []T
 		switch f.Kind() {
+		case reflect.Struct:
+			setDefaults(f, recur, zeros)
+
 		case reflect.Ptr:
 			if f.IsNil() {
 				continue
@@ -618,7 +728,7 @@ func setDefaults(v reflect.Value, recur, zeros bool) {
 		case reflect.Slice:
 			for i := 0; i < f.Len(); i++ {
 				e := f.Index(i)
-				if e.IsNil() {
+				if e.Kind() == reflect.Ptr && e.IsNil() {
 					continue
 				}
 				setDefaults(e, recur, zeros)
@@ -690,6 +800,9 @@ func buildDefaultMessage(t reflect.Type) (dm defaultMessage) {
 func fieldDefault(ft reflect.Type, prop *Properties) (sf *scalarField, nestedMessage bool, err error) {
 	var canHaveDefault bool
 	switch ft.Kind() {
+	case reflect.Struct:
+		nestedMessage = true // non-nullable
+
 	case reflect.Ptr:
 		if ft.Elem().Kind() == reflect.Struct {
 			nestedMessage = true
@@ -699,7 +812,7 @@ func fieldDefault(ft reflect.Type, prop *Properties) (sf *scalarField, nestedMes
 
 	case reflect.Slice:
 		switch ft.Elem().Kind() {
-		case reflect.Ptr:
+		case reflect.Ptr, reflect.Struct:
 			nestedMessage = true // repeated message
 		case reflect.Uint8:
 			canHaveDefault = true // bytes field
@@ -782,17 +895,40 @@ func fieldDefault(ft reflect.Type, prop *Properties) (sf *scalarField, nestedMes
 	return sf, false, nil
 }
 
+// mapKeys returns a sort.Interface to be used for sorting the map keys.
 // Map fields may have key types of non-float scalars, strings and enums.
-// The easiest way to sort them in some deterministic order is to use fmt.
-// If this turns out to be inefficient we can always consider other options,
-// such as doing a Schwartzian transform.
+func mapKeys(vs []reflect.Value) sort.Interface {
+	s := mapKeySorter{vs: vs}
 
-type mapKeys []reflect.Value
+	// Type specialization per https://developers.google.com/protocol-buffers/docs/proto#maps.
+	if len(vs) == 0 {
+		return s
+	}
+	switch vs[0].Kind() {
+	case reflect.Int32, reflect.Int64:
+		s.less = func(a, b reflect.Value) bool { return a.Int() < b.Int() }
+	case reflect.Uint32, reflect.Uint64:
+		s.less = func(a, b reflect.Value) bool { return a.Uint() < b.Uint() }
+	case reflect.Bool:
+		s.less = func(a, b reflect.Value) bool { return !a.Bool() && b.Bool() } // false < true
+	case reflect.String:
+		s.less = func(a, b reflect.Value) bool { return a.String() < b.String() }
+	default:
+		panic(fmt.Sprintf("unsupported map key type: %v", vs[0].Kind()))
+	}
 
-func (s mapKeys) Len() int      { return len(s) }
-func (s mapKeys) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
-func (s mapKeys) Less(i, j int) bool {
-	return fmt.Sprint(s[i].Interface()) < fmt.Sprint(s[j].Interface())
+	return s
+}
+
+type mapKeySorter struct {
+	vs   []reflect.Value
+	less func(a, b reflect.Value) bool
+}
+
+func (s mapKeySorter) Len() int      { return len(s.vs) }
+func (s mapKeySorter) Swap(i, j int) { s.vs[i], s.vs[j] = s.vs[j], s.vs[i] }
+func (s mapKeySorter) Less(i, j int) bool {
+	return s.less(s.vs[i], s.vs[j])
 }
 
 // isProto3Zero reports whether v is a zero proto3 value.
@@ -810,4 +946,22 @@ func isProto3Zero(v reflect.Value) bool {
 		return v.String() == ""
 	}
 	return false
+}
+
+// ProtoPackageIsVersion2 is referenced from generated protocol buffer files
+// to assert that that code is compatible with this version of the proto package.
+const GoGoProtoPackageIsVersion2 = true
+
+// ProtoPackageIsVersion1 is referenced from generated protocol buffer files
+// to assert that that code is compatible with this version of the proto package.
+const GoGoProtoPackageIsVersion1 = true
+
+// InternalMessageInfo is a type used internally by generated .pb.go files.
+// This type is not intended to be used by non-generated code.
+// This type is not subject to any compatibility guarantee.
+type InternalMessageInfo struct {
+	marshal   *marshalInfo
+	unmarshal *unmarshalInfo
+	merge     *mergeInfo
+	discard   *discardInfo
 }

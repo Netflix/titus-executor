@@ -591,7 +591,7 @@ func sleepWithCtx(parentCtx context.Context, d time.Duration) error {
 func imageExists(ctx context.Context, client *docker.Client, ref string) (*types.ImageInspect, error) {
 	resp, _, err := client.ImageInspectWithRaw(ctx, ref)
 	if err != nil {
-		if docker.IsErrImageNotFound(err) {
+		if docker.IsErrNotFound(err) {
 			return nil, nil
 		}
 
@@ -1032,7 +1032,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	c.SetID(containerCreateBody.ID)
 
 	r.metrics.Timer("titus.executor.dockerCreateTime", time.Since(dockerCreateStartTime), c.ImageTagForMetrics())
-	if docker.IsErrImageNotFound(err) {
+	if docker.IsErrNotFound(err) {
 		return &runtimeTypes.RegistryImageNotFoundError{Reason: err}
 	}
 	if err != nil {
@@ -1915,7 +1915,7 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error { // nolint: gocyc
 		containerStopTimeout = defaultKillWait
 	}
 
-	if containerJSON, err := r.client.ContainerInspect(context.TODO(), c.ID); docker.IsErrContainerNotFound(err) {
+	if containerJSON, err := r.client.ContainerInspect(context.TODO(), c.ID); docker.IsErrNotFound(err) {
 		goto stopped
 	} else if err != nil {
 		log.Error("Failed to inspect container: ", err)
