@@ -37,7 +37,7 @@ const (
 )
 
 var (
-	// This is a variable so we can change it as neccessary during tests
+	// This is a variable so we can change it as necessary during tests
 	rotateSize int64 = 256000000
 	maxSeek    int64 = 16777216 // 16MB
 

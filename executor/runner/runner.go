@@ -183,7 +183,8 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	var lastUpdate *update
 	for update := range updateChan {
 		r.logger.WithField("update", update).Debug("Processing update")
-		lastUpdate = &update
+		// This is okay, because it only gets references _after_ loop termination.
+		lastUpdate = &update // nolint:scopelint
 		if update.status.IsTerminalStatus() {
 			break
 		}

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/mock"
@@ -561,10 +563,10 @@ func testCancelPullBigImage(t *testing.T, jobID string) { // nolint: gocyclo
 		select {
 		case taskStatus := <-testResultBigImage.UpdateChan:
 			//		t.Log("Observed task status: ", taskStatus)
-			if taskStatus.State.String() == "TASK_RUNNING" {
+			if taskStatus.State == titusdriver.Running {
 				t.Fatalf("Task %s started after killTask %v", testResultBigImage.TaskID, taskStatus)
 			}
-			if taskStatus.State.String() == "TASK_KILLED" || taskStatus.State.String() == "TASK_LOST" {
+			if taskStatus.State == titusdriver.Killed || taskStatus.State == titusdriver.Lost {
 				t.Logf("Task %s successfully terminated with status %s", testResultBigImage.TaskID, taskStatus.State.String())
 				goto big_task_killed
 			}
@@ -630,10 +632,10 @@ func testShutdown(t *testing.T, jobID string) {
 		for {
 			select {
 			case status := <-testResult.UpdateChan:
-				if status.State.String() == "TASK_RUNNING" {
+				if status.State == titusdriver.Running {
 					taskRunning <- true
 				} else if status.State.IsTerminalStatus() {
-					if status.State.String() != "TASK_KILLED" {
+					if status.State != titusdriver.Killed {
 						t.Errorf("Task %s not killed successfully, %s!", testResult.TaskID, status.State.String())
 					}
 					taskRunning <- false
@@ -713,7 +715,8 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 	for status := range jobResponse.UpdateChan {
 		if status.State.IsTerminalStatus() {
 			killTime := time.Since(killTime)
-			return &status, killTime
+			// this is a terminal state, so it's okay to return a reference to a loop iterator
+			return &status, killTime // nolint: scopelint
 		}
 	}
 
@@ -723,7 +726,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 
 func testTerminateTimeout(t *testing.T, jobID string) {
 	status, killTime := testTerminateTimeoutWrapped(t, jobID, 15)
-	if status.State.String() != "TASK_KILLED" {
+	if status.State != titusdriver.Killed {
 		t.Fail()
 	}
 	if killTime < time.Second*time.Duration(15) {
@@ -733,7 +736,7 @@ func testTerminateTimeout(t *testing.T, jobID string) {
 
 func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
 	status, killTime := testTerminateTimeoutWrapped(t, jobID, 15)
-	if status.State.String() != "TASK_KILLED" {
+	if status.State != titusdriver.Killed {
 		t.Fail()
 	}
 	// 30 is 15 with some buffer?

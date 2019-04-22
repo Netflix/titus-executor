@@ -5,21 +5,16 @@ log() {
     echo -e "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $1" >&2
 }
 
-# This should clean the path
-mkdir -p ${BUILDKITE_BUILD_CHECKOUT_PATH}/src/github.com/Netflix/titus-executor/
+GO_VERSION=1.12.4
+GO_INSTALL_DIR=${HOME}/go_installs/${GO_VERSION}
+if [[ ! -d ${GO_INSTALL_DIR}/go ]]; then
+    mkdir -p ${GO_INSTALL_DIR}
+    curl -Sfl https://dl.google.com/go/go1.12.4.linux-amd64.tar.gz |tar -xz -C ${GO_INSTALL_DIR}
+fi
 
-shopt -s dotglob
-mv ${BUILDKITE_BUILD_CHECKOUT_PATH}/* ${BUILDKITE_BUILD_CHECKOUT_PATH}/src/github.com/Netflix/titus-executor/ || true
 
-export GOPATH="${BUILDKITE_BUILD_CHECKOUT_PATH}"
-export PATH="/usr/local/go/bin:${GOPATH}/bin:${PATH}"
-
-cd ${GOPATH}/src/github.com/Netflix/titus-executor
-
-log "Installing go dependencies"
-
-go get -u github.com/kardianos/govendor
-go get -u github.com/wadey/gocovmerge
+export GOPATH="${HOME}/go"
+export PATH="${GO_INSTALL_DIR}/go/bin:${GOPATH}/bin:${PATH}"
 
 log "Building executor"
 

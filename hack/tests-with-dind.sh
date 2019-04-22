@@ -48,12 +48,11 @@ terminate_titus_docker() {
 
 trap terminate_titus_docker EXIT
 
-go_pkg="${GO_PKG:-github.com/Netflix/titus-executor}"
 debug=${DEBUG:-false}
 
 log "Running a docker daemon named $titus_agent_name"
 docker run --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
-  -v ${GOPATH}:${GOPATH} -w ${GOPATH}/src/${go_pkg} --rm --name "$titus_agent_name" -e DEBUG=${debug} \
+  -v ${GOPATH}:${GOPATH} -w ${PWD} -v ${PWD}:${PWD} --rm --name "$titus_agent_name" -e DEBUG=${debug} \
   -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} --label "$run_id" -d titusoss/titus-agent
 
 log "Copying test metatron certs to their correct location"
@@ -61,7 +60,7 @@ docker exec "$titus_agent_name" /metatron/certificates/setup-metatron-certs.sh
 
 log "Running integration tests against the $titus_agent_name daemon"
 # --privileged is needed here since we are reading FDs from a unix socket
-docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} -e GOCACHE=off "$titus_agent_name" \
+docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-3m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
     -coverpkg=github.com/Netflix/... ./executor/mock/standalone/... -standalone=true 2>&1 | tee test-standalone.log

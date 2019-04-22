@@ -756,24 +756,24 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 
 	go func() {
 		defer close(c.AllocationCommandStatus)
-		e := c.AllocationCommand.Wait()
-		if e == nil {
+		allocateCommandError := c.AllocationCommand.Wait()
+		if allocateCommandError == nil {
 			log.Info("Allocate command exited with no error")
 			return
 		}
-		e = ctx.Err()
+		e := ctx.Err()
 		if e != nil {
 			log.WithError(e).Info("Allocate command canceled")
 			return
 		}
 
-		log.Error("Allocate command exited with error: ", err)
+		log.WithError(allocateCommandError).Error("Allocate command exited with error")
 
-		if exitErr, ok := e.(*exec.ExitError); ok {
+		if exitErr, ok := allocateCommandError.(*exec.ExitError); ok {
 			c.AllocationCommandStatus <- exitErr
 		} else {
-			log.Error("Could not handle exit error of allocation command: ", e)
-			c.AllocationCommandStatus <- e
+			log.WithError(allocateCommandError).Error("Could not handle exit error of allocation command")
+			c.AllocationCommandStatus <- allocateCommandError
 		}
 	}()
 
@@ -1812,20 +1812,21 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 
 	go func() {
 		defer close(c.SetupCommandStatus)
-		e := c.SetupCommand.Wait()
-		if e == nil {
+		setupCommandError := c.SetupCommand.Wait()
+		if setupCommandError == nil {
 			return
 		}
-		e = ctx.Err()
+		e := ctx.Err()
 		if e != nil {
 			log.WithError(e).Info("Setup command canceled")
 			return
 		}
-		if exitErr, ok := e.(*exec.ExitError); ok {
+
+		if exitErr, ok := setupCommandError.(*exec.ExitError); ok {
 			c.SetupCommandStatus <- exitErr
 		} else {
 			log.Error("Could not handle exit error of setup command: ", e)
-			c.SetupCommandStatus <- e
+			c.SetupCommandStatus <- setupCommandError
 		}
 	}()
 

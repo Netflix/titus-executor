@@ -7,7 +7,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
 
 RUN gem install --no-ri --no-rdoc fpm
 
-COPY --from=golang:1.11-stretch /usr/local/go /usr/local/go
+COPY --from=golang:1.12-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
 RUN go version
@@ -25,23 +25,11 @@ RUN curl -fsSL $LIBNL_DOWNLOAD_URL -o libnl.tar.gz \
 	&& tar -xf libnl.tar.gz && cd libnl-3.4.0 && ./configure \
 	&& make && make install
 
-RUN go get -u github.com/kardianos/govendor
-RUN go get -u golang.org/x/tools/cmd/goimports
 RUN go get -u github.com/mitchellh/gox
-
-# gometalinter 2.0.11:
-ENV GOMETALINTER_DOWNLOAD_SHA256 97d8bd0a4d024740964c7fc2ae41276cf5f839ccf0749528ca900942f656d201
-ENV GOMETALINTER_DOWNLOAD_URL https://github.com/alecthomas/gometalinter/releases/download/v2.0.11/gometalinter-2.0.11-linux-amd64.tar.gz
-
-RUN mkdir /gometalinter && cd /gometalinter \
-    && curl -fsSL $GOMETALINTER_DOWNLOAD_URL -o gometalinter.tar.gz \
-	&& echo "$GOMETALINTER_DOWNLOAD_SHA256 gometalinter.tar.gz" | sha256sum -c - \
-	&& tar --strip-components=1 -xf gometalinter.tar.gz \
-	&& rm gometalinter.tar.gz && mv * $GOPATH/bin && cd && rm -rf /gometalinter
-
-RUN go get -u github.com/jteeuwen/go-bindata/...
 
 RUN chmod -R a+rw /go/src
 COPY titus-executor-builder.sh /usr/local/bin/build
+RUN mkdir -p /builds
+WORKDIR /builds
 
 CMD ["/usr/local/bin/build"]

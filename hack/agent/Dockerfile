@@ -29,14 +29,13 @@ RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 9DC858229FC7DD38854
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
     apt-get install -y build-essential make cmake libattr1-dev dbus docker-ce=5:18.09.1~3-0~ubuntu-xenial wget
 
-COPY --from=golang:1.11-stretch /usr/local/go /usr/local/go
+COPY --from=golang:1.12-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
 RUN go version
 
 RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
 ###
-RUN go get -u github.com/kardianos/govendor
 
 RUN systemctl enable dbus.service
 RUN systemctl enable docker.service
