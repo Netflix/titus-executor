@@ -228,7 +228,7 @@ func (n *PluginInfo) wireUpDockerVolume(volumeDriver string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	for vol := range volumesToCreate {
-		vcb := volume.VolumesCreateBody{
+		vcb := volume.VolumeCreateBody{
 			Driver:     volumeDriver,
 			Name:       vol,
 			Labels:     map[string]string{},
@@ -241,7 +241,7 @@ func (n *PluginInfo) wireUpDockerVolume(volumeDriver string) error {
 	return nil
 }
 
-func createVolume(parentCtx context.Context, dockerClient *docker.Client, vcb volume.VolumesCreateBody) error {
+func createVolume(parentCtx context.Context, dockerClient *docker.Client, vcb volume.VolumeCreateBody) error {
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 	var err error

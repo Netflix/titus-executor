@@ -106,7 +106,7 @@ func filterTitusContainers(containers []types.Container) []types.Container {
 
 func (reaper *Reaper) processContainer(ctx context.Context, container types.Container, dockerClient *docker.Client) {
 	containerJSON, err := dockerClient.ContainerInspect(ctx, container.ID)
-	if docker.IsErrContainerNotFound(err) {
+	if docker.IsErrNotFound(err) {
 		return
 	} else if err != nil {
 		reaper.log.Fatal("Unable to fetch container JSON: ", err)

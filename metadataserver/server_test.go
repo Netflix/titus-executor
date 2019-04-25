@@ -64,13 +64,13 @@ func setupStubServer(t *testing.T) (*stubServer, error) {
 		t:       t,
 	}
 
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
 	if err != nil {
 		return nil, err
 	}
 	stubServerInstance.fakeEC2MetdataServiceListener = listener
 
-	listener, err = net.Listen("tcp", "0.0.0.0:0")
+	listener, err = net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +340,10 @@ func validateTaskIdentityRequest(t *testing.T, certType string) func(*stubServer
 		assert.NotNil(t, signature)
 
 		state := crypto.SHA512.New()
-		state.Write(taskIdentDoc.Identity)
+		_, err = state.Write(taskIdentDoc.Identity)
+		if err != nil {
+			panic(err)
+		}
 		hash := state.Sum(nil)
 
 		switch k := cert.PrivateKey.(type) {

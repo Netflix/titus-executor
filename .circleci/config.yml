@@ -78,7 +78,7 @@ jobs:
     docker:
       - image: titusoss/titus-ci-builder
     resource_class: xlarge
-    working_directory: /go/src/github.com/Netflix/titus-executor
+    working_directory: /builds
     steps:
       - checkout
       - run:

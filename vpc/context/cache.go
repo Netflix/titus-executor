@@ -28,7 +28,7 @@ type cacheType string
 
 const (
 	interfaceKey cacheType = "interfaces"
-	subnetKey              = "subnets"
+	subnetKey    cacheType = "subnets"
 )
 
 // Cache is a state dir (/run, memory) backed cache

@@ -97,3 +97,5 @@ checkstyle-result.xml
 
 coverage-local.out
 coverage-standalone.out
+bin/
+.gobincache/

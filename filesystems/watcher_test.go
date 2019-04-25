@@ -34,9 +34,9 @@ func makeWatcher(localDir, uploadDir string) *Watcher {
 		uploadDir:                uploadDir,
 		uploadRegexp:             nil,
 		uploaders:                uploaders,
-		UploadThresholdTime:      time.Duration(time.Second * 10),
-		UploadCheckInterval:      time.Duration(time.Second * 2),
-		stdioLogCheckInterval:    time.Duration(time.Second * 2),
+		UploadThresholdTime:      time.Second * 10,
+		UploadCheckInterval:      time.Second * 2,
+		stdioLogCheckInterval:    time.Second * 2,
 		keepLocalFileAfterUpload: false,
 	}
 }
@@ -361,7 +361,8 @@ func checkOngoingLogRotate(tmpLogDir, destLoc string, buf []byte, t *testing.T) 
 
 	movedFiles := []string{}
 	for _, f := range files {
-		if f.Size() < int64(rotateSize) {
+		// Really not sure why we need to do this?
+		if f.Size() < int64(rotateSize) { // nolint:unconvert
 			t.Fatalf("Rotated incorrect amount in file %s, file size: %d, expect size at least: %d", f.Name(), f.Size(), rotateSize)
 		}
 		movedFiles = append(movedFiles, f.Name())

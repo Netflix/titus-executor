@@ -27,6 +27,10 @@ func init() {
 	logrus.SetLevel(logrus.DebugLevel)
 }
 
+const (
+	image = "titusops/alpine"
+)
+
 // runtimeMock implements the Runtime interface
 type runtimeMock struct {
 	t   *testing.T
@@ -116,7 +120,7 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 	defer cancel()
 
 	taskID := "TestSendTerminalStatusUntilCleanup"
-	image := "titusops/alpine"
+	image := image
 	taskInfo := &titus.ContainerInfo{
 		ImageName:         &image,
 		IgnoreLaunchGuard: proto.Bool(true),
@@ -197,7 +201,7 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	defer cancel()
 
 	taskID := "TestCancelDuringPrepare"
-	image := "titusops/alpine"
+	image := image
 	taskInfo := &titus.ContainerInfo{
 		ImageName:         &image,
 		IgnoreLaunchGuard: proto.Bool(true),
@@ -287,7 +291,7 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	defer cancel()
 
 	taskID := "Titus-123-worker-0-2"
-	image := "titusops/alpine"
+	image := image
 	taskInfo := &titus.ContainerInfo{
 		ImageName:         &image,
 		IgnoreLaunchGuard: proto.Bool(true),

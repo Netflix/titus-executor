@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 
-set -eu -o pipefail
-
-go_pkg="${GO_PACKAGE:-github.com/Netflix/titus-executor}"
-go_src_path=${GOPATH:-/go}/src/${go_pkg}
-
-pushd "$go_src_path"
+set -eu -o pipefail -x
 
 ## Build all linux-amd64 binaries
 mkdir -p build/bin/linux-amd64
@@ -135,4 +130,3 @@ pushd build/distributions
 ln -sf $(basename ${filename}) titus-executor_latest.deb
 popd >/dev/null
 
-popd >/dev/null
