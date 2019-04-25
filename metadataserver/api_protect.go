@@ -3,9 +3,13 @@ package metadataserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/Netflix/titus-executor/cache"
+	"github.com/pkg/errors"
 
 	"github.com/Netflix/titus-executor/ec2util"
 	"github.com/aws/aws-sdk-go/aws"
@@ -28,44 +32,76 @@ const (
 	vpcNatTag = "vpcnat"
 )
 
-func getAPIProtectPolicy(parentCtx context.Context, ec2Client *ec2.EC2, vpcID string, ipv4Address, ipv6Address *net.IP) *string {
+func vpcResolver(ec2Client *ec2.EC2) cache.KeyResolver {
+	return func(ctx context.Context, vpcID string, v interface{}) error {
+		vpc := v.(*ec2.Vpc)
+		describeVpcsOutput, err := ec2Client.DescribeVpcsWithContext(ctx, &ec2.DescribeVpcsInput{
+			VpcIds: aws.StringSlice([]string{vpcID}),
+		})
+		if err != nil {
+			return errors.Wrap(err, "Could not describe VPCs")
+		}
+		if len(describeVpcsOutput.Vpcs) != 1 {
+			return fmt.Errorf("Did not get one VPC back from describe, instead got %d VPCs", len(describeVpcsOutput.Vpcs))
+		}
+		*vpc = *describeVpcsOutput.Vpcs[0]
+		return nil
+	}
+}
+
+type vpcEndPoints struct {
+	VpcEndpoints []*ec2.VpcEndpoint `json:"vpcEndpoints"`
+}
+
+func vpcEndpointsResolver(ec2Client *ec2.EC2) cache.KeyResolver {
+	return func(ctx context.Context, ignored string, v interface{}) error {
+		result := v.(*vpcEndPoints)
+
+		if ignored != "" {
+			return errors.New("VPC Endpoints resolver only returns the key for \"\"")
+		}
+
+		vpcEndpoints := []*ec2.VpcEndpoint{}
+		var nextToken *string
+		for {
+			describeVpcEndpointsOutput, err := ec2Client.DescribeVpcEndpointsWithContext(ctx, &ec2.DescribeVpcEndpointsInput{
+				MaxResults: aws.Int64(pageSize),
+				NextToken:  nextToken,
+			})
+			if err != nil {
+				log.WithError(err).Error("Could not fetch VPC endpoints")
+				return errors.Wrap(err, "Could not fetch VPC Endpoints")
+			}
+			vpcEndpoints = append(vpcEndpoints, describeVpcEndpointsOutput.VpcEndpoints...)
+
+			if describeVpcEndpointsOutput.NextToken == nil {
+				break
+			}
+			nextToken = describeVpcEndpointsOutput.NextToken
+		}
+
+		result.VpcEndpoints = vpcEndpoints
+		return nil
+	}
+}
+
+func getAPIProtectPolicy(parentCtx context.Context, vpcCache, vpcEndspointsCache cache.Cache, vpcID string, ipv4Address, ipv6Address *net.IP) *string {
 	ctx, cancel := context.WithTimeout(parentCtx, apiProtectInfoFetchTimeout)
 	defer cancel()
 
-	describeVpcsOutput, err := ec2Client.DescribeVpcsWithContext(ctx, &ec2.DescribeVpcsInput{
-		VpcIds: aws.StringSlice([]string{vpcID}),
-	})
-
-	if err != nil {
-		log.WithError(err).Error("Could not describe VPCs")
+	var vpc ec2.Vpc
+	var vpcEndpoints vpcEndPoints
+	if err := vpcCache.Resolve(ctx, vpcID, &vpc); err != nil {
+		log.WithError(err).Error("Could not fetch VPCs to setup policy")
 		return nil
 	}
 
-	if len(describeVpcsOutput.Vpcs) != 1 {
-		log.Errorf("Did not get one VPC back from describe, instead got %d VPCs", len(describeVpcsOutput.Vpcs))
+	if err := vpcEndspointsCache.Resolve(ctx, "", &vpcEndpoints); err != nil {
+		log.WithError(err).Error("Could not fetch VPC endpoints to setup policy")
 		return nil
 	}
 
-	var nextToken *string
-	vpcEndpoints := []*ec2.VpcEndpoint{}
-	for {
-		describeVpcEndpointsOutput, err := ec2Client.DescribeVpcEndpointsWithContext(ctx, &ec2.DescribeVpcEndpointsInput{
-			MaxResults: aws.Int64(pageSize),
-			NextToken:  nextToken,
-		})
-		if err != nil {
-			log.WithError(err).Error("Could not fetch VPC endpoints")
-			return nil
-		}
-		vpcEndpoints = append(vpcEndpoints, describeVpcEndpointsOutput.VpcEndpoints...)
-
-		if describeVpcEndpointsOutput.NextToken == nil {
-			break
-		}
-		nextToken = describeVpcEndpointsOutput.NextToken
-	}
-
-	return generatePolicy(describeVpcsOutput.Vpcs[0], vpcEndpoints, ipv4Address, ipv6Address)
+	return generatePolicy(&vpc, vpcEndpoints.VpcEndpoints, ipv4Address, ipv6Address)
 }
 
 func generatePolicy(vpc *ec2.Vpc, vpcEndpoints []*ec2.VpcEndpoint, ipv4Address *net.IP, ipv6Address *net.IP) *string {
