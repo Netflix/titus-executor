@@ -153,10 +153,7 @@ func TestDoubleUpload(t *testing.T) { // nolint: gocyclo
 		t.Fatal(err)
 	}
 
-	// Please don't smite me.
-	for i := 0; i < 20; i++ {
-		time.Sleep(1 * time.Second)
-	}
+	time.Sleep(20 * time.Second)
 	wd, _ := os.Getwd()
 	t.Log("WD: ", wd)
 	data, err := ioutil.ReadFile(filepath.Join(destLoc, logFileName))

@@ -20,6 +20,16 @@ func (df *linuxDestinationFile) File() *os.File {
 }
 
 func (df *linuxDestinationFile) Finish() error {
+	err := unix.Access(df.path, 0)
+	if os.IsExist(err) {
+		err = os.Remove(df.path)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
 	procPath := filepath.Join("/proc", "self", "fd", strconv.Itoa(int(df.file.Fd())))
 	return unix.Linkat(unix.AT_FDCWD, procPath, unix.AT_FDCWD, df.path, unix.AT_SYMLINK_FOLLOW)
 }
