@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netflix/metrics-client-go/metrics"
+
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/sirupsen/logrus"
@@ -38,6 +40,7 @@ func makeWatcher(localDir, uploadDir string) *Watcher {
 		UploadCheckInterval:      time.Second * 2,
 		stdioLogCheckInterval:    time.Second * 2,
 		keepLocalFileAfterUpload: false,
+		metrics:                  metrics.Discard,
 	}
 }
 
