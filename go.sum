@@ -23,8 +23,6 @@ github.com/aws/aws-sdk-go v1.19.15/go.mod h1:KmX6BPdI08NWTb3/sm4ZGu5ShLoqVDhKgpi
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/coreos/go-systemd v0.0.0-20170731111925-d21964639418 h1:0QH6fTJVDpblGjjozilaO++YRbnQNnTYh3yuFJHH0o8=
 github.com/coreos/go-systemd v0.0.0-20170731111925-d21964639418/go.mod h1:F5haX7vjVVG0kc13fIWeqUViNPyEJxv/OmvnBo0Yme4=
-github.com/coreos/pkg v0.0.0-20170405072653-099530d80109 h1:8RxHvQFXd1AgM3q7iG92w06tQKiuqpHCNf5lVKs9bbs=
-github.com/coreos/pkg v0.0.0-20170405072653-099530d80109/go.mod h1:E3G3o1h8I7cfcXa63jLwjI0eiQQMgzzUDFVpN/nH/eA=
 github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1 h1:pZmkaGb99St6jJZFIl/d0Q2l2n5/q6VAWcVWEht2RMk=
 github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1/go.mod h1:FpkQEhXnPnOthhzymB7CGsFk2G9VLXONKD9G7QGMM+4=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

@@ -14,7 +14,6 @@ require (
 	github.com/apparentlymart/go-cidr v0.0.0-20170616213631-2bd8b58cf427
 	github.com/aws/aws-sdk-go v1.19.15
 	github.com/coreos/go-systemd v0.0.0-20170731111925-d21964639418
-	github.com/coreos/pkg v0.0.0-20170405072653-099530d80109 // indirect
 	github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1
 	github.com/deckarep/golang-set v0.0.0-20180603214616-504e848d77ea
 	github.com/docker/distribution v0.0.0-20170303212246-08b06dc02367 // indirect
