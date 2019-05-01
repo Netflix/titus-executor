@@ -21,12 +21,12 @@ func (df *linuxDestinationFile) File() *os.File {
 
 func (df *linuxDestinationFile) Finish() error {
 	err := unix.Access(df.path, 0)
-	if os.IsExist(err) {
+	if err == nil {
 		err = os.Remove(df.path)
 		if err != nil {
 			return err
 		}
-	} else if err != nil {
+	} else if !os.IsNotExist(err) {
 		return err
 	}
 
