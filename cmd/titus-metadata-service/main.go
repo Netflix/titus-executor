@@ -15,9 +15,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Netflix/titus-executor/logsutil"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/Netflix/titus-executor/logsutil"
 	"github.com/Netflix/titus-executor/metadataserver"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/types"
@@ -93,6 +94,7 @@ func main() {
 		titusTaskInstanceID   string
 		ipv4Address           string
 		ipv6Addresses         string
+		stateDir              string
 
 		vpcID string
 		eniID string
@@ -177,6 +179,13 @@ func main() {
 			EnvVar:      "EC2_IPV6S",
 			Destination: &ipv6Addresses,
 		},
+		cli.StringFlag{
+			Name:        "state-dir",
+			Value:       "/run/titus-metadata-service",
+			Usage:       "Where to store the state, and locker state -- creates directory",
+			EnvVar:      "IAM_STATE_DIR",
+			Destination: &stateDir,
+		},
 	}
 	app.Action = func(c *cli.Context) error {
 		if debug {
@@ -184,8 +193,9 @@ func main() {
 		} else {
 			log.SetLevel(log.InfoLevel)
 		}
+		// This needs to be if journald available, because titus executors are started by mesos agent, and in order
+		// for logs to get from the tasks starts by titus tasks to
 		logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
-
 		/* Get the requisite configuration from environment variables */
 		listener := getListener(listenPort, listenerFd)
 
@@ -198,6 +208,7 @@ func main() {
 			Region:              region,
 			Optimistic:          optimistic,
 			APIProtectEnabled:   apiProtectEnabled,
+			StateDir:            stateDir,
 		}
 		if parsedURL, err := url.Parse(backingMetadataServer); err == nil {
 			mdscfg.BackingMetadataServer = parsedURL

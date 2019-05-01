@@ -22,6 +22,7 @@ const (
 // optional fields are pointers
 type MetadataServerConfiguration struct {
 	BackingMetadataServer *url.URL
+	StateDir              string
 	IAMARN                string
 	TitusTaskInstanceID   string
 	Ipv4Address           net.IP

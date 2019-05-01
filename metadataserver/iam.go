@@ -7,9 +7,12 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Netflix/titus-executor/cache"
 
 	"github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -119,7 +122,7 @@ func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataS
 		}
 
 		ec2Client := ec2.New(s, ec2AWSCfg)
-		go proxy.getProtectInfo(ec2Client, apiProtectInfoLock, &config.Ipv4Address, config.Ipv6Address)
+		go proxy.getProtectInfo(ec2Client, config.StateDir, apiProtectInfoLock, &config.Ipv4Address, config.Ipv6Address)
 	}
 
 	if config.Optimistic {
@@ -138,10 +141,24 @@ type ec2IAMInfo struct {
 }
 
 // getProtectInfo is supposed to populate, and unlock proxy.apiProtectInfoLock
-func (proxy *iamProxy) getProtectInfo(ec2Client *ec2.EC2, lock *sync.RWMutex, ipv4Address, ipv6Address *net.IP) {
+func (proxy *iamProxy) getProtectInfo(ec2Client *ec2.EC2, stateDir string, lock *sync.RWMutex, ipv4Address, ipv6Address *net.IP) {
 	defer lock.Unlock()
 
-	proxy.apiProtectPolicy = getAPIProtectPolicy(proxy.ctx, ec2Client, proxy.vpcID, ipv4Address, ipv6Address)
+	// I don't see a good reason to make this cache configurable (yet)
+	vpcCache, err := cache.NewCache(filepath.Join(stateDir, "vpc"), cache.Duration(time.Hour), vpcResolver(ec2Client))
+	if err != nil {
+		log.WithError(err).Error("Could not fetch VPC, API Protect policy not generated")
+		return
+	}
+	vpcEndpointsCache, err := cache.NewCache(filepath.Join(stateDir, "vpc-endpoints"), cache.Duration(time.Hour), vpcEndpointsResolver(ec2Client))
+	if err != nil {
+		log.WithError(err).Error("Could not fetch VPC endpoints, API Protect policy not generated")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(proxy.ctx, time.Second*15)
+	defer cancel()
+	proxy.apiProtectPolicy = getAPIProtectPolicy(ctx, vpcCache, vpcEndpointsCache, proxy.vpcID, ipv4Address, ipv6Address)
 	if proxy.apiProtectPolicy == nil {
 		log.Warning("API Protect not generated, failing open")
 	} else {
