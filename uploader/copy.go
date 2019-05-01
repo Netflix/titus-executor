@@ -12,6 +12,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type destinationFile interface {
+	// File gets the underlying file object
+	File() *os.File
+	// Finish indicates that file handling is done. It makes the file visible to other users
+	Finish() error
+}
+
 // CopyUploader is an uploader that just copies files to another
 // location on the same host
 type CopyUploader struct {
@@ -55,24 +62,27 @@ func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) e
 		return err
 	}
 
-	r, err := os.Create(fullremote)
+	r, err := newDestinationFile(fullremote, 0644)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if err = r.Close(); err != nil {
-			log.Printf("Failed to close %s: %s", r.Name(), err)
+		if err = r.File().Close(); err != nil {
+			log.Printf("Failed to close %s: %s", r.File().Name(), err)
 		}
 	}()
 
 	if contentType != "" {
-		err = xattr.FSetXattr(r, xattr.MimeTypeAttr, []byte(contentType))
+		err = xattr.FSetXattr(r.File(), xattr.MimeTypeAttr, []byte(contentType))
 		if err != nil {
 			log.Warning("Unable to set content type: ", err)
 		}
 	}
-	_, err = io.Copy(r, local)
-	return err
+	_, err = io.Copy(r.File(), local)
+	if err != nil {
+		return err
+	}
+	return r.Finish()
 }
 
 // UploadPartOfFile copies a single file only. It doesn't preserve the cursor location in the file.
