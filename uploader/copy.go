@@ -49,22 +49,23 @@ func (u *CopyUploader) Upload(ctx context.Context, local, remote string, ctypeFu
 	contentType := ctypeFunc(local)
 
 	// copy uploader doesn't understand content types, ignore it
-	return u.uploadFile(l, remote, contentType)
+	_, err = u.uploadFile(l, remote, contentType)
+	return err
 }
 
 // UploadFile copies a single file only!
-func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) error {
+func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) (int64, error) {
 	fullremote := path.Join(u.Dir, remote)
 	log.Println("copy : local io.Reader -> " + fullremote)
 
 	remoteDir := path.Dir(fullremote)
 	if err := os.MkdirAll(remoteDir, 0777); err != nil { // nolint: gosec
-		return err
+		return 0, err
 	}
 
 	r, err := newDestinationFile(fullremote, 0644)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() {
 		if err = r.File().Close(); err != nil {
@@ -78,15 +79,20 @@ func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) e
 			log.Warning("Unable to set content type: ", err)
 		}
 	}
-	_, err = io.Copy(r.File(), local)
+	n, err := io.Copy(r.File(), local)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return r.Finish()
+	return n, r.Finish()
 }
 
 // UploadPartOfFile copies a single file only. It doesn't preserve the cursor location in the file.
 func (u *CopyUploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
+	entry := log.WithFields(map[string]interface{}{
+		"start":  start,
+		"length": length,
+		"remote": remote,
+	})
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -96,6 +102,9 @@ func (u *CopyUploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker
 	} else if n != start {
 		return errors.New("Could not seek")
 	}
+	entry.Debug("Uploading part of file")
 	limitLocal := io.LimitReader(local, length)
-	return u.uploadFile(limitLocal, remote, contentType)
+	n, err := u.uploadFile(limitLocal, remote, contentType)
+	entry.WithError(err).WithField("n", n).Debug("Uploaded part of file")
+	return err
 }
