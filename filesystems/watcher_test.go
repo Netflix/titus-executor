@@ -275,6 +275,9 @@ func TestRotateRegexp(t *testing.T) { // nolint: gocyclo
 const logFileName = "stderr"
 
 func TestLogRotate(t *testing.T) {
+	if os.Getenv("CIRCLECI") == "true" {
+		t.Skip("See: https://discuss.circleci.com/t/xattrs-broken-on-docker/30152")
+	}
 	t.Parallel()
 	rotateSize = 5000011 // 5MB-ish -- this is a prime number intentionally
 	maxSeek = 1000003
