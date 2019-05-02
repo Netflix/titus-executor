@@ -493,13 +493,20 @@ func (w *Watcher) doStdioRotate(file *os.File) {
 func updateFile(currentOffset, cutLoc int64, file *os.File) error {
 	now := time.Now()
 	nowStr := now.UTC().Format(backupFileTimeFormat)
-	log.WithField("now", now).WithField("currentOffset", currentOffset).WithField("cutLoc", cutLoc).WithField("filename", file.Name()).Debug("updating file")
 
 	// Using strings here to make it more clear to show what's going on
 	newAttrKey := strings.Join([]string{VirtualFilePrefix, nowStr}, ".")
 	curOffsetStr := strconv.FormatInt(currentOffset, 10)
 	virtualFileLengthStr := strconv.FormatInt(cutLoc-currentOffset, 10)
 	newAttrVal := strings.Join([]string{curOffsetStr, virtualFileLengthStr}, ",")
+
+	log.WithFields(map[string]interface{}{
+		"currentOffset": currentOffset,
+		"cutLoc":        cutLoc,
+		"filename":      file.Name(),
+		"newAttrKey":    newAttrKey,
+		"newAttrVal":    newAttrVal,
+	}).Debug("updating file")
 
 	err := xattr.FSetXattr(file, newAttrKey, []byte(newAttrVal))
 	if err != nil {
