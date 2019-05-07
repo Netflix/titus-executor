@@ -27,7 +27,7 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 	return false
 }
 
-func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error {
+func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error {
 	return nil
 }
 

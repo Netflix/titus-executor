@@ -97,6 +97,8 @@ var (
 	}
 )
 
+const defaultFailureTimeout = time.Minute
+
 // This file still uses log as opposed to using the testing library's built-in logging framework.
 // Since we do not configure Logrus, we will just log to stderr.
 func TestStandalone(t *testing.T) {
@@ -146,6 +148,7 @@ func TestStandalone(t *testing.T) {
 		testTtyNegative,
 		testCachedDockerPull,
 		testMetatron,
+		testMetatronFailure,
 		testRunTmpFsMount,
 		testExecSlashRun,
 		testSystemdImageMount,
@@ -278,7 +281,7 @@ func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 127); err != nil {
 		t.Fatal(err)
@@ -312,7 +315,7 @@ func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 123); err != nil {
 		t.Fatal(err)
@@ -331,7 +334,7 @@ func testOverrideCmdFromImage(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 5); err != nil {
 		t.Fatal(err)
@@ -351,7 +354,7 @@ func testResetEntrypointFromImage(t *testing.T, jobID string) {
 	jobRunner := mock.NewJobRunner(nil)
 	defer jobRunner.StopExecutor()
 	jobResponse := jobRunner.StartJob(ji)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 6); err != nil {
 		t.Fatal(err)
@@ -641,7 +644,7 @@ func testShutdown(t *testing.T, jobID string) {
 					taskRunning <- false
 					return
 				}
-			case <-time.After(time.Second * 60):
+			case <-time.After(defaultFailureTimeout):
 				t.Errorf("Task %s did not reach RUNNING - timed out", testResult.TaskID)
 				taskRunning <- false
 				return
@@ -963,13 +966,39 @@ func testMetatron(t *testing.T, jobID string) {
 		Version:         userSet.tag,
 		MetatronEnabled: true,
 		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
-		// Wait for 10 seconds max to give the first iteration of the service to run.
 		EntrypointOld: "grep " + jobID + " /task-identity",
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
 		t.Fail()
 	}
+}
+
+// Test that we return failure messages from services
+func testMetatronFailure(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:       userSet.name,
+		Version:         userSet.tag,
+		MetatronEnabled: true,
+		// We should never get to running this, since we're expecting the metatron service to fail before the entrypoint can run
+		EntrypointOld: "grep " + jobID + " /task-identity",
+		Environment: map[string]string{
+			// Setting this env var causes the test metatron image to fail:
+			"TITUS_TEST_FAIL_METATRON_INIT": "true",
+		},
+		JobID: jobID,
+	}
+
+	jobRunner := mock.NewJobRunner(ji)
+	defer jobRunner.StopExecutor()
+	jobResponse := jobRunner.StartJob(ji)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
+	defer cancel()
+
+	status, err := jobResponse.WaitForFailureStatus(ctx)
+	assert.Nil(t, err)
+	assert.NotNil(t, status)
+	assert.Equal(t, "error starting metatron service: initialization failed: exit status 1", status.Mesg)
 }
 
 // Test that `/run` is a tmpfs mount, and has the default size

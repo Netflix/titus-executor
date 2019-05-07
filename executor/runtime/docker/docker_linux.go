@@ -3,11 +3,13 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,16 +39,52 @@ type schedParam struct {
 	schedPriority int32
 }
 
+// Function to determine if a service should be enabled or not
+type serviceEnabledFunc func(cfg *config.Config, c *runtimeTypes.Container) bool
+
+type serviceOpts struct {
+	humanName       string
+	initCommand     string
+	initCommandArgs string
+	required        bool
+	unitName        string
+	enabledCheck    serviceEnabledFunc
+}
+
 const (
-	titusInits                 = "/var/lib/titus-inits"
-	atlasSystemdUnit           = "atlas-titus-agent"
-	metadataServiceSystemdUnit = "titus-metadata-proxy"
-	metatronServiceSystemdUnit = "titus-metatron-sync"
-	sshdSystemdUnit            = "titus-sshd"
-	systemServiceStartTimeout  = 90 * time.Second
-	umountNoFollow             = 0x8
-	sysFsCgroup                = "/sys/fs/cgroup"
+	titusInits                = "/var/lib/titus-inits"
+	systemServiceStartTimeout = 90 * time.Second
+	umountNoFollow            = 0x8
+	sysFsCgroup               = "/sys/fs/cgroup"
 )
+
+var systemServices = []serviceOpts{
+	{
+		humanName: "atlas",
+		unitName:  "atlas-titus-agent",
+	},
+	{
+		humanName: "ssh",
+		unitName:  "titus-sshd",
+		required:  true,
+		enabledCheck: func(cfg *config.Config, c *runtimeTypes.Container) bool {
+			return cfg.ContainerSSHD
+		},
+	},
+	{
+		humanName: "metadata proxy",
+		unitName:  "titus-metadata-proxy",
+		required:  true,
+	},
+	{
+		humanName:       "metatron",
+		unitName:        "titus-metatron-sync",
+		required:        true,
+		initCommand:     "/usr/sbin/runc",
+		initCommandArgs: "--root /var/run/docker/runtime-runc/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s /titus/metatron/bin/titus-metatrond --init",
+		enabledCheck:    shouldStartMetatronSync,
+	},
+}
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
 	unixConnFile, err := unixConn.File()
@@ -105,7 +143,7 @@ func mountContainerProcPid1InTitusInits(parentCtx context.Context, c *runtimeTyp
 	return nil
 }
 
-func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
+func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 
@@ -115,26 +153,13 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg c
 	}
 	defer conn.Close()
 
-	// TODO: Make concurrent
-	if err := startSystemdUnit(ctx, conn, false, c.TaskID, atlasSystemdUnit); err != nil {
-		logrus.WithError(err).Error("Error starting atlas systemd unit")
-		return err
-	}
-	if cfg.ContainerSSHD {
-		if err := startSystemdUnit(ctx, conn, true, c.TaskID, sshdSystemdUnit); err != nil {
-			logrus.WithError(err).Error("Error starting ssh systemd unit")
-			return err
+	for _, svc := range systemServices {
+		if svc.enabledCheck != nil && !svc.enabledCheck(&cfg, c) {
+			continue
 		}
-	}
-	if err := startSystemdUnit(ctx, conn, true, c.TaskID, metadataServiceSystemdUnit); err != nil {
-		logrus.WithError(err).Error("Error starting metadata service systemd unit")
-		return err
-	}
 
-	if shouldStartMetatronSync(&cfg, c) {
-		// The metatron sync service queries the metadata server, so it needs to be started after
-		if err := startSystemdUnit(ctx, conn, true, c.TaskID, metatronServiceSystemdUnit); err != nil {
-			logrus.WithError(err).Error("Error starting metatron systemd unit")
+		if err := startSystemdUnit(ctx, conn, c.TaskID, c.ID, svc); err != nil {
+			logrus.WithError(err).Errorf("Error starting %s service", svc.humanName)
 			return err
 		}
 	}
@@ -142,11 +167,54 @@ func setupSystemPods(parentCtx context.Context, c *runtimeTypes.Container, cfg c
 	return nil
 }
 
-func startSystemdUnit(ctx context.Context, conn *dbus.Conn, required bool, taskID, unitName string) error {
-	qualifiedUnitName := fmt.Sprintf("%s@%s.service", unitName, taskID)
-	l := logrus.WithField("taskID", taskID).WithField("unit", unitName)
-	l.Infof("Starting systemd unit %s", qualifiedUnitName)
+func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, opts serviceOpts) error {
+	if opts.initCommand == "" {
+		return nil
+	}
 
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	l := log.WithField("initCommand", opts.initCommand)
+	cmdArgs := strings.Split(fmt.Sprintf(opts.initCommandArgs, cID), " ")
+
+	l.WithField("args", cmdArgs).Infof("Running init command for %s service", opts.unitName)
+	cmd := exec.CommandContext(ctx, opts.initCommand, cmdArgs...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		outputStr := stdout.String()
+		l.WithError(err).WithField("exitCode", cmd.ProcessState.ExitCode()).Errorf("error running init command for %s service", opts.unitName)
+		l.Infof("%s service stdout: %s", opts.unitName, outputStr)
+		l.Infof("%s service sterr: %s", opts.unitName, stderr.String())
+
+		if len(outputStr) != 0 {
+			// Find the last non-empty line in stdout and use that as the error message
+			splitOutput := strings.Split(strings.TrimSuffix(strings.TrimSpace(outputStr), "\n"), "\n")
+			errStr := splitOutput[len(splitOutput)-1]
+			return errors.Wrapf(err, "error starting %s service: %s", opts.humanName, errStr)
+		}
+
+		return errors.Wrapf(err, "error starting %s service", opts.humanName)
+	}
+
+	return nil
+}
+
+func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, opts serviceOpts) error {
+	qualifiedUnitName := fmt.Sprintf("%s@%s.service", opts.unitName, taskID)
+	l := logrus.WithFields(logrus.Fields{
+		"containerId": cID,
+		"taskID":      taskID,
+		"unit":        opts.unitName,
+	})
+
+	if err := runServiceInitCommand(ctx, l, cID, opts); err != nil {
+		return err
+	}
+
+	l.Infof("Starting systemd unit %s", qualifiedUnitName)
 	ch := make(chan string, 1)
 	if _, err := conn.StartUnit(qualifiedUnitName, "fail", ch); err != nil {
 		return err
@@ -156,13 +224,13 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, required bool, taskI
 		doneErr := ctx.Err()
 
 		if doneErr == context.DeadlineExceeded {
-			return errors.Wrapf(doneErr, "timeout starting %s service", unitName)
+			return errors.Wrapf(doneErr, "timeout starting %s service", opts.humanName)
 		}
 		return doneErr
 	case val := <-ch:
 		if val != "done" {
-			if required {
-				return fmt.Errorf("Could not start systemd unit '%s' because %s", qualifiedUnitName, val)
+			if opts.required {
+				return fmt.Errorf("could not start %s service (%s): %s", opts.humanName, qualifiedUnitName, val)
 			}
 			l.Errorf("Unknown response when starting systemd unit '%s': %s", qualifiedUnitName, val)
 		}

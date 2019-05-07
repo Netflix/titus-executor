@@ -1733,8 +1733,8 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return os.Remove(darionRoot)
 	})
 
-	if err := setupSystemPods(parentCtx, c, r.cfg, cred); err != nil {
-		log.Warning("Unable to launch pod: ", err)
+	if err := setupSystemServices(parentCtx, c, r.cfg, cred); err != nil {
+		log.WithError(err).Error("Unable to launch system services")
 		return err
 	}
 	return nil
