@@ -18,9 +18,10 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "Turn on debug logging")
 	flag.Parse()
 
-	logsutil.MaybeSetupLoggerIfUnderSystemd()
 	if debug {
 		log.SetLevel(log.DebugLevel)
+	} else {
+		logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
 	}
 	path := os.Getenv("PATH")
 	if err := os.Setenv("PATH", fmt.Sprintf("%s%s", path, ":/usr/sbin:/sbin:/usr/local/sbin")); err != nil {

@@ -53,10 +53,7 @@ github.com/aws/aws-sdk-go/aws/credentials/endpointcreds
 # github.com/coreos/go-systemd v0.0.0-20170731111925-d21964639418
 github.com/coreos/go-systemd/daemon
 github.com/coreos/go-systemd/dbus
-github.com/coreos/go-systemd/util
 github.com/coreos/go-systemd/journal
-# github.com/coreos/pkg v0.0.0-20170405072653-099530d80109
-github.com/coreos/pkg/dlopen
 # github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1
 github.com/cyphar/filepath-securejoin
 # github.com/davecgh/go-spew v1.1.1

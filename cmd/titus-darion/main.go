@@ -15,7 +15,7 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	logsutil.MaybeSetupLoggerIfUnderSystemd()
+	logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
 	log.Println("Darion is starting")
 	r := newMux()
 	if err := http.ListenAndServe(":8004", r); err != nil {
