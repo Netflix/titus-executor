@@ -105,6 +105,10 @@ message ContainerResources {
 
     /// (Optional) EFS mounts.
     repeated EfsMount efsMounts = 7;
+
+    /// (Optional) Size of shared memory /dev/shm. If not set, a default value will be provided. A provided value
+    // must be less than or equal to amount of memory allocated.
+    uint32 shmSizeMB = 8;
 }
 
 /// Container security profile.
@@ -222,9 +226,28 @@ message JobDisruptionBudget {
         double maxPercentageOfContainersRelocatedInHour = 1;
     }
 
+    /// Allow up to the given amount of relocations per the time interval.
+    message RatePerInterval {
+        uint64 intervalMs = 1;
+        uint32 limitPerInterval = 2;
+    }
+
+    /// Percentage of containers that can be relocated within a time interval. The number of containers is determined
+    //  during each evaluation, and the number is based on the current desired job size. If the job size changes, the percentage of containers
+    //  changes accordingly. For example, setting / interval to 60000 (1 minute) and ratePercentagePerInterval to 5 (5%)
+    //  would allow only for up to 5% of all containers to be relocated every minute, given the other criteria are met.
+    //  For a job with a desired size of 100, 5 container relocations per minute would be allowed. If the desired job size changes
+    //  to 200, the relocation rate increases to 10 containers per minute.
+    message RatePercentagePerInterval {
+        uint64 intervalMs = 1;
+        double percentageLimitPerInterval = 2;
+    }
+
     oneof Rate {
         RateUnlimited rateUnlimited = 5;
         RatePercentagePerHour ratePercentagePerHour = 6;
+        RatePerInterval ratePerInterval = 9;
+        RatePercentagePerInterval ratePercentagePerInterval = 10;
     }
 
     /// (Optional) Time window to which relocation process is restricted.
@@ -503,6 +526,9 @@ message Task {
 
     /// (Required) Migration details.
     MigrationDetails migrationDetails = 7;
+
+    /// (Optional) User defined key/value pairs.
+    map<string, string> attributes = 8;
 }
 
 /// Job entity is returned by query operations only.
@@ -537,6 +563,10 @@ message JobChangeNotification {
     /// Emitted when a task is created or its state has changed.
     message TaskUpdate {
         Task task = 1;
+        /// movedFromAnotherJob will be true on the first event for the target Job after a task is moved between jobs.
+        //  task.jobId will be the destination job, and it will include a 'task.movedFromJob' entry in its taskContext
+        //  map with the source jobId.
+        bool movedFromAnotherJob = 2;
     }
 
     /// A notification marker that indicates that all known jobs were streamed to the client.
@@ -584,10 +614,10 @@ message JobQuery {
     // jobGroupDetail - job group details
     // jobGroupSequence - job group sequence
     // jobType - job type (batch or service)
-    // attributes - comma separated key/value pairs (for example "key1,key2:value2;k3:value3")
-    // attributes.op - logical 'and' or 'or' operators, which should be applied to multiple atrributes specified in the query
+    // attributes - comma separated job attribute key/value pairs (for example "key1,key2:value2;k3:value3")
+    // attributes.op - logical 'and' or 'or' operators, which should be applied to multiple attributes specified in the query
     // jobState - job state (one)
-    // taskStates - task states (multiple, comma separated)
+    // taskStates - task states (multiple, comma separated). Empty value is the same as no value set.
     // taskStateReasons - reasons associated with task states (multiple, comma separated)
     // needsMigration - if set to true, return only jobs with tasks that require migration
     map<string, string> filteringCriteria = 2;
@@ -628,10 +658,10 @@ message ObserveJobsQuery {
     // jobGroupDetail - job group details
     // jobGroupSequence - job group sequence
     // jobType - job type (batch or service)
-    // attributes - comma separated key/value pairs (for example "key1,key2:value2;k3:value3")
-    // attributes.op - logical 'and' or 'or' oeprators, which should be applied to multiple atrributes specified in the query
+    // attributes - comma separated job attribute key/value pairs (for example "key1,key2:value2;k3:value3")
+    // attributes.op - logical 'and' or 'or' operators, which should be applied to multiple attributes specified in the query
     // jobState - job state (one)
-    // taskStates - task states (multiple, comma separated)
+    // taskStates - task states (multiple, comma separated). Empty value is the same as no value set.
     // taskStateReasons - reasons associated with task states (multiple, comma separated)
     // needsMigration - if set to true, return only jobs with tasks that require migration
     map<string, string> filteringCriteria = 1;
@@ -655,6 +685,16 @@ message JobProcessesUpdate {
 message JobDisruptionBudgetUpdate {
     string jobId = 1;
     JobDisruptionBudget disruptionBudget = 2;
+}
+
+message JobAttributesUpdate {
+    string jobId = 1;
+    map<string, string> attributes = 2;
+}
+
+message JobAttributesDeleteRequest {
+    string jobId = 1;
+    repeated string keys = 2;
 }
 
 message TaskId {
@@ -682,10 +722,10 @@ message TaskQuery {
     // jobGroupDetail - job group details
     // jobGroupSequence - job group sequence
     // jobType - job type (batch or service)
-    // attributes - comma separated key/value pairs (for example "key1,key2:value2;k3:value3")
-    // attributes.op - logical 'and' or 'or' oeprators, which should be applied to multiple atrributes specified in the query
+    // attributes - comma separated job attribute key/value pairs (for example "key1,key2:value2;k3:value3")
+    // attributes.op - logical 'and' or 'or' operators, which should be applied to multiple attributes specified in the query
     // jobState - job state (one)
-    // taskStates - task states (multiple, comma separated)
+    // taskStates - task states (multiple, comma separated). Empty value is the same as no value set.
     // taskStateReasons - reasons associated with task states (multiple, comma separated)
     // needsMigration - if set to true, return only tasks that require migration
     map<string, string> filteringCriteria = 2;
@@ -705,6 +745,16 @@ message TaskKillRequest {
 
     /// (Optional) Should job size be reduced
     bool shrink = 2;
+}
+
+message TaskAttributesUpdate {
+    string taskId = 1;
+    map<string, string> attributes = 2;
+}
+
+message TaskAttributesDeleteRequest {
+    string taskId = 1;
+    repeated string keys = 2;
 }
 
 message TaskMoveRequest {
@@ -765,6 +815,14 @@ service JobManagementService {
     rpc KillJob (JobId) returns (google.protobuf.Empty) {
     }
 
+    /// Update the attributes of a job. This will either create new attributes or replace existing ones with the same key.
+    rpc UpdateJobAttributes (JobAttributesUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Delete the attributes of a job.
+    rpc DeleteJobAttributes (JobAttributesDeleteRequest) returns (google.protobuf.Empty) {
+    }
+
     // ------------------------------------------------------------
     // Task operations
 
@@ -780,9 +838,24 @@ service JobManagementService {
     rpc KillTask (TaskKillRequest) returns (google.protobuf.Empty) {
     }
 
-    /// Move a task from one job to another. Source and destination jobs must be compatible, as defined by:
-    // - Both are service jobs.
-    // - Both their JobDescriptors have the exact same Container definition (image, entryPoint, command, env, etc).
+    /// Update the attributes of a task. This will either create new attributes or replace existing ones with the same key.
+    rpc UpdateTaskAttributes (TaskAttributesUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Delete the attributes of a task.
+    rpc DeleteTaskAttributes (TaskAttributesDeleteRequest) returns (google.protobuf.Empty) {
+    }
+
+    /// Move a task from one service job to another. Source and destination jobs must be service jobs, and compatible.
+    // Jobs are compatible when their JobDescriptors are identical, ignoring the following values:
+    //
+    // * owner
+    // * applicationName
+    // * jobGroupInfo (stack, details, sequence)
+    // * disruptionBudget
+    // * Any attributes not prefixed with `titus.` or `titusParameter.`
+    // * Any container.attributes not prefixed with `titus.` or `titusParameter.`
+    // * All information specific to service jobs (JobSpec): Capacity, RetryPolicy, MigrationPolicy, etc
     rpc MoveTask (TaskMoveRequest) returns (google.protobuf.Empty) {
     }
 }

@@ -481,6 +481,11 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
 	}
 
+	shmSize := c.GetShmSize()
+	if shmSize > 0 {
+		hostCfg.ShmSize = int64(shmSize * MiB)
+	}
+
 	if r.storageOptEnabled {
 		hostCfg.StorageOpt = map[string]string{
 			"size": fmt.Sprintf("%dM", c.Resources.Disk+builtInDiskBuffer+uint64(imageSize/MiB)),

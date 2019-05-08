@@ -98,8 +98,15 @@ message TaskRelocationQuery {
 }
 
 message RelocationEvent {
-    message TaskRelocationPlanEvent {
+    message SnapshotEnd {
+    }
+
+    message TaskRelocationPlanUpdateEvent {
         TaskRelocationPlan plan = 1;
+    }
+
+    message TaskRelocationPlanRemoveEvent {
+        string taskId = 1;
     }
 
     message TaskRelocationResultEvent {
@@ -107,8 +114,10 @@ message RelocationEvent {
     }
 
     oneof Event {
-        TaskRelocationPlanEvent taskRelocationPlanEvent = 1;
-        TaskRelocationResultEvent taskRelocationResultEvent = 2;
+        SnapshotEnd snapshotEnd = 1;
+        TaskRelocationPlanUpdateEvent taskRelocationPlanUpdateEvent = 2;
+        TaskRelocationPlanRemoveEvent taskRelocationPlanRemoveEvent = 3;
+        TaskRelocationResultEvent taskRelocationResultEvent = 4;
     }
 }
 
@@ -123,7 +132,7 @@ service TaskRelocationService {
     }
 
     /// Returns task relocation result for a task with the given id. Both active and archived data sets are checked.
-    rpc GetTaskRelocationResult(RelocationTaskId) returns (TaskRelocationExecution) {
+    rpc GetTaskRelocationResult (RelocationTaskId) returns (TaskRelocationExecution) {
     }
 
     /// Observe relocation plans and their execution status.

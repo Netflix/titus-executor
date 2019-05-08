@@ -15,16 +15,48 @@ option go_package = "titus";
 
 /// Call metadata (caller's identity, call path).
 message CallMetadata {
+
+    enum CallerType {
+        Unknown = 0;
+
+        Application = 1;
+
+        User = 2;
+    }
+
+    message Caller {
+
+        /// (Required) A caller identifier. Depending on the user identity (a user or an application), the format
+        // of the id may be different. For example a user's id could be their email address, and application's id its name.
+        string id = 1;
+
+        /// (Optional) The caller type.
+        CallerType type = 2;
+
+        /// (Optional) Additional data associated with the caller. Key names starting with 'titus' are reserved for Titus.
+        //  Predefined context keys:
+        //  * 'titus.service.name' - name of the service that is invoked
+        //  * 'titus.service.method' - nome of the method that is invoked
+        //  * 'titus.transport.type' - transport type (HTTP/GRPC)
+        //  * 'titus.transport.secure' - true for TLS, false for plain text
+        map<string, string> context = 3;
+    }
+
     /// (Required) The original caller identifier. Depending on the user identity (a user or an application), the format
-    // of the id may be different. For example a user's id could be encoded as 'user:<email-address>', and
-    // application id as 'app:<aws-account-id>:<app-name>:<app-stack>'.
-    string callerId = 1;
+    // of the id may be different. For example a user's id could be their email address, and application's id its name.
+    //  (Deprecated) Use 'caller' field instead.
+    string callerId = 1 [deprecated = true];
+
+    /// The first item in the list is the original caller, followed by a sequence of intermediaries via which the
+    //  original call was relayed.
+    repeated Caller callers = 5;
 
     /// (Optional) The reason why a call was made.
     string callReason = 2;
 
     /// (Optional) The list of intermediaries via which a call was relayed.
-    repeated string callPath = 3;
+    //  (Deprecated) Use 'caller' field instead.
+    repeated string callPath = 3 [deprecated = true];
 
     /// (Optional) If set to true, a diagnostic information is provided if a request fails.
     bool debug = 4;
@@ -35,7 +67,7 @@ message CallMetadata {
 message Page {
     /// (Optional) Requested page number, starting from 0 (defaults to 0 if not specified).
     //  (Deprecated) Use cursor-based pagination instead.
-    int32 pageNumber = 1 [deprecated=true];
+    int32 pageNumber = 1 [deprecated = true];
 
     /// (Required) Requested page size (if not specified, default size is operation specific).
     int32 pageSize = 2;
@@ -56,7 +88,7 @@ message Pagination {
     bool hasMore = 2;
 
     /// (Deprecated) Use cursor-based pagination instead. Total number of pages.
-    int32 totalPages = 3 [deprecated=true];
+    int32 totalPages = 3 [deprecated = true];
 
     /// Total number of items.
     int32 totalItems = 4;

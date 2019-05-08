@@ -284,6 +284,9 @@ message ContainerInfo {
 
     // Used internally by the agent to store information about a running container
     optional RunningContainerInfo runState = 39;
+
+    /// (Optional) Amount of shared memory to allocate (must be <= memoryMB)
+    optional uint32 shmSizeMB = 40;
 }
 
 // For the identity client to query the metadata server to confirm the

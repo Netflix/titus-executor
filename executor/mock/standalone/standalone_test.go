@@ -152,6 +152,7 @@ func TestStandalone(t *testing.T) {
 		testRunTmpFsMount,
 		testExecSlashRun,
 		testSystemdImageMount,
+		testShm,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -1037,6 +1038,23 @@ func testSystemdImageMount(t *testing.T, jobID string) {
 		Version:       systemdImage.tag,
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run/lock[^/]" | grep 5M'`,
+		JobID:         jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+// Test that the size of `/dev/shm` can be set
+func testShm(t *testing.T, jobID string) {
+	var mem int64 = 256
+	var shmSize uint32 = 192
+	ji := &mock.JobInput{
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		Mem:           &mem,
+		ShmSize:       &shmSize,
+		EntrypointOld: `/bin/bash -c 'df | grep -e '^shm' | grep 196608'`,
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji) {

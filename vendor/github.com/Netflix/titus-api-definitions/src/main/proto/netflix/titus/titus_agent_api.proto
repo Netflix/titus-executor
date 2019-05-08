@@ -263,9 +263,19 @@ message InstanceGroupAttributesUpdate {
      map<string, string> attributes = 2;
  }
 
+message DeleteInstanceGroupAttributesRequest {
+    string instanceGroupId = 1;
+    repeated string keys = 2;
+}
+
  message AgentInstanceAttributesUpdate {
      string agentInstanceId = 1;
      map<string, string> attributes = 2;
+ }
+
+ message DeleteAgentInstanceAttributesRequest {
+     string agentInstanceId = 1;
+     repeated string keys = 2;
  }
 
 service AgentManagementService {
@@ -293,12 +303,20 @@ service AgentManagementService {
     rpc UpdateInstanceGroupLifecycleState (InstanceGroupLifecycleStateUpdate) returns (google.protobuf.Empty) {
     }
 
-    /// Update the attributes of an instance group. The old attributes will be replaced completely.
+    /// Update the attributes of an instance group. This will either create new attributes or replacing existing ones with the same key.
     rpc UpdateInstanceGroupAttributes (InstanceGroupAttributesUpdate) returns (google.protobuf.Empty) {
     }
 
-    /// Update the attributes of an agent instance. The old attributes will be replaced completely.
+    /// Delete the attributes of an instance group.
+    rpc DeleteInstanceGroupAttributes (DeleteInstanceGroupAttributesRequest) returns (google.protobuf.Empty) {
+    }
+
+    /// Update the attributes of an agent instance. This will either create new attributes or replacing existing ones with the same key.
     rpc UpdateAgentInstanceAttributes (AgentInstanceAttributesUpdate) returns (google.protobuf.Empty) {
+    }
+
+    /// Delete the attributes of an agent instance.
+    rpc DeleteAgentInstanceAttributes (DeleteAgentInstanceAttributesRequest) returns (google.protobuf.Empty) {
     }
 
     /// Sends first current snapshot of the agent topology, and next an event for each topology change.
