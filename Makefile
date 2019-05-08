@@ -128,4 +128,5 @@ clean-proto-defs: | $(clean)
 	rm -rf api/netflix/titus
 
 $(GOBIN_TOOL):
+	go get github.com/myitcv/gobin
 	go install github.com/myitcv/gobin
