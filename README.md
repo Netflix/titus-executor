@@ -9,7 +9,7 @@ You must have Docker 1.13+ installed on your system, and it must be running. The
 gpasswd -a $YOURUSER docker # Fill in $YOURUSER with your user name
 ```
 
-You must have a Go 1.11 development environment set up. You can find more details on installing Go, [on their website](https://golang.org/doc/install). You must also install the `build-essential` metapackage on Linux.
+You must have a Go 1.12 development environment set up. You can find more details on installing Go, [on their website](https://golang.org/doc/install). You must also install the `build-essential` metapackage on Linux.
 
 We recommend setting up a GOPATH, and checking out your code into that GOPATH. For example:
 
@@ -24,8 +24,7 @@ export PATH=${GOPATH}/bin:${PATH}
 And then you can check out `github.com/Netflix/titus-executor` to `${GOPATH}/src/github.com/Netflix/titus-executor` -- an easy way to do this is go run `go get -u github.com/Netflix/titus-executor`.
 
 # Initial setup steps
-1. `curl -fsSL https://raw.githubusercontent.com/alecthomas/gometalinter/master/scripts/install.sh | bash -s -- -b $GOPATH/bin v2.0.11`
-2. You also need to make sure that your build environment (i.e. VM) has the following commands prior to building:
+Ensure that your build environment (i.e. VM) has the following commands prior to building:
 * make
 * gcc
 
@@ -45,15 +44,12 @@ make build-standalone
 ```
 
 ## Linting
-Linting is done via the [gometalinter](https://github.com/alecthomas/gometalinter) package, which runs various linters. In order to ensure
-consistent versions of linters, install version 2.0.11 as per the instructions in "Initial setup steps" above.
+Linting is done via the [golangci-lint](https://github.com/golangci/golangci-lint) package, which runs various linters.
 
 To run lint checks:
 ```sh-session
 # Lint all files:
-make validate
-# Lint only the files that have changed in git:
-make validate FAST=1
+make lint
 # Run lint checks inside a docker container:
 make validate-docker
 ```
@@ -74,6 +70,11 @@ Requires docker:
 
 ```sh-session
 make test-standalone
+
+# Change the test timeout (useful on slower systems):
+TEST_TIMEOUT=10m make test-standalone
+# If you're iterating on tests and don't want to build a new executor .deb every time:
+./hack/tests-with-dind.sh
 ```
 
 Tests will run inside a Docker container and run a dedicated docker daemon as docker-in-docker.
@@ -114,7 +115,7 @@ Once you update, and sync the dependency, just run the following:
 
 ## LICENSE
 
-Copyright (c) 2018 Netflix, Inc.
+Copyright (c) 2019 Netflix, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
