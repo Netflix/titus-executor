@@ -2,7 +2,7 @@ version: 2
 jobs:
   builder:
     docker:
-      - image: docker:17.05.0-ce-git
+      - image: docker:18.09.6-ce-git
     resource_class: xlarge
     steps:
       - checkout
@@ -42,7 +42,7 @@ jobs:
       - run: BUILD_FROM_CHECKOUT_ROOT=true ./build.sh metatron
   ci-builder:
     docker:
-      - image: docker:17.05.0-ce-git
+      - image: docker:18.09.6-ce-git
     resource_class: xlarge
     steps:
       - checkout
@@ -60,7 +60,7 @@ jobs:
   titus-sshd:
     resource_class: xlarge
     docker:
-      - image: docker:17.05.0-ce-git
+      - image: docker:18.09.6-ce-git
     steps:
       - checkout
       - setup_remote_docker:
