@@ -8,6 +8,10 @@ echo "titus-metatrond: start"
 
 if [[ "$1" == "--init" ]]; then
     echo "titus-metatrond: init"
+    if [[ -n "$TITUS_TEST_FAIL_METATRON_INIT" ]]; then
+        echo "initialization failed"
+        exit 1
+    fi
     exec /titus/metatron/bin/metatron-identity
 fi
 

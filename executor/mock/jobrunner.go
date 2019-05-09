@@ -23,7 +23,7 @@ import (
 
 var errStatusChannelClosed = errors.New("Status channel closed")
 
-const metatronTestImage = "titusoss/metatron:20190115-1547588673"
+const metatronTestImage = "titusoss/metatron:20190507-1557267290"
 
 // Process describes what runs inside the container
 type Process struct {
@@ -116,6 +116,25 @@ func (jobRunResponse *JobRunResponse) WaitForFailureWithStatus(ctx context.Conte
 			return fmt.Errorf("Terminal state is not TASK_FAILED: %s", status.State.String())
 		case <-ctx.Done():
 			return ctx.Err()
+		}
+	}
+}
+
+// WaitForFailureStatus waits until a terminal state and returns the status
+func (jobRunResponse *JobRunResponse) WaitForFailureStatus(ctx context.Context) (*runner.Update, error) {
+	for {
+		select {
+		case status, ok := <-jobRunResponse.UpdateChan:
+			if !ok {
+				return nil, errors.New("UpdateChan closed before TASK_FAIL")
+			}
+			if !status.State.IsTerminalStatus() {
+				continue
+			}
+
+			return &status, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 }
