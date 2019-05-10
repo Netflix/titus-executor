@@ -66,6 +66,8 @@ type JobInput struct {
 	MetatronEnabled bool
 	// Mem sets the memory resource attribute in MiB
 	Mem *int64
+	// ShmSize sets the shared memory size of `/dev/shm` in MiB
+	ShmSize *uint32
 }
 
 // JobRunResponse returned from RunJob
@@ -300,6 +302,9 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // no
 	}
 	if jobInput.Batch == "idle" {
 		ci.PassthroughAttributes["titusParameter.agent.batchPriority"] = "idle"
+	}
+	if jobInput.ShmSize != nil {
+		ci.ShmSizeMB = jobInput.ShmSize
 	}
 	if jobInput.Tty {
 		ci.PassthroughAttributes["titusParameter.agent.ttyEnabled"] = "true"

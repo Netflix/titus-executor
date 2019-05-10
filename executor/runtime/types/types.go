@@ -305,6 +305,11 @@ func (c *Container) AssignIPv6Address() (bool, error) {
 	return val, nil
 }
 
+// GetShmSize should the container's /dev/shm size be set?
+func (c *Container) GetShmSize() uint32 {
+	return c.TitusInfo.GetShmSizeMB()
+}
+
 // GetTty should the container be assigned a tty?
 func (c *Container) GetTty() (bool, error) {
 	ttyEnabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[ttyEnabledParam]
