@@ -423,6 +423,7 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 		r.updateStatusWithDetails(ctx, titusdriver.Lost, "Container lost -- Unknown", lastUpdate.details)
 		r.logger.Error("Container killed while non-terminal!")
 	} else {
+		r.logger.WithField("status", lastUpdate.status).Debug("Shutting down task with lastUpdate")
 		r.updateStatusWithDetails(ctx, lastUpdate.status, lastUpdate.msg, lastUpdate.details)
 	}
 
