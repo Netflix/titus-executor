@@ -24,6 +24,12 @@ var (
 	podFileName string
 )
 
+const (
+	prepareTime = "github.com.netflix.titus.executor/prepareTime"
+	runTime = "github.com.netflix.titus.executor/runTime"
+	killTime = "github.com.netflix.titus.executor/killTime"
+)
+
 func init() {
 	flag.IntVar(&statusfd, "status-fd", 1, "The file descriptor to write status messages to")
 	flag.StringVar(&podFileName, "pod", "", "The location of the pod spec (json-ish)")
@@ -58,9 +64,48 @@ func main() {
 	log.G(ctx).WithField("pod", pod).Debug("Got pod")
 
 	runtime := func(ctx context.Context, cfg config.Config) (runtimeTypes.Runtime, error) {
-		return &runtimeMock{
-			ctx: ctx,
-		}, nil
+		rm := &runtimeMock{}
+
+		var timer *time.Timer
+		if rt, ok := pod.Annotations[runTime]; ok {
+			if dur, err := time.ParseDuration(rt); err != nil {
+				log.G(ctx).WithError(err).Error("Could not parse duration")
+				return nil, err
+			} else {
+				timer = time.AfterFunc(dur, func() {
+					rm.statusChan<- runtimeTypes.StatusMessage{
+						Status: runtimeTypes.StatusFinished,
+						Msg:    "Slept, and completed",
+					}
+				})
+			}
+		}
+
+		rm.ctx = ctx
+		rm.prepareCallback = func(ctx2 context.Context) error {
+				if t, ok := pod.Annotations[prepareTime]; ok {
+					if dur, err := time.ParseDuration(t); err != nil {
+						return err
+					} else {
+						time.Sleep(dur)
+					}
+				}
+				return nil
+			}
+		rm.killCallback = func(c *runtimeTypes.Container) error {
+			if timer != nil {
+				timer.Stop()
+			}
+			if t, ok := pod.Annotations[killTime]; ok {
+				if dur, err := time.ParseDuration(t); err != nil {
+					return err
+				} else {
+					time.Sleep(dur)
+				}
+			}
+			return nil
+		}
+		return rm, nil
 	}
 
 	cfg, _ := config.NewConfig()
@@ -132,7 +177,6 @@ func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
 	// send a kill request and wait for a grant
 	select {
-	case <-time.After(30 * time.Second):
 	case <-r.ctx.Done():
 		logrus.Info("runtimeMock.Kill canceled")
 

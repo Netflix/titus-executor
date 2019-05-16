@@ -77,10 +77,10 @@ require (
 	k8s.io/apimachinery v0.0.0-20190503221204-7a17edec881a
 	k8s.io/apiserver v0.0.0-20190504023914-7dc4ceb2fd33 // indirect
 	k8s.io/client-go v0.0.0-20190425172711-65184652c889
-	k8s.io/kubernetes v1.14.1
+	k8s.io/kubernetes v1.14.1 // indirect
 	k8s.io/utils v0.0.0-20190506122338-8fab8cb257d5 // indirect
 )
 
-replace github.com/virtual-kubelet/virtual-kubelet => /Users/sargun/go/src/github.com/virtual-kubelet/virtual-kubelet
-
 replace go.opencensus.io => go.opencensus.io v0.20.2
+
+replace github.com/virtual-kubelet/virtual-kubelet => /Users/sargun/go/src/github.com/virtual-kubelet/virtual-kubelet

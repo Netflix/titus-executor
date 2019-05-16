@@ -72,6 +72,7 @@ func (vk *Vk) Start(ctx context.Context) error {
 	}
 
 	var taint *corev1.Taint
+	/* Leave the taint always disabled for now
 	if !c.DisableTaint {
 		var err error
 		taint, err = getTaint(c)
@@ -79,6 +80,7 @@ func (vk *Vk) Start(ctx context.Context) error {
 			panic(err)
 		}
 	}
+	*/
 
 	client, err := newClient(c.KubeConfigPath)
 	if err != nil {
