@@ -1,21 +1,21 @@
 // +build linux
 
-package allocate
+package setup_container
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand"
 	"net"
-	"reflect"
 	"time"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
-	"github.com/Netflix/titus-executor/vpc/context"
-	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/types"
-	"github.com/apparentlymart/go-cidr/cidr"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
@@ -32,17 +32,8 @@ var (
 	errAddressSetupTimeout = errors.New("IPv6 address setup timed out")
 )
 
-func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint64, burst, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
-
-	networkInterface, err := getInterfaceByIdx(parentCtx, allocation.DeviceIndex)
-	if err != nil {
-		parentCtx.Logger.Error("Cannot get interface by index: ", err)
-		return nil, err
-	}
-
-	ip4 := net.ParseIP(allocation.IPV4Address)
-	ip6 := net.ParseIP(allocation.IPV6Address)
-	parentLink, err := getLink(networkInterface)
+func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
+	parentLink, err := getLinkByMac(allocation.MAC)
 	if err != nil {
 		return nil, err
 	}
@@ -73,44 +64,39 @@ func doSetupContainer(parentCtx *context.VPCContext, netnsfd int, bandwidth uint
 
 	err = netlink.LinkAdd(&ipvlan)
 	if err != nil {
-		parentCtx.Logger.Error("Could not add link: ", err)
+		logger.G(ctx).WithError(err).Error("Could not add link")
 		return nil, err
 	}
 	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
 	// what it's index is, so there's no point returning it.
-	parentCtx.Logger.Debugf("Added link: %+v ", ipvlan)
+	logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
 	newLink, err := nsHandle.LinkByName(containerInterfaceName)
 	if err != nil {
-		parentCtx.Logger.Error("Could not find after adding link: ", err)
+		logger.G(ctx).WithError(err).Error("Could not find after adding link")
 		return nil, err
 	}
 
-	return newLink, configureLink(parentCtx, nsHandle, newLink, bandwidth, mtu, burst, networkInterface, ip4, ip6)
+	return newLink, configureLink(ctx, nsHandle, newLink, bandwidth, ceil, mtu, allocation)
 }
 
-func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, nsHandle *netlink.Handle, link netlink.Link, ip net.IP) error {
-	subnet, err := parentCtx.Cache.DescribeSubnet(parentCtx, networkInterface.GetSubnetID())
-	if err != nil {
-		return err
+func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress) error {
+	if address.Address.Family != titus.Family_FAMILY_V4 {
+		panic("Trying to configure networking with invalid family")
 	}
-
-	// We assume that it always gives us the subnet
-	_, ipnet, err := net.ParseCIDR(*subnet.CidrBlock)
-	if err != nil {
-		return err
-	}
+	mask := net.CIDRMask(int(address.Address.PrefixLength), 32)
+	ip := net.ParseIP(address.Address.Address)
 
 	// The netlink package appears to automatically calculate broadcast
 	new4Addr := netlink.Addr{
-		IPNet: &net.IPNet{IP: ip, Mask: ipnet.Mask},
+		IPNet: &net.IPNet{IP: ip, Mask: mask},
 	}
-	err = nsHandle.AddrAdd(link, &new4Addr)
+	err := nsHandle.AddrAdd(link, &new4Addr)
 	if err != nil {
-		parentCtx.Logger.Error("Unable to add IPv4 addr to link: ", err)
+		logger.G(ctx).WithError(err).Error("Unable to add IPv4 addr to link")
 		return err
 	}
 
-	gateway := cidr.Inc(ipnet.IP)
+	gateway := net.ParseIP(address.Gateway.Address)
 	newRoute := netlink.Route{
 		Gw:        gateway,
 		Src:       ip,
@@ -118,56 +104,57 @@ func addIPv4AddressAndRoute(parentCtx *context.VPCContext, networkInterface ec2w
 	}
 	err = nsHandle.RouteAdd(&newRoute)
 	if err != nil {
-		parentCtx.Logger.Error("Unable to add route to link: ", err)
+		logger.G(ctx).WithError(err).Error("Unable to add route to link")
 		return err
 	}
 
 	return nil
 }
 
-func configureLink(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link, bandwidth uint64, mtu int, burst bool, networkInterface ec2wrapper.NetworkInterface, ip4, ip6 net.IP) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, mtu int, allocation types.Allocation) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
-		parentCtx.Logger.Error("Unable to set link name: ", err)
+		logger.G(ctx).WithError(err).Error("Unable to set link name")
 		return err
 	}
 	err = nsHandle.LinkSetUp(link)
 	if err != nil {
-		parentCtx.Logger.Error("Unable to set link up: ", err)
+		logger.G(ctx).WithError(err).Error("Unable to set link up")
 		return err
 	}
 
 	err = nsHandle.LinkSetMTU(link, mtu)
 	if err != nil {
-		parentCtx.Logger.Error("Unable to set link mtu: ", err)
+		logger.G(ctx).WithError(err).Error("Unable to set link mtu")
 		return err
 	}
 
-	if ip6 != nil {
+	if allocation.IPV6Address != nil {
 		// Amazon only gives out /128s
 		new6Addr := netlink.Addr{
-			IPNet: &net.IPNet{IP: ip6, Mask: net.CIDRMask(128, 128)},
+			// TODO (Sargun): Check IP Mask setting.
+			IPNet: &net.IPNet{IP: net.ParseIP(allocation.IPV6Address.Address.Address), Mask: net.CIDRMask(128, 128)},
 		}
 		err = nsHandle.AddrAdd(link, &new6Addr)
 		if err != nil {
-			parentCtx.Logger.Error("Unable to add IPv6 addr to link: ", err)
+			logger.G(ctx).WithError(err).Error("Unable to add IPv6 addr to link")
 			return err
 		}
 	}
 
-	err = addIPv4AddressAndRoute(parentCtx, networkInterface, nsHandle, link, ip4)
+	err = addIPv4AddressAndRoute(ctx, nsHandle, link, allocation.IPV4Address)
 	if err != nil {
 		return err
 	}
 
 	// TODO: Wire up IFB / BPF / Bandwidth limits for IPv6
-	err = setupIFBClasses(parentCtx, bandwidth, burst, ip4)
+	err = setupIFBClasses(ctx, bandwidth, ceil, net.ParseIP(allocation.IPV4Address.Address.Address))
 	if err != nil {
 		return err
 	}
-	if ip6 != nil {
-		return waitForAddressUp(parentCtx, nsHandle, link)
+	if allocation.IPV6Address != nil {
+		return waitForAddressUp(ctx, nsHandle, link)
 	}
 	return nil
 }
@@ -186,8 +173,8 @@ func isIPv6Ready(nsHandle *netlink.Handle, link netlink.Link) (bool, error) {
 	return false, nil
 }
 
-func waitForAddressUp(parentCtx *context.VPCContext, nsHandle *netlink.Handle, link netlink.Link) error {
-	ctx, cancel := parentCtx.WithTimeout(networkSetupWait)
+func waitForAddressUp(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link) error {
+	ctx, cancel := context.WithTimeout(ctx, networkSetupWait)
 	defer cancel()
 	pollTimer := time.NewTicker(100 * time.Millisecond)
 	defer pollTimer.Stop()
@@ -206,7 +193,7 @@ func waitForAddressUp(parentCtx *context.VPCContext, nsHandle *netlink.Handle, l
 	}
 }
 
-func setupIFBClasses(parentCtx *context.VPCContext, bandwidth uint64, burst bool, ip net.IP) error {
+func setupIFBClasses(ctx context.Context, bandwidth, ceil uint64, ip net.IP) error {
 	// The class is based on the last two parts of the IPv4 address
 	// The reasoning is that 0 and 1 of the subnet are reserved by Amazon, so we will never get those IPs
 	// and VPCs can never have subnets that are larger than /16. Each instance is scoped to a single subnet,
@@ -223,23 +210,23 @@ func setupIFBClasses(parentCtx *context.VPCContext, bandwidth uint64, burst bool
 		return err
 	}
 
-	err = setupIFBClass(parentCtx, bandwidth, burst, ip, ifbEgress)
+	err = setupIFBClass(ctx, bandwidth, ceil, ip, ifbEgress)
 	if err != nil {
 		return err
 	}
-	err = setupIFBSubqdisc(parentCtx, ip, ifbEgress)
+	err = setupIFBSubqdisc(ctx, ip, ifbEgress)
 	if err != nil {
 		return err
 	}
 
-	err = setupIFBClass(parentCtx, bandwidth, burst, ip, ifbIngress)
+	err = setupIFBClass(ctx, bandwidth, ceil, ip, ifbIngress)
 	if err != nil {
 		return err
 	}
-	return setupIFBSubqdisc(parentCtx, ip, ifbIngress)
+	return setupIFBSubqdisc(ctx, ip, ifbIngress)
 }
 
-func setupIFBSubqdisc(parentCtx *context.VPCContext, ip net.IP, link netlink.Link) error {
+func setupIFBSubqdisc(ctx context.Context, ip net.IP, link netlink.Link) error {
 	handle := ipaddressToHandle(ip)
 
 	// The qdisc wasn't found, add it
@@ -259,7 +246,7 @@ func setupIFBSubqdisc(parentCtx *context.VPCContext, ip net.IP, link netlink.Lin
 	return nil
 }
 
-func setupIFBClass(parentCtx *context.VPCContext, bandwidth uint64, burst bool, ip net.IP, link netlink.Link) error {
+func setupIFBClass(ctx context.Context, bandwidth, ceil uint64, ip net.IP, link netlink.Link) error {
 	handle := ipaddressToHandle(ip)
 
 	classattrs := netlink.ClassAttrs{
@@ -269,10 +256,6 @@ func setupIFBClass(parentCtx *context.VPCContext, bandwidth uint64, burst bool, 
 		Handle: netlink.MakeHandle(1, handle),
 	}
 
-	ceil := bandwidth
-	if burst {
-		ceil = vpc.GetMaxNetworkbps(parentCtx.InstanceType)
-	}
 	htbclassattrs := netlink.HtbClassAttrs{
 		Rate:    bandwidth,
 		Ceil:    ceil,
@@ -280,27 +263,23 @@ func setupIFBClass(parentCtx *context.VPCContext, bandwidth uint64, burst bool, 
 		Cbuffer: uint32(float64(ceil)/(hz*8) + float64(mtu)),
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
-	parentCtx.Logger.Debug("Setting up HTB class: ", class)
+	logger.G(ctx).Debug("Setting up HTB class: ", class)
 
 	err := netlink.ClassAdd(class)
 	if err != nil {
-		parentCtx.Logger.Warning("Could not add class: ", err)
+		logger.G(ctx).WithError(err).Warning("Could not add class")
 		return netlink.ClassReplace(class)
 	}
 	return nil
 }
 
-func getLink(networkInterface ec2wrapper.NetworkInterface) (netlink.Link, error) {
+func getLinkByMac(mac string) (netlink.Link, error) {
 	links, err := netlink.LinkList()
 	if err != nil {
 		return nil, err
 	}
-	mac, err := net.ParseMAC(networkInterface.GetMAC())
-	if err != nil {
-		return nil, err
-	}
 	for _, link := range links {
-		if reflect.DeepEqual(link.Attrs().HardwareAddr, mac) {
+		if link.Attrs().HardwareAddr.String() == mac {
 			return link, nil
 		}
 	}
@@ -312,62 +291,63 @@ func ipaddressToHandle(ip net.IP) uint16 {
 	return binary.BigEndian.Uint16([]byte(ip.To4()[2:4]))
 }
 
-func teardownNetwork(ctx *context.VPCContext, allocation types.Allocation, link netlink.Link, netnsfd int) {
+func teardownNetwork(ctx context.Context, allocation types.Allocation, link netlink.Link, netnsfd int) {
 	deleteLink(ctx, link, netnsfd)
-	ip := net.ParseIP(allocation.IPV4Address)
+	ip := net.ParseIP(allocation.IPV4Address.Address.Address)
 
 	// Removing the classes automatically removes the qdiscs
 	ifbEgress, err := netlink.LinkByName(vpc.EgressIFB)
 	if err == nil {
 		removeClass(ctx, ip, ifbEgress)
 	} else {
-		ctx.Logger.Warning("Unable to find ifb egress, during deallocation: ", err)
+		logger.G(ctx).WithError(err).Warning("Unable to find ifb egress, during deallocation")
 	}
 
 	ifbIngress, err := netlink.LinkByName(vpc.IngressIFB)
 	if err == nil {
 		removeClass(ctx, ip, ifbIngress)
 	} else {
-		ctx.Logger.Warning("Unable to find ifb ingress, during deallocation: ", err)
+		logger.G(ctx).WithError(err).Warning("Unable to find ifb ingress, during deallocation")
 	}
 }
 
-func deleteLink(ctx *context.VPCContext, link netlink.Link, netnsfd int) {
+func deleteLink(ctx context.Context, link netlink.Link, netnsfd int) {
 	if link == nil {
-		ctx.Logger.Debug("Link not setup, not deleting link")
+		logger.G(ctx).Debug("Link not setup, not deleting link")
 		return
 	}
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
 	if err != nil {
-		ctx.Logger.Warning("Unable to get handle")
+		logger.G(ctx).Warning("Unable to get handle")
+		return
 	}
 	defer nsHandle.Delete()
 	err = nsHandle.LinkDel(link)
 	if err != nil {
-		ctx.Logger.Error("Unable to delete link: ", err)
+		logger.G(ctx).WithError(err).Error("Unable to delete link")
 	}
 }
 
-func removeClass(ctx *context.VPCContext, ip net.IP, link netlink.Link) {
+func removeClass(ctx context.Context, ip net.IP, link netlink.Link) {
 	handle := ipaddressToHandle(ip)
 	classes, err := netlink.ClassList(link, netlink.MakeHandle(1, 1))
 	if err != nil {
-		ctx.Logger.Errorf("Unable to list classes on link %v because %v", link, err)
+		logger.G(ctx).Errorf("Unable to list classes on link %v because %v", link, err)
 		return
 	}
 	for _, class := range classes {
 		htbClass := class.(*netlink.HtbClass)
-		ctx.Logger.Debug("Class: ", class)
-		ctx.Logger.Debug("Class: ", class.Attrs())
+		logger.G(ctx).Debug("Class: ", class)
+		logger.G(ctx).Debug("Class: ", class.Attrs())
 
 		if htbClass.Attrs().Handle == netlink.MakeHandle(1, handle) {
 			err = netlink.ClassDel(class)
 			if err != nil {
-				ctx.Logger.Warning("Unable to remove class: ", err)
+				logger.G(ctx).WithError(err).Warning("Unable to remove class")
 			}
 			return
 		}
 	}
 
-	ctx.Logger.Warning("Unable to find class for container")
+	logger.G(ctx).Warning("Unable to find class for container")
 }

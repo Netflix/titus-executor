@@ -1,60 +1,51 @@
 package backfilleni
 
 import (
+	"regexp"
 	"time"
+
+	"github.com/Netflix/titus-executor/logger"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
+
+	"context"
 
 	"github.com/Netflix/titus-executor/ec2util"
 	"github.com/Netflix/titus-executor/vpc"
-	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/hashicorp/go-multierror"
-	"gopkg.in/urfave/cli.v1"
 )
 
-type backfillConfiguration struct {
-	TagChunkSize int
-	Timeout      time.Duration
-	VPCID        string
-}
+var (
+	eniErrorRegex = regexp.MustCompile(`networkInterface ID '(eni-[0-f]+)' does not exist`)
+)
 
 // BackfillEni is the configuration for the command that labels creation time on new ENIs
-func BackfillEni() cli.Command {
-	cfg := &backfillConfiguration{}
-	backkFillEni := func(parentCtx *context.VPCContext) error {
-		if err := doBackfillEni(parentCtx, cfg); err != nil {
-			return cli.NewMultiError(cli.NewExitError("Unable to generate backfill", 1), err)
-		}
-		return nil
-	}
-	return cli.Command{ // nolint: golint
-		Name:   "backfill-eni-labels",
-		Usage:  "For ENIs which do not have a creation timestamp tag, this will go ahead and do its best to backfill it",
-		Action: context.WrapFunc(backkFillEni),
-		Flags: []cli.Flag{
-			cli.IntFlag{
-				Name:        "tag-chunk-size",
-				Value:       50,
-				Destination: &cfg.TagChunkSize,
-			},
-			cli.DurationFlag{
-				Name:        "timeout",
-				Value:       30 * time.Minute,
-				Destination: &cfg.Timeout,
-			},
-			cli.StringFlag{
-				Name:        "vpc-id",
-				Usage:       "Optionally specify a VPC, to speed up filtering requests",
-				EnvVar:      "EC2_VPC_ID",
-				Value:       "",
-				Destination: &cfg.VPCID,
-			},
-		},
-	}
+func BackfillEni(ctx context.Context, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	networkInterfaceChannel := make(chan ec2.NetworkInterface, 10000)
+	group, errGroupCtx := errgroup.WithContext(ctx)
+
+	ec2client := ec2.New(session.Must(session.NewSession()))
+
+	group.Go(func() error {
+		return getENIs(errGroupCtx, ec2client, networkInterfaceChannel)
+	})
+
+	group.Go(func() error {
+		return backfillENILoop(errGroupCtx, ec2client, group, networkInterfaceChannel)
+	})
+
+	return group.Wait()
 }
 
-func getENIs(parentCtx *context.VPCContext, cfg *backfillConfiguration, svc *ec2.EC2) ([]*ec2.NetworkInterface, error) {
+func getENIs(ctx context.Context, ec2client *ec2.EC2, ch chan ec2.NetworkInterface) error {
+	defer close(ch)
+
 	filters := []*ec2.Filter{
 		{
 			Name:   aws.String("description"),
@@ -66,82 +57,74 @@ func getENIs(parentCtx *context.VPCContext, cfg *backfillConfiguration, svc *ec2
 		},
 	}
 
-	if cfg.VPCID != "" {
-		vpcFilter := &ec2.Filter{
-			Name:   aws.String("vpc-id"),
-			Values: aws.StringSlice([]string{cfg.VPCID}),
-		}
-		filters = append(filters, vpcFilter)
-	}
-
 	describeAvailableRequest := &ec2.DescribeNetworkInterfacesInput{
 		Filters: filters,
-		// 1000 is the maximum number of results
+		// 1000 is the maximum number of results allowed
 		MaxResults: aws.Int64(1000),
 	}
 
-	untaggedEnis := []*ec2.NetworkInterface{}
-	for {
-		describeAvailableResponse, err := svc.DescribeNetworkInterfacesWithContext(parentCtx, describeAvailableRequest)
+	for ctx.Err() == nil {
+		describeAvailableResponse, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, describeAvailableRequest)
 		if err != nil {
-			return nil, err
+			return errors.Wrap(err, "Unable to describe network interfaces")
 		}
-		untaggedEnis = append(untaggedEnis, describeAvailableResponse.NetworkInterfaces...)
+
+		for idx := range describeAvailableResponse.NetworkInterfaces {
+			networkInterface := describeAvailableResponse.NetworkInterfaces[idx]
+			tags := ec2util.TagSetToMap(networkInterface.TagSet)
+			if _, ok := tags[vpc.ENICreationTimeTag]; !ok {
+				ch <- *networkInterface
+			}
+		}
 
 		if describeAvailableResponse.NextToken == nil {
-			return untaggedEnis, nil
+			return nil
 		}
 		describeAvailableRequest.SetNextToken(*describeAvailableResponse.NextToken)
 	}
+
+	return errors.Wrap(ctx.Err(), "Context error while enumerating ENIs")
 }
 
-func filterUntaggedInterfaces(enis []*ec2.NetworkInterface) []*ec2.NetworkInterface {
-	untaggedENIs := []*ec2.NetworkInterface{}
-	for _, eni := range enis {
-		tags := ec2util.TagSetToMap(eni.TagSet)
-		if _, ok := tags[vpc.ENICreationTimeTag]; !ok {
-			untaggedENIs = append(untaggedENIs, eni)
+func backfillENILoop(ctx context.Context, ec2client *ec2.EC2, group *errgroup.Group, ch chan ec2.NetworkInterface) error {
+	// We don't abort on the first error because even though the CreateTagsInput call accepts multiple resources,
+	// if one of the resources is missing, it ends up causing the whole thing to fail.
+	networkInterfaces := make(map[string]ec2.NetworkInterface, 50)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case networkInterface, ok := <-ch:
+			if !ok {
+				// The channel is closed, gotta wrap up
+				return backfillENIs(ctx, ec2client, networkInterfaces)
+			}
+			logger.G(ctx).WithField("eni", networkInterface).Info("Found untagged ENI")
+			networkInterfaces[*networkInterface.NetworkInterfaceId] = networkInterface
+
+			if len(networkInterfaces) > 50 {
+				tmp := networkInterfaces
+				group.Go(func() error {
+					return backfillENIs(ctx, ec2client, tmp)
+				})
+				networkInterfaces = make(map[string]ec2.NetworkInterface, 50)
+
+			}
 		}
 	}
-	return untaggedENIs
 }
 
-func doBackfillEni(parentCtx *context.VPCContext, cfg *backfillConfiguration) error {
-	svc := ec2.New(parentCtx.AWSSession)
-
-	ctx, cancel := parentCtx.WithTimeout(cfg.Timeout)
-	defer cancel()
-
-	ctx.Logger.Info("Fetching untagged ENIs")
-
-	enis, err := getENIs(ctx, cfg, svc)
-	if err != nil {
-		return err
-	}
-
-	untaggedEnis := filterUntaggedInterfaces(enis)
-	ctx.Logger.WithField("count", len(untaggedEnis)).Info("Found untagged ENIs")
-
+func backfillENIs(ctx context.Context, ec2client *ec2.EC2, networkInterfaces map[string]ec2.NetworkInterface) error {
 	now := time.Now()
-	// We do this because even though the CreateTagsInput call accepts multiple resources, if one of the resources
-	// is missing, it ends up causing the whole thing to fail
-	var result *multierror.Error
 
-	for _, untaggedENI := range untaggedEnis {
-		err = tagENI(parentCtx, untaggedENI, svc, now)
-		if err != nil {
-			result = multierror.Append(result, err)
-		}
+	networkInterfaceIds := make([]string, 0, len(networkInterfaces))
+	for _, iface := range networkInterfaces {
+		networkInterfaceIds = append(networkInterfaceIds, *iface.NetworkInterfaceId)
 	}
-	return result.ErrorOrNil()
-}
-
-func tagENI(parentCtx *context.VPCContext, eni *ec2.NetworkInterface, svc *ec2.EC2, now time.Time) error {
-	ctx := parentCtx.Logger.WithField("eni", *eni.NetworkInterfaceId)
-	ctx.Info("Labeling ENI")
 
 	createTagsInput := &ec2.CreateTagsInput{
-		Resources: aws.StringSlice([]string{*eni.NetworkInterfaceId}),
+		Resources: aws.StringSlice(networkInterfaceIds),
 		Tags: []*ec2.Tag{
 			{
 				Key:   aws.String(vpc.ENICreationTimeTag),
@@ -149,17 +132,30 @@ func tagENI(parentCtx *context.VPCContext, eni *ec2.NetworkInterface, svc *ec2.E
 			},
 		},
 	}
-	// TODO:
-	// Joe? Do you how this deals with (potential) failure if one ENI doesn't exist
-	// svc.CreateTagsWithContext(parentCtx, createTagsInput)
-	_, err := svc.CreateTagsWithContext(parentCtx, createTagsInput)
+
+	_, err := ec2client.CreateTagsWithContext(ctx, createTagsInput)
 	if err == nil {
-		ctx.Info("Labeled ENI")
 		return nil
 	}
-	ctx.Logger.WithError(err).Warning("Failed to label ENI")
-	if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "InvalidNetworkInterfaceID.NotFound" {
-		return nil
+
+	logger.G(ctx).WithError(err).Error("Error while tagging ENIs")
+
+	awsErr, ok := err.(awserr.Error)
+	if !ok {
+		return errors.Wrap(err, "Received non-AWS related error while tagging ENIs")
 	}
-	return err
+
+	if awsErr.Code() != "InvalidNetworkInterfaceID.NotFound" {
+		return errors.Wrap(err, "Received AWS related error while tagging ENIs")
+	}
+
+	submatch := eniErrorRegex.FindStringSubmatch(awsErr.Message())
+	if submatch == nil {
+		return errors.Wrap(awsErr, "Cannot parse InvalidNetworkInterfaceID.NotFound error from AWS")
+	}
+
+	badENI := submatch[1]
+	delete(networkInterfaces, badENI)
+	logger.G(ctx).WithField("eni", badENI).Warning("Interface deleted during work. Retrying")
+	return backfillENIs(ctx, ec2client, networkInterfaces)
 }
