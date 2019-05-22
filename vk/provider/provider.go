@@ -228,6 +228,8 @@ func (p *Provider) Capacity(ctx context.Context) v1.ResourceList {
 			resourceList[v1.ResourceMemory] = resource.MustParse(resourceKV[1])
 		case "disk":
 			resourceList[v1.ResourceStorage] = resource.MustParse(resourceKV[1])
+		case "cpu":
+			resourceList[v1.ResourceCPU] = resource.MustParse(resourceKV[1])
 		case "network":
 			resourceList["network"] = resource.MustParse(resourceKV[1])
 		}

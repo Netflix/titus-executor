@@ -13,7 +13,6 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/vkubelet"
 	"k8s.io/api/core/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	kubeinformers "k8s.io/client-go/informers"
@@ -23,9 +22,6 @@ import (
 )
 
 var (
-	cpu = resource.MustParse("10")
- memory = resource.MustParse("1000M")
- disk = resource.MustParse("10G")
  errPodNotFound = errors.New("Pod not found")
 )
 type Vk struct {
