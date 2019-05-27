@@ -79,8 +79,8 @@ Requires docker:
 ```sh-session
 make test-standalone
 
-# Change the test timeout (useful on slower systems):
-TEST_TIMEOUT=10m make test-standalone
+# Disable running tests in parallel and change the test timeout (useful on slower systems):
+TEST_FLAGS="-v -parallel 1" TEST_TIMEOUT=10m make test-standalone
 # If you're iterating on tests and don't want to build a new executor .deb every time:
 ./hack/tests-with-dind.sh
 ```
