@@ -77,7 +77,6 @@ systemctl reload apparmor || echo "Could not reload apparmor"
 EOF
 chmod +x /tmp/post-install.sh
 
-
 fpm -t deb -s dir -C root \
   -a amd64 \
   -n titus-executor \
@@ -99,7 +98,7 @@ fpm -t deb -s dir -C root \
   --deb-field "Branch: ${git_sha}" \
   --deb-activate ldconfig \
   --depends libc6 \
-  --depends 'apparmor >= 2.12-4ubuntu7' \
+  --depends 'apparmor >= 2.12' \
   --depends 'docker-ce >= 5:18.09.1~3-0~ubuntu-xenial' \
   --deb-recommends lxcfs \
   --deb-recommends atlas-titus-agent \

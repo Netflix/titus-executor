@@ -31,10 +31,18 @@ Ensure that your build environment (i.e. VM) has the following commands prior to
 ### Building and testing
 In order to build titus-executor, check out the project into your `$GOPATH/src/github.com/Netflix`, and run the following command:
 
-`sudo -E PATH=${PATH} make builder all`
+```sh-session
+sudo -E PATH=${PATH} make builder all
+```
 
 This will output a debian file at the path, which you can then install on your system:
 `./build/distributions/titus-executor_latest.deb`
+
+To only build the .deb, and not rebuild the builder image:
+
+```sh-session
+sudo -E PATH=${PATH} make build
+```
 
 #### Building without Docker
 If you want to build a dpkg, without Docker, once the code is checked out, you can run the following:
