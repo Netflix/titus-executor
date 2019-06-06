@@ -999,7 +999,9 @@ func testMetatronFailure(t *testing.T, jobID string) {
 	status, err := jobResponse.WaitForFailureStatus(ctx)
 	assert.Nil(t, err)
 	assert.NotNil(t, status)
-	assert.Equal(t, "error starting metatron service: initialization failed: exit status 1", status.Mesg)
+	if status != nil {
+		assert.Equal(t, "error starting metatron service: initialization failed: exit status 1", status.Mesg)
+	}
 }
 
 // Test that `/run` is a tmpfs mount, and has the default size

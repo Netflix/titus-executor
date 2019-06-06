@@ -79,8 +79,8 @@ Requires docker:
 ```sh-session
 make test-standalone
 
-# Change the test timeout (useful on slower systems):
-TEST_TIMEOUT=10m make test-standalone
+# Disable running tests in parallel and change the test timeout (useful on slower systems):
+TEST_FLAGS="-v -parallel 1" TEST_TIMEOUT=10m make test-standalone
 # If you're iterating on tests and don't want to build a new executor .deb every time:
 ./hack/tests-with-dind.sh
 ```
@@ -89,7 +89,7 @@ Tests will run inside a Docker container and run a dedicated docker daemon as do
 
 AWS specific features (VPC integration, metadata service proxy, GPU, EFS, ...) are disabled during these tests.
 
-## Generated Code 
+## Generated Code
 There are places inside of the executor where we've checked in binaries, or prebuilt pieces of code. This may be considered harmful by some, but from the perspective of pragmatism, we have such code in:
 
 In order to generate code you need `go-bindata`, which you can get via:
@@ -111,15 +111,21 @@ make -C vpc/bpf/
 ```
 
 ### api/netflix/titus
-If you update the dependency `github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus`, you will need to regenerate the Go proto definitions. 
+If you update the dependency `github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus`, you will need to regenerate the Go proto definitions.
 
 You must first install the protobuf toolchain, and the Go protobuf compiler. More documentation on that can be found [in the protobuf repo](https://github.com/golang/protobuf/blob/master/README.md#installation).
 
 Once you update, and sync the dependency, just run the following:
 
 ```sh-session
- make clean-proto-defs protogen
- ```
+make clean-proto-defs protogen
+```
+
+## Running
+
+### nvidia GPUs
+
+To use with nvidia devices, you must have an OCI runtime installed that supports running OCI prestart hooks, so that the [nvidia-container-runtime-hook](https://github.com/NVIDIA/nvidia-container-runtime) can be run before container start. You'll need to add a container runtime [as per the dockerd documentation](https://docs.docker.com/engine/reference/commandline/dockerd/#docker-runtime-execution-options). The executor looks for a runtime named `oci-add-hooks` by default, but the runtime can be configured via the `titus.executor.nvidiaOciRuntime` config option. You can use the [nvidia-docker](https://github.com/NVIDIA/nvidia-docker) runtime, or the [oci-add-hooks](https://github.com/awslabs/oci-add-hooks) runtime if you're not comfortable running a patched version of runc.
 
 ## LICENSE
 

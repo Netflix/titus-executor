@@ -2,14 +2,8 @@ package nvidia
 
 import (
 	"fmt"
-	"reflect"
 	"regexp"
-	"sort"
 	"testing"
-
-	"github.com/leanovate/gopter"
-	"github.com/leanovate/gopter/gen"
-	"github.com/leanovate/gopter/prop"
 )
 
 const (
@@ -40,23 +34,4 @@ func TestRexexp(t *testing.T) {
 			t.Log(fmt.Sprintf("Correctly did not match %s", nonGpuType))
 		}
 	}
-}
-
-func TestIterator(t *testing.T) {
-	parameters := gopter.DefaultTestParameters()
-	parameters.MaxSize = 1000
-
-	properties := gopter.NewProperties(parameters)
-	properties.Property("Iterates over string slices", prop.ForAll(
-		func(slice []string) bool {
-			ret := []string{}
-			for val := range iterOverDevices(slice) {
-				ret = append(ret, val)
-			}
-			sort.Strings(slice)
-			sort.Strings(ret)
-			return reflect.DeepEqual(ret, slice)
-		}, gen.SliceOf(gen.AnyString())))
-
-	properties.TestingRun(t)
 }

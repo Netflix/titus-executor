@@ -1,36 +1,29 @@
 package nvidia
 
 import (
-	"encoding/json"
+	"bytes"
+	"context"
 	"fmt"
-	"net/http"
+	"os/exec"
 
 	"regexp"
 	"sync"
 	"time"
 
-	"context"
 	"strings"
-
-	"math/rand"
 
 	"github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/volume"
-	docker "github.com/docker/docker/client"
+	"github.com/docker/docker/api/types/container"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	nvidiaPluginURL           = "http://localhost:3476"
-	nvidiaPluginDockerJSONURI = "/docker/cli/json"
-	nvidiaPluginInfoJSONURI   = "/v1.0/gpu/info/json"
-	nvidiaPluginTimeout       = time.Minute
-	nvidiaPluginName          = "nvidia-docker"
-	stateDir                  = "/run/titus-executor-nvidia"
+	stateDir         = "/run/titus-executor-nvidia"
+	nvidiaSmiCmd     = "nvidia-smi"
+	nvidiaSmiTimeout = 2 * time.Second
 )
 
 const (
@@ -38,57 +31,32 @@ const (
 	AwsGpuInstanceRegex = "^([g2]|[p2]).[\\S]+"
 )
 
-// NVMLDevice is borrowed from the nvidia-docker 1.0 API
-type NVMLDevice struct {
-	UUID        string
-	Path        string
-	Model       *string
-	Power       *uint
-	CPUAffinity *uint
-}
+var (
+	// NoGpusFound indicates that no GPUs could be found on the system
+	NoGpusFound error = gpusNotFoundError{}
+	// GpuQueryTimeout indicates a timeout in querying for the system's GPUs
+	GpuQueryTimeout error = gpuQueryTimeoutError{}
+)
 
-// CUDADevice is borrowed from the nvidia-docker 1.0 API
-type CUDADevice struct {
-	Family *string
-	Arch   *string
-	Cores  *uint
-}
+type gpusNotFoundError struct{}
+type gpuQueryTimeoutError struct{}
 
-// Device is borrowed from the nvidia-docker 1.0 API
-type Device struct {
-	*NVMLDevice
-	*CUDADevice
-}
-type gpuInfo struct {
-	// Ignore this field:
-	// Version struct{ Driver, CUDA string }
-	Devices []Device
-}
+func (gpusNotFoundError) Error() string    { return "no GPU devices found" }
+func (gpuQueryTimeoutError) Error() string { return "timeout querying for GPUs" }
 
 // PluginInfo represents host NVIDIA GPU info
 type PluginInfo struct {
-	ctrlDevices   []string
-	nvidiaDevices []string
-	dockerClient  *docker.Client
-	mutex         sync.Mutex
-	fsLocker      *fslocker.FSLocker
-	Volumes       []string
-}
-
-type nvidiaDockerCli struct {
-	VolumeDriver string   `json:"VolumeDriver"`
-	Volumes      []string `json:"Volumes"`
-	Devices      []string `json:"Devices"`
+	gpuIds   []string
+	mutex    sync.Mutex
+	fsLocker *fslocker.FSLocker
 }
 
 // NewNvidiaInfo allocates and initializes NVIDIA info
-func NewNvidiaInfo(client *docker.Client) (*PluginInfo, error) {
+func NewNvidiaInfo(ctx context.Context) (*PluginInfo, error) {
 	n := new(PluginInfo)
-	n.ctrlDevices = make([]string, 0)
-	n.nvidiaDevices = make([]string, 0)
-	n.dockerClient = client
+	n.gpuIds = []string{}
 
-	return n, n.initHostGpuInfo()
+	return n, n.initHostGpuInfo(ctx)
 }
 
 func isGPUInstance() (bool, error) {
@@ -109,8 +77,8 @@ func isGPUInstance() (bool, error) {
 	return true, nil
 }
 
-// InitHostGpuInfo populates in-mem state about GPU devices and mount info.
-func (n *PluginInfo) initHostGpuInfo() error {
+// InitHostGpuInfo populates in-mem state about GPU devices
+func (n *PluginInfo) initHostGpuInfo(parentCtx context.Context) error {
 	if gpuInstance, err := isGPUInstance(); err != nil {
 		return err
 	} else if !gpuInstance {
@@ -118,157 +86,41 @@ func (n *PluginInfo) initHostGpuInfo() error {
 	}
 
 	var err error
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
 
 	n.fsLocker, err = fslocker.NewFSLocker(stateDir)
 	if err != nil {
 		return err
 	}
 
-	// Query GPU info from nvidia docker plugin
-	client := &http.Client{
-		Timeout: nvidiaPluginTimeout,
-	}
-
-	allDevices, err := n.populateAndWireUpvolumes(client)
+	nvidiaSmiExe, err := exec.LookPath(nvidiaSmiCmd)
 	if err != nil {
 		return err
 	}
 
-	return n.gatherDevices(client, allDevices)
-
-}
-
-func (n *PluginInfo) gatherDevices(client *http.Client, allDevices []string) error {
-	var info gpuInfo
-	allDevicesMap := make(map[string]struct{})
-	nonCtrlDevicesMap := make(map[string]struct{})
-
-	for idx := range allDevices {
-		allDevicesMap[allDevices[idx]] = struct{}{}
-	}
-
-	resp, err := client.Get(nvidiaPluginURL + nvidiaPluginInfoJSONURI)
+	ctx, cancel := context.WithTimeout(parentCtx, nvidiaSmiTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, nvidiaSmiExe, "--query-gpu=gpu_uuid", "--format=csv,noheader")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
 	if err != nil {
-		return fmt.Errorf("Failed to get GPU info from NVIDIA Docker plugin: %s", err)
-	}
-	defer func() {
-		if err = resp.Body.Close(); err != nil {
-			log.Error("Failed to close ", err)
+		log.WithError(err).Errorf("error running nvidia-smi: stdout=%q, stderr=%q", stdout.String(), stderr.String())
+		if ctx.Err() == context.DeadlineExceeded {
+			return GpuQueryTimeout
 		}
-	}()
 
-	if err = json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return err
 	}
 
-	for _, device := range info.Devices {
-		nonCtrlDevicesMap[device.Path] = struct{}{}
-	}
-
-	for dev := range allDevicesMap {
-		if _, ok := nonCtrlDevicesMap[dev]; !ok {
-			n.ctrlDevices = append(n.ctrlDevices, dev)
-		} else {
-			n.nvidiaDevices = append(n.nvidiaDevices, dev)
-		}
+	n.gpuIds = strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(n.gpuIds) == 0 {
+		log.Errorf("nvidia-smi returned 0 devices: stdout=%q, stderr=%q", stdout.String(), stderr.String())
+		return NoGpusFound
 	}
 
 	return nil
-}
-
-func (n *PluginInfo) populateAndWireUpvolumes(client *http.Client) ([]string, error) {
-	var nvidiaDockerCliResp nvidiaDockerCli
-
-	resp, err := client.Get(nvidiaPluginURL + nvidiaPluginDockerJSONURI)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get GPU info from NVIDIA Docker plugin: %s", err)
-	}
-	defer func() {
-		if err = resp.Body.Close(); err != nil {
-			log.Error("Failed to close ", err)
-		}
-	}()
-	if err = json.NewDecoder(resp.Body).Decode(&nvidiaDockerCliResp); err != nil {
-		return nil, err
-	}
-
-	// Make sure we're getting back expected info
-	if nvidiaDockerCliResp.VolumeDriver != nvidiaPluginName {
-		return nil, fmt.Errorf("Invalid Nvidia Docker Plugin! Got %s, expected %s", nvidiaDockerCliResp.VolumeDriver, nvidiaPluginName)
-	}
-
-	n.Volumes = nvidiaDockerCliResp.Volumes
-
-	return nvidiaDockerCliResp.Devices, n.wireUpDockerVolume(nvidiaDockerCliResp.VolumeDriver)
-}
-
-// wireUpDockerVolume ensures the Docker Volume is created
-func (n *PluginInfo) wireUpDockerVolume(volumeDriver string) error {
-	// Fetch the volumes to create from the nVidia Daemon
-	volumesToCreate := make(map[string]struct{})
-	for _, vol := range n.Volumes {
-		volumesToCreate[strings.Split(vol, ":")[0]] = struct{}{}
-	}
-
-	// Fetch the volumes that Docker knows about
-	args := filters.NewArgs()
-	args.Add("driver", volumeDriver)
-	volumes, err := n.dockerClient.VolumeList(context.TODO(), args)
-	if err != nil {
-		return err
-	}
-
-	// Determine the volumes that need to be created
-	for _, vol := range volumes.Volumes {
-		if vol.Driver == volumeDriver {
-			delete(volumesToCreate, vol.Name)
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	for vol := range volumesToCreate {
-		vcb := volume.VolumeCreateBody{
-			Driver:     volumeDriver,
-			Name:       vol,
-			Labels:     map[string]string{},
-			DriverOpts: map[string]string{},
-		}
-		if err := createVolume(ctx, n.dockerClient, vcb); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func createVolume(parentCtx context.Context, dockerClient *docker.Client, vcb volume.VolumeCreateBody) error {
-	ctx, cancel := context.WithCancel(parentCtx)
-	defer cancel()
-	var err error
-
-	for i := 0; i < 5; i++ {
-		_, err = dockerClient.VolumeCreate(ctx, vcb)
-		if err == nil {
-			return nil
-		}
-		log.Warningf("Error creating volume %#v: %v", vcb, err)
-		time.Sleep(time.Second * 1 << uint(i))
-	}
-	return err
-}
-
-func iterOverDevices(devices []string) chan string {
-	retChan := make(chan string)
-	offset := rand.Int() // nolint: gosec
-
-	go func() {
-		defer close(retChan)
-		for idx := range devices {
-			newIdx := (idx + offset) % len(devices)
-			retChan <- devices[newIdx]
-		}
-	}()
-	return retChan
 }
 
 // AllocDevices allocates GPU device names from the free device list for the given task ID.
@@ -283,15 +135,17 @@ func (n *PluginInfo) AllocDevices(numDevs int) (types.GPUContainer, error) {
 	defer n.mutex.Unlock()
 
 	allocatedDevices := make(map[string]*fslocker.ExclusiveLock, numDevs)
-	for device := range iterOverDevices(n.nvidiaDevices) {
-		lock, err = n.fsLocker.ExclusiveLock(device, &zeroTimeout)
+	for _, id := range n.gpuIds {
+		lock, err = n.fsLocker.ExclusiveLock(id, &zeroTimeout)
 		if err == nil && lock != nil {
-			allocatedDevices[device] = lock
+			allocatedDevices[id] = lock
 		}
+
 		if len(allocatedDevices) == numDevs {
 			goto success
 		}
 	}
+
 	err = fmt.Errorf("Unable able to allocate %d GPU devices. Not enough free GPU devices available", numDevs)
 	goto fail
 
@@ -307,12 +161,14 @@ fail:
 	return nil, err
 }
 
-// GetCtrlDevices returns the control devices.
-func (n *PluginInfo) GetCtrlDevices() []string {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
+// UpdateContainerConfig updates the container and host configs to delegate the given devices
+func (n *PluginInfo) UpdateContainerConfig(c *types.Container, dockerCfg *container.Config, hostCfg *container.HostConfig, runtime string) {
+	hostCfg.Runtime = runtime
 
-	return n.ctrlDevices
+	// Now setup the environment variables that `nvidia-container-runtime` uses to configure itself,
+	// and remove any that may have been set by the user.  See https://github.com/NVIDIA/nvidia-container-runtime
+	c.Env["NVIDIA_VISIBLE_DEVICES"] = strings.Join(c.GPUInfo.Devices(), ",")
+	dockerCfg.Env = c.GetSortedEnvArray()
 }
 
 type nvidiaGPUContainer struct {
