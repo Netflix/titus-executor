@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -13,14 +14,14 @@ type environmentProvider struct {
 	viper *viper.Viper
 }
 
-func (e *environmentProvider) GetIdentity() (*vpcapi.InstanceIdentity, error) {
-	instanceId := e.viper.GetString("instance-id")
-	if !strings.HasPrefix(instanceId, "i-") {
-		return nil, fmt.Errorf("Cannot generate instance identity, invalid instance id %q", instanceId)
+func (e *environmentProvider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity, error) {
+	instanceID := e.viper.GetString("instance-id")
+	if !strings.HasPrefix(instanceID, "i-") {
+		return nil, fmt.Errorf("Cannot generate instance identity, invalid instance id %q", instanceID)
 	}
-	accountId := e.viper.GetString("account-id")
-	if !accountIdRegex.MatchString(accountId) {
-		return nil, fmt.Errorf("Cannot generate account ID, invalid account id %q", accountId)
+	accountID := e.viper.GetString("account-id")
+	if !accountIDRegex.MatchString(accountID) {
+		return nil, fmt.Errorf("Cannot generate account ID, invalid account id %q", accountID)
 
 	}
 
@@ -37,9 +38,9 @@ func (e *environmentProvider) GetIdentity() (*vpcapi.InstanceIdentity, error) {
 	}
 
 	return &vpcapi.InstanceIdentity{
-		InstanceID:   instanceId,
+		InstanceID:   instanceID,
 		Region:       region,
-		AccountID:    accountId,
+		AccountID:    accountID,
 		InstanceType: instanceType,
 	}, nil
 }

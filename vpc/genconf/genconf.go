@@ -9,14 +9,14 @@ import (
 )
 
 func GenConf(ctx context.Context, identityProvider identity.InstanceIdentityProvider, export, resourceSetsOnly bool) error {
-	instanceIdentity, err := identityProvider.GetIdentity()
+	instanceIdentity, err := identityProvider.GetIdentity(ctx)
 	if err != nil {
 		return err
 	}
 
-	maxInterfaces := vpc.GetMaxInterfaces(instanceIdentity.InstanceType)
-	maxIPs := vpc.GetMaxIPAddresses(instanceIdentity.InstanceType)
-	maxNetworkMbps := vpc.GetMaxNetworkMbps(instanceIdentity.InstanceType)
+	maxInterfaces := vpc.MustGetMaxInterfaces(instanceIdentity.InstanceType)
+	maxIPs := vpc.MustGetMaxIPAddresses(instanceIdentity.InstanceType)
+	maxNetworkMbps := vpc.MustGetMaxNetworkMbps(instanceIdentity.InstanceType)
 	// The number of interfaces exposed to the Titus scheduler is the maximum number of interfaces this instance can handle minus 1.
 	resourceSet := fmt.Sprintf("ResourceSet-ENIs-%d-%d", maxInterfaces-1, maxIPs)
 	if resourceSetsOnly {

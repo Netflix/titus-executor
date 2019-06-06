@@ -3,12 +3,9 @@
 
 package titus
 
-import (
-	fmt "fmt"
-	math "math"
-
-	proto "github.com/golang/protobuf/proto"
-)
+import proto "github.com/golang/protobuf/proto"
+import fmt "fmt"
+import math "math"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
@@ -19,7 +16,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 type SignatureAlgorithm int32
 
@@ -40,7 +37,6 @@ var SignatureAlgorithm_name = map[int32]string{
 	4: "SHA384withECDSA",
 	5: "SHA512withECDSA",
 }
-
 var SignatureAlgorithm_value = map[string]int32{
 	"SHA256withRSAandMGF1": 0,
 	"SHA384withRSAandMGF1": 1,
@@ -55,11 +51,9 @@ func (x SignatureAlgorithm) Enum() *SignatureAlgorithm {
 	*p = x
 	return p
 }
-
 func (x SignatureAlgorithm) String() string {
 	return proto.EnumName(SignatureAlgorithm_name, int32(x))
 }
-
 func (x *SignatureAlgorithm) UnmarshalJSON(data []byte) error {
 	value, err := proto.UnmarshalJSONEnum(SignatureAlgorithm_value, data, "SignatureAlgorithm")
 	if err != nil {
@@ -68,9 +62,8 @@ func (x *SignatureAlgorithm) UnmarshalJSON(data []byte) error {
 	*x = SignatureAlgorithm(value)
 	return nil
 }
-
 func (SignatureAlgorithm) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{0}
 }
 
 type TaskInfo_Status int32
@@ -86,7 +79,6 @@ var TaskInfo_Status_name = map[int32]string{
 	1: "FAILED",
 	2: "STOPPED",
 }
-
 var TaskInfo_Status_value = map[string]int32{
 	"RUNNING": 0,
 	"FAILED":  1,
@@ -98,11 +90,9 @@ func (x TaskInfo_Status) Enum() *TaskInfo_Status {
 	*p = x
 	return p
 }
-
 func (x TaskInfo_Status) String() string {
 	return proto.EnumName(TaskInfo_Status_name, int32(x))
 }
-
 func (x *TaskInfo_Status) UnmarshalJSON(data []byte) error {
 	value, err := proto.UnmarshalJSONEnum(TaskInfo_Status_value, data, "TaskInfo_Status")
 	if err != nil {
@@ -111,9 +101,8 @@ func (x *TaskInfo_Status) UnmarshalJSON(data []byte) error {
 	*x = TaskInfo_Status(value)
 	return nil
 }
-
 func (TaskInfo_Status) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{3, 0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{3, 0}
 }
 
 type ContainerInfo_SnapshotPolicy int32
@@ -131,7 +120,6 @@ var ContainerInfo_SnapshotPolicy_name = map[int32]string{
 	2: "SUCCESS_ONLY",
 	3: "ALWAYS",
 }
-
 var ContainerInfo_SnapshotPolicy_value = map[string]int32{
 	"NEVER":        0,
 	"ERROR_ONLY":   1,
@@ -144,11 +132,9 @@ func (x ContainerInfo_SnapshotPolicy) Enum() *ContainerInfo_SnapshotPolicy {
 	*p = x
 	return p
 }
-
 func (x ContainerInfo_SnapshotPolicy) String() string {
 	return proto.EnumName(ContainerInfo_SnapshotPolicy_name, int32(x))
 }
-
 func (x *ContainerInfo_SnapshotPolicy) UnmarshalJSON(data []byte) error {
 	value, err := proto.UnmarshalJSONEnum(ContainerInfo_SnapshotPolicy_value, data, "ContainerInfo_SnapshotPolicy")
 	if err != nil {
@@ -157,9 +143,8 @@ func (x *ContainerInfo_SnapshotPolicy) UnmarshalJSON(data []byte) error {
 	*x = ContainerInfo_SnapshotPolicy(value)
 	return nil
 }
-
 func (ContainerInfo_SnapshotPolicy) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 0}
 }
 
 // Borrowed from Kubernetes
@@ -179,7 +164,6 @@ var ContainerInfo_ImagePullPolicy_name = map[int32]string{
 	1: "IfNotPresent",
 	2: "IfLabelPresent",
 }
-
 var ContainerInfo_ImagePullPolicy_value = map[string]int32{
 	"Always":         0,
 	"IfNotPresent":   1,
@@ -191,11 +175,9 @@ func (x ContainerInfo_ImagePullPolicy) Enum() *ContainerInfo_ImagePullPolicy {
 	*p = x
 	return p
 }
-
 func (x ContainerInfo_ImagePullPolicy) String() string {
 	return proto.EnumName(ContainerInfo_ImagePullPolicy_name, int32(x))
 }
-
 func (x *ContainerInfo_ImagePullPolicy) UnmarshalJSON(data []byte) error {
 	value, err := proto.UnmarshalJSONEnum(ContainerInfo_ImagePullPolicy_value, data, "ContainerInfo_ImagePullPolicy")
 	if err != nil {
@@ -204,9 +186,8 @@ func (x *ContainerInfo_ImagePullPolicy) UnmarshalJSON(data []byte) error {
 	*x = ContainerInfo_ImagePullPolicy(value)
 	return nil
 }
-
 func (ContainerInfo_ImagePullPolicy) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 1}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 1}
 }
 
 type ContainerInfo_EfsConfigInfo_MountPerms int32
@@ -222,7 +203,6 @@ var ContainerInfo_EfsConfigInfo_MountPerms_name = map[int32]string{
 	2: "RO",
 	3: "WO",
 }
-
 var ContainerInfo_EfsConfigInfo_MountPerms_value = map[string]int32{
 	"RW": 1,
 	"RO": 2,
@@ -234,11 +214,9 @@ func (x ContainerInfo_EfsConfigInfo_MountPerms) Enum() *ContainerInfo_EfsConfigI
 	*p = x
 	return p
 }
-
 func (x ContainerInfo_EfsConfigInfo_MountPerms) String() string {
 	return proto.EnumName(ContainerInfo_EfsConfigInfo_MountPerms_name, int32(x))
 }
-
 func (x *ContainerInfo_EfsConfigInfo_MountPerms) UnmarshalJSON(data []byte) error {
 	value, err := proto.UnmarshalJSONEnum(ContainerInfo_EfsConfigInfo_MountPerms_value, data, "ContainerInfo_EfsConfigInfo_MountPerms")
 	if err != nil {
@@ -247,9 +225,8 @@ func (x *ContainerInfo_EfsConfigInfo_MountPerms) UnmarshalJSON(data []byte) erro
 	*x = ContainerInfo_EfsConfigInfo_MountPerms(value)
 	return nil
 }
-
 func (ContainerInfo_EfsConfigInfo_MountPerms) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 2, 0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 2, 0}
 }
 
 // Taken from include/uapi/linux/capability.h
@@ -337,7 +314,6 @@ var ContainerInfo_Capabilities_Capability_name = map[int32]string{
 	36: "BLOCK_SUSPEND",
 	37: "AUDIT_READ",
 }
-
 var ContainerInfo_Capabilities_Capability_value = map[string]int32{
 	"CHOWN":            0,
 	"DAC_OVERRIDE":     1,
@@ -384,11 +360,9 @@ func (x ContainerInfo_Capabilities_Capability) Enum() *ContainerInfo_Capabilitie
 	*p = x
 	return p
 }
-
 func (x ContainerInfo_Capabilities_Capability) String() string {
 	return proto.EnumName(ContainerInfo_Capabilities_Capability_name, int32(x))
 }
-
 func (x *ContainerInfo_Capabilities_Capability) UnmarshalJSON(data []byte) error {
 	value, err := proto.UnmarshalJSONEnum(ContainerInfo_Capabilities_Capability_value, data, "ContainerInfo_Capabilities_Capability")
 	if err != nil {
@@ -397,9 +371,8 @@ func (x *ContainerInfo_Capabilities_Capability) UnmarshalJSON(data []byte) error
 	*x = ContainerInfo_Capabilities_Capability(value)
 	return nil
 }
-
 func (ContainerInfo_Capabilities_Capability) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 3, 0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 3, 0}
 }
 
 type TaskStatusData struct {
@@ -413,17 +386,16 @@ func (m *TaskStatusData) Reset()         { *m = TaskStatusData{} }
 func (m *TaskStatusData) String() string { return proto.CompactTextString(m) }
 func (*TaskStatusData) ProtoMessage()    {}
 func (*TaskStatusData) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{0}
 }
-
 func (m *TaskStatusData) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TaskStatusData.Unmarshal(m, b)
 }
 func (m *TaskStatusData) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TaskStatusData.Marshal(b, m, deterministic)
 }
-func (m *TaskStatusData) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TaskStatusData.Merge(m, src)
+func (dst *TaskStatusData) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskStatusData.Merge(dst, src)
 }
 func (m *TaskStatusData) XXX_Size() int {
 	return xxx_messageInfo_TaskStatusData.Size(m)
@@ -455,17 +427,16 @@ func (m *StateUpdate) Reset()         { *m = StateUpdate{} }
 func (m *StateUpdate) String() string { return proto.CompactTextString(m) }
 func (*StateUpdate) ProtoMessage()    {}
 func (*StateUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{1}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{1}
 }
-
 func (m *StateUpdate) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StateUpdate.Unmarshal(m, b)
 }
 func (m *StateUpdate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_StateUpdate.Marshal(b, m, deterministic)
 }
-func (m *StateUpdate) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_StateUpdate.Merge(m, src)
+func (dst *StateUpdate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StateUpdate.Merge(dst, src)
 }
 func (m *StateUpdate) XXX_Size() int {
 	return xxx_messageInfo_StateUpdate.Size(m)
@@ -515,17 +486,16 @@ func (m *StateUpdates) Reset()         { *m = StateUpdates{} }
 func (m *StateUpdates) String() string { return proto.CompactTextString(m) }
 func (*StateUpdates) ProtoMessage()    {}
 func (*StateUpdates) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{2}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{2}
 }
-
 func (m *StateUpdates) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StateUpdates.Unmarshal(m, b)
 }
 func (m *StateUpdates) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_StateUpdates.Marshal(b, m, deterministic)
 }
-func (m *StateUpdates) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_StateUpdates.Merge(m, src)
+func (dst *StateUpdates) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StateUpdates.Merge(dst, src)
 }
 func (m *StateUpdates) XXX_Size() int {
 	return xxx_messageInfo_StateUpdates.Size(m)
@@ -560,17 +530,16 @@ func (m *TaskInfo) Reset()         { *m = TaskInfo{} }
 func (m *TaskInfo) String() string { return proto.CompactTextString(m) }
 func (*TaskInfo) ProtoMessage()    {}
 func (*TaskInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{3}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{3}
 }
-
 func (m *TaskInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TaskInfo.Unmarshal(m, b)
 }
 func (m *TaskInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TaskInfo.Marshal(b, m, deterministic)
 }
-func (m *TaskInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TaskInfo.Merge(m, src)
+func (dst *TaskInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskInfo.Merge(dst, src)
 }
 func (m *TaskInfo) XXX_Size() int {
 	return xxx_messageInfo_TaskInfo.Size(m)
@@ -642,17 +611,16 @@ func (m *TaskInfo_EnvironmentVariable) Reset()         { *m = TaskInfo_Environme
 func (m *TaskInfo_EnvironmentVariable) String() string { return proto.CompactTextString(m) }
 func (*TaskInfo_EnvironmentVariable) ProtoMessage()    {}
 func (*TaskInfo_EnvironmentVariable) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{3, 0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{3, 0}
 }
-
 func (m *TaskInfo_EnvironmentVariable) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TaskInfo_EnvironmentVariable.Unmarshal(m, b)
 }
 func (m *TaskInfo_EnvironmentVariable) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TaskInfo_EnvironmentVariable.Marshal(b, m, deterministic)
 }
-func (m *TaskInfo_EnvironmentVariable) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TaskInfo_EnvironmentVariable.Merge(m, src)
+func (dst *TaskInfo_EnvironmentVariable) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskInfo_EnvironmentVariable.Merge(dst, src)
 }
 func (m *TaskInfo_EnvironmentVariable) XXX_Size() int {
 	return xxx_messageInfo_TaskInfo_EnvironmentVariable.Size(m)
@@ -694,17 +662,16 @@ func (m *RunningContainerInfo) Reset()         { *m = RunningContainerInfo{} }
 func (m *RunningContainerInfo) String() string { return proto.CompactTextString(m) }
 func (*RunningContainerInfo) ProtoMessage()    {}
 func (*RunningContainerInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{4}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{4}
 }
-
 func (m *RunningContainerInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RunningContainerInfo.Unmarshal(m, b)
 }
 func (m *RunningContainerInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_RunningContainerInfo.Marshal(b, m, deterministic)
 }
-func (m *RunningContainerInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RunningContainerInfo.Merge(m, src)
+func (dst *RunningContainerInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RunningContainerInfo.Merge(dst, src)
 }
 func (m *RunningContainerInfo) XXX_Size() int {
 	return xxx_messageInfo_RunningContainerInfo.Size(m)
@@ -807,7 +774,7 @@ type ContainerInfo struct {
 	Process *ContainerInfo_Process `protobuf:"bytes,38,opt,name=process" json:"process,omitempty"`
 	// Used internally by the agent to store information about a running container
 	RunState *RunningContainerInfo `protobuf:"bytes,39,opt,name=runState" json:"runState,omitempty"`
-	/// (Optional) Amount of shared memory to allocate (must be <= memoryMB)
+	// / (Optional) Amount of shared memory to allocate (must be <= memoryMB)
 	ShmSizeMB            *uint32  `protobuf:"varint,40,opt,name=shmSizeMB" json:"shmSizeMB,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -818,17 +785,16 @@ func (m *ContainerInfo) Reset()         { *m = ContainerInfo{} }
 func (m *ContainerInfo) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo) ProtoMessage()    {}
 func (*ContainerInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5}
 }
-
 func (m *ContainerInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo.Unmarshal(m, b)
 }
 func (m *ContainerInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo.Merge(m, src)
+func (dst *ContainerInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo.Merge(dst, src)
 }
 func (m *ContainerInfo) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo.Size(m)
@@ -1134,17 +1100,16 @@ func (m *ContainerInfo_EnvironmentVariable) Reset()         { *m = ContainerInfo
 func (m *ContainerInfo_EnvironmentVariable) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_EnvironmentVariable) ProtoMessage()    {}
 func (*ContainerInfo_EnvironmentVariable) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 0}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 0}
 }
-
 func (m *ContainerInfo_EnvironmentVariable) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo_EnvironmentVariable.Unmarshal(m, b)
 }
 func (m *ContainerInfo_EnvironmentVariable) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo_EnvironmentVariable.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo_EnvironmentVariable) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo_EnvironmentVariable.Merge(m, src)
+func (dst *ContainerInfo_EnvironmentVariable) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_EnvironmentVariable.Merge(dst, src)
 }
 func (m *ContainerInfo_EnvironmentVariable) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo_EnvironmentVariable.Size(m)
@@ -1185,17 +1150,16 @@ func (m *ContainerInfo_NetworkConfigInfo) Reset()         { *m = ContainerInfo_N
 func (m *ContainerInfo_NetworkConfigInfo) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_NetworkConfigInfo) ProtoMessage()    {}
 func (*ContainerInfo_NetworkConfigInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 1}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 1}
 }
-
 func (m *ContainerInfo_NetworkConfigInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Unmarshal(m, b)
 }
 func (m *ContainerInfo_NetworkConfigInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo_NetworkConfigInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Merge(m, src)
+func (dst *ContainerInfo_NetworkConfigInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Merge(dst, src)
 }
 func (m *ContainerInfo_NetworkConfigInfo) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo_NetworkConfigInfo.Size(m)
@@ -1249,17 +1213,16 @@ func (m *ContainerInfo_EfsConfigInfo) Reset()         { *m = ContainerInfo_EfsCo
 func (m *ContainerInfo_EfsConfigInfo) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_EfsConfigInfo) ProtoMessage()    {}
 func (*ContainerInfo_EfsConfigInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 2}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 2}
 }
-
 func (m *ContainerInfo_EfsConfigInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo_EfsConfigInfo.Unmarshal(m, b)
 }
 func (m *ContainerInfo_EfsConfigInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo_EfsConfigInfo.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo_EfsConfigInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo_EfsConfigInfo.Merge(m, src)
+func (dst *ContainerInfo_EfsConfigInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_EfsConfigInfo.Merge(dst, src)
 }
 func (m *ContainerInfo_EfsConfigInfo) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo_EfsConfigInfo.Size(m)
@@ -1310,17 +1273,16 @@ func (m *ContainerInfo_Capabilities) Reset()         { *m = ContainerInfo_Capabi
 func (m *ContainerInfo_Capabilities) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_Capabilities) ProtoMessage()    {}
 func (*ContainerInfo_Capabilities) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 3}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 3}
 }
-
 func (m *ContainerInfo_Capabilities) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo_Capabilities.Unmarshal(m, b)
 }
 func (m *ContainerInfo_Capabilities) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo_Capabilities.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo_Capabilities) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo_Capabilities.Merge(m, src)
+func (dst *ContainerInfo_Capabilities) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_Capabilities.Merge(dst, src)
 }
 func (m *ContainerInfo_Capabilities) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo_Capabilities.Size(m)
@@ -1357,17 +1319,16 @@ func (m *ContainerInfo_MetatronCreds) Reset()         { *m = ContainerInfo_Metat
 func (m *ContainerInfo_MetatronCreds) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_MetatronCreds) ProtoMessage()    {}
 func (*ContainerInfo_MetatronCreds) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 4}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 4}
 }
-
 func (m *ContainerInfo_MetatronCreds) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo_MetatronCreds.Unmarshal(m, b)
 }
 func (m *ContainerInfo_MetatronCreds) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo_MetatronCreds.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo_MetatronCreds) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo_MetatronCreds.Merge(m, src)
+func (dst *ContainerInfo_MetatronCreds) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_MetatronCreds.Merge(dst, src)
 }
 func (m *ContainerInfo_MetatronCreds) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo_MetatronCreds.Size(m)
@@ -1405,17 +1366,16 @@ func (m *ContainerInfo_S3LogLocation) Reset()         { *m = ContainerInfo_S3Log
 func (m *ContainerInfo_S3LogLocation) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_S3LogLocation) ProtoMessage()    {}
 func (*ContainerInfo_S3LogLocation) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 7}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 7}
 }
-
 func (m *ContainerInfo_S3LogLocation) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo_S3LogLocation.Unmarshal(m, b)
 }
 func (m *ContainerInfo_S3LogLocation) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo_S3LogLocation.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo_S3LogLocation) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo_S3LogLocation.Merge(m, src)
+func (dst *ContainerInfo_S3LogLocation) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_S3LogLocation.Merge(dst, src)
 }
 func (m *ContainerInfo_S3LogLocation) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo_S3LogLocation.Size(m)
@@ -1458,17 +1418,16 @@ func (m *ContainerInfo_Process) Reset()         { *m = ContainerInfo_Process{} }
 func (m *ContainerInfo_Process) String() string { return proto.CompactTextString(m) }
 func (*ContainerInfo_Process) ProtoMessage()    {}
 func (*ContainerInfo_Process) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{5, 9}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{5, 9}
 }
-
 func (m *ContainerInfo_Process) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerInfo_Process.Unmarshal(m, b)
 }
 func (m *ContainerInfo_Process) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerInfo_Process.Marshal(b, m, deterministic)
 }
-func (m *ContainerInfo_Process) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerInfo_Process.Merge(m, src)
+func (dst *ContainerInfo_Process) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerInfo_Process.Merge(dst, src)
 }
 func (m *ContainerInfo_Process) XXX_Size() int {
 	return xxx_messageInfo_ContainerInfo_Process.Size(m)
@@ -1518,17 +1477,16 @@ func (m *TaskIdentity) Reset()         { *m = TaskIdentity{} }
 func (m *TaskIdentity) String() string { return proto.CompactTextString(m) }
 func (*TaskIdentity) ProtoMessage()    {}
 func (*TaskIdentity) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{6}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{6}
 }
-
 func (m *TaskIdentity) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TaskIdentity.Unmarshal(m, b)
 }
 func (m *TaskIdentity) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TaskIdentity.Marshal(b, m, deterministic)
 }
-func (m *TaskIdentity) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TaskIdentity.Merge(m, src)
+func (dst *TaskIdentity) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskIdentity.Merge(dst, src)
 }
 func (m *TaskIdentity) XXX_Size() int {
 	return xxx_messageInfo_TaskIdentity.Size(m)
@@ -1584,17 +1542,16 @@ func (m *CertificateSignature) Reset()         { *m = CertificateSignature{} }
 func (m *CertificateSignature) String() string { return proto.CompactTextString(m) }
 func (*CertificateSignature) ProtoMessage()    {}
 func (*CertificateSignature) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{7}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{7}
 }
-
 func (m *CertificateSignature) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CertificateSignature.Unmarshal(m, b)
 }
 func (m *CertificateSignature) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_CertificateSignature.Marshal(b, m, deterministic)
 }
-func (m *CertificateSignature) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CertificateSignature.Merge(m, src)
+func (dst *CertificateSignature) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CertificateSignature.Merge(dst, src)
 }
 func (m *CertificateSignature) XXX_Size() int {
 	return xxx_messageInfo_CertificateSignature.Size(m)
@@ -1644,17 +1601,16 @@ func (m *CertificateStringSignature) Reset()         { *m = CertificateStringSig
 func (m *CertificateStringSignature) String() string { return proto.CompactTextString(m) }
 func (*CertificateStringSignature) ProtoMessage()    {}
 func (*CertificateStringSignature) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{8}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{8}
 }
-
 func (m *CertificateStringSignature) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CertificateStringSignature.Unmarshal(m, b)
 }
 func (m *CertificateStringSignature) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_CertificateStringSignature.Marshal(b, m, deterministic)
 }
-func (m *CertificateStringSignature) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CertificateStringSignature.Merge(m, src)
+func (dst *CertificateStringSignature) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CertificateStringSignature.Merge(dst, src)
 }
 func (m *CertificateStringSignature) XXX_Size() int {
 	return xxx_messageInfo_CertificateStringSignature.Size(m)
@@ -1700,17 +1656,16 @@ func (m *TaskIdentityDocument) Reset()         { *m = TaskIdentityDocument{} }
 func (m *TaskIdentityDocument) String() string { return proto.CompactTextString(m) }
 func (*TaskIdentityDocument) ProtoMessage()    {}
 func (*TaskIdentityDocument) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{9}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{9}
 }
-
 func (m *TaskIdentityDocument) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TaskIdentityDocument.Unmarshal(m, b)
 }
 func (m *TaskIdentityDocument) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TaskIdentityDocument.Marshal(b, m, deterministic)
 }
-func (m *TaskIdentityDocument) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TaskIdentityDocument.Merge(m, src)
+func (dst *TaskIdentityDocument) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskIdentityDocument.Merge(dst, src)
 }
 func (m *TaskIdentityDocument) XXX_Size() int {
 	return xxx_messageInfo_TaskIdentityDocument.Size(m)
@@ -1750,17 +1705,16 @@ func (m *TaskIdentityStringDocument) Reset()         { *m = TaskIdentityStringDo
 func (m *TaskIdentityStringDocument) String() string { return proto.CompactTextString(m) }
 func (*TaskIdentityStringDocument) ProtoMessage()    {}
 func (*TaskIdentityStringDocument) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e78c6f814d9f876, []int{10}
+	return fileDescriptor_agent_5090e12aeedfbadb, []int{10}
 }
-
 func (m *TaskIdentityStringDocument) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TaskIdentityStringDocument.Unmarshal(m, b)
 }
 func (m *TaskIdentityStringDocument) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TaskIdentityStringDocument.Marshal(b, m, deterministic)
 }
-func (m *TaskIdentityStringDocument) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TaskIdentityStringDocument.Merge(m, src)
+func (dst *TaskIdentityStringDocument) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TaskIdentityStringDocument.Merge(dst, src)
 }
 func (m *TaskIdentityStringDocument) XXX_Size() int {
 	return xxx_messageInfo_TaskIdentityStringDocument.Size(m)
@@ -1786,12 +1740,6 @@ func (m *TaskIdentityStringDocument) GetSignature() *CertificateStringSignature 
 }
 
 func init() {
-	proto.RegisterEnum("messages.SignatureAlgorithm", SignatureAlgorithm_name, SignatureAlgorithm_value)
-	proto.RegisterEnum("messages.TaskInfo_Status", TaskInfo_Status_name, TaskInfo_Status_value)
-	proto.RegisterEnum("messages.ContainerInfo_SnapshotPolicy", ContainerInfo_SnapshotPolicy_name, ContainerInfo_SnapshotPolicy_value)
-	proto.RegisterEnum("messages.ContainerInfo_ImagePullPolicy", ContainerInfo_ImagePullPolicy_name, ContainerInfo_ImagePullPolicy_value)
-	proto.RegisterEnum("messages.ContainerInfo_EfsConfigInfo_MountPerms", ContainerInfo_EfsConfigInfo_MountPerms_name, ContainerInfo_EfsConfigInfo_MountPerms_value)
-	proto.RegisterEnum("messages.ContainerInfo_Capabilities_Capability", ContainerInfo_Capabilities_Capability_name, ContainerInfo_Capabilities_Capability_value)
 	proto.RegisterType((*TaskStatusData)(nil), "messages.TaskStatusData")
 	proto.RegisterType((*StateUpdate)(nil), "messages.StateUpdate")
 	proto.RegisterType((*StateUpdates)(nil), "messages.StateUpdates")
@@ -1814,11 +1762,17 @@ func init() {
 	proto.RegisterType((*CertificateStringSignature)(nil), "messages.CertificateStringSignature")
 	proto.RegisterType((*TaskIdentityDocument)(nil), "messages.TaskIdentityDocument")
 	proto.RegisterType((*TaskIdentityStringDocument)(nil), "messages.TaskIdentityStringDocument")
+	proto.RegisterEnum("messages.SignatureAlgorithm", SignatureAlgorithm_name, SignatureAlgorithm_value)
+	proto.RegisterEnum("messages.TaskInfo_Status", TaskInfo_Status_name, TaskInfo_Status_value)
+	proto.RegisterEnum("messages.ContainerInfo_SnapshotPolicy", ContainerInfo_SnapshotPolicy_name, ContainerInfo_SnapshotPolicy_value)
+	proto.RegisterEnum("messages.ContainerInfo_ImagePullPolicy", ContainerInfo_ImagePullPolicy_name, ContainerInfo_ImagePullPolicy_value)
+	proto.RegisterEnum("messages.ContainerInfo_EfsConfigInfo_MountPerms", ContainerInfo_EfsConfigInfo_MountPerms_name, ContainerInfo_EfsConfigInfo_MountPerms_value)
+	proto.RegisterEnum("messages.ContainerInfo_Capabilities_Capability", ContainerInfo_Capabilities_Capability_name, ContainerInfo_Capabilities_Capability_value)
 }
 
-func init() { proto.RegisterFile("netflix/titus/agent.proto", fileDescriptor_6e78c6f814d9f876) }
+func init() { proto.RegisterFile("netflix/titus/agent.proto", fileDescriptor_agent_5090e12aeedfbadb) }
 
-var fileDescriptor_6e78c6f814d9f876 = []byte{
+var fileDescriptor_agent_5090e12aeedfbadb = []byte{
 	// 2294 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x58, 0xdd, 0x72, 0xdb, 0xc6,
 	0x15, 0x36, 0x48, 0xfd, 0x71, 0x29, 0x52, 0xab, 0x95, 0xe4, 0xc0, 0x8c, 0xe3, 0x30, 0x8c, 0xec,

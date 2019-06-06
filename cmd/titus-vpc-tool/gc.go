@@ -19,6 +19,7 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 			if err != nil {
 				return err
 			}
+			defer conn.Close()
 
 			return gc.GC(ctx,
 				v.GetDuration("timeout"),

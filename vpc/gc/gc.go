@@ -1,6 +1,7 @@
 package gc
 
 import (
+	"context"
 	"net"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/identity"
 	"github.com/Netflix/titus-executor/vpc/utilities"
@@ -17,10 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
-
-	"context"
-
-	"github.com/Netflix/titus-executor/vpc"
 )
 
 func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
@@ -34,15 +32,19 @@ func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdent
 	}
 	defer exclusiveLock.Unlock()
 
-	instanceIdentity, err := instanceIdentityProvider.GetIdentity()
+	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
 		return errors.Wrap(err, "Unable to get instance identity")
 	}
 
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	for i := 1; i < vpc.GetMaxInterfaces(instanceIdentity.InstanceType); i++ {
-		err = doGcInterface(ctx, minIdlePeriod, i, locker, client)
+	maxInterfaces, err := vpc.GetMaxInterfaces(instanceIdentity.InstanceType)
+	if err != nil {
+		return err
+	}
+	for i := 1; i < maxInterfaces; i++ {
+		err = doGcInterface(ctx, minIdlePeriod, i, locker, client, instanceIdentity)
 		if err != nil {
 			return err
 		}
@@ -51,7 +53,8 @@ func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdent
 	return nil
 }
 
-func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient) error {
+func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
+	ctx = logger.WithField(ctx, "deviceIdx", deviceIdx)
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 10 * time.Second
 
@@ -60,7 +63,7 @@ func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx i
 
 	configurationLock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
 	if err != nil {
-		errors.Wrap(err, "Cannot get exclusive configuration lock on interface")
+		return errors.Wrap(err, "Cannot get exclusive configuration lock on interface")
 	}
 	defer configurationLock.Unlock()
 
@@ -106,6 +109,7 @@ func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx i
 		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
 			DeviceIndex: uint32(deviceIdx),
 		},
+		InstanceIdentity:     instanceIdentity,
 		AllocatedAddresses:   recordsToUtilizedAddresses(allocatedAddresses),
 		NonviableAddresses:   recordsToUtilizedAddresses(nonviableAddresses),
 		UnallocatedAddresses: recordsToUtilizedAddresses(unallocatedAddresses),
@@ -117,7 +121,7 @@ func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx i
 	}
 
 	logger.G(ctx).WithField("addresesToDelete", gcResponse.AddressToDelete).Info("Received addresses to delete")
-	logger.G(ctx).WithField("addresesToBump", gcResponse.AddressToDelete).Info("Received addresses to bump")
+	logger.G(ctx).WithField("addresesToBump", gcResponse.AddressToBump).Info("Received addresses to bump")
 
 	var returnError *multierror.Error
 	for _, addr := range gcResponse.AddressToDelete {
@@ -144,15 +148,9 @@ func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx i
 func recordsToUtilizedAddresses(records map[string]*fslocker.Record) []*vpcapi.UtilizedAddress {
 	ret := make([]*vpcapi.UtilizedAddress, 0, len(records))
 	for _, record := range records {
-		family := titus.Family_FAMILY_V4
-		if net.ParseIP(record.Name).To4() != nil {
-			family = titus.Family_FAMILY_V4
-		}
-
 		ret = append(ret, &vpcapi.UtilizedAddress{
 			Address: &titus.Address{
-				Address: record.Name,
-				Family:  family,
+				Address: net.ParseIP(record.Name).String(),
 			},
 			LastUsedTime: &timestamp.Timestamp{
 				Seconds: int64(record.BumpTime.Second()),

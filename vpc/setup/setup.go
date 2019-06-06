@@ -30,7 +30,7 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 	}
 	defer exclusiveLock.Unlock()
 
-	instanceIdentity, err := instanceIdentityProvider.GetIdentity()
+	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,14 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 		InstanceIdentity: instanceIdentity,
 	}
 	provisionInstanceResponse, err := client.ProvisionInstance(ctx, provisionInstanceRequest)
-	waitForInterfacesUp(ctx, provisionInstanceResponse.NetworkInterfaces)
+	if err != nil {
+		return err
+	}
+
+	err = waitForInterfacesUp(ctx, provisionInstanceResponse.NetworkInterfaces)
+	if err != nil {
+		return err
+	}
 
 	err = setupIFBs(ctx, instanceIdentity.InstanceType)
 	if err != nil {

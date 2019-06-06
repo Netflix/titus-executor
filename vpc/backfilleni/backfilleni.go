@@ -98,7 +98,10 @@ func backfillENILoop(ctx context.Context, ec2client *ec2.EC2, group *errgroup.Gr
 		case networkInterface, ok := <-ch:
 			if !ok {
 				// The channel is closed, gotta wrap up
-				return backfillENIs(ctx, ec2client, networkInterfaces)
+				if len(networkInterfaces) > 0 {
+					return backfillENIs(ctx, ec2client, networkInterfaces)
+				}
+				return nil
 			}
 			logger.G(ctx).WithField("eni", networkInterface).Info("Found untagged ENI")
 			networkInterfaces[*networkInterface.NetworkInterfaceId] = networkInterface
@@ -123,6 +126,7 @@ func backfillENIs(ctx context.Context, ec2client *ec2.EC2, networkInterfaces map
 		networkInterfaceIds = append(networkInterfaceIds, *iface.NetworkInterfaceId)
 	}
 
+	logger.G(ctx).WithField("enis", networkInterfaceIds).Debug("Attempting to tag ENIs")
 	createTagsInput := &ec2.CreateTagsInput{
 		Resources: aws.StringSlice(networkInterfaceIds),
 		Tags: []*ec2.Tag{

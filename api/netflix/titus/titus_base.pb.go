@@ -3,13 +3,10 @@
 
 package titus
 
-import (
-	fmt "fmt"
-	math "math"
-
-	proto "github.com/golang/protobuf/proto"
-	_ "github.com/golang/protobuf/ptypes/any"
-)
+import proto "github.com/golang/protobuf/proto"
+import fmt "fmt"
+import math "math"
+import _ "github.com/golang/protobuf/ptypes/any"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
@@ -20,15 +17,15 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-/// Titus scheduler tier (see Titus scheduler documentation for more information).
+// / Titus scheduler tier (see Titus scheduler documentation for more information).
 type Tier int32
 
 const (
-	/// Tier for running latency insensitive batch workloads.
+	// / Tier for running latency insensitive batch workloads.
 	Tier_Flex Tier = 0
-	/// Tier for running latency sensitive workloads.
+	// / Tier for running latency sensitive workloads.
 	Tier_Critical Tier = 1
 )
 
@@ -36,7 +33,6 @@ var Tier_name = map[int32]string{
 	0: "Flex",
 	1: "Critical",
 }
-
 var Tier_value = map[string]int32{
 	"Flex":     0,
 	"Critical": 1,
@@ -45,12 +41,11 @@ var Tier_value = map[string]int32{
 func (x Tier) String() string {
 	return proto.EnumName(Tier_name, int32(x))
 }
-
 func (Tier) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0}
 }
 
-/// Titus hierarchy level.
+// / Titus hierarchy level.
 type Level int32
 
 const (
@@ -68,7 +63,6 @@ var Level_name = map[int32]string{
 	3: "JobLevel",
 	4: "TaskLevel",
 }
-
 var Level_value = map[string]int32{
 	"SystemLevel":        0,
 	"TierLevel":          1,
@@ -80,16 +74,15 @@ var Level_value = map[string]int32{
 func (x Level) String() string {
 	return proto.EnumName(Level_name, int32(x))
 }
-
 func (Level) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{1}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{1}
 }
 
-/// Disk mount permission mask
+// / Disk mount permission mask
 type MountPerm int32
 
 const (
-	/// Read only
+	// / Read only
 	MountPerm_RO MountPerm = 0
 	// Write only
 	MountPerm_WO MountPerm = 1
@@ -102,7 +95,6 @@ var MountPerm_name = map[int32]string{
 	1: "WO",
 	2: "RW",
 }
-
 var MountPerm_value = map[string]int32{
 	"RO": 0,
 	"WO": 1,
@@ -112,9 +104,8 @@ var MountPerm_value = map[string]int32{
 func (x MountPerm) String() string {
 	return proto.EnumName(MountPerm_name, int32(x))
 }
-
 func (MountPerm) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{2}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{2}
 }
 
 type Day int32
@@ -138,7 +129,6 @@ var Day_name = map[int32]string{
 	5: "Saturday",
 	6: "Sunday",
 }
-
 var Day_value = map[string]int32{
 	"Monday":    0,
 	"Tuesday":   1,
@@ -152,9 +142,8 @@ var Day_value = map[string]int32{
 func (x Day) String() string {
 	return proto.EnumName(Day_name, int32(x))
 }
-
 func (Day) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{3}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3}
 }
 
 type CallMetadata_CallerType int32
@@ -170,7 +159,6 @@ var CallMetadata_CallerType_name = map[int32]string{
 	1: "Application",
 	2: "User",
 }
-
 var CallMetadata_CallerType_value = map[string]int32{
 	"Unknown":     0,
 	"Application": 1,
@@ -180,26 +168,25 @@ var CallMetadata_CallerType_value = map[string]int32{
 func (x CallMetadata_CallerType) String() string {
 	return proto.EnumName(CallMetadata_CallerType_name, int32(x))
 }
-
 func (CallMetadata_CallerType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{0, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0, 0}
 }
 
-/// Call metadata (caller's identity, call path).
+// / Call metadata (caller's identity, call path).
 type CallMetadata struct {
-	/// (Required) The original caller identifier. Depending on the user identity (a user or an application), the format
+	// / (Required) The original caller identifier. Depending on the user identity (a user or an application), the format
 	// of the id may be different. For example a user's id could be their email address, and application's id its name.
 	//  (Deprecated) Use 'caller' field instead.
 	CallerId string `protobuf:"bytes,1,opt,name=callerId,proto3" json:"callerId,omitempty"` // Deprecated: Do not use.
-	/// The first item in the list is the original caller, followed by a sequence of intermediaries via which the
+	// / The first item in the list is the original caller, followed by a sequence of intermediaries via which the
 	//  original call was relayed.
 	Callers []*CallMetadata_Caller `protobuf:"bytes,5,rep,name=callers,proto3" json:"callers,omitempty"`
-	/// (Optional) The reason why a call was made.
+	// / (Optional) The reason why a call was made.
 	CallReason string `protobuf:"bytes,2,opt,name=callReason,proto3" json:"callReason,omitempty"`
-	/// (Optional) The list of intermediaries via which a call was relayed.
+	// / (Optional) The list of intermediaries via which a call was relayed.
 	//  (Deprecated) Use 'caller' field instead.
 	CallPath []string `protobuf:"bytes,3,rep,name=callPath,proto3" json:"callPath,omitempty"` // Deprecated: Do not use.
-	/// (Optional) If set to true, a diagnostic information is provided if a request fails.
+	// / (Optional) If set to true, a diagnostic information is provided if a request fails.
 	Debug                bool     `protobuf:"varint,4,opt,name=debug,proto3" json:"debug,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -210,17 +197,16 @@ func (m *CallMetadata) Reset()         { *m = CallMetadata{} }
 func (m *CallMetadata) String() string { return proto.CompactTextString(m) }
 func (*CallMetadata) ProtoMessage()    {}
 func (*CallMetadata) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0}
 }
-
 func (m *CallMetadata) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CallMetadata.Unmarshal(m, b)
 }
 func (m *CallMetadata) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_CallMetadata.Marshal(b, m, deterministic)
 }
-func (m *CallMetadata) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CallMetadata.Merge(m, src)
+func (dst *CallMetadata) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CallMetadata.Merge(dst, src)
 }
 func (m *CallMetadata) XXX_Size() int {
 	return xxx_messageInfo_CallMetadata.Size(m)
@@ -269,12 +255,12 @@ func (m *CallMetadata) GetDebug() bool {
 }
 
 type CallMetadata_Caller struct {
-	/// (Required) A caller identifier. Depending on the user identity (a user or an application), the format
+	// / (Required) A caller identifier. Depending on the user identity (a user or an application), the format
 	// of the id may be different. For example a user's id could be their email address, and application's id its name.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	/// (Optional) The caller type.
+	// / (Optional) The caller type.
 	Type CallMetadata_CallerType `protobuf:"varint,2,opt,name=type,proto3,enum=com.netflix.titus.CallMetadata_CallerType" json:"type,omitempty"`
-	/// (Optional) Additional data associated with the caller. Key names starting with 'titus' are reserved for Titus.
+	// / (Optional) Additional data associated with the caller. Key names starting with 'titus' are reserved for Titus.
 	//  Predefined context keys:
 	//  * 'titus.service.name' - name of the service that is invoked
 	//  * 'titus.service.method' - nome of the method that is invoked
@@ -290,17 +276,16 @@ func (m *CallMetadata_Caller) Reset()         { *m = CallMetadata_Caller{} }
 func (m *CallMetadata_Caller) String() string { return proto.CompactTextString(m) }
 func (*CallMetadata_Caller) ProtoMessage()    {}
 func (*CallMetadata_Caller) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{0, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0, 0}
 }
-
 func (m *CallMetadata_Caller) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CallMetadata_Caller.Unmarshal(m, b)
 }
 func (m *CallMetadata_Caller) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_CallMetadata_Caller.Marshal(b, m, deterministic)
 }
-func (m *CallMetadata_Caller) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CallMetadata_Caller.Merge(m, src)
+func (dst *CallMetadata_Caller) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CallMetadata_Caller.Merge(dst, src)
 }
 func (m *CallMetadata_Caller) XXX_Size() int {
 	return xxx_messageInfo_CallMetadata_Caller.Size(m)
@@ -332,15 +317,15 @@ func (m *CallMetadata_Caller) GetContext() map[string]string {
 	return nil
 }
 
-/// An entity representing single page of a collection. Prefer using cursor-based pagination, pageNumber is being retired.
+// / An entity representing single page of a collection. Prefer using cursor-based pagination, pageNumber is being retired.
 //  For the first page, leave both pageNumber and cursor empty.
 type Page struct {
-	/// (Optional) Requested page number, starting from 0 (defaults to 0 if not specified).
+	// / (Optional) Requested page number, starting from 0 (defaults to 0 if not specified).
 	//  (Deprecated) Use cursor-based pagination instead.
 	PageNumber int32 `protobuf:"varint,1,opt,name=pageNumber,proto3" json:"pageNumber,omitempty"` // Deprecated: Do not use.
-	/// (Required) Requested page size (if not specified, default size is operation specific).
+	// / (Required) Requested page size (if not specified, default size is operation specific).
 	PageSize int32 `protobuf:"varint,2,opt,name=pageSize,proto3" json:"pageSize,omitempty"`
-	/// (Optional) The position in the collection from which the next page should be returned. If the cursor value is set, it is
+	// / (Optional) The position in the collection from which the next page should be returned. If the cursor value is set, it is
 	// always used, irrespective of the page number set.
 	Cursor               string   `protobuf:"bytes,3,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -352,17 +337,16 @@ func (m *Page) Reset()         { *m = Page{} }
 func (m *Page) String() string { return proto.CompactTextString(m) }
 func (*Page) ProtoMessage()    {}
 func (*Page) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{1}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{1}
 }
-
 func (m *Page) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Page.Unmarshal(m, b)
 }
 func (m *Page) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Page.Marshal(b, m, deterministic)
 }
-func (m *Page) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Page.Merge(m, src)
+func (dst *Page) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Page.Merge(dst, src)
 }
 func (m *Page) XXX_Size() int {
 	return xxx_messageInfo_Page.Size(m)
@@ -395,23 +379,23 @@ func (m *Page) GetCursor() string {
 	return ""
 }
 
-/// An entity representing pagination information returned to a client iterating over its elements.
+// / An entity representing pagination information returned to a client iterating over its elements.
 // It includes current page that the client requested, and the total collection size.
 // As not always pageCount * pageSize == itemCount, the item count is included as well.
 type Pagination struct {
-	/// (Required) Requested page details.
+	// / (Required) Requested page details.
 	CurrentPage *Page `protobuf:"bytes,1,opt,name=currentPage,proto3" json:"currentPage,omitempty"`
-	/// Are there any more items to return? Use the cursor to fetch the next page when required.
+	// / Are there any more items to return? Use the cursor to fetch the next page when required.
 	HasMore bool `protobuf:"varint,2,opt,name=hasMore,proto3" json:"hasMore,omitempty"`
-	/// (Deprecated) Use cursor-based pagination instead. Total number of pages.
+	// / (Deprecated) Use cursor-based pagination instead. Total number of pages.
 	TotalPages int32 `protobuf:"varint,3,opt,name=totalPages,proto3" json:"totalPages,omitempty"` // Deprecated: Do not use.
-	/// Total number of items.
+	// / Total number of items.
 	TotalItems int32 `protobuf:"varint,4,opt,name=totalItems,proto3" json:"totalItems,omitempty"`
-	/// The last retrieved item's position in the collection. The cursor value can be sent on a subsequent request to
+	// / The last retrieved item's position in the collection. The cursor value can be sent on a subsequent request to
 	// get the next page of items. Using cursors, instead of page numbers, will guarantee that all items are
 	// retrieved with a potential of items being duplicated.
 	Cursor string `protobuf:"bytes,5,opt,name=cursor,proto3" json:"cursor,omitempty"`
-	/// Position of the cursor relative to totalItems. It can be used to determine what pageNumber would overlap with a
+	// / Position of the cursor relative to totalItems. It can be used to determine what pageNumber would overlap with a
 	// cursor, or to provide an idea of progress when walking all pages. Valid values are [0, totalItems-1].
 	CursorPosition       int32    `protobuf:"varint,6,opt,name=cursorPosition,proto3" json:"cursorPosition,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -423,17 +407,16 @@ func (m *Pagination) Reset()         { *m = Pagination{} }
 func (m *Pagination) String() string { return proto.CompactTextString(m) }
 func (*Pagination) ProtoMessage()    {}
 func (*Pagination) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{2}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{2}
 }
-
 func (m *Pagination) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Pagination.Unmarshal(m, b)
 }
 func (m *Pagination) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Pagination.Marshal(b, m, deterministic)
 }
-func (m *Pagination) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Pagination.Merge(m, src)
+func (dst *Pagination) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Pagination.Merge(dst, src)
 }
 func (m *Pagination) XXX_Size() int {
 	return xxx_messageInfo_Pagination.Size(m)
@@ -487,9 +470,9 @@ func (m *Pagination) GetCursorPosition() int32 {
 	return 0
 }
 
-/// Retry polices.
+// / Retry polices.
 type RetryPolicy struct {
-	/// (Required) Retry policy.
+	// / (Required) Retry policy.
 	//
 	// Types that are valid to be assigned to Policy:
 	//	*RetryPolicy_Immediate_
@@ -505,17 +488,16 @@ func (m *RetryPolicy) Reset()         { *m = RetryPolicy{} }
 func (m *RetryPolicy) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy) ProtoMessage()    {}
 func (*RetryPolicy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{3}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3}
 }
-
 func (m *RetryPolicy) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy.Unmarshal(m, b)
 }
 func (m *RetryPolicy) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_RetryPolicy.Marshal(b, m, deterministic)
 }
-func (m *RetryPolicy) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RetryPolicy.Merge(m, src)
+func (dst *RetryPolicy) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RetryPolicy.Merge(dst, src)
 }
 func (m *RetryPolicy) XXX_Size() int {
 	return xxx_messageInfo_RetryPolicy.Size(m)
@@ -576,18 +558,102 @@ func (m *RetryPolicy) GetExponentialBackOff() *RetryPolicy_ExponentialBackOff {
 	return nil
 }
 
-// XXX_OneofWrappers is for the internal use of the proto package.
-func (*RetryPolicy) XXX_OneofWrappers() []interface{} {
-	return []interface{}{
+// XXX_OneofFuncs is for the internal use of the proto package.
+func (*RetryPolicy) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
+	return _RetryPolicy_OneofMarshaler, _RetryPolicy_OneofUnmarshaler, _RetryPolicy_OneofSizer, []interface{}{
 		(*RetryPolicy_Immediate_)(nil),
 		(*RetryPolicy_Delayed_)(nil),
 		(*RetryPolicy_ExponentialBackOff_)(nil),
 	}
 }
 
-/// Re-run immediately.
+func _RetryPolicy_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
+	m := msg.(*RetryPolicy)
+	// Policy
+	switch x := m.Policy.(type) {
+	case *RetryPolicy_Immediate_:
+		b.EncodeVarint(1<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.Immediate); err != nil {
+			return err
+		}
+	case *RetryPolicy_Delayed_:
+		b.EncodeVarint(2<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.Delayed); err != nil {
+			return err
+		}
+	case *RetryPolicy_ExponentialBackOff_:
+		b.EncodeVarint(3<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.ExponentialBackOff); err != nil {
+			return err
+		}
+	case nil:
+	default:
+		return fmt.Errorf("RetryPolicy.Policy has unexpected type %T", x)
+	}
+	return nil
+}
+
+func _RetryPolicy_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
+	m := msg.(*RetryPolicy)
+	switch tag {
+	case 1: // Policy.immediate
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(RetryPolicy_Immediate)
+		err := b.DecodeMessage(msg)
+		m.Policy = &RetryPolicy_Immediate_{msg}
+		return true, err
+	case 2: // Policy.delayed
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(RetryPolicy_Delayed)
+		err := b.DecodeMessage(msg)
+		m.Policy = &RetryPolicy_Delayed_{msg}
+		return true, err
+	case 3: // Policy.exponentialBackOff
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(RetryPolicy_ExponentialBackOff)
+		err := b.DecodeMessage(msg)
+		m.Policy = &RetryPolicy_ExponentialBackOff_{msg}
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func _RetryPolicy_OneofSizer(msg proto.Message) (n int) {
+	m := msg.(*RetryPolicy)
+	// Policy
+	switch x := m.Policy.(type) {
+	case *RetryPolicy_Immediate_:
+		s := proto.Size(x.Immediate)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *RetryPolicy_Delayed_:
+		s := proto.Size(x.Delayed)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *RetryPolicy_ExponentialBackOff_:
+		s := proto.Size(x.ExponentialBackOff)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case nil:
+	default:
+		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
+	}
+	return n
+}
+
+// / Re-run immediately.
 type RetryPolicy_Immediate struct {
-	/// Maximum number of retries.
+	// / Maximum number of retries.
 	Retries              uint32   `protobuf:"varint,1,opt,name=retries,proto3" json:"retries,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -598,17 +664,16 @@ func (m *RetryPolicy_Immediate) Reset()         { *m = RetryPolicy_Immediate{} }
 func (m *RetryPolicy_Immediate) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy_Immediate) ProtoMessage()    {}
 func (*RetryPolicy_Immediate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{3, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3, 0}
 }
-
 func (m *RetryPolicy_Immediate) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy_Immediate.Unmarshal(m, b)
 }
 func (m *RetryPolicy_Immediate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_RetryPolicy_Immediate.Marshal(b, m, deterministic)
 }
-func (m *RetryPolicy_Immediate) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RetryPolicy_Immediate.Merge(m, src)
+func (dst *RetryPolicy_Immediate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RetryPolicy_Immediate.Merge(dst, src)
 }
 func (m *RetryPolicy_Immediate) XXX_Size() int {
 	return xxx_messageInfo_RetryPolicy_Immediate.Size(m)
@@ -626,13 +691,13 @@ func (m *RetryPolicy_Immediate) GetRetries() uint32 {
 	return 0
 }
 
-/// Re-run after a given delay.
+// / Re-run after a given delay.
 type RetryPolicy_Delayed struct {
-	/// Initial delay in milliseconds.
+	// / Initial delay in milliseconds.
 	InitialDelayMs uint64 `protobuf:"varint,1,opt,name=initialDelayMs,proto3" json:"initialDelayMs,omitempty"`
-	/// Subsequenet delays in milliseconds.
+	// / Subsequenet delays in milliseconds.
 	DelayMs uint64 `protobuf:"varint,2,opt,name=delayMs,proto3" json:"delayMs,omitempty"`
-	/// Maximum number of retries.
+	// / Maximum number of retries.
 	Retries              uint32   `protobuf:"varint,3,opt,name=retries,proto3" json:"retries,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -643,17 +708,16 @@ func (m *RetryPolicy_Delayed) Reset()         { *m = RetryPolicy_Delayed{} }
 func (m *RetryPolicy_Delayed) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy_Delayed) ProtoMessage()    {}
 func (*RetryPolicy_Delayed) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{3, 1}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3, 1}
 }
-
 func (m *RetryPolicy_Delayed) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy_Delayed.Unmarshal(m, b)
 }
 func (m *RetryPolicy_Delayed) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_RetryPolicy_Delayed.Marshal(b, m, deterministic)
 }
-func (m *RetryPolicy_Delayed) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RetryPolicy_Delayed.Merge(m, src)
+func (dst *RetryPolicy_Delayed) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RetryPolicy_Delayed.Merge(dst, src)
 }
 func (m *RetryPolicy_Delayed) XXX_Size() int {
 	return xxx_messageInfo_RetryPolicy_Delayed.Size(m)
@@ -685,13 +749,13 @@ func (m *RetryPolicy_Delayed) GetRetries() uint32 {
 	return 0
 }
 
-/// Exponential back-off retry policy.
+// / Exponential back-off retry policy.
 type RetryPolicy_ExponentialBackOff struct {
-	/// Initial delay in milliseconds.
+	// / Initial delay in milliseconds.
 	InitialDelayMs uint64 `protobuf:"varint,1,opt,name=initialDelayMs,proto3" json:"initialDelayMs,omitempty"`
-	/// Upper bound on delay interval.
+	// / Upper bound on delay interval.
 	MaxDelayIntervalMs uint64 `protobuf:"varint,2,opt,name=maxDelayIntervalMs,proto3" json:"maxDelayIntervalMs,omitempty"`
-	/// Maximum number of retries.
+	// / Maximum number of retries.
 	Retries              uint32   `protobuf:"varint,3,opt,name=retries,proto3" json:"retries,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -702,17 +766,16 @@ func (m *RetryPolicy_ExponentialBackOff) Reset()         { *m = RetryPolicy_Expo
 func (m *RetryPolicy_ExponentialBackOff) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy_ExponentialBackOff) ProtoMessage()    {}
 func (*RetryPolicy_ExponentialBackOff) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{3, 2}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3, 2}
 }
-
 func (m *RetryPolicy_ExponentialBackOff) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy_ExponentialBackOff.Unmarshal(m, b)
 }
 func (m *RetryPolicy_ExponentialBackOff) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_RetryPolicy_ExponentialBackOff.Marshal(b, m, deterministic)
 }
-func (m *RetryPolicy_ExponentialBackOff) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RetryPolicy_ExponentialBackOff.Merge(m, src)
+func (dst *RetryPolicy_ExponentialBackOff) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RetryPolicy_ExponentialBackOff.Merge(dst, src)
 }
 func (m *RetryPolicy_ExponentialBackOff) XXX_Size() int {
 	return xxx_messageInfo_RetryPolicy_ExponentialBackOff.Size(m)
@@ -744,7 +807,7 @@ func (m *RetryPolicy_ExponentialBackOff) GetRetries() uint32 {
 	return 0
 }
 
-/// Token bucket policies
+// / Token bucket policies
 type TokenBucketPolicy struct {
 	Capacity              uint64 `protobuf:"varint,1,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	InitialNumberOfTokens uint64 `protobuf:"varint,2,opt,name=initialNumberOfTokens,proto3" json:"initialNumberOfTokens,omitempty"`
@@ -760,17 +823,16 @@ func (m *TokenBucketPolicy) Reset()         { *m = TokenBucketPolicy{} }
 func (m *TokenBucketPolicy) String() string { return proto.CompactTextString(m) }
 func (*TokenBucketPolicy) ProtoMessage()    {}
 func (*TokenBucketPolicy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{4}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{4}
 }
-
 func (m *TokenBucketPolicy) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TokenBucketPolicy.Unmarshal(m, b)
 }
 func (m *TokenBucketPolicy) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TokenBucketPolicy.Marshal(b, m, deterministic)
 }
-func (m *TokenBucketPolicy) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TokenBucketPolicy.Merge(m, src)
+func (dst *TokenBucketPolicy) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TokenBucketPolicy.Merge(dst, src)
 }
 func (m *TokenBucketPolicy) XXX_Size() int {
 	return xxx_messageInfo_TokenBucketPolicy.Size(m)
@@ -819,11 +881,59 @@ func (m *TokenBucketPolicy) GetFixedIntervalRefillStrategy() *TokenBucketPolicy_
 	return nil
 }
 
-// XXX_OneofWrappers is for the internal use of the proto package.
-func (*TokenBucketPolicy) XXX_OneofWrappers() []interface{} {
-	return []interface{}{
+// XXX_OneofFuncs is for the internal use of the proto package.
+func (*TokenBucketPolicy) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
+	return _TokenBucketPolicy_OneofMarshaler, _TokenBucketPolicy_OneofUnmarshaler, _TokenBucketPolicy_OneofSizer, []interface{}{
 		(*TokenBucketPolicy_FixedIntervalRefillStrategy_)(nil),
 	}
+}
+
+func _TokenBucketPolicy_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
+	m := msg.(*TokenBucketPolicy)
+	// RefillStrategy
+	switch x := m.RefillStrategy.(type) {
+	case *TokenBucketPolicy_FixedIntervalRefillStrategy_:
+		b.EncodeVarint(3<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.FixedIntervalRefillStrategy); err != nil {
+			return err
+		}
+	case nil:
+	default:
+		return fmt.Errorf("TokenBucketPolicy.RefillStrategy has unexpected type %T", x)
+	}
+	return nil
+}
+
+func _TokenBucketPolicy_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
+	m := msg.(*TokenBucketPolicy)
+	switch tag {
+	case 3: // RefillStrategy.fixedIntervalRefillStrategy
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(TokenBucketPolicy_FixedIntervalRefillStrategy)
+		err := b.DecodeMessage(msg)
+		m.RefillStrategy = &TokenBucketPolicy_FixedIntervalRefillStrategy_{msg}
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func _TokenBucketPolicy_OneofSizer(msg proto.Message) (n int) {
+	m := msg.(*TokenBucketPolicy)
+	// RefillStrategy
+	switch x := m.RefillStrategy.(type) {
+	case *TokenBucketPolicy_FixedIntervalRefillStrategy_:
+		s := proto.Size(x.FixedIntervalRefillStrategy)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case nil:
+	default:
+		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
+	}
+	return n
 }
 
 type TokenBucketPolicy_FixedIntervalRefillStrategy struct {
@@ -842,17 +952,16 @@ func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) String() string {
 }
 func (*TokenBucketPolicy_FixedIntervalRefillStrategy) ProtoMessage() {}
 func (*TokenBucketPolicy_FixedIntervalRefillStrategy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{4, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{4, 0}
 }
-
 func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TokenBucketPolicy_FixedIntervalRefillStrategy.Unmarshal(m, b)
 }
 func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TokenBucketPolicy_FixedIntervalRefillStrategy.Marshal(b, m, deterministic)
 }
-func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TokenBucketPolicy_FixedIntervalRefillStrategy.Merge(m, src)
+func (dst *TokenBucketPolicy_FixedIntervalRefillStrategy) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TokenBucketPolicy_FixedIntervalRefillStrategy.Merge(dst, src)
 }
 func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) XXX_Size() int {
 	return xxx_messageInfo_TokenBucketPolicy_FixedIntervalRefillStrategy.Size(m)
@@ -877,7 +986,7 @@ func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) GetIntervalMs() uint64 {
 	return 0
 }
 
-/// A reference to an entity in the Titus hierarchy.
+// / A reference to an entity in the Titus hierarchy.
 type Reference struct {
 	// Types that are valid to be assigned to Reference:
 	//	*Reference_System_
@@ -895,17 +1004,16 @@ func (m *Reference) Reset()         { *m = Reference{} }
 func (m *Reference) String() string { return proto.CompactTextString(m) }
 func (*Reference) ProtoMessage()    {}
 func (*Reference) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{5}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{5}
 }
-
 func (m *Reference) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Reference.Unmarshal(m, b)
 }
 func (m *Reference) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Reference.Marshal(b, m, deterministic)
 }
-func (m *Reference) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Reference.Merge(m, src)
+func (dst *Reference) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Reference.Merge(dst, src)
 }
 func (m *Reference) XXX_Size() int {
 	return xxx_messageInfo_Reference.Size(m)
@@ -992,15 +1100,118 @@ func (m *Reference) GetTaskId() string {
 	return ""
 }
 
-// XXX_OneofWrappers is for the internal use of the proto package.
-func (*Reference) XXX_OneofWrappers() []interface{} {
-	return []interface{}{
+// XXX_OneofFuncs is for the internal use of the proto package.
+func (*Reference) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
+	return _Reference_OneofMarshaler, _Reference_OneofUnmarshaler, _Reference_OneofSizer, []interface{}{
 		(*Reference_System_)(nil),
 		(*Reference_Tier)(nil),
 		(*Reference_CapacityGroup)(nil),
 		(*Reference_JobId)(nil),
 		(*Reference_TaskId)(nil),
 	}
+}
+
+func _Reference_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
+	m := msg.(*Reference)
+	// Reference
+	switch x := m.Reference.(type) {
+	case *Reference_System_:
+		b.EncodeVarint(1<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.System); err != nil {
+			return err
+		}
+	case *Reference_Tier:
+		b.EncodeVarint(2<<3 | proto.WireVarint)
+		b.EncodeVarint(uint64(x.Tier))
+	case *Reference_CapacityGroup:
+		b.EncodeVarint(3<<3 | proto.WireBytes)
+		b.EncodeStringBytes(x.CapacityGroup)
+	case *Reference_JobId:
+		b.EncodeVarint(4<<3 | proto.WireBytes)
+		b.EncodeStringBytes(x.JobId)
+	case *Reference_TaskId:
+		b.EncodeVarint(5<<3 | proto.WireBytes)
+		b.EncodeStringBytes(x.TaskId)
+	case nil:
+	default:
+		return fmt.Errorf("Reference.Reference has unexpected type %T", x)
+	}
+	return nil
+}
+
+func _Reference_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
+	m := msg.(*Reference)
+	switch tag {
+	case 1: // Reference.system
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(Reference_System)
+		err := b.DecodeMessage(msg)
+		m.Reference = &Reference_System_{msg}
+		return true, err
+	case 2: // Reference.tier
+		if wire != proto.WireVarint {
+			return true, proto.ErrInternalBadWireType
+		}
+		x, err := b.DecodeVarint()
+		m.Reference = &Reference_Tier{Tier(x)}
+		return true, err
+	case 3: // Reference.capacityGroup
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		x, err := b.DecodeStringBytes()
+		m.Reference = &Reference_CapacityGroup{x}
+		return true, err
+	case 4: // Reference.jobId
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		x, err := b.DecodeStringBytes()
+		m.Reference = &Reference_JobId{x}
+		return true, err
+	case 5: // Reference.taskId
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		x, err := b.DecodeStringBytes()
+		m.Reference = &Reference_TaskId{x}
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func _Reference_OneofSizer(msg proto.Message) (n int) {
+	m := msg.(*Reference)
+	// Reference
+	switch x := m.Reference.(type) {
+	case *Reference_System_:
+		s := proto.Size(x.System)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *Reference_Tier:
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(x.Tier))
+	case *Reference_CapacityGroup:
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(len(x.CapacityGroup)))
+		n += len(x.CapacityGroup)
+	case *Reference_JobId:
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(len(x.JobId)))
+		n += len(x.JobId)
+	case *Reference_TaskId:
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(len(x.TaskId)))
+		n += len(x.TaskId)
+	case nil:
+	default:
+		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
+	}
+	return n
 }
 
 type Reference_System struct {
@@ -1013,17 +1224,16 @@ func (m *Reference_System) Reset()         { *m = Reference_System{} }
 func (m *Reference_System) String() string { return proto.CompactTextString(m) }
 func (*Reference_System) ProtoMessage()    {}
 func (*Reference_System) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{5, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{5, 0}
 }
-
 func (m *Reference_System) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Reference_System.Unmarshal(m, b)
 }
 func (m *Reference_System) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Reference_System.Marshal(b, m, deterministic)
 }
-func (m *Reference_System) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Reference_System.Merge(m, src)
+func (dst *Reference_System) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Reference_System.Merge(dst, src)
 }
 func (m *Reference_System) XXX_Size() int {
 	return xxx_messageInfo_Reference_System.Size(m)
@@ -1034,7 +1244,7 @@ func (m *Reference_System) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Reference_System proto.InternalMessageInfo
 
-/// Instance resource dimensions
+// / Instance resource dimensions
 type ResourceDimension struct {
 	Cpu                  uint32   `protobuf:"varint,1,opt,name=cpu,proto3" json:"cpu,omitempty"`
 	Gpu                  uint32   `protobuf:"varint,2,opt,name=gpu,proto3" json:"gpu,omitempty"`
@@ -1050,17 +1260,16 @@ func (m *ResourceDimension) Reset()         { *m = ResourceDimension{} }
 func (m *ResourceDimension) String() string { return proto.CompactTextString(m) }
 func (*ResourceDimension) ProtoMessage()    {}
 func (*ResourceDimension) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{6}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{6}
 }
-
 func (m *ResourceDimension) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ResourceDimension.Unmarshal(m, b)
 }
 func (m *ResourceDimension) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ResourceDimension.Marshal(b, m, deterministic)
 }
-func (m *ResourceDimension) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ResourceDimension.Merge(m, src)
+func (dst *ResourceDimension) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ResourceDimension.Merge(dst, src)
 }
 func (m *ResourceDimension) XXX_Size() int {
 	return xxx_messageInfo_ResourceDimension.Size(m)
@@ -1106,13 +1315,13 @@ func (m *ResourceDimension) GetNetworkMbps() uint32 {
 	return 0
 }
 
-/// Time window descriptor.
+// / Time window descriptor.
 type TimeWindow struct {
-	/// (Required) Included days.
+	// / (Required) Included days.
 	Days []Day `protobuf:"varint,1,rep,packed,name=days,proto3,enum=com.netflix.titus.Day" json:"days,omitempty"`
-	/// (Optional) Included hour ranges. If not set, defaults to 0-24.
+	// / (Optional) Included hour ranges. If not set, defaults to 0-24.
 	HourlyTimeWindows []*TimeWindow_HourlyTimeWindow `protobuf:"bytes,2,rep,name=hourlyTimeWindows,proto3" json:"hourlyTimeWindows,omitempty"`
-	/// (Optional) If not set, UTC time zone is set as a default.
+	// / (Optional) If not set, UTC time zone is set as a default.
 	TimeZone             string   `protobuf:"bytes,3,opt,name=timeZone,proto3" json:"timeZone,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1123,17 +1332,16 @@ func (m *TimeWindow) Reset()         { *m = TimeWindow{} }
 func (m *TimeWindow) String() string { return proto.CompactTextString(m) }
 func (*TimeWindow) ProtoMessage()    {}
 func (*TimeWindow) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{7}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{7}
 }
-
 func (m *TimeWindow) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TimeWindow.Unmarshal(m, b)
 }
 func (m *TimeWindow) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TimeWindow.Marshal(b, m, deterministic)
 }
-func (m *TimeWindow) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TimeWindow.Merge(m, src)
+func (dst *TimeWindow) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TimeWindow.Merge(dst, src)
 }
 func (m *TimeWindow) XXX_Size() int {
 	return xxx_messageInfo_TimeWindow.Size(m)
@@ -1166,9 +1374,9 @@ func (m *TimeWindow) GetTimeZone() string {
 }
 
 type TimeWindow_HourlyTimeWindow struct {
-	/// (Required) Starting hour.
+	// / (Required) Starting hour.
 	StartHour uint32 `protobuf:"varint,1,opt,name=startHour,proto3" json:"startHour,omitempty"`
-	/// (Required) Ending hour.
+	// / (Required) Ending hour.
 	EndHour              uint32   `protobuf:"varint,2,opt,name=endHour,proto3" json:"endHour,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1179,17 +1387,16 @@ func (m *TimeWindow_HourlyTimeWindow) Reset()         { *m = TimeWindow_HourlyTi
 func (m *TimeWindow_HourlyTimeWindow) String() string { return proto.CompactTextString(m) }
 func (*TimeWindow_HourlyTimeWindow) ProtoMessage()    {}
 func (*TimeWindow_HourlyTimeWindow) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{7, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{7, 0}
 }
-
 func (m *TimeWindow_HourlyTimeWindow) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TimeWindow_HourlyTimeWindow.Unmarshal(m, b)
 }
 func (m *TimeWindow_HourlyTimeWindow) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TimeWindow_HourlyTimeWindow.Marshal(b, m, deterministic)
 }
-func (m *TimeWindow_HourlyTimeWindow) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TimeWindow_HourlyTimeWindow.Merge(m, src)
+func (dst *TimeWindow_HourlyTimeWindow) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TimeWindow_HourlyTimeWindow.Merge(dst, src)
 }
 func (m *TimeWindow_HourlyTimeWindow) XXX_Size() int {
 	return xxx_messageInfo_TimeWindow_HourlyTimeWindow.Size(m)
@@ -1214,11 +1421,11 @@ func (m *TimeWindow_HourlyTimeWindow) GetEndHour() uint32 {
 	return 0
 }
 
-/// A provider for container health
+// / A provider for container health
 type ContainerHealthProvider struct {
-	/// (Required) The name of the provider.
+	// / (Required) The name of the provider.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	/// (Optional) Attributes to be used by the provider.
+	// / (Optional) Attributes to be used by the provider.
 	Attributes           map[string]string `protobuf:"bytes,3,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -1229,17 +1436,16 @@ func (m *ContainerHealthProvider) Reset()         { *m = ContainerHealthProvider
 func (m *ContainerHealthProvider) String() string { return proto.CompactTextString(m) }
 func (*ContainerHealthProvider) ProtoMessage()    {}
 func (*ContainerHealthProvider) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3a2977ef6488463b, []int{8}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{8}
 }
-
 func (m *ContainerHealthProvider) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerHealthProvider.Unmarshal(m, b)
 }
 func (m *ContainerHealthProvider) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ContainerHealthProvider.Marshal(b, m, deterministic)
 }
-func (m *ContainerHealthProvider) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ContainerHealthProvider.Merge(m, src)
+func (dst *ContainerHealthProvider) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContainerHealthProvider.Merge(dst, src)
 }
 func (m *ContainerHealthProvider) XXX_Size() int {
 	return xxx_messageInfo_ContainerHealthProvider.Size(m)
@@ -1265,11 +1471,6 @@ func (m *ContainerHealthProvider) GetAttributes() map[string]string {
 }
 
 func init() {
-	proto.RegisterEnum("com.netflix.titus.Tier", Tier_name, Tier_value)
-	proto.RegisterEnum("com.netflix.titus.Level", Level_name, Level_value)
-	proto.RegisterEnum("com.netflix.titus.MountPerm", MountPerm_name, MountPerm_value)
-	proto.RegisterEnum("com.netflix.titus.Day", Day_name, Day_value)
-	proto.RegisterEnum("com.netflix.titus.CallMetadata_CallerType", CallMetadata_CallerType_name, CallMetadata_CallerType_value)
 	proto.RegisterType((*CallMetadata)(nil), "com.netflix.titus.CallMetadata")
 	proto.RegisterType((*CallMetadata_Caller)(nil), "com.netflix.titus.CallMetadata.Caller")
 	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.CallMetadata.Caller.ContextEntry")
@@ -1288,11 +1489,18 @@ func init() {
 	proto.RegisterType((*TimeWindow_HourlyTimeWindow)(nil), "com.netflix.titus.TimeWindow.HourlyTimeWindow")
 	proto.RegisterType((*ContainerHealthProvider)(nil), "com.netflix.titus.ContainerHealthProvider")
 	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.ContainerHealthProvider.AttributesEntry")
+	proto.RegisterEnum("com.netflix.titus.Tier", Tier_name, Tier_value)
+	proto.RegisterEnum("com.netflix.titus.Level", Level_name, Level_value)
+	proto.RegisterEnum("com.netflix.titus.MountPerm", MountPerm_name, MountPerm_value)
+	proto.RegisterEnum("com.netflix.titus.Day", Day_name, Day_value)
+	proto.RegisterEnum("com.netflix.titus.CallMetadata_CallerType", CallMetadata_CallerType_name, CallMetadata_CallerType_value)
 }
 
-func init() { proto.RegisterFile("netflix/titus/titus_base.proto", fileDescriptor_3a2977ef6488463b) }
+func init() {
+	proto.RegisterFile("netflix/titus/titus_base.proto", fileDescriptor_titus_base_69562b378d124d01)
+}
 
-var fileDescriptor_3a2977ef6488463b = []byte{
+var fileDescriptor_titus_base_69562b378d124d01 = []byte{
 	// 1297 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x56, 0x5d, 0x6f, 0x1b, 0x45,
 	0x17, 0xf6, 0xfa, 0x2b, 0xf6, 0x71, 0x93, 0x3a, 0xa3, 0xf7, 0x4d, 0xfd, 0xba, 0xaf, 0x42, 0xe4,

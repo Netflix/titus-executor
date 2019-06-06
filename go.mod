@@ -9,11 +9,10 @@ require (
 	github.com/DataDog/datadog-go v2.2.0+incompatible
 	github.com/Microsoft/go-winio v0.3.8 // indirect
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
-	github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190529171519-bc00cf822ca2
+	github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190606060929-13ed82af01c2
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
-	github.com/apparentlymart/go-cidr v0.0.0-20170616213631-2bd8b58cf427
-	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878 // indirect
+	github.com/apparentlymart/go-cidr v1.0.0
 	github.com/aws/aws-sdk-go v1.19.15
 	github.com/coreos/go-systemd v0.0.0-20170731111925-d21964639418
 	github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1
@@ -25,7 +24,7 @@ require (
 	github.com/ftrvxmtrx/fd v0.0.0-20150925145434-c6d800382fff
 	github.com/godbus/dbus v4.1.0+incompatible // indirect
 	github.com/gogo/protobuf v1.2.1
-	github.com/golang/protobuf v1.3.1
+	github.com/golang/protobuf v1.2.0
 	github.com/golangci/golangci-lint v1.16.0
 	github.com/google/go-cmp v0.3.0 // indirect
 	github.com/gorilla/context v1.1.1 // indirect
@@ -44,6 +43,7 @@ require (
 	github.com/pborman/uuid v0.0.0-20150824212802-cccd189d45f7
 	github.com/pkg/errors v0.8.1
 	github.com/sirupsen/logrus v1.0.5
+	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/cobra v0.0.2
 	github.com/spf13/pflag v1.0.1
 	github.com/spf13/viper v1.0.2
@@ -62,5 +62,4 @@ require (
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gotest.tools v2.2.0+incompatible // indirect
-	sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4
 )

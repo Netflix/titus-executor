@@ -18,7 +18,7 @@ func allocateNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter in
 				return err
 			}
 
-			return allocate.AllocateNetwork(ctx,
+			return allocate.Allocate(ctx,
 				iipGetter(),
 				locker,
 				conn,

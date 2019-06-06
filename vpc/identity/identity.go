@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"context"
 	"regexp"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -9,28 +10,42 @@ import (
 )
 
 var (
-	accountIdRegex = regexp.MustCompile("^\\d+$")
+	accountIDRegex = regexp.MustCompile(`^\d+$`)
 )
 
 type InstanceIdentityProvider interface {
-	GetIdentity() (*vpcapi.InstanceIdentity, error)
+	GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity, error)
 }
 
 func GetEnvironmentProvider(v *viper.Viper) (*pflag.FlagSet, InstanceIdentityProvider) {
 	flagSet := pflag.NewFlagSet("environmentprovider", pflag.ExitOnError)
 	flagSet.String("instance-id", "", "EC2 Instance ID")
-	v.BindEnv("instance-id", "EC2_INSTANCE_ID")
+	if err := v.BindEnv("instance-id", "EC2_INSTANCE_ID"); err != nil {
+		panic(err)
+	}
 	flagSet.String("region", "us-east-1", "EC2 region")
-	v.BindEnv("region", "EC2_REGION")
+	if err := v.BindEnv("region", "EC2_REGION"); err != nil {
+		panic(err)
+	}
 	flagSet.String("account-id", "", "Account ID")
-	v.BindEnv("account-id", "EC2_OWNER_ID")
+	if err := v.BindEnv("account-id", "EC2_OWNER_ID"); err != nil {
+		panic(err)
+	}
 	flagSet.String("instance-type", "", "Instance Type")
-	v.BindEnv("instance-type", "EC2_INSTANCE_TYPE")
+	if err := v.BindEnv("instance-type", "EC2_INSTANCE_TYPE"); err != nil {
+		panic(err)
+	}
 
 	// Add flags viper
-	v.BindPFlags(flagSet)
+	if err := v.BindPFlags(flagSet); err != nil {
+		panic(err)
+	}
 
 	return flagSet, &environmentProvider{
 		viper: v,
 	}
+}
+
+func GetEC2Provider() InstanceIdentityProvider {
+	return &ec2Provider{}
 }

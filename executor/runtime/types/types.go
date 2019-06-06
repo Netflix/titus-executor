@@ -121,8 +121,7 @@ type Container struct {
 	cleanup []CleanupFunc
 
 	// VPC driver fields
-	SecurityGroupIDs []string
-	// Titus Index 1 = ENI index 0
+	SecurityGroupIDs   []string
 	Allocation         vpcTypes.Allocation
 	NormalizedENIIndex int
 	BandwidthLimitMbps uint32
@@ -270,7 +269,7 @@ func (c *Container) ComputeHostname() (string, error) {
 	case "":
 		return strings.ToLower(c.TaskID), nil
 	case "ec2":
-		hostname := fmt.Sprintf("ip-%s", strings.Replace(c.Allocation.IPV4Address, ".", "-", 3))
+		hostname := fmt.Sprintf("ip-%s", strings.Replace(c.Allocation.IPV4Address.Address.Address, ".", "-", 3))
 		return hostname, nil
 	default:
 		return "", &InvalidConfigurationError{Reason: fmt.Errorf("Unknown hostname style: %s", hostnameStyle)}

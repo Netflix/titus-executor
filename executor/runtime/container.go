@@ -73,6 +73,8 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 		if err != nil {
 			panic(err)
 		}
+		// Titus uses the same indexes as the EC2 device id
+		// Titus Index 1 = ENI index 0
 		c.NormalizedENIIndex = titusENIIndex + 1
 	}
 

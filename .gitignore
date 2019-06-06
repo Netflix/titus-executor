@@ -65,8 +65,6 @@ atlassian-ide-plugin.xml
 # Scala build
 *.cache
 
-tags
-
 # Go
 test.out
 test.xml

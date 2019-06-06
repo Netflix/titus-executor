@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
-	"github.com/golang/protobuf/proto"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
@@ -33,39 +32,16 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, status.Error(codes.InvalidArgument, "Device index 0 not allowed")
 	}
 
-	if len(req.RequestedAddresses) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Requested 0 addresses")
-	}
-
-	for idx := range req.RequestedAddresses {
-		switch family := req.RequestedAddresses[idx].Family; family {
-		case titus.Family_FAMILY_V4:
-		case titus.Family_FAMILY_V6:
-		default:
-			return nil, status.Errorf(codes.InvalidArgument, "Requested unsupported address family %q", family.String())
-		}
-	}
-
-	// TODO: Cache this result
-	ec2client := ec2.New(vpcService.session)
-	describeInstancesOutput, err := ec2client.DescribeInstancesWithContext(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: aws.StringSlice([]string{req.InstanceIdentity.GetInstanceID()}),
-	})
+	ec2client, instance, err := vpcService.getInstance(ctx, req.InstanceIdentity)
 	if err != nil {
-		log.WithError(err).Error("Received error from AWS during Describe Instances")
-		return nil, status.Convert(err).Err()
+		return nil, err
 	}
 
-	if describeInstancesOutput.Reservations == nil || len(describeInstancesOutput.Reservations) == 0 {
-		return nil, status.Error(codes.NotFound, "Describe Instances returned 0 reservations")
+	maxInterfaces, err := vpc.GetMaxInterfaces(*instance.InstanceType)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if describeInstancesOutput.Reservations[0].Instances == nil || len(describeInstancesOutput.Reservations[0].Instances) == 0 {
-		return nil, status.Error(codes.NotFound, "Describe Instances returned 0 instances")
-	}
-
-	instance := describeInstancesOutput.Reservations[0].Instances[0]
-
-	if int(req.NetworkInterfaceAttachment.DeviceIndex) >= vpc.GetMaxInterfaces(*instance.InstanceType) {
+	if int(req.NetworkInterfaceAttachment.DeviceIndex) >= maxInterfaces {
 		return nil, status.Error(codes.InvalidArgument, "Interface is out of bounds")
 	}
 
@@ -83,6 +59,16 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 	}
 
 	ctx = logger.WithField(ctx, "iface", *iface.NetworkInterfaceId)
+
+	// TODO: Cache
+	describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
+		SubnetIds: []*string{iface.SubnetId},
+	})
+	if err != nil {
+		return nil, err
+	}
+	subnet := describeSubnetsOutput.Subnets[0]
+
 	// TODO: Validate these
 	wantedSecurityGroups := aws.StringSlice(req.GetSecurityGroupIds())
 	// Assign default security groups
@@ -133,111 +119,99 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		}
 	}
 
-	return vpcService.assignAddresses(ctx, ec2client, iface, req)
+	return assignAddresses(ctx, ec2client, iface, req, subnet, true)
 }
 
-func (vpcService *vpcService) assignAddresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.InstanceNetworkInterface, req *vpcapi.AssignIPRequest) (*vpcapi.AssignIPResponse, error) {
+func assignAddresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.InstanceNetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
+	entry := logger.G(ctx).WithField("allowAssignment", allowAssignment)
 	response := &vpcapi.AssignIPResponse{}
-	outstandingRequests := make([]*vpcapi.UsableAddress, len(req.RequestedAddresses))
-	for idx := range req.RequestedAddresses {
-		requestedAddress := req.RequestedAddresses[idx]
-		outstandingRequests[idx] = &vpcapi.UsableAddress{
-			Address: &titus.Address{},
+	utilizedAddressIPv4Set := set.NewSet()
+	utilizedAddressIPv6Set := set.NewSet()
+
+	for _, addr := range req.UtilizedAddresses {
+		canonicalAddress := net.ParseIP(addr.Address.Address)
+		if canonicalAddress.To4() == nil {
+			utilizedAddressIPv6Set.Add(canonicalAddress.String())
+		} else {
+			utilizedAddressIPv4Set.Add(canonicalAddress.String())
 		}
-		proto.Merge(outstandingRequests[idx].Address, requestedAddress)
 	}
 
-	utilizedAddressMap := map[string]*vpcapi.UtilizedAddress{}
-	utilizedAddressSet := set.NewSet()
-	for idx := range req.UtilizedAddresses {
-		canonicalAddress := net.ParseIP(req.UtilizedAddresses[idx].GetAddress().GetAddress())
-		utilizedAddressSet.Add(canonicalAddress.String())
-		utilizedAddressMap[canonicalAddress.String()] = req.UtilizedAddresses[idx]
+	describeNetworkInterfacesInput := &ec2.DescribeNetworkInterfacesInput{
+		NetworkInterfaceIds: []*string{iface.NetworkInterfaceId},
 	}
 
-	for {
-		describeNetworkInterfacesInput := &ec2.DescribeNetworkInterfacesInput{
-			NetworkInterfaceIds: []*string{iface.NetworkInterfaceId},
-		}
+	describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, describeNetworkInterfacesInput)
+	// TODO: Work around rate limiting here, and do some basic retries
+	if err != nil {
+		return nil, status.Convert(errors.Wrap(err, "Cannot describe network interfaces")).Err()
+	}
 
-		describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, describeNetworkInterfacesInput)
-		// TODO: Work around rate limiting here, and do some basic retries
+	ni := describeNetworkInterfacesOutput.NetworkInterfaces[0]
+	response.NetworkInterface = networkInterface(*ni)
+	response.SecurityGroupIds = make([]string, len(ni.Groups))
+	assignedIPv4addresses := set.NewSet()
+	assignedIPv6addresses := set.NewSet()
+	assignedIPv4addresses.Add(net.ParseIP(*ni.PrivateIpAddress).String())
+	for idx := range ni.PrivateIpAddresses {
+		pi := ni.PrivateIpAddresses[idx]
+		assignedIPv4addresses.Add(net.ParseIP(*pi.PrivateIpAddress).String())
+	}
+	for idx := range ni.Ipv6Addresses {
+		pi := ni.Ipv6Addresses[idx]
+		assignedIPv6addresses.Add(net.ParseIP(*pi.Ipv6Address).String())
+	}
+
+	entry.WithField("ipv4addresses", assignedIPv4addresses.ToSlice()).Debug("assigned IPv4 addresses")
+	entry.WithField("ipv6addresses", assignedIPv6addresses.ToSlice()).Debug("assigned IPv6 addresses")
+	entry.WithField("ipv4addresses", utilizedAddressIPv4Set.ToSlice()).Debug("utilized IPv4 addresses")
+	entry.WithField("ipv6addresses", utilizedAddressIPv6Set.ToSlice()).Debug("utilized IPv6 addresses")
+
+	availableIPv4Addresses := assignedIPv4addresses.Difference(utilizedAddressIPv4Set)
+	availableIPv6Addresses := assignedIPv6addresses.Difference(utilizedAddressIPv6Set)
+
+	needIPv4Addresses := availableIPv4Addresses.Cardinality() == 0
+	needIPv6Addresses := (req.Ipv6AddressRequested && availableIPv6Addresses.Cardinality() == 0)
+
+	if !needIPv4Addresses && !needIPv6Addresses {
+		_, ipnet, err := net.ParseCIDR(*subnet.CidrBlock)
 		if err != nil {
-			return nil, status.Convert(errors.Wrap(err, "Cannot describe network interfaces")).Err()
+			return nil, errors.Wrap(err, "Cannot parse CIDR block")
 		}
-		ni := describeNetworkInterfacesOutput.NetworkInterfaces[0]
-		response.NetworkInterface = networkInterface(*ni)
-		response.SecurityGroupIds = make([]string, len(ni.Groups))
-		for idx := range ni.Groups {
-			response.SecurityGroupIds[idx] = *ni.Groups[idx].GroupId
+		prefixlength, _ := ipnet.Mask.Size()
+		// TODO: Set a valid prefix length
+		for addr := range assignedIPv4addresses.Iter() {
+			response.UsableAddresses = append(response.UsableAddresses, &vpcapi.UsableAddress{
+				Address:      &titus.Address{Address: addr.(string)},
+				PrefixLength: uint32(prefixlength),
+			})
 		}
-		ipv4addresses := set.NewSet()
-		ipv6addresses := set.NewSet()
-		ipv4addresses.Add(net.ParseIP(*ni.PrivateIpAddress).String())
-		for idx := range ni.PrivateIpAddresses {
-			pi := ni.PrivateIpAddresses[idx]
-			ipv4addresses.Add(net.ParseIP(*pi.PrivateIpAddress).String())
+		for addr := range assignedIPv6addresses.Iter() {
+			response.UsableAddresses = append(response.UsableAddresses, &vpcapi.UsableAddress{
+				Address: &titus.Address{Address: addr.(string)},
+				// AWS only assigns /128s?
+				// This might be a problem for intra-subnet communication? Maybe?
+				PrefixLength: uint32(128),
+			})
 		}
-		for idx := range ni.Ipv6Addresses {
-			pi := ni.Ipv6Addresses[idx]
-			ipv6addresses.Add(net.ParseIP(*pi.Ipv6Address).String())
-		}
+		return response, nil
+	}
+	entry.WithField("needIPv4Addresses", needIPv4Addresses).WithField("needIPv6Addresses", needIPv6Addresses).Debug("Retrying")
 
-		entry := logger.G(ctx).WithField("utilizedAddresses", utilizedAddressSet.ToSlice())
-		entry.WithField("ipv4addresses", ipv4addresses.ToSlice()).Debug("IPv4 address state")
-		entry.WithField("ipv6addresses", ipv6addresses.ToSlice()).Debug("IP64 address state")
-
-		availableIPv4Addresses := ipv4addresses.Difference(utilizedAddressSet)
-		availableIPv6Addresses := ipv6addresses.Difference(utilizedAddressSet)
-
-		outstandingV4Needs := 0
-		outstandingV6Needs := 0
-
-		logger.G(ctx).WithField("outstandingRequestsCount", len(outstandingRequests)).Debug("Outstanding requests remaining")
-		// Let's see if we can fulfill the user's request without any fancy allocations.
-		for _, outstandingRequest := range outstandingRequests {
-			logger.G(ctx).WithField("outstandingRequests", outstandingRequest).WithField("address", outstandingRequest.Address.Address).Debug("Processing outstanding request")
-			if outstandingRequest.Address.Address != "" {
-				continue
-			}
-			// This needs to be assigned. Let's figure out if we can assign from the current IPs on the interface
-			if outstandingRequest.Address.Family == titus.Family_FAMILY_V4 {
-				if addr := availableIPv4Addresses.Pop(); addr != nil {
-					logger.G(ctx).Debugf("Assigned IP %s to interface", addr)
-					outstandingRequest.Address.Address = addr.(string)
-				} else {
-					outstandingV4Needs++
-				}
-			} else if outstandingRequest.Address.Family == titus.Family_FAMILY_V6 {
-				if addr := availableIPv6Addresses.Pop(); addr != nil {
-					logger.G(ctx).Debugf("Assigned IP %s to interface", addr)
-					outstandingRequest.Address.Address = addr.(string)
-				} else {
-					outstandingV6Needs++
-				}
-			} else {
-				panic("Unknown family")
-			}
-
-		}
-
-		logger.G(ctx).WithField("outstandingV4Needs", outstandingV4Needs).WithField("outstandingV6Needs", outstandingV6Needs).Info("Checked for available addresses")
-		if outstandingV4Needs == 0 && outstandingV6Needs == 0 {
-			break
-		}
-
-		if outstandingV4Needs > 0 {
-			assignPrivateIpAddressesInput := &ec2.AssignPrivateIpAddressesInput{
+	if allowAssignment {
+		if needIPv4Addresses {
+			assignPrivateIPAddressesInput := &ec2.AssignPrivateIpAddressesInput{
 				NetworkInterfaceId: iface.NetworkInterfaceId,
 				// TODO: Batch intelligently.
 				SecondaryPrivateIpAddressCount: aws.Int64(4),
 			}
 
-			if _, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, assignPrivateIpAddressesInput); err != nil {
+			if _, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, assignPrivateIPAddressesInput); err != nil {
 				return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv4 addresses")).Err()
 			}
 		}
-		if outstandingV6Needs > 0 {
+
+		if needIPv6Addresses {
 			assignIpv6AddressesInput := &ec2.AssignIpv6AddressesInput{
 				NetworkInterfaceId: iface.NetworkInterfaceId,
 				// TODO: Batch intelligently.
@@ -248,14 +222,8 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, ec2client *ec
 				return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv6 addresses")).Err()
 			}
 		}
-		time.Sleep(time.Second)
 	}
 
-	for idx := range outstandingRequests {
-		logger.G(ctx).WithField("address", outstandingRequests[idx]).Info("Assigned address")
-	}
-
-	response.UsableAddresses = outstandingRequests
-
-	return response, nil
+	time.Sleep(time.Second)
+	return assignAddresses(ctx, ec2client, iface, req, subnet, false)
 }

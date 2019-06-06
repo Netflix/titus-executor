@@ -62,7 +62,10 @@ func main() {
 		svc.Metrics = metrics
 	}
 
-	svc.Run(ctx)
+	err := svc.Run(ctx)
+	if err != nil {
+		logger.G(ctx).WithError(err).Fatal("Titus VPC Service exiting")
+	}
 }
 
 type discard struct {

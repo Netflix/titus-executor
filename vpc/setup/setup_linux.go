@@ -246,7 +246,7 @@ func setupIFBHTBRootClass(ctx context.Context, instanceType string, link netlink
 		Handle:    rootHtbClass,
 	}
 
-	rate := vpc.GetMaxNetworkbps(instanceType)
+	rate := vpc.MustGetMaxNetworkbps(instanceType)
 	htbclassattrs := netlink.HtbClassAttrs{
 		Rate:    rate,
 		Buffer:  uint32(float64(rate/8)/netlink.Hz() + float64(mtu)),

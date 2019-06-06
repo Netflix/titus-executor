@@ -25,12 +25,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var (
-	errInterfaceNotFoundAtIndex   = errors.New("Network interface not found at index")
-	errSecurityGroupsNotConverged = errors.New("Security groups for interface not converged")
-)
-
-func AllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, securityGroups []string, deviceIdx int, allocateIPv6Address bool) error {
+func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, securityGroups []string, deviceIdx int, allocateIPv6Address bool) error {
 	ctx = logger.WithFields(ctx, map[string]interface{}{
 		"deviceIdx":           deviceIdx,
 		"security-groups":     securityGroups,
@@ -120,28 +115,6 @@ func (a *allocation) deallocate(ctx context.Context) {
 	}
 }
 
-func (a *allocation) addAllocation(addr *vpcapi.UsableAddress, lock *fslocker.ExclusiveLock) {
-	if addr.Address.Family == titus.Family_FAMILY_V4 {
-		if a.ip4Address != nil {
-			panic("Trying to add two IPv4 allocation to alloc object")
-		}
-		a.ip4Address = addr
-		if a.exclusiveIP4Lock != nil {
-			panic("trying to add two IPv4 locks to alloc object")
-		}
-		a.exclusiveIP4Lock = lock
-	} else if addr.Address.Family == titus.Family_FAMILY_V6 {
-		if a.ip6Address != nil {
-			panic("Trying to add two IPv6 allocation to alloc object")
-		}
-		a.ip6Address = addr
-		if a.exclusiveIP6Lock != nil {
-			panic("trying to add two IPv6 locks to alloc object")
-		}
-		a.exclusiveIP6Lock = lock
-	}
-}
-
 func (a *allocation) String() string {
 	return fmt.Sprintf("%#v", *a)
 }
@@ -185,7 +158,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 }
 
 func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address, allowSecurityGroupChange bool) (*allocation, error) {
-	instanceIdentity, err := instanceIdentityProvider.GetIdentity()
+	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot retrieve instance identity")
 	}
@@ -206,18 +179,6 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 		return nil, err
 	}
 
-	requestedAddresses := []*titus.Address{
-		{
-			Family: titus.Family_FAMILY_V4,
-		},
-	}
-
-	if allocateIPv6Address {
-		requestedAddresses = append(requestedAddresses, &titus.Address{
-			Family: titus.Family_FAMILY_V6,
-		})
-	}
-
 	utilizedAddresses := make([]*vpcapi.UtilizedAddress, 0, len(records))
 	for _, record := range records {
 		tmpLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
@@ -225,15 +186,10 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 			tmpLock.Unlock()
 		} else {
 			ip := net.ParseIP(record.Name)
-			family := titus.Family_FAMILY_V4
-			if ip.To4() == nil {
-				family = titus.Family_FAMILY_V6
-			}
 
 			address := &vpcapi.UtilizedAddress{
 				Address: &titus.Address{
 					Address: ip.String(),
-					Family:  family,
 				},
 				LastUsedTime: &timestamp.Timestamp{
 					Seconds: record.BumpTime.Unix(),
@@ -249,10 +205,10 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 			DeviceIndex: uint32(deviceIdx),
 		},
 		SecurityGroupIds:         securityGroups,
-		RequestedAddresses:       requestedAddresses,
 		UtilizedAddresses:        utilizedAddresses,
 		InstanceIdentity:         instanceIdentity,
 		AllowSecurityGroupChange: allowSecurityGroupChange,
+		Ipv6AddressRequested:     allocateIPv6Address,
 	}
 
 	logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Making assign IP request")
@@ -264,30 +220,63 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 
 	logger.G(ctx).WithField("assignIPResponse", response).Info("AssignIP request suceeded")
 
-	if allocateIPv6Address {
-		if len(response.GetUsableAddresses()) != 2 {
-			return nil, fmt.Errorf("Received %d IP addresses, when expected to receive 2", len(response.GetUsableAddresses()))
-		}
-	} else {
-		if len(response.GetUsableAddresses()) != 1 {
-			return nil, fmt.Errorf("Received %d IP addresses, when expected to receive 1", len(response.GetUsableAddresses()))
-		}
-	}
-
 	alloc := &allocation{}
 	alloc.networkInterface = response.NetworkInterface
-	for idx := range response.UsableAddresses {
-		addr := response.UsableAddresses[idx]
+	err = populateAlloc(ctx, alloc, allocateIPv6Address, response.UsableAddresses, locker, addressesLockPath)
+	if err != nil {
+		return nil, err
+	}
+	return alloc, nil
+}
+
+func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address bool, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker, addressesLockPath string) error {
+	optimisticLockTimeout := time.Duration(0)
+
+	for idx := range usableAddresses {
+		addr := usableAddresses[idx]
 		ip := net.ParseIP(addr.Address.Address)
-		exclusiveLock0, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
-		if err != nil {
-			alloc.deallocate(ctx)
-			return nil, err
+		if ip.To4() == nil {
+			continue
 		}
-		alloc.addAllocation(addr, exclusiveLock0)
+		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		if err == nil {
+			alloc.exclusiveIP4Lock = lock
+			alloc.ip4Address = addr
+			break
+		} else if err != unix.EWOULDBLOCK {
+			return err
+		}
 	}
 
-	logger.G(ctx).WithField("alloc", alloc.String()).Debug()
+	if alloc.ip4Address == nil {
+		return errors.New("Cannot allocate IPv4 address")
+	}
 
-	return alloc, nil
+	if !allocateIPv6Address {
+		return nil
+	}
+
+	for idx := range usableAddresses {
+		addr := usableAddresses[idx]
+		ip := net.ParseIP(addr.Address.Address)
+		if ip.To4() != nil {
+			continue
+		}
+		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		if err == nil {
+			alloc.ip6Address = addr
+			alloc.exclusiveIP6Lock = lock
+			break
+		} else if err != unix.EWOULDBLOCK {
+			alloc.exclusiveIP4Lock.Unlock()
+			return err
+		}
+	}
+
+	if alloc.ip6Address == nil {
+		alloc.exclusiveIP4Lock.Unlock()
+		return errors.New("Cannot allocate IPv6 address")
+	}
+
+	return nil
 }

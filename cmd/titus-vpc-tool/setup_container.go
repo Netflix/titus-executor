@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/Netflix/titus-executor/vpc/setup_container"
+	"github.com/Netflix/titus-executor/vpc/container"
 
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
@@ -18,7 +18,7 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 			bandwidth := v.GetInt64("bandwidth")
 			burst := v.GetBool("burst")
 			jumbo := v.GetBool("jumbo")
-			return setup_container.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
+			return container.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
 		},
 	}
 

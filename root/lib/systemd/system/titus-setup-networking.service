@@ -8,7 +8,7 @@ After=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=true
-ExecStart=/apps/titus-executor/bin/titus-vpc-tool setup
+ExecStart=/apps/titus-executor/bin/titus-vpc-tool setup-instance
 LimitCORE=infinity
 LimitMEMLOCK=1G
 

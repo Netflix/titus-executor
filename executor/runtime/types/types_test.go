@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/stretchr/testify/assert"
@@ -115,7 +117,11 @@ func TestEc2HostnameStyle(t *testing.T) {
 			PassthroughAttributes: map[string]string{hostnameStyleParam: "ec2"},
 		},
 		Allocation: vpcTypes.Allocation{
-			IPV4Address: "1.2.3.4",
+			IPV4Address: &vpcapi.UsableAddress{
+				PrefixLength: 32,
+				Address: &titus.Address{
+					Address: "1.2.3.4"},
+			},
 		},
 	}
 	hostname, err := container.ComputeHostname()

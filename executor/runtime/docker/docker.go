@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -69,16 +71,13 @@ const (
 type Config struct { // nolint: maligned
 	cfsBandwidthPeriod              uint64
 	tiniVerbosity                   int
-	batchSize                       int
 	burst                           bool
-	securityConvergenceTimeout      time.Duration
 	nvidiaOciRuntime                string
 	pidLimit                        int
 	prepareTimeout                  time.Duration
 	startTimeout                    time.Duration
 	bumpTiniSchedPriority           bool
 	waitForSecurityGroupLockTimeout time.Duration
-	ipRefreshTimeout                time.Duration
 
 	titusIsolateBlockTime   time.Duration
 	enableTitusIsolateBlock bool
@@ -98,19 +97,9 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value:       0,
 			Destination: &cfg.tiniVerbosity,
 		},
-		cli.IntFlag{
-			Name:        "titus.executor.networking.batchSize",
-			Value:       4,
-			Destination: &cfg.batchSize,
-		},
 		cli.BoolFlag{
 			Name:        "titus.executor.networking.burst",
 			Destination: &cfg.burst,
-		},
-		cli.DurationFlag{
-			Name:        "titus.executor.networking.securityConvergenceTimeout",
-			Destination: &cfg.securityConvergenceTimeout,
-			Value:       time.Second * 10,
 		},
 		cli.StringFlag{
 			Name: "titus.executor.nvidiaOciRuntime",
@@ -140,11 +129,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "titus.executor.waitForSecurityGroupLockTimeout",
 			Value:       time.Minute * 1,
 			Destination: &cfg.waitForSecurityGroupLockTimeout,
-		},
-		cli.DurationFlag{
-			Name:        "titus.executor.networking.ipRefreshTimeout",
-			Destination: &cfg.ipRefreshTimeout,
-			Value:       time.Second * 10,
 		},
 		cli.DurationFlag{
 			Name:   "titus.executor.titusIsolateBlockTime",
@@ -448,7 +432,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		AutoRemove: false,
 		Privileged: false,
 		Binds:      binds,
-		ExtraHosts: []string{fmt.Sprintf("%s:%s", hostname, c.Allocation.IPV4Address)},
+		ExtraHosts: []string{},
 		Sysctls: map[string]string{
 			"net.ipv4.tcp_ecn":                    "1",
 			"net.ipv6.conf.all.disable_ipv6":      "0",
@@ -458,6 +442,12 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		},
 		Init: &useInit,
 	}
+
+	// TODO(Sargun): Add IPv6 address
+	if c.Allocation.IPV4Address != nil {
+		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, c.Allocation.IPV4Address.Address.Address))
+	}
+
 	for _, containerName := range volumeContainers {
 		log.Infof("Setting up VolumesFrom from container %s", containerName)
 		hostCfg.VolumesFrom = append(hostCfg.VolumesFrom, fmt.Sprintf("%s:ro", containerName))
@@ -534,13 +524,13 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	}
 
 	// label is necessary for metadata proxy compatibility
-	containerCfg.Labels["titus.vpc.ipv4"] = c.Allocation.IPV4Address // deprecated
-	containerCfg.Labels["titus.net.ipv4"] = c.Allocation.IPV4Address
+	containerCfg.Labels["titus.vpc.ipv4"] = c.Allocation.IPV4Address.Address.Address // deprecated
+	containerCfg.Labels["titus.net.ipv4"] = c.Allocation.IPV4Address.Address.Address
 
 	// TODO(fabio): find a way to avoid regenerating the env map
-	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address
-	if c.Allocation.IPV6Address != "" {
-		c.Env["EC2_IPV6S"] = c.Allocation.IPV6Address
+	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address.Address.Address
+	if c.Allocation.IPV6Address != nil {
+		c.Env["EC2_IPV6S"] = c.Allocation.IPV6Address.Address.Address
 	}
 	c.Env["EC2_VPC_ID"] = c.Allocation.VPC
 	c.Env["EC2_INTERFACE_ID"] = c.Allocation.ENI
@@ -696,12 +686,9 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	log.Printf("Configuring VPC network for %s", c.TaskID)
 
 	args := []string{
-		"allocate-network",
+		"allocate",
 		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
-		"--security-convergence-timeout", cfg.securityConvergenceTimeout.String(),
-		"--ip-refresh-timeout", cfg.ipRefreshTimeout.String(),
-		"--batch-size", strconv.Itoa(cfg.batchSize),
 	}
 
 	assignIPv6Address, err := c.AssignIPv6Address()
@@ -710,11 +697,6 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	}
 	if assignIPv6Address {
 		args = append(args, "--allocate-ipv6-address=true")
-	}
-
-	// This blocks, and ignores kills.
-	if !c.TitusInfo.GetIgnoreLaunchGuard() {
-		args = append(args, "--wait-for-sg-lock-timeout", cfg.waitForSecurityGroupLockTimeout.String())
 	}
 
 	// This channel indicates when allocation is done, successful or not
@@ -1004,7 +986,12 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	} else {
 		// Don't call out to network driver for local development
 		c.Allocation = vpcTypes.Allocation{
-			IPV4Address: "1.2.3.4",
+			IPV4Address: &vpcapi.UsableAddress{
+				Address: &titus.Address{
+					Address: "1.2.3.4",
+				},
+				PrefixLength: 32,
+			},
 			DeviceIndex: 1,
 			Success:     true,
 			Error:       "",
@@ -1397,17 +1384,17 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), c.ImageTagForMetrics())
 
-	if c.Allocation.IPV4Address == "" {
+	if c.Allocation.IPV4Address == nil {
 		log.Fatal("IP allocation unset")
 	}
 	details = &runtimeTypes.Details{
 		IPAddresses: map[string]string{
-			"nfvpc": c.Allocation.IPV4Address,
+			"nfvpc": c.Allocation.IPV4Address.Address.Address,
 		},
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: true,
-			IPAddress:    c.Allocation.IPV4Address,
-			EniIPAddress: c.Allocation.IPV4Address,
+			IPAddress:    c.Allocation.IPV4Address.Address.Address,
+			EniIPAddress: c.Allocation.IPV4Address.Address.Address,
 			EniID:        c.Allocation.ENI,
 			ResourceID:   fmt.Sprintf("resource-eni-%d", c.Allocation.DeviceIndex-1),
 		},
@@ -1698,7 +1685,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return err
 	}
 
-	if r.cfg.UseNewNetworkDriver && c.Allocation.IPV4Address != "" {
+	if r.cfg.UseNewNetworkDriver && c.Allocation.IPV4Address != nil {
 		// This writes to C, and registers runtime cleanup functions, this is a write
 		// and it writes to a bunch of pointers
 
@@ -1765,13 +1752,13 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 		"--netns", "3",
 	}
 	if burst || c.TitusInfo.GetAllowNetworkBursting() {
-		args = append(args, "--burst")
+		args = append(args, "--burst=true")
 	}
 	if jumbo, ok := c.TitusInfo.GetPassthroughAttributes()[jumboFrameParam]; ok {
 		if val, err := strconv.ParseBool(jumbo); err != nil {
 			log.Error("Could not parse value for "+jumboFrameParam+": ", err)
 		} else if val {
-			args = append(args, "--jumbo")
+			args = append(args, "--jumbo=true")
 		}
 	}
 	return args

@@ -46,15 +46,18 @@ func main() {
 
 	ipr := &instanceProviderResolver{}
 	environmentIdentityProviderFlagSet, environmentIdentityProvider := identity.GetEnvironmentProvider(v)
+	ec2IdentityProvider := identity.GetEC2Provider()
 	rootCmd := &cobra.Command{
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			v.BindPFlags(cmd.Flags())
-			ctx = logger.WithLogger(ctx, logger.G(ctx).WithField("command", cmd.Name()))
-			if level, err := logrus.ParseLevel(v.GetString("log-level")); err != nil {
-				return err
-			} else {
-				logruslogger.SetLevel(level)
+			if err := v.BindPFlags(cmd.Flags()); err != nil {
+				panic(err)
 			}
+			ctx = logger.WithLogger(ctx, logger.G(ctx).WithField("command", cmd.Name()))
+			level, err := logrus.ParseLevel(v.GetString("log-level"))
+			if err != nil {
+				return err
+			}
+			logruslogger.SetLevel(level)
 
 			if v.GetBool("journald") {
 				logruslogger.AddHook(&journalhook.JournalHook{})
@@ -63,6 +66,8 @@ func main() {
 			switch ip := v.GetString("identity-provider"); ip {
 			case "environment":
 				ipr.provider = environmentIdentityProvider
+			case "ec2":
+				ipr.provider = ec2IdentityProvider
 			default:
 				return errors.Errorf("Identity provider %q not supported", ip)
 			}
@@ -79,13 +84,21 @@ func main() {
 	rootCmd.PersistentFlags().Bool("journald", true, "Enable journald logging")
 	rootCmd.PersistentFlags().String("identity-provider", "ec2", "How to fetch the machine's identity")
 
-	v.BindEnv(stateDirFlagName, "VPC_STATE_DIR")
-	v.BindPFlags(rootCmd.PersistentFlags())
+	if err := v.BindEnv(stateDirFlagName, "VPC_STATE_DIR"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(serviceAddrFlagName, "VPC_SERVICE_ADDR"); err != nil {
+		panic(err)
+	}
+	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
+		panic(err)
+	}
 	rootCmd.AddCommand(allocateNetworkCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(genConfCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(setupInstanceCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(backfilleniCommand(ctx, v))
 	rootCmd.AddCommand(globalGCCommand(ctx, v))
+	rootCmd.AddCommand(setupContainercommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(gcCommand(ctx, v, ipr.getProvider))
 
 	cobra.OnInitialize(func() {
@@ -101,7 +114,8 @@ func main() {
 			fmt.Println("Using config file:", v.ConfigFileUsed())
 		}
 	})
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+	if err != nil {
 		logger.G(ctx).WithError(err).Fatal("Failed")
 	}
 }

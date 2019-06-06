@@ -34,8 +34,8 @@ message InstanceIdentity {
     // This is duplicated data , but we include it for verification beyond Metatron. No containers should run
     // on the instance prior to this API call being completed. We can then rely on the instance
     // identity document for further verification.
-    bytes instanceIdentityDocument = 1;
-    bytes instanceIdentitySignature = 2;
+    string instanceIdentityDocument = 1;
+    string instanceIdentitySignature = 2;
     string instanceID = 3;
     string region = 4;
     string accountID = 5;
@@ -67,7 +67,7 @@ message AssignIPRequest {
     com.netflix.titus.SignedAddressAllocation signedAddressAllocation = 2;
     NetworkInterfaceAttachment networkInterfaceAttachment = 3;
     repeated string securityGroupIds = 4;
-    repeated Address requestedAddresses = 5;
+    bool ipv6AddressRequested = 5;
     repeated UtilizedAddress utilizedAddresses = 6;
     InstanceIdentity instanceIdentity = 7;
     bool allowSecurityGroupChange = 8;
@@ -84,18 +84,22 @@ message AssignIPResponse {
 
 message UsableAddress {
     Address address = 1;
-    Address resolver = 2;
-    Address gateway = 3;
+    uint32 prefixLength = 2;
 };
 
 // AddressGCMetadata is sent when the instance requests that the IP Service GC it. It's basically a way to
 // indicate when the IP was last used, and we can GC it based on that metadata.
 message GCRequest {
     CacheVersion cacheVersion = 1;
-    NetworkInterfaceAttachment networkInterfaceAttachment = 2;
-    repeated UtilizedAddress unallocatedAddresses = 3;
-    repeated UtilizedAddress nonviableAddresses = 4;
-    repeated UtilizedAddress allocatedAddresses = 5;
+    InstanceIdentity instanceIdentity = 2;
+    NetworkInterfaceAttachment networkInterfaceAttachment = 3;
+    // unallocatedAddresses are addresses we were able to take a lock on
+    repeated UtilizedAddress unallocatedAddresses = 4;
+    // nonviableAddresses are addresses which we found found in the store, but we decided not to nominate
+    // for GC, because they've been bumped recently
+    repeated UtilizedAddress nonviableAddresses = 5;
+    // allocatedAddresses are addresses currently in use.
+    repeated UtilizedAddress allocatedAddresses = 6;
 
 }
 
