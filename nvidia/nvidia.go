@@ -168,6 +168,9 @@ func (n *PluginInfo) UpdateContainerConfig(c *types.Container, dockerCfg *contai
 	// Now setup the environment variables that `nvidia-container-runtime` uses to configure itself,
 	// and remove any that may have been set by the user.  See https://github.com/NVIDIA/nvidia-container-runtime
 	c.Env["NVIDIA_VISIBLE_DEVICES"] = strings.Join(c.GPUInfo.Devices(), ",")
+	// nvidia-docker 1.0 would mount all of `/usr/local/nvidia/`, bringing in all of the shared libs.
+	// Setting this to "all" will mount all of those libs:
+	c.Env["NVIDIA_DRIVER_CAPABILITIES"] = "all"
 	dockerCfg.Env = c.GetSortedEnvArray()
 }
 
