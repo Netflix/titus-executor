@@ -2,13 +2,17 @@
 
 package setup
 
-import "github.com/Netflix/titus-executor/vpc/types"
-import "github.com/Netflix/titus-executor/vpc/context"
+import (
+	"context"
 
-func configureQdiscs(ctx *context.VPCContext) error {
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/types"
+)
+
+func configureQdiscs(ctx context.Context, networkInterfaces []*vpcapi.NetworkInterface, instanceType string) error {
 	return types.ErrUnsupported
 }
 
-func setupIFBs(ctx *context.VPCContext) error {
+func setupIFBs(ctx context.Context, instanceType string) error {
 	return types.ErrUnsupported
 }

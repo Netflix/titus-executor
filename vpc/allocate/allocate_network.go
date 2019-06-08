@@ -1,154 +1,54 @@
 package allocate
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"time"
 
+	"google.golang.org/grpc"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
-	"github.com/Netflix/titus-executor/vpc/context"
-	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/identity"
 	"github.com/Netflix/titus-executor/vpc/types"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/Netflix/titus-executor/vpc/utilities"
+	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
-	"gopkg.in/urfave/cli.v1"
 )
 
-var (
-	errInterfaceNotFoundAtIndex   = errors.New("Network interface not found at index")
-	errSecurityGroupsNotConverged = errors.New("Security groups for interface not converged")
-)
+func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, securityGroups []string, deviceIdx int, allocateIPv6Address bool) error {
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"deviceIdx":           deviceIdx,
+		"security-groups":     securityGroups,
+		"allocateIPv6Address": allocateIPv6Address,
+	})
+	logger.G(ctx).Debug()
 
-var AllocateNetwork = cli.Command{ // nolint: golint
-	Name:   "allocate-network",
-	Usage:  "Allocate networking for a particular VPC",
-	Action: context.WrapFunc(allocateNetwork),
-	Flags: []cli.Flag{
-		cli.IntFlag{
-			Name:  "device-idx",
-			Usage: "The device index to setup, 1-indexed (1 correlates to AWS device 1) -- using device index 0 not allowed",
-		},
-		cli.StringFlag{
-			Name:  "security-groups",
-			Usage: "Comma separated list of security groups, defaults to the system's security groups",
-		},
-		cli.IntFlag{
-			Name:  "batch-size",
-			Usage: "What sized batch to allocate IP address in",
-			Value: 4,
-		},
-		cli.DurationFlag{
-			Name:  "security-convergence-timeout",
-			Usage: "How long to wait for security groups to converge, in seconds",
-			Value: 10 * time.Second,
-		},
-		cli.DurationFlag{
-			Name:  "wait-for-sg-lock-timeout",
-			Usage: "How long to wait for other users, if the SG is in use",
-			Value: 0 * time.Second,
-		},
-		cli.DurationFlag{
-			Name:  "ip-refresh-timeout",
-			Usage: "How long to wait for AWS to give us IP addresses",
-			Value: 10 * time.Second,
-		},
-		cli.BoolFlag{
-			Name:  "allocate-ipv6-address",
-			Usage: "Allocate IPv6 Address for container",
-		},
-	},
-}
-
-func getCommandLine(parentCtx *context.VPCContext) (securityGroups map[string]struct{}, batchSize, deviceIdx int, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, allocateIPv6Address bool, retErr error) {
-	var err error
-
-	deviceIdx = parentCtx.CLIContext.Int("device-idx")
-	if deviceIdx <= 0 {
-		retErr = cli.NewExitError("device-idx required", 1)
-		return
-	}
-
-	if sgStringList := parentCtx.CLIContext.String("security-groups"); sgStringList == "" {
-		securityGroups, err = getDefaultSecurityGroups(parentCtx)
-		if err != nil {
-			retErr = cli.NewMultiError(cli.NewExitError("Unable to fetch default security groups required", 1), err)
-			return
-		}
-	} else {
-		securityGroups = make(map[string]struct{})
-		for _, sgID := range strings.Split(sgStringList, ",") {
-			securityGroups[sgID] = struct{}{}
-		}
-	}
-
-	batchSize = parentCtx.CLIContext.Int("batch-size")
-	if batchSize <= 0 {
-		retErr = cli.NewExitError("Invalid batchsize", 1)
-		return
-	}
-
-	securityConvergenceTimeout = parentCtx.CLIContext.Duration("security-convergence-timeout")
-	if securityConvergenceTimeout <= 0 {
-		retErr = cli.NewExitError("Invalid security convergence timeout", 1)
-		return
-	}
-
-	waitForSgLockTimeout = parentCtx.CLIContext.Duration("wait-for-sg-lock-timeout")
-	if securityConvergenceTimeout < 0 {
-		retErr = cli.NewExitError("Invalid securtity group lock timeout", 1)
-		return
-	}
-
-	ipRefreshTimeout = parentCtx.CLIContext.Duration("ip-refresh-timeout")
-	if ipRefreshTimeout < 1*time.Second {
-		retErr = cli.NewExitError("IP Refresh timeout must be at least 1 second", 1)
-		return
-	}
-	allocateIPv6Address = parentCtx.CLIContext.Bool("allocate-ipv6-address")
-
-	return
-}
-
-func allocateNetwork(parentCtx *context.VPCContext) error {
-	var err error
-
-	securityGroups, batchSize, deviceIdx, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout, allocateIPv6Address, err := getCommandLine(parentCtx)
+	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
+	allocation, err := doAllocateNetwork(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address)
+	conn.Close()
 	if err != nil {
-		return err
-	}
-
-	parentCtx.Logger.WithFields(map[string]interface{}{
-		"deviceIdx":                  deviceIdx,
-		"security-groups":            securityGroups,
-		"batch-size":                 batchSize,
-		"securityConvergenceTimeout": securityConvergenceTimeout,
-		"waitForSgLockTimeout":       waitForSgLockTimeout,
-		"ipRefreshTimeout":           ipRefreshTimeout,
-		"allocateIPv6Address":        allocateIPv6Address,
-	}).Debug()
-
-	allocation, err := doAllocateNetwork(parentCtx, deviceIdx, batchSize, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout, allocateIPv6Address)
-	if err != nil {
-		errors := []error{cli.NewExitError("Unable to setup networking", 1), err}
+		err := errors.Wrap(err, "Unable to perform network allocation")
 		err = json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
 		if err != nil {
-			errors = append(errors, err)
+			err = errors.Wrap(err, err.Error())
 		}
-		return cli.NewMultiError(errors...)
+		return err
 	}
-	ctx := parentCtx.WithField("ip4", allocation.ip4Address)
+	ctx = logger.WithField(ctx, "ip4", allocation.ip4Address)
 	if allocateIPv6Address {
-		ctx = ctx.WithField("ip6", allocation.ip6Address)
+		ctx = logger.WithField(ctx, "ip6", allocation.ip6Address)
 	}
-	ctx.Logger.Info("Network setup")
+	logger.G(ctx).Info("Network setup")
 	// TODO: Output JSON as to new network settings
 	err = json.NewEncoder(os.Stdout).
 		Encode(
@@ -157,11 +57,12 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 				IPV6Address: allocation.ip6Address,
 				DeviceIndex: deviceIdx,
 				Success:     true,
-				ENI:         allocation.eni,
-				VPC:         allocation.vpc,
+				ENI:         allocation.networkInterface.NetworkInterfaceId,
+				VPC:         allocation.networkInterface.VpcId,
+				MAC:         allocation.networkInterface.MacAddress,
 			})
 	if err != nil {
-		return cli.NewMultiError(cli.NewExitError("Unable to write allocation record", 1), err)
+		return errors.Wrap(err, "Unable to write allocation record")
 	}
 
 	c := make(chan os.Signal, 1)
@@ -175,16 +76,16 @@ func allocateNetwork(parentCtx *context.VPCContext) error {
 		case <-ticker.C:
 			err = allocation.refresh()
 			if err != nil {
-				ctx.Logger.Error("Unable to refresh IP allocation record: ", err)
+				logger.G(ctx).Error("Unable to refresh IP allocation record: ", err)
 			}
 		}
 	}
 exit:
-	parentCtx.Logger.Info("Beginning shutdown, and deallocation: ", allocation)
+	logger.G(ctx).Info("Beginning shutdown, and deallocation: ", allocation)
 
 	allocation.deallocate(ctx)
 	// TODO: Teardown turned up network namespace
-	parentCtx.Logger.Info("Finished shutting down and deallocating")
+	logger.G(ctx).Info("Finished shutting down and deallocating")
 	return nil
 }
 
@@ -192,10 +93,9 @@ type allocation struct {
 	sharedSGLock     *fslocker.SharedLock
 	exclusiveIP4Lock *fslocker.ExclusiveLock
 	exclusiveIP6Lock *fslocker.ExclusiveLock
-	ip4Address       string
-	ip6Address       string
-	eni              string
-	vpc              string
+	ip4Address       *vpcapi.UsableAddress
+	ip6Address       *vpcapi.UsableAddress
+	networkInterface *vpcapi.NetworkInterface
 }
 
 func (a *allocation) refresh() error {
@@ -206,191 +106,177 @@ func (a *allocation) refresh() error {
 	return nil
 }
 
-func (a *allocation) deallocate(ctx *context.VPCContext) {
-	a.exclusiveIP4Lock.Unlock()
+func (a *allocation) deallocate(ctx context.Context) {
+	if a.exclusiveIP4Lock != nil {
+		a.exclusiveIP4Lock.Unlock()
+	}
 	if a.exclusiveIP6Lock != nil {
-		a.exclusiveIP6Lock.Bump()
+		a.exclusiveIP6Lock.Unlock()
 	}
-	a.sharedSGLock.Unlock()
 }
 
-func getDefaultSecurityGroups(parentCtx *context.VPCContext) (map[string]struct{}, error) {
-	primaryInterfaceMac, err := parentCtx.EC2metadataClientWrapper.PrimaryInterfaceMac()
-	if err != nil {
-		return nil, err
-	}
-	primaryInterface, err := parentCtx.EC2metadataClientWrapper.GetInterface(primaryInterfaceMac)
-	if err != nil {
-		return nil, err
-	}
-	return primaryInterface.GetSecurityGroupIds(), nil
+func (a *allocation) String() string {
+	return fmt.Sprintf("%#v", *a)
 }
 
-func doAllocateNetwork(parentCtx *context.VPCContext, deviceIdx, batchSize int, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout, ipRefreshTimeout time.Duration, allocateIPv6Address bool) (*allocation, error) {
-	// 1. Ensure security groups are setup
-	ctx, cancel := parentCtx.WithTimeout(5 * time.Minute)
+func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address bool) (*allocation, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	networkInterface, err := getInterfaceByIdx(ctx, deviceIdx)
-	if err != nil {
-		ctx.Logger.Warning("Unable to get interface by idx: ", err)
-		return nil, err
-	}
+	optimisticLockTimeout := time.Duration(0)
+	reconfigurationTimeout := 10 * time.Second
 
-	ec2NetworkInterface, err := ctx.Cache.DescribeInterface(parentCtx, networkInterface.GetInterfaceID())
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Unable to get interface from cache")
-		return nil, err
-	}
+	securityGroupLockPath := utilities.GetSecurityGroupLockPath(deviceIdx)
+	exclusiveSGLock, lockErr := locker.ExclusiveLock(securityGroupLockPath, &optimisticLockTimeout)
 
-	allocation := &allocation{
-		eni: networkInterface.GetInterfaceID(),
-		vpc: *ec2NetworkInterface.VpcId,
-	}
-	allocation.sharedSGLock, err = setupSecurityGroups(ctx, networkInterface, securityGroups, securityConvergenceTimeout, waitForSgLockTimeout)
-	if err != nil {
-		ctx.Logger.Warning("Unable to setup security groups: ", err)
-		return nil, err
-	}
-	// 2. Get a (free) IP
-	ipPoolManager := NewIPPoolManager(networkInterface)
-	allocation.ip4Address, allocation.exclusiveIP4Lock, err = ipPoolManager.allocateIPv4(ctx, batchSize, ipRefreshTimeout)
-	if err != nil {
-		return nil, err
-	}
-
-	// Optionally, get an IPv6 address
-	if allocateIPv6Address {
-		allocation.ip6Address, allocation.exclusiveIP6Lock, err = ipPoolManager.allocateIPv6(ctx, batchSize, ipRefreshTimeout)
+	if lockErr == nil {
+		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, true)
 		if err != nil {
-			allocation.deallocate(ctx)
+			exclusiveSGLock.Unlock()
+			return alloc, errors.Wrap(err, "Cannot get shared SG lock")
+		}
+		alloc.sharedSGLock = exclusiveSGLock.ToSharedLock()
+		return alloc, err
+	}
+
+	// We cannot get an exclusive lock, maybe we can get a shared lock?
+	if lockErr == unix.EWOULDBLOCK {
+		sharedSGLock, err := locker.SharedLock(securityGroupLockPath, &reconfigurationTimeout)
+		if err != nil {
 			return nil, err
 		}
-	}
-
-	return allocation, nil
-}
-
-func upgradeSecurityGroupLock(networkInterface ec2wrapper.NetworkInterface, sgConfigurationLock *fslocker.SharedLock, waitForSgLockTimeout time.Duration) (*fslocker.ExclusiveLock, error) {
-	sgReconfigurationLock, err := sgConfigurationLock.ToExclusiveLock(&waitForSgLockTimeout)
-	if err == nil {
-		return sgReconfigurationLock, nil
-	}
-
-	sgConfigurationLock.Unlock()
-	if err == unix.EWOULDBLOCK {
-		return nil, fmt.Errorf("Interface currently in use by other security groups: %v", networkInterface.GetSecurityGroupIds())
-	}
-
-	if err == unix.ETIMEDOUT {
-		// Now we fall back
-		return nil, fmt.Errorf("Interface currently in use by other security groups: %v, and timed out waiting for other user after %s", networkInterface.GetSecurityGroupIds(), waitForSgLockTimeout.String())
-	}
-
-	return nil, err
-}
-
-func reconfigureSecurityGroups(ctx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, securityGroups map[string]struct{}, sgConfigurationLock *fslocker.SharedLock, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
-	// If we're supposed to reconfigure security groups, it means no one else should have a lock on the interface
-	sgExclusiveReconfigurationLock, err := upgradeSecurityGroupLock(networkInterface, sgConfigurationLock, waitForSgLockTimeout)
-	if err != nil {
-		return nil, err
-	}
-
-	groups := []*string{}
-	for sgID := range securityGroups {
-		groups = append(groups, aws.String(sgID))
-	}
-	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
-		NetworkInterfaceId: aws.String(networkInterface.GetInterfaceID()),
-		Groups:             groups,
-	}
-
-	svc := ec2.New(ctx.AWSSession)
-	_, err = svc.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
-	if err != nil {
-		ctx.Logger.Warning("Unable to reconfigure security groups: ", err)
-		sgExclusiveReconfigurationLock.Unlock()
-		return nil, err
-	}
-	err = waitForSecurityGroupToConverge(ctx, networkInterface, securityGroups, securityConvergenceTimeout)
-	if err != nil {
-		ctx.Logger.Warning("Security groups for interface not converged")
-		sgExclusiveReconfigurationLock.Unlock()
-		return nil, err
-	}
-
-	return sgExclusiveReconfigurationLock.ToSharedLock(), nil
-}
-
-func setupSecurityGroups(ctx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout, waitForSgLockTimeout time.Duration) (*fslocker.SharedLock, error) {
-	lockTimeout := time.Minute
-	maybeReconfigurationLockPath := filepath.Join(ec2wrapper.GetLockPath(networkInterface), "security-group-reconfig")
-	maybeReconfigurationLock, err := ctx.FSLocker.ExclusiveLock(maybeReconfigurationLockPath, &lockTimeout)
-	if err != nil {
-		ctx.Logger.Warning("Unable to get security-group-reconfig lock: ", err)
-		return nil, err
-	}
-	defer maybeReconfigurationLock.Unlock()
-
-	// Although nobody should be holding an exclusive lock on security-group-current-config in the critical section, we
-	// should still get the shared lock for safety.
-	sgConfigureLockPath := filepath.Join(ec2wrapper.GetLockPath(networkInterface), "security-group-current-config")
-	sgConfigurationLock, err := ctx.FSLocker.SharedLock(sgConfigureLockPath, &lockTimeout)
-	if err != nil {
-		ctx.Logger.Warning("Unable to get security-group-current-config lock: ", err)
-		return nil, err
-	}
-	ctx.Logger.WithField("networkInterface.SecurityGroupIds", networkInterface.GetSecurityGroupIds()).WithField("securityGroups", securityGroups).Debug("Checking security groups")
-	if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
-		return sgConfigurationLock, nil
-	}
-	err = networkInterface.Refresh()
-	if err != nil {
-		sgConfigurationLock.Unlock()
-		return nil, err
-	}
-	if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
-		return sgConfigurationLock, nil
-	}
-
-	ctx.Logger.Info("Reconfiguring security groups")
-	sharedLock, err := reconfigureSecurityGroups(ctx, networkInterface, securityGroups, sgConfigurationLock, securityConvergenceTimeout, waitForSgLockTimeout)
-	if err != nil {
-		return nil, err
-	}
-
-	return sharedLock, nil
-}
-
-func waitForSecurityGroupToConverge(ctx *context.VPCContext, networkInterface ec2wrapper.NetworkInterface, securityGroups map[string]struct{}, securityConvergenceTimeout time.Duration) error {
-	now := time.Now()
-	for time.Since(now) < securityConvergenceTimeout {
-		err := networkInterface.Refresh()
+		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, false)
 		if err != nil {
-			ctx.Logger.Warning("Unable to refresh interface while waiting for security group change, bailing: ", err)
+			sharedSGLock.Unlock()
+			return alloc, err
+		}
+		alloc.sharedSGLock = sharedSGLock
+		return alloc, err
+	}
+
+	return nil, errors.Wrap(lockErr, "Cannot get exclusive SG Lock")
+}
+
+func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address, allowSecurityGroupChange bool) (*allocation, error) {
+	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot retrieve instance identity")
+	}
+
+	optimisticLockTimeout := time.Duration(0)
+	reconfigurationTimeout := 10 * time.Second
+
+	configurationLockPath := utilities.GetConfigurationLockPath(deviceIdx)
+	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
+
+	lock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
+	defer lock.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	records, err := locker.ListFiles(addressesLockPath)
+	if err != nil {
+		return nil, err
+	}
+
+	utilizedAddresses := make([]*vpcapi.UtilizedAddress, 0, len(records))
+	for _, record := range records {
+		tmpLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
+		if err == nil {
+			tmpLock.Unlock()
+		} else {
+			ip := net.ParseIP(record.Name)
+
+			address := &vpcapi.UtilizedAddress{
+				Address: &titus.Address{
+					Address: ip.String(),
+				},
+				LastUsedTime: &timestamp.Timestamp{
+					Seconds: record.BumpTime.Unix(),
+					Nanos:   int32(record.BumpTime.Nanosecond()),
+				},
+			}
+			utilizedAddresses = append(utilizedAddresses, address)
+		}
+	}
+
+	assignIPRequest := &vpcapi.AssignIPRequest{
+		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
+			DeviceIndex: uint32(deviceIdx),
+		},
+		SecurityGroupIds:         securityGroups,
+		UtilizedAddresses:        utilizedAddresses,
+		InstanceIdentity:         instanceIdentity,
+		AllowSecurityGroupChange: allowSecurityGroupChange,
+		Ipv6AddressRequested:     allocateIPv6Address,
+	}
+
+	logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Making assign IP request")
+	response, err := client.AssignIP(ctx, assignIPRequest)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("AssignIP request failed")
+		return nil, errors.Wrap(err, "Error received from VPC Assign Private IP Server")
+	}
+
+	logger.G(ctx).WithField("assignIPResponse", response).Info("AssignIP request suceeded")
+
+	alloc := &allocation{}
+	alloc.networkInterface = response.NetworkInterface
+	err = populateAlloc(ctx, alloc, allocateIPv6Address, response.UsableAddresses, locker, addressesLockPath)
+	if err != nil {
+		return nil, err
+	}
+	return alloc, nil
+}
+
+func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address bool, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker, addressesLockPath string) error {
+	optimisticLockTimeout := time.Duration(0)
+
+	for idx := range usableAddresses {
+		addr := usableAddresses[idx]
+		ip := net.ParseIP(addr.Address.Address)
+		if ip.To4() == nil {
+			continue
+		}
+		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		if err == nil {
+			alloc.exclusiveIP4Lock = lock
+			alloc.ip4Address = addr
+			break
+		} else if err != unix.EWOULDBLOCK {
 			return err
 		}
-		if reflect.DeepEqual(securityGroups, networkInterface.GetSecurityGroupIds()) {
-			ctx.Logger.WithField("duration", time.Since(now).String()).Info("Changed security groups successfully")
-			return nil
+	}
+
+	if alloc.ip4Address == nil {
+		return errors.New("Cannot allocate IPv4 address")
+	}
+
+	if !allocateIPv6Address {
+		return nil
+	}
+
+	for idx := range usableAddresses {
+		addr := usableAddresses[idx]
+		ip := net.ParseIP(addr.Address.Address)
+		if ip.To4() != nil {
+			continue
 		}
-		time.Sleep(time.Second)
-	}
-	return errSecurityGroupsNotConverged
-}
-
-func getInterfaceByIdx(parentCtx *context.VPCContext, idx int) (ec2wrapper.NetworkInterface, error) {
-	allInterfaces, err := parentCtx.EC2metadataClientWrapper.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, networkInterface := range allInterfaces {
-		if networkInterface.GetDeviceNumber() == idx {
-			return networkInterface, nil
+		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		if err == nil {
+			alloc.ip6Address = addr
+			alloc.exclusiveIP6Lock = lock
+			break
+		} else if err != unix.EWOULDBLOCK {
+			alloc.exclusiveIP4Lock.Unlock()
+			return err
 		}
 	}
 
-	return nil, errInterfaceNotFoundAtIndex
+	if alloc.ip6Address == nil {
+		alloc.exclusiveIP4Lock.Unlock()
+		return errors.New("Cannot allocate IPv6 address")
+	}
+
+	return nil
 }

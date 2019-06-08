@@ -68,11 +68,7 @@ fi
 cat <<-EOF >/tmp/post-install.sh
 #!/bin/bash
 systemctl --system daemon-reload
-systemctl enable titus-darion.service
-systemctl enable titus-reaper.service
-systemctl enable titus-setup-networking.timer
-systemctl enable titus-vpc-gc.timer
-systemctl enable lxcfs || echo "Not enabling LXCFS -- it is not available"
+# TODO(Sargun): Make this reload apparmor only if apparmor is "started"
 systemctl reload apparmor || echo "Could not reload apparmor"
 EOF
 chmod +x /tmp/post-install.sh
@@ -99,7 +95,7 @@ fpm -t deb -s dir -C root \
   --deb-activate ldconfig \
   --depends libc6 \
   --depends 'apparmor >= 2.12' \
-  --depends 'docker-ce >= 5:18.09.1~3-0~ubuntu-xenial' \
+  --deb-recommends 'docker-ce >= 5:18.09.1~3-0~ubuntu-xenial' \
   --deb-recommends lxcfs \
   --deb-recommends atlas-titus-agent \
   --deb-recommends nvidia-container-runtime-hook \

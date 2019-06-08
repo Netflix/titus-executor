@@ -54,7 +54,16 @@ message MasterStatus {
 
     /// Time when a transition to a state happened.
     uint64 timestamp = 4;
+}
 
+message ServerPort {
+    uint32 portNumber = 1;
+
+    string protocol = 2;
+
+    bool secure = 3;
+
+    string description = 4;
 }
 
 /// A descriptor of a single TitusMaster instance.
@@ -67,6 +76,12 @@ message MasterInstance {
     MasterStatus status = 3;
 
     repeated MasterStatus statusHistory = 4;
+
+    string instanceGroupId = 5;
+
+    repeated ServerPort serverPorts = 6;
+
+    map<string, string> labels = 7;
 }
 
 message SupervisorEvent {

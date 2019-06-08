@@ -42,7 +42,7 @@ func (x Tier) String() string {
 	return proto.EnumName(Tier_name, int32(x))
 }
 func (Tier) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0}
 }
 
 // / Titus hierarchy level.
@@ -75,7 +75,7 @@ func (x Level) String() string {
 	return proto.EnumName(Level_name, int32(x))
 }
 func (Level) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{1}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{1}
 }
 
 // / Disk mount permission mask
@@ -105,7 +105,7 @@ func (x MountPerm) String() string {
 	return proto.EnumName(MountPerm_name, int32(x))
 }
 func (MountPerm) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{2}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{2}
 }
 
 type Day int32
@@ -143,7 +143,7 @@ func (x Day) String() string {
 	return proto.EnumName(Day_name, int32(x))
 }
 func (Day) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{3}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3}
 }
 
 type CallMetadata_CallerType int32
@@ -169,7 +169,7 @@ func (x CallMetadata_CallerType) String() string {
 	return proto.EnumName(CallMetadata_CallerType_name, int32(x))
 }
 func (CallMetadata_CallerType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{0, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0, 0}
 }
 
 // / Call metadata (caller's identity, call path).
@@ -197,7 +197,7 @@ func (m *CallMetadata) Reset()         { *m = CallMetadata{} }
 func (m *CallMetadata) String() string { return proto.CompactTextString(m) }
 func (*CallMetadata) ProtoMessage()    {}
 func (*CallMetadata) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0}
 }
 func (m *CallMetadata) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CallMetadata.Unmarshal(m, b)
@@ -276,7 +276,7 @@ func (m *CallMetadata_Caller) Reset()         { *m = CallMetadata_Caller{} }
 func (m *CallMetadata_Caller) String() string { return proto.CompactTextString(m) }
 func (*CallMetadata_Caller) ProtoMessage()    {}
 func (*CallMetadata_Caller) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{0, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{0, 0}
 }
 func (m *CallMetadata_Caller) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CallMetadata_Caller.Unmarshal(m, b)
@@ -337,7 +337,7 @@ func (m *Page) Reset()         { *m = Page{} }
 func (m *Page) String() string { return proto.CompactTextString(m) }
 func (*Page) ProtoMessage()    {}
 func (*Page) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{1}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{1}
 }
 func (m *Page) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Page.Unmarshal(m, b)
@@ -407,7 +407,7 @@ func (m *Pagination) Reset()         { *m = Pagination{} }
 func (m *Pagination) String() string { return proto.CompactTextString(m) }
 func (*Pagination) ProtoMessage()    {}
 func (*Pagination) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{2}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{2}
 }
 func (m *Pagination) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Pagination.Unmarshal(m, b)
@@ -488,7 +488,7 @@ func (m *RetryPolicy) Reset()         { *m = RetryPolicy{} }
 func (m *RetryPolicy) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy) ProtoMessage()    {}
 func (*RetryPolicy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{3}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3}
 }
 func (m *RetryPolicy) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy.Unmarshal(m, b)
@@ -664,7 +664,7 @@ func (m *RetryPolicy_Immediate) Reset()         { *m = RetryPolicy_Immediate{} }
 func (m *RetryPolicy_Immediate) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy_Immediate) ProtoMessage()    {}
 func (*RetryPolicy_Immediate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{3, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3, 0}
 }
 func (m *RetryPolicy_Immediate) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy_Immediate.Unmarshal(m, b)
@@ -708,7 +708,7 @@ func (m *RetryPolicy_Delayed) Reset()         { *m = RetryPolicy_Delayed{} }
 func (m *RetryPolicy_Delayed) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy_Delayed) ProtoMessage()    {}
 func (*RetryPolicy_Delayed) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{3, 1}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3, 1}
 }
 func (m *RetryPolicy_Delayed) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy_Delayed.Unmarshal(m, b)
@@ -766,7 +766,7 @@ func (m *RetryPolicy_ExponentialBackOff) Reset()         { *m = RetryPolicy_Expo
 func (m *RetryPolicy_ExponentialBackOff) String() string { return proto.CompactTextString(m) }
 func (*RetryPolicy_ExponentialBackOff) ProtoMessage()    {}
 func (*RetryPolicy_ExponentialBackOff) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{3, 2}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{3, 2}
 }
 func (m *RetryPolicy_ExponentialBackOff) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RetryPolicy_ExponentialBackOff.Unmarshal(m, b)
@@ -823,7 +823,7 @@ func (m *TokenBucketPolicy) Reset()         { *m = TokenBucketPolicy{} }
 func (m *TokenBucketPolicy) String() string { return proto.CompactTextString(m) }
 func (*TokenBucketPolicy) ProtoMessage()    {}
 func (*TokenBucketPolicy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{4}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{4}
 }
 func (m *TokenBucketPolicy) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TokenBucketPolicy.Unmarshal(m, b)
@@ -952,7 +952,7 @@ func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) String() string {
 }
 func (*TokenBucketPolicy_FixedIntervalRefillStrategy) ProtoMessage() {}
 func (*TokenBucketPolicy_FixedIntervalRefillStrategy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{4, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{4, 0}
 }
 func (m *TokenBucketPolicy_FixedIntervalRefillStrategy) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TokenBucketPolicy_FixedIntervalRefillStrategy.Unmarshal(m, b)
@@ -1004,7 +1004,7 @@ func (m *Reference) Reset()         { *m = Reference{} }
 func (m *Reference) String() string { return proto.CompactTextString(m) }
 func (*Reference) ProtoMessage()    {}
 func (*Reference) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{5}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{5}
 }
 func (m *Reference) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Reference.Unmarshal(m, b)
@@ -1224,7 +1224,7 @@ func (m *Reference_System) Reset()         { *m = Reference_System{} }
 func (m *Reference_System) String() string { return proto.CompactTextString(m) }
 func (*Reference_System) ProtoMessage()    {}
 func (*Reference_System) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{5, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{5, 0}
 }
 func (m *Reference_System) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Reference_System.Unmarshal(m, b)
@@ -1260,7 +1260,7 @@ func (m *ResourceDimension) Reset()         { *m = ResourceDimension{} }
 func (m *ResourceDimension) String() string { return proto.CompactTextString(m) }
 func (*ResourceDimension) ProtoMessage()    {}
 func (*ResourceDimension) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{6}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{6}
 }
 func (m *ResourceDimension) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ResourceDimension.Unmarshal(m, b)
@@ -1332,7 +1332,7 @@ func (m *TimeWindow) Reset()         { *m = TimeWindow{} }
 func (m *TimeWindow) String() string { return proto.CompactTextString(m) }
 func (*TimeWindow) ProtoMessage()    {}
 func (*TimeWindow) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{7}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{7}
 }
 func (m *TimeWindow) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TimeWindow.Unmarshal(m, b)
@@ -1387,7 +1387,7 @@ func (m *TimeWindow_HourlyTimeWindow) Reset()         { *m = TimeWindow_HourlyTi
 func (m *TimeWindow_HourlyTimeWindow) String() string { return proto.CompactTextString(m) }
 func (*TimeWindow_HourlyTimeWindow) ProtoMessage()    {}
 func (*TimeWindow_HourlyTimeWindow) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{7, 0}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{7, 0}
 }
 func (m *TimeWindow_HourlyTimeWindow) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TimeWindow_HourlyTimeWindow.Unmarshal(m, b)
@@ -1436,7 +1436,7 @@ func (m *ContainerHealthProvider) Reset()         { *m = ContainerHealthProvider
 func (m *ContainerHealthProvider) String() string { return proto.CompactTextString(m) }
 func (*ContainerHealthProvider) ProtoMessage()    {}
 func (*ContainerHealthProvider) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_base_7499834131d4ff38, []int{8}
+	return fileDescriptor_titus_base_69562b378d124d01, []int{8}
 }
 func (m *ContainerHealthProvider) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ContainerHealthProvider.Unmarshal(m, b)
@@ -1497,10 +1497,10 @@ func init() {
 }
 
 func init() {
-	proto.RegisterFile("netflix/titus/titus_base.proto", fileDescriptor_titus_base_7499834131d4ff38)
+	proto.RegisterFile("netflix/titus/titus_base.proto", fileDescriptor_titus_base_69562b378d124d01)
 }
 
-var fileDescriptor_titus_base_7499834131d4ff38 = []byte{
+var fileDescriptor_titus_base_69562b378d124d01 = []byte{
 	// 1297 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x56, 0x5d, 0x6f, 0x1b, 0x45,
 	0x17, 0xf6, 0xfa, 0x2b, 0xf6, 0x71, 0x93, 0x3a, 0xa3, 0xf7, 0x4d, 0xfd, 0xba, 0xaf, 0x42, 0xe4,

@@ -1,62 +1,50 @@
 package gc
 
 import (
+	"context"
+	"net"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/fslocker"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
-	"github.com/Netflix/titus-executor/vpc/allocate"
-	"github.com/Netflix/titus-executor/vpc/context"
-	"github.com/Netflix/titus-executor/vpc/ec2wrapper"
-	"gopkg.in/urfave/cli.v1"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/identity"
+	"github.com/Netflix/titus-executor/vpc/utilities"
+	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/hashicorp/go-multierror"
+	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
+	"google.golang.org/grpc"
 )
 
-var GC = cli.Command{ // nolint: golint
-	Name:   "gc",
-	Usage:  "Garbage collect unused IP addresses",
-	Action: context.WrapFunc(gc),
-	Flags: []cli.Flag{
-		cli.DurationFlag{
-			Name:  "grace-period",
-			Usage: "How long does the IP have be unused before we trigger GC, must be greater than or equal to the refresh interval",
-			Value: vpc.RefreshInterval * 2,
-		},
-		cli.DurationFlag{
-			Name:  "timeout",
-			Usage: "Maximum amount of time allowed running GC",
-			Value: time.Minute * 5,
-		},
-	},
-}
-
-func gc(parentCtx *context.VPCContext) error {
-	gracePeriod := parentCtx.CLIContext.Duration("grace-period")
-	if gracePeriod < vpc.RefreshInterval {
-		return cli.NewExitError("Refresh interval invalid", 1)
-	}
-
-	timeout := parentCtx.CLIContext.Duration("timeout")
-	ctx, cancel := parentCtx.WithTimeout(timeout)
+func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	parentCtx.Logger.WithField("grace-period", gracePeriod).Debug()
-	if err := doGc(ctx, gracePeriod); err != nil {
-		return cli.NewMultiError(cli.NewExitError("Unable to run GC", 1), err)
+	optimisticTimeout := time.Duration(0)
+	exclusiveLock, err := locker.ExclusiveLock(utilities.GetGlobalConfigurationLock(), &optimisticTimeout)
+	if err != nil {
+		return errors.Wrap(err, "Cannot get global configuration lock")
+	}
+	defer exclusiveLock.Unlock()
+
+	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Unable to get instance identity")
 	}
 
-	return nil
-}
+	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
-	interfaces, err := parentCtx.EC2metadataClientWrapper.Interfaces()
+	maxInterfaces, err := vpc.GetMaxInterfaces(instanceIdentity.InstanceType)
 	if err != nil {
 		return err
 	}
-
-	parentCtx.Logger.Debug("Examining interfaces: ", interfaces)
-
-	for _, iface := range interfaces {
-		ctx := parentCtx.WithField("interface", iface.GetInterfaceID())
-		err = doGcInterface(ctx, gracePeriod, iface)
+	for i := 1; i < maxInterfaces; i++ {
+		err = doGcInterface(ctx, minIdlePeriod, i, locker, client, instanceIdentity)
 		if err != nil {
 			return err
 		}
@@ -65,17 +53,110 @@ func doGc(parentCtx *context.VPCContext, gracePeriod time.Duration) error {
 	return nil
 }
 
-func doGcInterface(parentCtx *context.VPCContext, gracePeriod time.Duration, networkInterface ec2wrapper.NetworkInterface) error {
-	// Don't run GC on the primary interface
-	if networkInterface.GetDeviceNumber() == 0 {
-		parentCtx.Logger.Debug("Not running GC on this interface")
-		return nil
+func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
+	ctx = logger.WithField(ctx, "deviceIdx", deviceIdx)
+	optimisticLockTimeout := time.Duration(0)
+	reconfigurationTimeout := 10 * time.Second
+
+	configurationLockPath := utilities.GetConfigurationLockPath(deviceIdx)
+	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
+
+	configurationLock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
+	if err != nil {
+		return errors.Wrap(err, "Cannot get exclusive configuration lock on interface")
+	}
+	defer configurationLock.Unlock()
+
+	records, err := locker.ListFiles(addressesLockPath)
+	if err != nil {
+		return err
 	}
 
-	parentCtx.Logger.Debug("Running GC on this interface")
-	err := allocate.NewIPPoolManager(networkInterface).DoGc(parentCtx, gracePeriod)
-	if err != nil {
-		return cli.NewMultiError(cli.NewExitError("Unable to GC interfaces", 1), err)
+	unallocatedAddresses := make(map[string]*fslocker.Record, len(records))
+	nonviableAddresses := make(map[string]*fslocker.Record, len(records))
+	allocatedAddresses := make(map[string]*fslocker.Record, len(records))
+	for idx := range records {
+		record := records[idx]
+		entry := logger.G(ctx).WithField("ip", record.Name)
+		entry.Debug("Checking IP")
+
+		if t := time.Since(record.BumpTime); t < minIdlePeriod {
+			entry.WithField("idlePeriod", t).Debug("Address not viable for GC, not idle long enough")
+			nonviableAddresses[record.Name] = &record
+			continue
+		}
+
+		ipAddrLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
+		if err == unix.EWOULDBLOCK {
+			entry.Debug("Skipping address, in-use")
+			allocatedAddresses[record.Name] = &record
+			continue
+		} else if err != nil {
+			entry.WithError(err).Error("Encountered unknown errror")
+			return err
+		}
+		defer ipAddrLock.Unlock()
+		unallocatedAddresses[record.Name] = &record
 	}
-	return nil
+
+	// At this point it's safe to unlock, unlock is idempotent, so it's safe to call these here
+	// we've locked the individual files involved, meaning no one should be able to use those IPs
+	// and it's safe the unlock.
+	// We unlock here, because in freeIPs, it can take quite a while (minutes).
+	configurationLock.Unlock()
+
+	gcRequest := &vpcapi.GCRequest{
+		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
+			DeviceIndex: uint32(deviceIdx),
+		},
+		InstanceIdentity:     instanceIdentity,
+		AllocatedAddresses:   recordsToUtilizedAddresses(allocatedAddresses),
+		NonviableAddresses:   recordsToUtilizedAddresses(nonviableAddresses),
+		UnallocatedAddresses: recordsToUtilizedAddresses(unallocatedAddresses),
+	}
+
+	gcResponse, err := client.GC(ctx, gcRequest)
+	if err != nil {
+		return errors.Wrap(err, "Error from IP Service")
+	}
+
+	logger.G(ctx).WithField("addresesToDelete", gcResponse.AddressToDelete).Info("Received addresses to delete")
+	logger.G(ctx).WithField("addresesToBump", gcResponse.AddressToBump).Info("Received addresses to bump")
+
+	var returnError *multierror.Error
+	for _, addr := range gcResponse.AddressToDelete {
+		err = locker.RemovePath(filepath.Join(addressesLockPath, addr.Address))
+		if err != nil && !os.IsNotExist(err) {
+			logger.G(ctx).WithError(err).WithField("address", addr.Address).Error("Could not remove record")
+			returnError = multierror.Append(returnError, errors.Wrapf(err, "Cannot remove record %s", addr.Address))
+		}
+	}
+
+	for _, addr := range gcResponse.AddressToBump {
+		tmpLock, err := locker.SharedLock(filepath.Join(addressesLockPath, addr.Address), &optimisticLockTimeout)
+		if err == nil {
+			tmpLock.Bump()
+			tmpLock.Unlock()
+		} else if err != unix.EWOULDBLOCK {
+			logger.G(ctx).WithError(err).WithField("address", addr.Address).Errorf("Could not bump lock for record")
+		}
+	}
+
+	return returnError.ErrorOrNil()
+}
+
+func recordsToUtilizedAddresses(records map[string]*fslocker.Record) []*vpcapi.UtilizedAddress {
+	ret := make([]*vpcapi.UtilizedAddress, 0, len(records))
+	for _, record := range records {
+		ret = append(ret, &vpcapi.UtilizedAddress{
+			Address: &titus.Address{
+				Address: net.ParseIP(record.Name).String(),
+			},
+			LastUsedTime: &timestamp.Timestamp{
+				Seconds: int64(record.BumpTime.Second()),
+				Nanos:   int32(record.BumpTime.Nanosecond()),
+			},
+		})
+	}
+	return ret
 }

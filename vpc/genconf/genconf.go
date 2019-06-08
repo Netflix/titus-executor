@@ -1,51 +1,25 @@
 package genconf
 
 import (
-	"github.com/Netflix/titus-executor/vpc/context"
-	"gopkg.in/urfave/cli.v1"
-
+	"context"
 	"fmt"
 
 	"github.com/Netflix/titus-executor/vpc"
+	"github.com/Netflix/titus-executor/vpc/identity"
 )
 
-var export bool
-var resourceSetOnly bool
-
-var GenConf = cli.Command{ // nolint: golint
-	Name:   "genconf",
-	Usage:  "Generate Mesos Agent Configuration",
-	Action: context.WrapFunc(genConf),
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name:        "export",
-			Usage:       "Generate environment variables with export declaration",
-			Destination: &export,
-		},
-		cli.BoolFlag{
-			Name:        "resource-sets-only",
-			Usage:       "Don't generate environment variables, just the resourceset declaration",
-			Destination: &resourceSetOnly,
-		},
-	},
-}
-
-func genConf(parentCtx *context.VPCContext) error {
-
-	if err := doGenConf(parentCtx); err != nil {
-		return cli.NewMultiError(cli.NewExitError("Unable to generate config", 1), err)
+func GenConf(ctx context.Context, identityProvider identity.InstanceIdentityProvider, export, resourceSetsOnly bool) error {
+	instanceIdentity, err := identityProvider.GetIdentity(ctx)
+	if err != nil {
+		return err
 	}
 
-	return nil
-}
-
-func doGenConf(parentCtx *context.VPCContext) error {
-	maxInterfaces := vpc.GetMaxInterfaces(parentCtx.InstanceType)
-	maxIPs := vpc.GetMaxIPAddresses(parentCtx.InstanceType)
-	maxNetworkMbps := vpc.GetMaxNetworkMbps(parentCtx.InstanceType)
+	maxInterfaces := vpc.MustGetMaxInterfaces(instanceIdentity.InstanceType)
+	maxIPs := vpc.MustGetMaxIPAddresses(instanceIdentity.InstanceType)
+	maxNetworkMbps := vpc.MustGetMaxNetworkMbps(instanceIdentity.InstanceType)
 	// The number of interfaces exposed to the Titus scheduler is the maximum number of interfaces this instance can handle minus 1.
 	resourceSet := fmt.Sprintf("ResourceSet-ENIs-%d-%d", maxInterfaces-1, maxIPs)
-	if resourceSetOnly {
+	if resourceSetsOnly {
 		fmt.Println(resourceSet)
 		return nil
 	}

@@ -4,11 +4,13 @@ package setup
 
 import (
 	"bytes"
+	"context"
 
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/bpf/filter"
 	"github.com/Netflix/titus-executor/vpc/bpfloader"
-	"github.com/Netflix/titus-executor/vpc/context"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
@@ -33,7 +35,7 @@ func (c *clsAct) Type() string {
 	return "clsact"
 }
 
-func configureQdiscs(ctx *context.VPCContext) error {
+func configureQdiscs(ctx context.Context, networkInterfaces []*vpcapi.NetworkInterface, instanceType string) error {
 	links, err := netlink.LinkList()
 	if err != nil {
 		return err
@@ -47,19 +49,21 @@ func configureQdiscs(ctx *context.VPCContext) error {
 		return err
 	}
 
-	networkInterfaces, err := ctx.EC2metadataClientWrapper.Interfaces()
-	if err != nil {
-		return err
+	networkInterfacesMacMap := make(map[string]*vpcapi.NetworkInterface, len(networkInterfaces))
+	for idx := range networkInterfaces {
+		networkInterface := networkInterfaces[idx]
+		networkInterfacesMacMap[networkInterface.MacAddress] = networkInterface
 	}
 
 	for _, link := range links {
-		if networkInterface, ok := networkInterfaces[link.Attrs().HardwareAddr.String()]; !ok {
-			ctx.Logger.Debug("Skipping work on link, as it's not an ENI: ", link)
+		if networkInterface, ok := networkInterfacesMacMap[link.Attrs().HardwareAddr.String()]; !ok {
+			logger.G(ctx).Debug("Skipping work on link, as it's not an ENI: ", link)
 			continue
-		} else if networkInterface.GetDeviceNumber() == 0 {
+		} else if networkInterface.NetworkInterfaceAttachment.DeviceIndex == 0 {
+			logger.G(ctx).Debug("Skipping work on link, as it's the default / root device")
 			continue
 		}
-		ctx.Logger.Debugf("Configuring link: %+v", link)
+		logger.G(ctx).Debugf("Configuring link: %+v", link)
 		err = configureQdiscsForLink(ctx, link)
 		if err != nil {
 			return err
@@ -72,7 +76,7 @@ func configureQdiscs(ctx *context.VPCContext) error {
 	return nil
 }
 
-func configureFiltersForLink(ctx *context.VPCContext, link, ifbIngress, ifbEgress netlink.Link) error {
+func configureFiltersForLink(ctx context.Context, link, ifbIngress, ifbEgress netlink.Link) error {
 	egressFilter := netlink.MatchAll{
 		FilterAttrs: netlink.FilterAttrs{
 			LinkIndex: link.Attrs().Index,
@@ -121,7 +125,7 @@ func configureFiltersForLink(ctx *context.VPCContext, link, ifbIngress, ifbEgres
 
 }
 
-func configureQdiscsForLink(ctx *context.VPCContext, link netlink.Link) error {
+func configureQdiscsForLink(ctx context.Context, link netlink.Link) error {
 	qdiscs, err := netlink.QdiscList(link)
 	if err != nil {
 		return err
@@ -132,7 +136,7 @@ func configureQdiscsForLink(ctx *context.VPCContext, link netlink.Link) error {
 		}
 	}
 
-	ctx.Logger.Debugf("Setting up qdisc on: %+v", link)
+	logger.G(ctx).Debugf("Setting up qdisc on: %+v", link)
 	qdisc := clsAct{
 		QdiscAttrs: netlink.QdiscAttrs{
 			LinkIndex: link.Attrs().Index,
@@ -143,19 +147,19 @@ func configureQdiscsForLink(ctx *context.VPCContext, link netlink.Link) error {
 	return netlink.QdiscReplace(&qdisc)
 }
 
-func setupIFBs(ctx *context.VPCContext) error {
-	err := setupIFB(ctx, vpc.IngressIFB, "classifier_ingress", unix.ETH_P_IP)
+func setupIFBs(ctx context.Context, instanceType string) error {
+	err := setupIFB(ctx, instanceType, vpc.IngressIFB, "classifier_ingress", unix.ETH_P_IP)
 	if err != nil {
 		return err
 	}
 
-	return setupIFB(ctx, vpc.EgressIFB, "classifier_egress", unix.ETH_P_ALL)
+	return setupIFB(ctx, instanceType, vpc.EgressIFB, "classifier_egress", unix.ETH_P_ALL)
 }
 
-func setupIFB(ctx *context.VPCContext, ifbName, filterName string, filterProtocol uint16) error {
+func setupIFB(ctx context.Context, instanceType, ifbName, filterName string, filterProtocol uint16) error {
 	link, err := netlink.LinkByName(ifbName)
 	if err != nil && err.Error() == "Link not found" {
-		ctx.Logger.Info("Adding link: ", ifbName)
+		logger.G(ctx).Info("Adding link: ", ifbName)
 		ifb := netlink.Ifb{
 			LinkAttrs: netlink.LinkAttrs{
 				Name: ifbName,
@@ -171,7 +175,7 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string, filterProtoco
 			return err2
 		}
 		// Retry
-		return setupIFB(ctx, ifbName, filterName, filterProtocol)
+		return setupIFB(ctx, instanceType, ifbName, filterName, filterProtocol)
 	} else if err != nil {
 		return err
 	}
@@ -181,7 +185,7 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string, filterProtoco
 		return err
 	}
 
-	err = setupIFBQdisc(ctx, link)
+	err = setupIFBQdisc(ctx, instanceType, link)
 	if err != nil {
 		return err
 	}
@@ -189,7 +193,7 @@ func setupIFB(ctx *context.VPCContext, ifbName, filterName string, filterProtoco
 	return setupIFBBPFFilter(ctx, link, filterName, filterProtocol)
 }
 
-func setupIFBBPFFilter(ctx *context.VPCContext, link netlink.Link, filterName string, filterProtocol uint16) error {
+func setupIFBBPFFilter(ctx context.Context, link netlink.Link, filterName string, filterProtocol uint16) error {
 	filterData, err := filter.Asset("filter.o")
 	if err != nil {
 		return err
@@ -202,7 +206,7 @@ func setupIFBBPFFilter(ctx *context.VPCContext, link netlink.Link, filterName st
 	defer func() {
 		e := unix.Close(schedProgram)
 		if e != nil {
-			ctx.Logger.Warning("Cannot close bpf program: ", e)
+			logger.G(ctx).WithError(e).Warning("Cannot close bpf program")
 		}
 	}()
 	filterattrs := netlink.FilterAttrs{
@@ -227,14 +231,14 @@ func setupIFBBPFFilter(ctx *context.VPCContext, link netlink.Link, filterName st
 	return nil
 }
 
-func setupIFBQdisc(ctx *context.VPCContext, link netlink.Link) error {
+func setupIFBQdisc(ctx context.Context, instanceType string, link netlink.Link) error {
 	err := setupIFBHTBQdisc(ctx, link)
 	if err != nil {
 		return err
 	}
-	return setupIFBHTBRootClass(ctx, link)
+	return setupIFBHTBRootClass(ctx, instanceType, link)
 }
-func setupIFBHTBRootClass(ctx *context.VPCContext, link netlink.Link) error {
+func setupIFBHTBRootClass(ctx context.Context, instanceType string, link netlink.Link) error {
 
 	classattrs := netlink.ClassAttrs{
 		LinkIndex: link.Attrs().Index,
@@ -242,7 +246,7 @@ func setupIFBHTBRootClass(ctx *context.VPCContext, link netlink.Link) error {
 		Handle:    rootHtbClass,
 	}
 
-	rate := vpc.GetMaxNetworkbps(ctx.InstanceType)
+	rate := vpc.MustGetMaxNetworkbps(instanceType)
 	htbclassattrs := netlink.HtbClassAttrs{
 		Rate:    rate,
 		Buffer:  uint32(float64(rate/8)/netlink.Hz() + float64(mtu)),
@@ -252,7 +256,7 @@ func setupIFBHTBRootClass(ctx *context.VPCContext, link netlink.Link) error {
 	return netlink.ClassReplace(class)
 }
 
-func setupIFBHTBQdisc(ctx *context.VPCContext, link netlink.Link) error {
+func setupIFBHTBQdisc(ctx context.Context, link netlink.Link) error {
 	qdiscs, err := netlink.QdiscList(link)
 	if err != nil {
 		return err

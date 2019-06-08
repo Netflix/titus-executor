@@ -117,15 +117,19 @@ push-titus-agent: titus-agent
 ## Protobuf and source code generation
 
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
-PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto
+PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto
+PROTO_MAP     := Mnetflix/titus/titus_vpc_api.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
 protogen: $(GOBIN_TOOL) | $(clean) $(clean-proto-defs)
 	mkdir -p api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ --titusgo_out=api/ $(PROTOS)
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc:api/ $(PROTOS)
+	mkdir -p vpc/api
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):vpc/api/ vpc/proto/vpc.proto
 
 .PHONY: clean-proto-defs
 clean-proto-defs: | $(clean)
 	rm -rf api/netflix/titus
+	rm -rf vpc/api
 
 $(GOBIN_TOOL):
 	go get github.com/myitcv/gobin

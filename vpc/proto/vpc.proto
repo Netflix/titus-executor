@@ -1,0 +1,119 @@
+syntax = "proto3";
+package com.netflix.titus.executor.vpc;
+
+import "google/protobuf/timestamp.proto";
+import "netflix/titus/titus_vpc_api.proto";
+
+option go_package = "vpcapi";
+
+// This is embedded in responses / replies so that a given IP Service Server may cache data from AWS. Since the client
+// is the only one ever going to make requests for that given ENI, it can take a lock on that ENI. If the cache version
+// the client presents is not present, or it is different from the one the server has, the server must refresh its
+// state from AWS
+message CacheVersion {
+    bytes uuid = 1;
+}
+
+message NetworkInterfaceAttachment {
+    // 0-indexed
+    uint32 deviceIndex = 1;
+};
+
+message NetworkInterface {
+    string subnetId = 1;
+    string availabilityZone = 2;
+    string macAddress = 3;
+    string networkInterfaceId = 4;
+    string ownerAccountId = 5;
+    string attachedInstanceID = 6;
+    NetworkInterfaceAttachment networkInterfaceAttachment = 7;
+    string vpcId = 8;
+};
+
+message InstanceIdentity {
+    // This is duplicated data , but we include it for verification beyond Metatron. No containers should run
+    // on the instance prior to this API call being completed. We can then rely on the instance
+    // identity document for further verification.
+    string instanceIdentityDocument = 1;
+    string instanceIdentitySignature = 2;
+    string instanceID = 3;
+    string region = 4;
+    string accountID = 5;
+    string instanceType = 6;
+}
+
+// ProvisionInstanceRequest is called when the instance is first initialized, in order to configure its interfaces,
+// and other network capabilities.
+// The provisioning service decides which account / subnet / VPC the interface will live in.
+message ProvisionInstanceRequest {
+    // We don't include the subnet ID here because the instance subnets should be decided on the side of the IP Service
+    InstanceIdentity instanceIdentity = 1;
+};
+
+message ProvisionInstanceResponse {
+    // In this, the deviceIndex, macAddress, and networkInterfaceId must be unique in this list.
+    repeated NetworkInterface networkInterfaces = 1;
+    CacheVersion cacheVersion = 2;
+};
+
+message UtilizedAddress {
+    Address address = 1;
+    google.protobuf.Timestamp lastUsedTime = 2;
+}
+
+message AssignIPRequest {
+    CacheVersion cacheVersion = 1;
+    // This is optional. If it is not specified then we will assign a "random" IP to the interface
+    com.netflix.titus.SignedAddressAllocation signedAddressAllocation = 2;
+    NetworkInterfaceAttachment networkInterfaceAttachment = 3;
+    repeated string securityGroupIds = 4;
+    bool ipv6AddressRequested = 5;
+    repeated UtilizedAddress utilizedAddresses = 6;
+    InstanceIdentity instanceIdentity = 7;
+    bool allowSecurityGroupChange = 8;
+};
+
+message AssignIPResponse {
+    CacheVersion cacheVersion = 1;
+    // A batch of IPs may be given back. It is up to the client to figure out what IPs it can use.
+    repeated UsableAddress usableAddresses = 2;
+    NetworkInterface networkInterface = 3;
+    repeated string securityGroupIds = 4;
+};
+
+
+message UsableAddress {
+    Address address = 1;
+    uint32 prefixLength = 2;
+};
+
+// AddressGCMetadata is sent when the instance requests that the IP Service GC it. It's basically a way to
+// indicate when the IP was last used, and we can GC it based on that metadata.
+message GCRequest {
+    CacheVersion cacheVersion = 1;
+    InstanceIdentity instanceIdentity = 2;
+    NetworkInterfaceAttachment networkInterfaceAttachment = 3;
+    // unallocatedAddresses are addresses we were able to take a lock on
+    repeated UtilizedAddress unallocatedAddresses = 4;
+    // nonviableAddresses are addresses which we found found in the store, but we decided not to nominate
+    // for GC, because they've been bumped recently
+    repeated UtilizedAddress nonviableAddresses = 5;
+    // allocatedAddresses are addresses currently in use.
+    repeated UtilizedAddress allocatedAddresses = 6;
+
+}
+
+message GCResponse {
+    CacheVersion cacheVersion = 1;
+    repeated Address addressToBump = 2;
+    repeated Address addressToDelete = 3;
+}
+
+service TitusAgentVPCService {
+    // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
+    rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
+
+    rpc AssignIP (AssignIPRequest) returns (AssignIPResponse);
+    // GC extra IPs
+    rpc GC (GCRequest) returns (GCResponse);
+}
