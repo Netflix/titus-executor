@@ -130,14 +130,9 @@ func (vk *Vk) Start(ctx context.Context) error {
 		InternalIP:      os.Getenv("VKUBELET_POD_IP"),
 	}
 
-	p, err := provider.NewProvider(initConfig)
-	if err != nil {
-		return err
-	}
+	agentProvider := provider.NewAgentProvider(initConfig)
 
-
-
-	pNode := NodeFromProvider(ctx, c.NodeName, taint, p)
+	pNode := NodeFromProvider(ctx, c.NodeName, taint, agentProvider)
 	log.G(ctx).WithField("pod", pNode).Info("Registering node")
 	node, err := vkubelet.NewNode(
 		vkubelet.NaiveNodeProvider{},
@@ -154,13 +149,13 @@ func (vk *Vk) Start(ctx context.Context) error {
 		Client:          client,
 		Namespace:       c.KubeNamespace,
 		NodeName:        pNode.Name,
-		Provider:        p,
+		Provider:        agentProvider,
 		ResourceManager: rm,
 		PodSyncWorkers:  c.PodSyncWorkers,
 		PodInformer:     podInformer,
 	})
 
-	cancelHTTP, err := setupHTTPServer(ctx, p, apiConfig)
+	cancelHTTP, err := setupHTTPServer(ctx, agentProvider, apiConfig)
 	if err != nil {
 		return err
 	}
@@ -243,8 +238,6 @@ func NodeFromProvider(ctx context.Context, name string, taint *v1.Taint, p provi
 			DaemonEndpoints: *p.NodeDaemonEndpoints(ctx),
 		},
 	}
-
-
 
 	return node
 }

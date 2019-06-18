@@ -83,4 +83,4 @@ require (
 
 replace go.opencensus.io => go.opencensus.io v0.20.2
 
-replace github.com/virtual-kubelet/virtual-kubelet => /Users/sargun/go/src/github.com/virtual-kubelet/virtual-kubelet
+// replace github.com/virtual-kubelet/virtual-kubelet => /Users/ghartmann/code/go/src/github.com/sargun/virtual-kubelet

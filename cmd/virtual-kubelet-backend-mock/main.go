@@ -35,6 +35,7 @@ func init() {
 	flag.StringVar(&podFileName, "pod", "", "The location of the pod spec (json-ish)")
 }
 
+// TODO: Setup journald logging
 func main() {
 	flag.Parse()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -44,24 +45,20 @@ func main() {
 	log.L = logruslogger.FromLogrus(logrus.NewEntry(logger))
 	ctx = log.WithLogger(ctx, log.L)
 
-
-	// TODO: Setup journald logging
-	// We use this to write status updates to
-	// they're just plain old JSON statuses
-	// If unset, we use PID 1.
-	statuses := os.NewFile(uintptr(statusfd), "")
-	defer statuses.Close()
-
 	podFile, err := os.Open(podFileName)
 	if err != nil {
 		panic(err)
 	}
+
 	pod, err := backend.PodFromFile(podFile)
 	if err != nil {
 		panic(err)
 	}
-
 	log.G(ctx).WithField("pod", pod).Debug("Got pod")
+
+	statusPipePath := backend.GetStatusPipePath(pod)
+	pipe, _ := os.OpenFile(statusPipePath, os.O_RDWR, 0600)
+	defer pipe.Close()
 
 	runtime := func(ctx context.Context, cfg config.Config) (runtimeTypes.Runtime, error) {
 		rm := &runtimeMock{}
@@ -73,7 +70,7 @@ func main() {
 				return nil, err
 			} else {
 				timer = time.AfterFunc(dur, func() {
-					rm.statusChan<- runtimeTypes.StatusMessage{
+					rm.statusChan <- runtimeTypes.StatusMessage{
 						Status: runtimeTypes.StatusFinished,
 						Msg:    "Slept, and completed",
 					}
@@ -112,7 +109,7 @@ func main() {
 
 	mockRunner, err := runner.WithRuntime(ctx, metrics.Discard, runtime, &uploader.Uploaders{}, *cfg)
 
-	err = backend.RunWithBackend(ctx, mockRunner, statuses, pod)
+	err = backend.RunWithBackend(ctx, mockRunner, pipe, pod)
 	if err != nil {
 		log.G(ctx).WithError(err).Fatal("Could not run container")
 	}

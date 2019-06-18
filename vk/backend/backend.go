@@ -16,7 +16,6 @@ import (
 	"os/signal"
 )
 
-
 func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 	switch state {
 	case titusdriver.Starting:
@@ -57,7 +56,6 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 	cpu := requests["cpu"]
 	memory := requests["memory"]
 
-
 	err = runner.StartTask(pod.GetName(), &containerInfo, memory.Value(), cpu.Value(), uint64(disk.Value()))
 	if err != nil {
 		return errors.Wrap(err, "Could not start task")
@@ -67,11 +65,11 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, os.Interrupt, unix.SIGUSR1)
 		select {
-			case signal := <-ch:
-				log.G(ctx).WithField("signal", signal).Info("Terminating pod due to signal")
-				runner.Kill()
+		case signal := <-ch:
+			log.G(ctx).WithField("signal", signal).Info("Terminating pod due to signal")
+			runner.Kill()
 		case <-ctx.Done():
-				return
+			return
 		}
 	}()
 
