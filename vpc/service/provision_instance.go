@@ -4,11 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"

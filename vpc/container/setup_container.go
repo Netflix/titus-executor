@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/signal"
@@ -8,11 +9,8 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/identity"
-	"github.com/pkg/errors"
-
-	"context"
-
 	"github.com/Netflix/titus-executor/vpc/types"
+	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
