@@ -49,7 +49,7 @@ require (
 	github.com/spf13/viper v1.0.2
 	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/stretchr/testify v1.3.0
-	github.com/vishvananda/netlink v0.0.0-20180205182215-a2af46a09c21
+	github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6
 	github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 	golang.org/x/net v0.0.0-20190313220215-9f648a60d977

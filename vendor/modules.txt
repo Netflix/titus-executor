@@ -344,7 +344,7 @@ github.com/spf13/viper
 # github.com/stretchr/testify v1.3.0
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-# github.com/vishvananda/netlink v0.0.0-20180205182215-a2af46a09c21
+# github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6
 github.com/vishvananda/netlink
 github.com/vishvananda/netlink/nl
 # github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0

@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/pkg/errors"
+
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -147,16 +149,32 @@ func configureQdiscsForLink(ctx context.Context, link netlink.Link) error {
 	return netlink.QdiscReplace(&qdisc)
 }
 
+func getQueueCount(ctx context.Context) (int, int, error) {
+	link, err := netlink.LinkByName("eth0")
+	if err != nil {
+		return 0, 0, errors.Wrap(err, "Cannot get link object for eth0, to retrieve queue count")
+	}
+
+	numTXQueues := link.Attrs().NumTxQueues
+	numRXQueues := link.Attrs().NumTxQueues
+
+	return numTXQueues, numRXQueues, nil
+}
+
 func setupIFBs(ctx context.Context, instanceType string) error {
-	err := setupIFB(ctx, instanceType, vpc.IngressIFB, "classifier_ingress", unix.ETH_P_IP)
+	numTXQueues, numRXQueues, err := getQueueCount(ctx)
+	if err != nil {
+		return err
+	}
+	err = setupIFB(ctx, instanceType, vpc.IngressIFB, "classifier_ingress", unix.ETH_P_IP, numRXQueues)
 	if err != nil {
 		return err
 	}
 
-	return setupIFB(ctx, instanceType, vpc.EgressIFB, "classifier_egress", unix.ETH_P_ALL)
+	return setupIFB(ctx, instanceType, vpc.EgressIFB, "classifier_egress", unix.ETH_P_ALL, numTXQueues)
 }
 
-func setupIFB(ctx context.Context, instanceType, ifbName, filterName string, filterProtocol uint16) error {
+func setupIFB(ctx context.Context, instanceType, ifbName, filterName string, filterProtocol uint16, queues int) error {
 	link, err := netlink.LinkByName(ifbName)
 	if err != nil && err.Error() == "Link not found" {
 		logger.G(ctx).Info("Adding link: ", ifbName)
@@ -166,7 +184,8 @@ func setupIFB(ctx context.Context, instanceType, ifbName, filterName string, fil
 				// Hardcoded
 				TxQLen: 1000,
 				// This is based on the number of Queues ENAs come with
-				NumTxQueues: 8,
+				NumTxQueues: queues,
+				NumRxQueues: queues,
 				// AWS Upper bound of MTU
 				MTU: 9001,
 			},
@@ -175,7 +194,7 @@ func setupIFB(ctx context.Context, instanceType, ifbName, filterName string, fil
 			return err2
 		}
 		// Retry
-		return setupIFB(ctx, instanceType, ifbName, filterName, filterProtocol)
+		return setupIFB(ctx, instanceType, ifbName, filterName, filterProtocol, queues)
 	} else if err != nil {
 		return err
 	}
