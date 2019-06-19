@@ -743,8 +743,8 @@ func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
 	if status.State != titusdriver.Killed {
 		t.Fail()
 	}
-	// 30 is 15 with some buffer?
-	if killTime > time.Second*time.Duration(30) {
+	// 45 is 15 with some buffer?
+	if killTime > time.Second*time.Duration(45) {
 		t.Fatalf("Task wasn't killed quickly enough, in %s", killTime.String())
 	}
 }
