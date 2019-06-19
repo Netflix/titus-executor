@@ -71,5 +71,5 @@ require (
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gopkg.in/yaml.v2 v2.2.2 // indirect
-	gotest.tools v2.2.0+incompatible // indirect
+	gotest.tools v2.2.0+incompatible
 )

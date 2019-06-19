@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -18,80 +19,78 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func isAssignIPRequestValid(req *vpcapi.AssignIPRequest) error {
+	if req.SignedAddressAllocation != nil {
+		return status.Error(codes.Unimplemented, "Static addresses not yet implemented")
+	}
+
+	if req.NetworkInterfaceAttachment.DeviceIndex == 0 {
+		return status.Error(codes.InvalidArgument, "Device index 0 not allowed")
+	}
+
+	return nil
+}
+
+func isAssignIPRequestValidForInstance(req *vpcapi.AssignIPRequest, instance *ec2.Instance) error {
+	maxInterfaces, err := vpc.GetMaxInterfaces(*instance.InstanceType)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	if int(req.NetworkInterfaceAttachment.DeviceIndex) >= maxInterfaces {
+		return status.Error(codes.InvalidArgument, "Interface is out of bounds")
+	}
+
+	return nil
+}
+
 func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIPRequest) (*vpcapi.AssignIPResponse, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
-	if req.SignedAddressAllocation != nil {
-		return nil, status.Error(codes.Unimplemented, "Static addresses not yet implemented")
+	if err := isAssignIPRequestValid(req); err != nil {
+		return nil, err
 	}
 
-	if req.NetworkInterfaceAttachment.DeviceIndex == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Device index 0 not allowed")
-	}
-
-	ec2client, instance, err := vpcService.getInstance(ctx, req.InstanceIdentity)
+	ec2session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
 		return nil, err
 	}
 
-	maxInterfaces, err := vpc.GetMaxInterfaces(*instance.InstanceType)
+	instance, err := ec2session.GetInstance(ctx)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if int(req.NetworkInterfaceAttachment.DeviceIndex) >= maxInterfaces {
-		return nil, status.Error(codes.InvalidArgument, "Interface is out of bounds")
+		return nil, err
 	}
 
-	var iface *ec2.InstanceNetworkInterface
-	for idx := range instance.NetworkInterfaces {
-		ni := instance.NetworkInterfaces[idx]
-		if uint32(*ni.Attachment.DeviceIndex) == req.NetworkInterfaceAttachment.DeviceIndex {
-			iface = ni
-			break
-		}
+	err = isAssignIPRequestValidForInstance(req, instance)
+	if err != nil {
+		return nil, err
 	}
-	// TODO: Make this code less dumb
+
+	iface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
 	if iface == nil {
 		return nil, status.Error(codes.NotFound, "Could not find interface for attachment")
 	}
 
 	ctx = logger.WithField(ctx, "iface", *iface.NetworkInterfaceId)
-
-	// TODO: Cache
-	describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
-		SubnetIds: []*string{iface.SubnetId},
-	})
+	interfaceSession, err := ec2session.GetSessionFromNetworkInterface(ctx, iface)
 	if err != nil {
 		return nil, err
 	}
-	subnet := describeSubnetsOutput.Subnets[0]
+
+	subnet, err := interfaceSession.GetSubnet(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// TODO: Validate these
 	wantedSecurityGroups := aws.StringSlice(req.GetSecurityGroupIds())
 	// Assign default security groups
 	if len(wantedSecurityGroups) == 0 {
-		vpcFilter := &ec2.Filter{
-			Name:   aws.String("vpc-id"),
-			Values: []*string{iface.VpcId},
-		}
-		groupNameFilter := &ec2.Filter{
-			Name:   aws.String("group-name"),
-			Values: aws.StringSlice([]string{"default"}),
-		}
-		describeSecurityGroupsInput := &ec2.DescribeSecurityGroupsInput{
-			Filters: []*ec2.Filter{vpcFilter, groupNameFilter},
-		}
-		// TODO: Cache this
-		describeSecurityGroupsOutput, err := ec2client.DescribeSecurityGroupsWithContext(ctx, describeSecurityGroupsInput)
+		wantedSecurityGroups, err = interfaceSession.GetDefaultSecurityGroups(ctx)
 		if err != nil {
-			return nil, status.Convert(errors.Wrap(err, "Could not describe security groups")).Err()
-		}
-		for idx := range describeSecurityGroupsOutput.SecurityGroups {
-			sg := describeSecurityGroupsOutput.SecurityGroups[idx]
-			wantedSecurityGroups = append(wantedSecurityGroups, sg.GroupId)
+			return nil, errors.Wrap(err, "Could not fetch default security groups")
 		}
 	}
 
@@ -109,20 +108,16 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 			return nil, status.Error(codes.FailedPrecondition, "Security group change required, but not allowed")
 		}
 		logger.G(ctx).WithField("currentSecurityGroups", hasSecurityGroupsSet.ToSlice()).WithField("newSecurityGroups", wantedSecurityGroupsSet.ToSlice()).Info("Changing security groups")
-		networkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
-			Groups:             wantedSecurityGroups,
-			NetworkInterfaceId: iface.NetworkInterfaceId,
-		}
-		_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, networkInterfaceAttributeInput)
+		err = interfaceSession.ModifySecurityGroups(ctx, wantedSecurityGroups)
 		if err != nil {
-			return nil, status.Convert(errors.Wrap(err, "Cannot modify security groups")).Err()
+			return nil, err
 		}
 	}
 
-	return assignAddresses(ctx, ec2client, iface, req, subnet, true)
+	return assignAddresses(ctx, interfaceSession, req, subnet, true)
 }
 
-func assignAddresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.InstanceNetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
+func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
 	entry := logger.G(ctx).WithField("allowAssignment", allowAssignment)
 	response := &vpcapi.AssignIPResponse{}
 	utilizedAddressIPv4Set := set.NewSet()
@@ -137,17 +132,10 @@ func assignAddresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Instanc
 		}
 	}
 
-	describeNetworkInterfacesInput := &ec2.DescribeNetworkInterfacesInput{
-		NetworkInterfaceIds: []*string{iface.NetworkInterfaceId},
-	}
-
-	describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, describeNetworkInterfacesInput)
-	// TODO: Work around rate limiting here, and do some basic retries
+	ni, err := iface.GetNetworkInterface(ctx)
 	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Cannot describe network interfaces")).Err()
+		return nil, err
 	}
-
-	ni := describeNetworkInterfacesOutput.NetworkInterfaces[0]
 	response.NetworkInterface = networkInterface(*ni)
 	response.SecurityGroupIds = make([]string, len(ni.Groups))
 	assignedIPv4addresses := set.NewSet()
@@ -200,30 +188,27 @@ func assignAddresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Instanc
 
 	if allowAssignment {
 		if needIPv4Addresses {
-			assignPrivateIPAddressesInput := &ec2.AssignPrivateIpAddressesInput{
-				NetworkInterfaceId: iface.NetworkInterfaceId,
+			assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
 				// TODO: Batch intelligently.
 				SecondaryPrivateIpAddressCount: aws.Int64(4),
 			}
-
-			if _, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, assignPrivateIPAddressesInput); err != nil {
-				return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv4 addresses")).Err()
+			if _, err = iface.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
+				return nil, err
 			}
 		}
 
 		if needIPv6Addresses {
-			assignIpv6AddressesInput := &ec2.AssignIpv6AddressesInput{
-				NetworkInterfaceId: iface.NetworkInterfaceId,
+			assignIpv6AddressesInput := ec2.AssignIpv6AddressesInput{
 				// TODO: Batch intelligently.
 				Ipv6AddressCount: aws.Int64(4),
 			}
 
-			if _, err := ec2client.AssignIpv6AddressesWithContext(ctx, assignIpv6AddressesInput); err != nil {
+			if _, err := iface.AssignIPv6Addresses(ctx, assignIpv6AddressesInput); err != nil {
 				return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv6 addresses")).Err()
 			}
 		}
 	}
 
 	time.Sleep(time.Second)
-	return assignAddresses(ctx, ec2client, iface, req, subnet, false)
+	return assignAddresses(ctx, iface, req, subnet, false)
 }

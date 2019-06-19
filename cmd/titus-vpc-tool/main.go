@@ -3,14 +3,22 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"contrib.go.opencensus.io/exporter/zipkin"
+	datadog "github.com/Datadog/opencensus-go-exporter-datadog"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/identity"
+	openzipkin "github.com/openzipkin/zipkin-go"
+	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 	"github.com/wercker/journalhook"
+	"go.opencensus.io/plugin/ocgrpc"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/trace"
 )
 
 const (
@@ -18,6 +26,8 @@ const (
 	stateDirDefaultValue    = "/run/titus-vpc-tool"
 	serviceAddrFlagName     = "service-addr"
 	serviceAddrDefaultValue = "localhost:7001"
+	statsdAddrFlagName      = "statsd-addr"
+	zipkinURLFlagName       = "zipkin"
 )
 
 type instanceProviderResolver struct {
@@ -47,8 +57,31 @@ func main() {
 	ipr := &instanceProviderResolver{}
 	environmentIdentityProviderFlagSet, environmentIdentityProvider := identity.GetEnvironmentProvider(v)
 	ec2IdentityProvider := identity.GetEC2Provider()
+	var dd *datadog.Exporter
+
 	rootCmd := &cobra.Command{
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if statsdAddr := v.GetString("statsd-address"); statsdAddr != "" {
+				logger.G(ctx).WithField("statsd-address", statsdAddr).Info("Setting up statsd exporter")
+				var err error
+				dd, err = datadog.NewExporter(datadog.Options{
+					StatsAddr: statsdAddr,
+					Namespace: "titus.vpcService",
+					OnError: func(ddErr error) {
+						logger.G(ctx).WithError(ddErr).Error("Error exporting metrics")
+					},
+				})
+				if err != nil {
+					return errors.Wrap(err, "Failed to create the Datadog exporter")
+				}
+				view.RegisterExporter(dd)
+			}
+
+			if err := view.Register(ocgrpc.DefaultClientViews...); err != nil {
+				return err
+			}
+			trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+
 			if err := v.BindPFlags(cmd.Flags()); err != nil {
 				panic(err)
 			}
@@ -63,6 +96,23 @@ func main() {
 				logruslogger.AddHook(&journalhook.JournalHook{})
 			}
 
+			if zipkinURL := v.GetString(zipkinURLFlagName); zipkinURLFlagName != "" {
+				hostname, err := os.Hostname()
+				if err != nil {
+					return err
+				}
+				// 1. Configure exporter to export traces to Zipkin.
+				endpoint, err := openzipkin.NewEndpoint("titus-vpc-tool", hostname+":0")
+				if err != nil {
+					return errors.Wrap(err, "Failed to create the local zipkinEndpoint")
+				}
+				logger.G(ctx).WithField("endpoint", endpoint).WithField("url", zipkinURL).Info("Setting up tracing")
+				reporter := zipkinHTTP.NewReporter(zipkinURL)
+
+				ze := zipkin.NewExporter(reporter, endpoint)
+				trace.RegisterExporter(ze)
+			}
+
 			switch ip := v.GetString("identity-provider"); ip {
 			case "environment":
 				ipr.provider = environmentIdentityProvider
@@ -72,6 +122,11 @@ func main() {
 				return errors.Errorf("Identity provider %q not supported", ip)
 			}
 			return nil
+		},
+		PersistentPostRun: func(cmd *cobra.Command, args []string) {
+			if dd != nil {
+				dd.Stop()
+			}
 		},
 	}
 
@@ -83,7 +138,15 @@ func main() {
 	rootCmd.PersistentFlags().String("log-level", "info", "")
 	rootCmd.PersistentFlags().Bool("journald", true, "Enable journald logging")
 	rootCmd.PersistentFlags().String("identity-provider", "ec2", "How to fetch the machine's identity")
+	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
+	rootCmd.PersistentFlags().String(zipkinURLFlagName, "", "URL To send Zipkin spans to")
 
+	if err := v.BindEnv(zipkinURLFlagName, "VPC_STATSD_ADDR"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(zipkinURLFlagName, "VPC_ZIPKIN"); err != nil {
+		panic(err)
+	}
 	if err := v.BindEnv(stateDirFlagName, "VPC_STATE_DIR"); err != nil {
 		panic(err)
 	}

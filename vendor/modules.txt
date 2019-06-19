@@ -234,6 +234,12 @@ github.com/golangci/prealloc
 github.com/golangci/revgrep
 # github.com/golangci/unconvert v0.0.0-20180507085042-28b1c447d1f4
 github.com/golangci/unconvert
+# github.com/google/go-cmp v0.3.0
+github.com/google/go-cmp/cmp
+github.com/google/go-cmp/cmp/internal/diff
+github.com/google/go-cmp/cmp/internal/flags
+github.com/google/go-cmp/cmp/internal/function
+github.com/google/go-cmp/cmp/internal/value
 # github.com/gorilla/context v1.1.1
 github.com/gorilla/context
 # github.com/gorilla/mux v1.6.2
@@ -381,11 +387,11 @@ go.opencensus.io/stats/view
 go.opencensus.io/trace
 go.opencensus.io/zpages
 go.opencensus.io/plugin/ocgrpc
+go.opencensus.io/stats
 go.opencensus.io/tag
 go.opencensus.io/internal/tagencoding
 go.opencensus.io/metric/metricdata
 go.opencensus.io/metric/metricproducer
-go.opencensus.io/stats
 go.opencensus.io/stats/internal
 go.opencensus.io/internal
 go.opencensus.io/trace/internal
@@ -511,6 +517,12 @@ gopkg.in/urfave/cli.v1
 gopkg.in/urfave/cli.v1/altsrc
 # gopkg.in/yaml.v2 v2.2.2
 gopkg.in/yaml.v2
+# gotest.tools v2.2.0+incompatible
+gotest.tools/assert
+gotest.tools/assert/cmp
+gotest.tools/internal/format
+gotest.tools/internal/source
+gotest.tools/internal/difflib
 # mvdan.cc/interfacer v0.0.0-20180901003855-c20040233aed
 mvdan.cc/interfacer/check
 # mvdan.cc/lint v0.0.0-20170908181259-adc824a0674b

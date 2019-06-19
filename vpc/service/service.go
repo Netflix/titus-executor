@@ -2,19 +2,20 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+
+	"go.opencensus.io/stats/view"
+
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/aws/aws-sdk-go/aws/session"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
-	"github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
 	"golang.org/x/sync/errgroup"
@@ -35,7 +36,10 @@ func (server *Server) Run(ctx context.Context, listener net.Listener) error {
 
 	logrusEntry := logger.G(ctx).WithField("origin", "grpc")
 	grpc_logrus.ReplaceGrpcLogger(logrusEntry)
-	fmt.Println(logrus.StandardLogger().Level)
+
+	if err := view.Register(ocgrpc.DefaultServerViews...); err != nil {
+		return err
+	}
 
 	grpcServer := grpc.NewServer(
 		grpc.StatsHandler(&ocgrpc.ServerHandler{}),
@@ -55,7 +59,7 @@ func (server *Server) Run(ctx context.Context, listener net.Listener) error {
 		}))
 
 	vpc := &vpcService{
-		sessions: make(map[key]*session.Session),
+		ec2: ec2wrapper.NewEC2SessionManager(),
 	}
 	vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
 	reflection.Register(grpcServer)

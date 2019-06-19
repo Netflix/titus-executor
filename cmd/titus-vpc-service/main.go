@@ -121,6 +121,7 @@ func main() {
 				if err != nil {
 					return errors.Wrap(err, "Failed to create the local zipkinEndpoint")
 				}
+				logger.G(ctx).WithField("endpoint", endpoint).WithField("url", zipkinURL).Info("Setting up tracing")
 				trace.RegisterExporter(zipkin.NewExporter(reporter, endpoint))
 			}
 
