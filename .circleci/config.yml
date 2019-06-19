@@ -98,14 +98,14 @@ jobs:
       - image: titusoss/titus-executor-builder
         entrypoint: /bin/sleep 1000
     resource_class: xlarge
-    working_directory: /go/src/github.com/Netflix/titus-executor
+    working_directory: /builds
     steps:
       - checkout
       - run:
           name: Run build
           command: make build-standalone
       - store_artifacts:
-          path: /go/src/github.com/Netflix/titus-executor/build/distributions
+          path: /builds/build/distributions
 
 workflows:
   version: 2

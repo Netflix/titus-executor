@@ -56,7 +56,7 @@ int classifier_ingress_filter(struct __sk_buff *skb) {
 
 	if (eth->h_proto == __constant_htons(ETH_P_IP))
 		skb->tc_classid = TC_H_MAKE(1 << 16, __builtin_bswap32(iph->daddr) & 0xffff);
-	return TC_ACT_OK;
+            return TC_ACT_OK;
 }
 
 /*

@@ -228,6 +228,10 @@ github.com/stretchr/testify v1.3.0 h1:TivCn/peBQ7UY8ooIcPgZFpTNSz0Q2U6UrFlUfqbe0
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/vishvananda/netlink v0.0.0-20180205182215-a2af46a09c21 h1:OXTUcyUnUV8CcjZubqNv6jkqCVjcvlNXbad3ODRPDDk=
 github.com/vishvananda/netlink v0.0.0-20180205182215-a2af46a09c21/go.mod h1:+SR5DhBJrl6ZM7CoCKvpw5BKroDKQ+PJqOg65H/2ktk=
+github.com/vishvananda/netlink v1.0.0 h1:bqNY2lgheFIu1meHUFSH3d7vG93AFyqg3oGbJCOJgSM=
+github.com/vishvananda/netlink v1.0.0/go.mod h1:+SR5DhBJrl6ZM7CoCKvpw5BKroDKQ+PJqOg65H/2ktk=
+github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6 h1:YqlaLDyh/+jUHgh83iNy8KiCvD4LeqnSS5U5a9cgYqU=
+github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6/go.mod h1:+SR5DhBJrl6ZM7CoCKvpw5BKroDKQ+PJqOg65H/2ktk=
 github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0 h1:3LFlY74a0V5YKdn9v2WTr7beXh4pscTJuqxs+cszCGA=
 github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0/go.mod h1:ZjcWmFBXmLKZu9Nxj3WKYEafiSqer2rnvPr0en9UNpI=
 github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3 h1:shC1HB1UogxN5Ech3Yqaaxj1X/P656PPCB4RbojIJqc=
