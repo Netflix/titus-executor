@@ -1,9 +1,8 @@
 package types
 
-import "fmt"
-
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
@@ -131,6 +131,8 @@ type Container struct {
 
 	// GPU devices
 	GPUInfo GPUContainer
+	// Set if using a non-runc runtime to run system service init commands
+	Runtime string
 
 	AllocationCommand       *exec.Cmd
 	AllocationCommandStatus chan error

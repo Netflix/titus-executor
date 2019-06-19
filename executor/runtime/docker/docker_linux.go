@@ -43,19 +43,20 @@ type schedParam struct {
 type serviceEnabledFunc func(cfg *config.Config, c *runtimeTypes.Container) bool
 
 type serviceOpts struct {
-	humanName       string
-	initCommand     string
-	initCommandArgs string
-	required        bool
-	unitName        string
-	enabledCheck    serviceEnabledFunc
+	humanName    string
+	initCommand  string
+	required     bool
+	unitName     string
+	enabledCheck serviceEnabledFunc
 }
 
 const (
+	defaultRuntime            = "runc"
 	titusInits                = "/var/lib/titus-inits"
 	systemServiceStartTimeout = 90 * time.Second
 	umountNoFollow            = 0x8
 	sysFsCgroup               = "/sys/fs/cgroup"
+	runcArgFormat             = "--root /var/run/docker/runtime-%s/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s %s"
 )
 
 var systemServices = []serviceOpts{
@@ -77,12 +78,11 @@ var systemServices = []serviceOpts{
 		required:  true,
 	},
 	{
-		humanName:       "metatron",
-		unitName:        "titus-metatron-sync",
-		required:        true,
-		initCommand:     "/usr/sbin/runc",
-		initCommandArgs: "--root /var/run/docker/runtime-runc/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s /titus/metatron/bin/titus-metatrond --init",
-		enabledCheck:    shouldStartMetatronSync,
+		humanName:    "metatron",
+		unitName:     "titus-metatron-sync",
+		required:     true,
+		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
+		enabledCheck: shouldStartMetatronSync,
 	},
 }
 
@@ -158,7 +158,13 @@ func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, c
 			continue
 		}
 
-		if err := startSystemdUnit(ctx, conn, c.TaskID, c.ID, svc); err != nil {
+		// Different runtimes have different root paths that need to be passed to runc with `--root`.
+		// In particular, we use the `oci-add-hooks` runtime for GPU containers.
+		runtime := defaultRuntime
+		if c.Runtime != "" {
+			runtime = c.Runtime
+		}
+		if err := startSystemdUnit(ctx, conn, c.TaskID, c.ID, runtime, svc); err != nil {
 			logrus.WithError(err).Errorf("Error starting %s service", svc.humanName)
 			return err
 		}
@@ -167,7 +173,7 @@ func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, c
 	return nil
 }
 
-func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, opts serviceOpts) error {
+func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, runtime string, opts serviceOpts) error {
 	if opts.initCommand == "" {
 		return nil
 	}
@@ -175,14 +181,20 @@ func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, o
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	l := log.WithField("initCommand", opts.initCommand)
-	cmdArgs := strings.Split(fmt.Sprintf(opts.initCommandArgs, cID), " ")
+	cmdArgStr := fmt.Sprintf(runcArgFormat, runtime, cID, opts.initCommand)
+	cmdArgs := strings.Split(cmdArgStr, " ")
 
-	l.WithField("args", cmdArgs).Infof("Running init command for %s service", opts.unitName)
-	cmd := exec.CommandContext(ctx, opts.initCommand, cmdArgs...)
+	runcCommand, err := exec.LookPath(defaultRuntime)
+	if err != nil {
+		return err
+	}
+
+	l.WithField("args", cmdArgStr).Infof("Running init command for %s service", opts.unitName)
+	cmd := exec.CommandContext(ctx, runcCommand, cmdArgs...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		outputStr := stdout.String()
 		l.WithError(err).WithField("exitCode", cmd.ProcessState.ExitCode()).Errorf("error running init command for %s service", opts.unitName)
@@ -202,7 +214,7 @@ func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, o
 	return nil
 }
 
-func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, opts serviceOpts) error {
+func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, runtime string, opts serviceOpts) error {
 	qualifiedUnitName := fmt.Sprintf("%s@%s.service", opts.unitName, taskID)
 	l := logrus.WithFields(logrus.Fields{
 		"containerId": cID,
@@ -210,7 +222,7 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 		"unit":        opts.unitName,
 	})
 
-	if err := runServiceInitCommand(ctx, l, cID, opts); err != nil {
+	if err := runServiceInitCommand(ctx, l, cID, runtime, opts); err != nil {
 		return err
 	}
 

@@ -164,6 +164,7 @@ fail:
 // UpdateContainerConfig updates the container and host configs to delegate the given devices
 func (n *PluginInfo) UpdateContainerConfig(c *types.Container, dockerCfg *container.Config, hostCfg *container.HostConfig, runtime string) {
 	hostCfg.Runtime = runtime
+	c.Runtime = runtime
 
 	// Now setup the environment variables that `nvidia-container-runtime` uses to configure itself,
 	// and remove any that may have been set by the user.  See https://github.com/NVIDIA/nvidia-container-runtime
