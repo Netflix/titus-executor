@@ -7,6 +7,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
@@ -26,18 +27,22 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 	// - Add timeout
 	// - Verify instance identity document
 	// - Check the server's region is our own
-	ec2client, instance, err := vpcService.getInstance(ctx, req.InstanceIdentity)
+	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
 		return nil, err
 	}
-	maxInterfaces, err := vpc.GetMaxInterfaces(*instance.InstanceType)
+	instance, err := ec2InstanceSession.GetInstance(ctx)
+	if err != nil {
+		return nil, err
+	}
+	maxInterfaces, err := vpc.GetMaxInterfaces(aws.StringValue(instance.InstanceType))
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	// Check if we need to attach interfaces
 	if len(instance.NetworkInterfaces) != maxInterfaces {
 		// Code to attach interfaces
-		return attachNetworkInterfaces(ctx, ec2client, instance, maxInterfaces)
+		return attachNetworkInterfaces(ctx, ec2InstanceSession, instance, maxInterfaces)
 	}
 
 	return &vpcapi.ProvisionInstanceResponse{
@@ -45,7 +50,7 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 	}, nil
 }
 
-func attachNetworkInterfaces(ctx context.Context, ec2client *ec2.EC2, instance *ec2.Instance, maxInterfaces int) (*vpcapi.ProvisionInstanceResponse, error) {
+func attachNetworkInterfaces(ctx context.Context, ec2InstanceSession ec2wrapper.EC2InstanceSession, instance *ec2.Instance, maxInterfaces int) (*vpcapi.ProvisionInstanceResponse, error) {
 	// Since this is serial, we can do this in a simple loop.
 	// 1. Create the network interfaces
 	// 2. Attach the network interfaces
@@ -59,7 +64,7 @@ func attachNetworkInterfaces(ctx context.Context, ec2client *ec2.EC2, instance *
 
 	for i := 0; i < maxInterfaces; i++ {
 		if _, ok := networkInterfaceByIdx[i]; !ok {
-			networkInterface, err := attachNetworkInterfaceAtIdx(ctx, ec2client, instance, i)
+			networkInterface, err := attachNetworkInterfaceAtIdx(ctx, ec2InstanceSession, instance, i)
 			if err != nil {
 				return nil, err
 			}
@@ -75,9 +80,17 @@ func attachNetworkInterfaces(ctx context.Context, ec2client *ec2.EC2, instance *
 	}, nil
 }
 
-func attachNetworkInterfaceAtIdx(ctx context.Context, ec2client *ec2.EC2, instance *ec2.Instance, idx int) (*ec2.NetworkInterface, error) {
+func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrapper.EC2InstanceSession, instance *ec2.Instance, idx int) (*ec2.NetworkInterface, error) {
 	ctx = logger.WithLogger(ctx, logger.G(ctx).WithField("idx", idx))
 	// TODO: Make the subnet ID adjustable
+	// TODO: Make account is adjustable
+
+	session, err := ec2InstanceSession.Session(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ec2client := ec2.New(session)
 	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
 		Description:      aws.String(vpc.NetworkInterfaceDescription),
 		SubnetId:         instance.SubnetId,

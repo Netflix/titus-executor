@@ -7,7 +7,5 @@ linters:
     - goconst
     - gocyclo
     - goimports
-    - misspell
     - scopelint
     - gofmt
-

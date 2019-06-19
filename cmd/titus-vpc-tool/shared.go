@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"go.opencensus.io/plugin/ocgrpc"
+
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -33,7 +35,10 @@ func getSharedValues(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker
 
 	entry.WithField("serviceAddr", serviceAddr).Debug("Initializing client")
 	grpc_logrus.ReplaceGrpcLogger(entry)
-	conn, err := grpc.Dial(serviceAddr, grpc.WithInsecure(), grpc.WithKeepaliveParams(keepaliveParams),
+	conn, err := grpc.Dial(serviceAddr,
+		grpc.WithStatsHandler(&ocgrpc.ClientHandler{}),
+		grpc.WithInsecure(),
+		grpc.WithKeepaliveParams(keepaliveParams),
 		grpc.WithUnaryInterceptor(
 			grpc_middleware.ChainUnaryClient(
 				grpc_logrus.UnaryClientInterceptor(entry),
