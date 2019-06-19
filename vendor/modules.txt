@@ -1,7 +1,11 @@
+# contrib.go.opencensus.io/exporter/zipkin v0.1.1
+contrib.go.opencensus.io/exporter/zipkin
 # github.com/BurntSushi/toml v0.3.1
 github.com/BurntSushi/toml
 # github.com/DataDog/datadog-go v2.2.0+incompatible
 github.com/DataDog/datadog-go/statsd
+# github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
+github.com/Datadog/opencensus-go-exporter-datadog
 # github.com/Microsoft/go-winio v0.3.8
 github.com/Microsoft/go-winio
 # github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
@@ -102,19 +106,19 @@ github.com/go-critic/go-critic/checkers/internal/lintutil
 # github.com/go-lintpack/lintpack v0.5.2
 github.com/go-lintpack/lintpack
 github.com/go-lintpack/lintpack/astwalk
-# github.com/go-toolsmith/astcast v0.0.0-20181028201508-b7a89ed70af1
+# github.com/go-toolsmith/astcast v1.0.0
 github.com/go-toolsmith/astcast
-# github.com/go-toolsmith/astcopy v0.0.0-20180903214859-79b422d080c4
+# github.com/go-toolsmith/astcopy v1.0.0
 github.com/go-toolsmith/astcopy
-# github.com/go-toolsmith/astequal v0.0.0-20180903214952-dcb477bfacd6
+# github.com/go-toolsmith/astequal v1.0.0
 github.com/go-toolsmith/astequal
-# github.com/go-toolsmith/astfmt v0.0.0-20180903215011-8f8ee99c3086
+# github.com/go-toolsmith/astfmt v1.0.0
 github.com/go-toolsmith/astfmt
-# github.com/go-toolsmith/astp v0.0.0-20180903215135-0af7e3c24f30
+# github.com/go-toolsmith/astp v1.0.0
 github.com/go-toolsmith/astp
-# github.com/go-toolsmith/strparse v0.0.0-20180903215201-830b6daa1241
+# github.com/go-toolsmith/strparse v1.0.0
 github.com/go-toolsmith/strparse
-# github.com/go-toolsmith/typep v0.0.0-20181030061450-d63dc7650676
+# github.com/go-toolsmith/typep v1.0.0
 github.com/go-toolsmith/typep
 # github.com/gobwas/glob v0.2.3
 github.com/gobwas/glob
@@ -131,9 +135,9 @@ github.com/godbus/dbus
 github.com/gogo/protobuf/proto
 # github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 github.com/golang/glog
-# github.com/golang/mock v1.1.1
+# github.com/golang/mock v1.3.1
 github.com/golang/mock/gomock
-# github.com/golang/protobuf v1.2.0
+# github.com/golang/protobuf v1.3.1
 github.com/golang/protobuf/proto
 github.com/golang/protobuf/ptypes/any
 github.com/golang/protobuf/ptypes/empty
@@ -191,7 +195,7 @@ github.com/golangci/gocyclo/pkg/gocyclo
 # github.com/golangci/gofmt v0.0.0-20181105071733-0b8337e80d98
 github.com/golangci/gofmt/gofmt
 github.com/golangci/gofmt/goimports
-# github.com/golangci/golangci-lint v1.16.0
+# github.com/golangci/golangci-lint v1.17.1
 github.com/golangci/golangci-lint/cmd/golangci-lint
 github.com/golangci/golangci-lint/pkg/commands
 github.com/golangci/golangci-lint/pkg/config
@@ -216,9 +220,9 @@ github.com/golangci/golangci-lint/pkg/golinters/goanalysis/checker
 # github.com/golangci/gosec v0.0.0-20180901114220-66fb7fc33547
 github.com/golangci/gosec
 github.com/golangci/gosec/rules
-# github.com/golangci/ineffassign v0.0.0-20180808204949-2ee8f2867dde
+# github.com/golangci/ineffassign v0.0.0-20180808204949-42439a7714cc
 github.com/golangci/ineffassign
-# github.com/golangci/lint-1 v0.0.0-20180610141402-4bf9709227d1
+# github.com/golangci/lint-1 v0.0.0-20180610141402-ee948d087217
 github.com/golangci/lint-1
 # github.com/golangci/maligned v0.0.0-20180506175553-b1d89398deca
 github.com/golangci/maligned
@@ -232,8 +236,10 @@ github.com/golangci/revgrep
 github.com/golangci/unconvert
 # github.com/gorilla/context v1.1.1
 github.com/gorilla/context
-# github.com/gorilla/mux v1.3.0
+# github.com/gorilla/mux v1.6.2
 github.com/gorilla/mux
+# github.com/gostaticanalysis/analysisutil v0.0.0-20190318220348-4088753ea4d3
+github.com/gostaticanalysis/analysisutil
 # github.com/grpc-ecosystem/go-grpc-middleware v1.0.0
 github.com/grpc-ecosystem/go-grpc-middleware
 github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus
@@ -245,6 +251,8 @@ github.com/grpc-ecosystem/go-grpc-middleware/tags/logrus
 github.com/hashicorp/errwrap
 # github.com/hashicorp/go-multierror v0.0.0-20171204182908-b7773ae21874
 github.com/hashicorp/go-multierror
+# github.com/hashicorp/golang-lru v0.5.1
+github.com/hashicorp/golang-lru/simplelru
 # github.com/hashicorp/hcl v0.0.0-20180404174102-ef8a98b0bbce
 github.com/hashicorp/hcl
 github.com/hashicorp/hcl/hcl/printer
@@ -266,6 +274,8 @@ github.com/jteeuwen/go-bindata
 # github.com/kisielk/gotool v1.0.0
 github.com/kisielk/gotool
 github.com/kisielk/gotool/internal/load
+# github.com/konsorten/go-windows-terminal-sequences v1.0.2
+github.com/konsorten/go-windows-terminal-sequences
 # github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 github.com/leanovate/gopter
 github.com/leanovate/gopter/gen
@@ -311,23 +321,34 @@ github.com/opencontainers/runc/libcontainer/cgroups
 github.com/opencontainers/runc/libcontainer/configs
 # github.com/opencontainers/runtime-spec v1.0.1
 github.com/opencontainers/runtime-spec/specs-go
+# github.com/openzipkin/zipkin-go v0.1.6
+github.com/openzipkin/zipkin-go
+github.com/openzipkin/zipkin-go/reporter/http
+github.com/openzipkin/zipkin-go/model
+github.com/openzipkin/zipkin-go/reporter
+github.com/openzipkin/zipkin-go/idgenerator
+github.com/openzipkin/zipkin-go/propagation
 # github.com/pborman/uuid v0.0.0-20150824212802-cccd189d45f7
 github.com/pborman/uuid
 # github.com/pelletier/go-toml v1.1.0
 github.com/pelletier/go-toml
+# github.com/philhofer/fwd v1.0.0
+github.com/philhofer/fwd
 # github.com/pkg/errors v0.8.1
 github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 github.com/pmezard/go-difflib/difflib
-# github.com/rogpeppe/go-internal v1.1.0
+# github.com/rogpeppe/go-internal v1.3.0
 github.com/rogpeppe/go-internal/cmd/txtar-addmod
 github.com/rogpeppe/go-internal/module
 github.com/rogpeppe/go-internal/txtar
 github.com/rogpeppe/go-internal/semver
-# github.com/sirupsen/logrus v1.0.5
+# github.com/sirupsen/logrus v1.4.2
 github.com/sirupsen/logrus
 # github.com/soheilhy/cmux v0.1.4
 github.com/soheilhy/cmux
+# github.com/sourcegraph/go-diff v0.5.1
+github.com/sourcegraph/go-diff/diff
 # github.com/spf13/afero v1.1.0
 github.com/spf13/afero
 github.com/spf13/afero/mem
@@ -344,6 +365,10 @@ github.com/spf13/viper
 # github.com/stretchr/testify v1.3.0
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
+# github.com/timakin/bodyclose v0.0.0-20190407043127-4a873e97b2bb
+github.com/timakin/bodyclose/passes/bodyclose
+# github.com/tinylib/msgp v1.1.0
+github.com/tinylib/msgp/msgp
 # github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6
 github.com/vishvananda/netlink
 github.com/vishvananda/netlink/nl
@@ -351,9 +376,25 @@ github.com/vishvananda/netlink/nl
 github.com/vishvananda/netns
 # github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 github.com/wercker/journalhook
-# golang.org/x/crypto v0.0.0-20190313024323-a1f597ede03a
-golang.org/x/crypto/ssh/terminal
-# golang.org/x/net v0.0.0-20190313220215-9f648a60d977
+# go.opencensus.io v0.22.0
+go.opencensus.io/stats/view
+go.opencensus.io/trace
+go.opencensus.io/zpages
+go.opencensus.io/plugin/ocgrpc
+go.opencensus.io/tag
+go.opencensus.io/internal/tagencoding
+go.opencensus.io/metric/metricdata
+go.opencensus.io/metric/metricproducer
+go.opencensus.io/stats
+go.opencensus.io/stats/internal
+go.opencensus.io/internal
+go.opencensus.io/trace/internal
+go.opencensus.io/trace/tracestate
+go.opencensus.io/zpages/internal
+go.opencensus.io/trace/propagation
+go.opencensus.io/resource
+go.opencensus.io
+# golang.org/x/net v0.0.0-20190607181551-461777fb6f67
 golang.org/x/net/context
 golang.org/x/net/trace
 golang.org/x/net/context/ctxhttp
@@ -364,20 +405,20 @@ golang.org/x/net/proxy
 golang.org/x/net/http/httpguts
 golang.org/x/net/idna
 golang.org/x/net/internal/socks
-# golang.org/x/sync v0.0.0-20181221193216-37e7f081c4d4
+# golang.org/x/sync v0.0.0-20190423024810-112230192c58
 golang.org/x/sync/errgroup
-# golang.org/x/sys v0.0.0-20190312061237-fead79001313
+# golang.org/x/sys v0.0.0-20190610200419-93c9922d18ae
 golang.org/x/sys/unix
 golang.org/x/sys/windows
-# golang.org/x/text v0.3.1-0.20181227161524-e6919f6577db
+# golang.org/x/text v0.3.2
 golang.org/x/text/transform
 golang.org/x/text/unicode/norm
 golang.org/x/text/secure/bidirule
 golang.org/x/text/unicode/bidi
 golang.org/x/text/width
-# golang.org/x/tools v0.0.0-20190314010720-f0bfdbff1f9c
+# golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
 golang.org/x/tools/cmd/goimports
-golang.org/x/tools/imports
+golang.org/x/tools/internal/imports
 golang.org/x/tools/go/ast/astutil
 golang.org/x/tools/go/packages
 golang.org/x/tools/internal/gopathwalk
@@ -386,11 +427,11 @@ golang.org/x/tools/go/loader
 golang.org/x/tools/go/ssa
 golang.org/x/tools/go/ssa/ssautil
 golang.org/x/tools/go/gcexportdata
-golang.org/x/tools/go/internal/cgo
 golang.org/x/tools/go/internal/packagesdriver
 golang.org/x/tools/internal/semver
 golang.org/x/tools/internal/fastwalk
 golang.org/x/tools/go/buildutil
+golang.org/x/tools/go/internal/cgo
 golang.org/x/tools/go/types/typeutil
 golang.org/x/tools/go/analysis
 golang.org/x/tools/go/analysis/passes/asmdecl
@@ -416,6 +457,7 @@ golang.org/x/tools/go/analysis/passes/unmarshal
 golang.org/x/tools/go/analysis/passes/unreachable
 golang.org/x/tools/go/analysis/passes/unsafeptr
 golang.org/x/tools/go/analysis/passes/unusedresult
+golang.org/x/tools/imports
 golang.org/x/tools/go/internal/gcimporter
 golang.org/x/tools/go/analysis/passes/buildssa
 golang.org/x/tools/go/analysis/passes/internal/analysisutil
@@ -423,9 +465,9 @@ golang.org/x/tools/go/analysis/passes/inspect
 golang.org/x/tools/go/ast/inspector
 golang.org/x/tools/go/analysis/passes/ctrlflow
 golang.org/x/tools/go/cfg
-# google.golang.org/genproto v0.0.0-20180817151627-c66870c02cf8
+# google.golang.org/genproto v0.0.0-20190605220351-eb0b1bdb6ae6
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/grpc v1.20.1
+# google.golang.org/grpc v1.21.1
 google.golang.org/grpc
 google.golang.org/grpc/keepalive
 google.golang.org/grpc/codes
@@ -460,12 +502,14 @@ google.golang.org/grpc/balancer/base
 google.golang.org/grpc/credentials/internal
 google.golang.org/grpc/binarylog/grpc_binarylog_v1
 google.golang.org/grpc/internal/syscall
+# gopkg.in/DataDog/dd-trace-go.v1 v1.14.0
+gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext
 # gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 gopkg.in/alessio/shellescape.v1
 # gopkg.in/urfave/cli.v1 v1.20.0
 gopkg.in/urfave/cli.v1
 gopkg.in/urfave/cli.v1/altsrc
-# gopkg.in/yaml.v2 v2.2.1
+# gopkg.in/yaml.v2 v2.2.2
 gopkg.in/yaml.v2
 # mvdan.cc/interfacer v0.0.0-20180901003855-c20040233aed
 mvdan.cc/interfacer/check
@@ -473,7 +517,5 @@ mvdan.cc/interfacer/check
 mvdan.cc/lint
 # mvdan.cc/unparam v0.0.0-20190124213536-fbb59629db34
 mvdan.cc/unparam/check
-# sourcegraph.com/sourcegraph/go-diff v0.5.1-0.20190210232911-dee78e514455
-sourcegraph.com/sourcegraph/go-diff/diff
 # sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4
 sourcegraph.com/sqs/pbtypes

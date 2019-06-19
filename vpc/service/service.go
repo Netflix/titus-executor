@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -18,6 +16,8 @@ import (
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
+	"go.opencensus.io/plugin/ocgrpc"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
@@ -28,12 +28,9 @@ type Server struct {
 	Metrics    *statsd.Client
 }
 
-func (server *Server) Run(ctx context.Context) error {
-	listener, err := net.Listen("tcp", server.ListenAddr)
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
+func (server *Server) Run(ctx context.Context, listener net.Listener) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
 
 	logrusEntry := logger.G(ctx).WithField("origin", "grpc")
@@ -41,6 +38,7 @@ func (server *Server) Run(ctx context.Context) error {
 	fmt.Println(logrus.StandardLogger().Level)
 
 	grpcServer := grpc.NewServer(
+		grpc.StatsHandler(&ocgrpc.ServerHandler{}),
 		grpc_middleware.WithUnaryServerChain(
 			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
 			grpc_logrus.UnaryServerInterceptor(logrusEntry),
@@ -57,7 +55,6 @@ func (server *Server) Run(ctx context.Context) error {
 		}))
 
 	vpc := &vpcService{
-		metrics:  server.Metrics,
 		sessions: make(map[key]*session.Session),
 	}
 	vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
@@ -68,12 +65,11 @@ func (server *Server) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		logger.G(ctx).Info("GRPC Server shutting down")
-		listener.Close()
 		time.AfterFunc(30*time.Second, func() {
 			logger.G(ctx).Warning("GRPC Server force shutting down")
-
 			grpcServer.Stop()
 		})
+		cancel()
 		grpcServer.GracefulStop()
 	}()
 	logger.G(ctx).Info("GRPC Server starting up")
@@ -84,7 +80,12 @@ func (server *Server) Run(ctx context.Context) error {
 	group.Go(func() error { return grpcServer.Serve(anyListener) })
 	group.Go(func() error { return http.Serve(http1Listener, &healthcheck{}) })
 	group.Go(m.Serve)
-	return group.Wait()
+
+	err := group.Wait()
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
 }
 
 type healthcheck struct {

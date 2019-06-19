@@ -3,7 +3,6 @@ package service
 import (
 	"sync"
 
-	"github.com/DataDog/datadog-go/statsd"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/aws/aws-sdk-go/aws"
@@ -21,7 +20,6 @@ type key struct {
 }
 
 type vpcService struct {
-	metrics      *statsd.Client
 	sessionsLock sync.RWMutex
 	sessions     map[key]*session.Session
 }
