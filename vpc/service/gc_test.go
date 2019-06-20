@@ -97,10 +97,25 @@ func TestIPsToFree(t *testing.T) {
 			},
 		},
 		NonviableAddresses: []*vpcapi.UtilizedAddress{
-			// This shouldn't be deleted, because it was just added
+			// These shouldn't be deleted, because they are assigned to the interface, but we (the GC client)
+			// have elected them against GC
 			{
 				Address: &titus.Address{
 					Address: "192.168.1.2",
+				},
+				LastUsedTime: &fiveMinutesAgo,
+			},
+			{
+				Address: &titus.Address{
+					Address: "192.168.1.55",
+				},
+				LastUsedTime: &now,
+			},
+			// This IP address is not part of the interface, so it will be deleted, even though it is part of the
+			// non-viable set
+			{
+				Address: &titus.Address{
+					Address: "192.168.1.42",
 				},
 				LastUsedTime: &now,
 			},
@@ -137,6 +152,10 @@ func TestIPsToFree(t *testing.T) {
 					Primary:          aws.Bool(false),
 					PrivateIpAddress: aws.String("192.168.1.10"),
 				},
+				{
+					Primary:          aws.Bool(false),
+					PrivateIpAddress: aws.String("192.168.1.55"),
+				},
 			},
 		},
 	}
@@ -148,12 +167,15 @@ func TestIPsToFree(t *testing.T) {
 		Address: "192.168.1.1",
 	}))
 
-	assert.Assert(t, is.Len(resp.AddressToDelete, 2))
+	assert.Assert(t, is.Len(resp.AddressToDelete, 3))
 	assert.Assert(t, is.Contains(resp.AddressToDelete, &titus.Address{
 		Address: "10.0.0.1",
 	}))
 	assert.Assert(t, is.Contains(resp.AddressToDelete, &titus.Address{
 		Address: "192.168.1.10",
+	}))
+	assert.Assert(t, is.Contains(resp.AddressToDelete, &titus.Address{
+		Address: "192.168.1.42",
 	}))
 
 	assert.Assert(t, is.Len(ec2NetworkInterfaceSession.lastUnassignPrivateIPAddressesInput.PrivateIpAddresses, 1))
