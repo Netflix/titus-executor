@@ -19,14 +19,13 @@ import (
 	"strings"
 	"time"
 
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/nvidia"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -524,8 +523,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	}
 
 	// label is necessary for metadata proxy compatibility
-	containerCfg.Labels["titus.vpc.ipv4"] = c.Allocation.IPV4Address.Address.Address // deprecated
-	containerCfg.Labels["titus.net.ipv4"] = c.Allocation.IPV4Address.Address.Address
+	containerCfg.Labels[runtimeTypes.VPCIPv4Label] = c.Allocation.IPV4Address.Address.Address // nolint: staticcheck
+	containerCfg.Labels[runtimeTypes.NetIPv4Label] = c.Allocation.IPV4Address.Address.Address
 
 	// TODO(fabio): find a way to avoid regenerating the env map
 	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address.Address.Address

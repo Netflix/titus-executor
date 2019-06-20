@@ -32,6 +32,15 @@ const (
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
 	TitusEnvironmentsDir            = "/var/lib/titus-environments"
 	titusContainerIDEnvVariableName = "TITUS_CONTAINER_ID"
+
+	// VPCIPv4Label is the VPC address of the container.
+	//
+	// Deprecated: Titus does not support non-VPC addresses, so NetIPv4Label
+	// should be used instead
+	VPCIPv4Label = "titus.vpc.ipv4"
+
+	// NetIPv4Label is the canonical network address of the container
+	NetIPv4Label = "titus.net.ipv4"
 )
 
 const (

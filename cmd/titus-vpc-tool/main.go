@@ -96,7 +96,7 @@ func main() {
 				logruslogger.AddHook(&journalhook.JournalHook{})
 			}
 
-			if zipkinURL := v.GetString(zipkinURLFlagName); zipkinURLFlagName != "" {
+			if zipkinURL := v.GetString(zipkinURLFlagName); zipkinURL != "" {
 				hostname, err := os.Hostname()
 				if err != nil {
 					return err

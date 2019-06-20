@@ -72,4 +72,5 @@ require (
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gopkg.in/yaml.v2 v2.2.2 // indirect
 	gotest.tools v2.2.0+incompatible
+	sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4
 )

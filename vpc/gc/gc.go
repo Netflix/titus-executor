@@ -7,13 +7,18 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	runtimetypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/identity"
 	"github.com/Netflix/titus-executor/vpc/utilities"
+	dockerclient "github.com/docker/docker/client"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
@@ -32,6 +37,11 @@ func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdent
 	}
 	defer exclusiveLock.Unlock()
 
+	dockerIPs, err := getInUseIPsFromDocker(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Unable to get running container IPs from Docker")
+	}
+
 	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
 		return errors.Wrap(err, "Unable to get instance identity")
@@ -44,7 +54,7 @@ func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdent
 		return err
 	}
 	for i := 1; i < maxInterfaces; i++ {
-		err = doGcInterface(ctx, minIdlePeriod, i, locker, client, instanceIdentity)
+		err = doGcInterface(ctx, minIdlePeriod, i, locker, client, instanceIdentity, dockerIPs)
 		if err != nil {
 			return err
 		}
@@ -53,7 +63,34 @@ func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdent
 	return nil
 }
 
-func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
+// This gets the IP addresses in use from Docker containers that are running.
+func getInUseIPsFromDocker(ctx context.Context) ([]string, error) {
+	client, err := dockerclient.NewClientWithOpts()
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot initialize docker client")
+	}
+
+	defer func() {
+		_ = client.Close()
+	}()
+
+	filter := filters.NewArgs()
+	filter.Add("status", "running")
+	filter.Add("status", "created")
+	filter.Add("label", runtimetypes.NetIPv4Label)
+	containers, err := client.ContainerList(ctx, types.ContainerListOptions{Filters: filter, All: true})
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]string, len(containers))
+	for idx := range containers {
+		ret[idx] = net.ParseIP(containers[idx].Labels[runtimetypes.NetIPv4Label]).String()
+	}
+
+	return ret, nil
+}
+
+func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity, dockerIPs []string) error {
 	ctx = logger.WithField(ctx, "deviceIdx", deviceIdx)
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 10 * time.Second
@@ -105,13 +142,39 @@ func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx i
 	// We unlock here, because in freeIPs, it can take quite a while (minutes).
 	configurationLock.Unlock()
 
+	nonviableUtilizedAddresses := recordsToUtilizedAddresses(nonviableAddresses)
+	for idx := range dockerIPs {
+		dockerIP := dockerIPs[idx]
+		// Check if this IP is in any of the sets, if it is not already in the set, we add it to the non-viable set
+		if _, ok := unallocatedAddresses[dockerIP]; ok {
+			continue
+		}
+		if _, ok := nonviableAddresses[dockerIP]; ok {
+			continue
+		}
+		if _, ok := allocatedAddresses[dockerIP]; ok {
+			continue
+		}
+
+		logger.G(ctx).WithField("address", dockerIP).Info("Adding IP to non-viable set, because observed in Docker, but not observed in address set")
+		nonviableUtilizedAddresses = append(nonviableUtilizedAddresses, &vpcapi.UtilizedAddress{
+			Address: &titus.Address{
+				Address: dockerIP,
+			},
+			LastUsedTime: &timestamp.Timestamp{
+				Seconds: 0,
+				Nanos:   0,
+			},
+		})
+	}
+
 	gcRequest := &vpcapi.GCRequest{
 		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
 			DeviceIndex: uint32(deviceIdx),
 		},
 		InstanceIdentity:     instanceIdentity,
 		AllocatedAddresses:   recordsToUtilizedAddresses(allocatedAddresses),
-		NonviableAddresses:   recordsToUtilizedAddresses(nonviableAddresses),
+		NonviableAddresses:   nonviableUtilizedAddresses,
 		UnallocatedAddresses: recordsToUtilizedAddresses(unallocatedAddresses),
 	}
 
