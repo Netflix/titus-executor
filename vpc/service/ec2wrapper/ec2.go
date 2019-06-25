@@ -2,6 +2,7 @@ package ec2wrapper
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -196,15 +197,29 @@ func (s *ec2InstanceSession) GetInstance(ctx context.Context) (*ec2.Instance, er
 	})
 
 	if err != nil {
-		logger.G(ctx).WithField("ec2InstanceId", s.instanceIdentity.GetInstanceID()).Error("Could not get EC2 Instance")
+		logger.G(ctx).WithError(err).WithField("ec2InstanceId", s.instanceIdentity.GetInstanceID()).Error("Could not get EC2 Instance")
 		switch awsErr := err.(type) {
 		case awserr.Error:
-			if awsErr.Code() == "InvalidInstanceID.NotFound" {
+			switch awsErr.Code() {
+			case "InvalidInstanceID.NotFound":
 				span.SetStatus(trace.Status{
 					Code:    trace.StatusCodeNotFound,
 					Message: awsErr.Message(),
 				})
 				return nil, status.Error(codes.NotFound, awsErr.Error())
+			case "Client.RequestLimitExceeded":
+				span.SetStatus(trace.Status{
+					Code:    trace.StatusCodeNotFound,
+					Message: awsErr.Message(),
+				})
+				return nil, status.Error(codes.ResourceExhausted, awsErr.Error())
+			default:
+				reterr := fmt.Sprintf("Error fetching instance from EC2 (code: %s): %s", awsErr.Code(), awsErr.Message())
+				span.SetStatus(trace.Status{
+					Code:    trace.StatusCodeUnknown,
+					Message: reterr,
+				})
+				return nil, status.Error(codes.Unknown, reterr)
 			}
 		default:
 			span.SetStatus(trace.Status{
