@@ -58,7 +58,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	instance, err := ec2session.GetInstance(ctx)
+	instance, err := ec2session.GetInstance(ctx, ec2wrapper.UseCache)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	subnet, err := interfaceSession.GetSubnet(ctx)
+	subnet, err := interfaceSession.GetSubnet(ctx, ec2wrapper.UseCache)
 	if err != nil {
 		return nil, err
 	}

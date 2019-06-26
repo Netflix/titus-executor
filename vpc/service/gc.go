@@ -124,7 +124,7 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 	if err != nil {
 		return nil, err
 	}
-	instance, err := ec2instanceSession.GetInstance(ctx)
+	instance, err := ec2instanceSession.GetInstance(ctx, ec2wrapper.UseCache)
 	if err != nil {
 		return nil, err
 	}

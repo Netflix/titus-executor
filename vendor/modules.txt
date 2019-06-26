@@ -258,6 +258,7 @@ github.com/hashicorp/errwrap
 # github.com/hashicorp/go-multierror v0.0.0-20171204182908-b7773ae21874
 github.com/hashicorp/go-multierror
 # github.com/hashicorp/golang-lru v0.5.1
+github.com/hashicorp/golang-lru
 github.com/hashicorp/golang-lru/simplelru
 # github.com/hashicorp/hcl v0.0.0-20180404174102-ef8a98b0bbce
 github.com/hashicorp/hcl
