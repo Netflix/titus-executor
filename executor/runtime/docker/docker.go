@@ -716,7 +716,8 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	}()
 	// We intentionally don't use context here, because context only KILLs.
 	// Instead we rely on the idea of the cleanup function below.
-
+    vpcPath := vpcToolPath()
+	log.Printf("vpcPath: %v, args: %v", vpcPath, args)
 	c.AllocationCommand = exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gosec
 	c.AllocationCommandStatus = make(chan error)
 

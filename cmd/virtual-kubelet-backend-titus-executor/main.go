@@ -69,6 +69,7 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	ctx = log.WithLogger(ctx, log.L)
 
 	log.G(ctx).Debugf("Args: %v, %v", podFileName, statusPipe)
+	log.G(ctx).Debugf("os.Args[0]: %v", os.Args[0])
 
 	podFile, err := os.Open(podFileName)
 	if err != nil {
@@ -81,7 +82,8 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	}
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Got pod %v", pod)
 
-	statuses, err := os.Open(statusPipe)
+	pipe, err := os.OpenFile(statusPipe, os.O_RDWR, 0600)
+	defer pipe.Close()
 	if err != nil {
 		panic(err)
 	}
@@ -94,7 +96,7 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 		return fmt.Errorf("cannot create Titus executor: %v", err)
 	}
 
-	err = backend.RunWithBackend(ctx, dockerRunner, statuses, pod)
+	err = backend.RunWithBackend(ctx, dockerRunner, pipe, pod)
 	if err != nil {
 		log.G(ctx).WithError(err).Fatal("Could not run container")
 	}
