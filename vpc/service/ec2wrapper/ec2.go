@@ -2,6 +2,8 @@ package ec2wrapper
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -307,6 +309,8 @@ func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context) (*
 	defer span.End()
 	ec2client := ec2.New(s.session)
 
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)))
+
 	describeNetworkInterfacesInput := &ec2.DescribeNetworkInterfacesInput{
 		NetworkInterfaceIds: []*string{s.instanceNetworkInterface.NetworkInterfaceId},
 	}
@@ -317,13 +321,49 @@ func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context) (*
 		return nil, handleEC2Error(err, span)
 	}
 
-	return describeNetworkInterfacesOutput.NetworkInterfaces[0], nil
+	networkInterface := describeNetworkInterfacesOutput.NetworkInterfaces[0]
+	privateIPs := make([]string, len(networkInterface.PrivateIpAddresses)+1)
+	for idx := range networkInterface.PrivateIpAddresses {
+		privateIPs[idx+1] = aws.StringValue(networkInterface.PrivateIpAddresses[idx].PrivateIpAddress)
+	}
+	privateIPs[0] = aws.StringValue(networkInterface.PrivateIpAddress)
+
+	ipv6Addresses := make([]string, len(networkInterface.Ipv6Addresses))
+	for idx := range networkInterface.Ipv6Addresses {
+		ipv6Addresses[idx] = aws.StringValue(networkInterface.Ipv6Addresses[idx].Ipv6Address)
+	}
+
+	securityGroupIds := make([]string, len(networkInterface.Groups))
+	securityGroupNames := make([]string, len(networkInterface.Groups))
+
+	for idx := range networkInterface.Groups {
+		securityGroupIds[idx] = aws.StringValue(networkInterface.Groups[idx].GroupId)
+		securityGroupNames[idx] = aws.StringValue(networkInterface.Groups[idx].GroupName)
+	}
+
+	sort.Strings(securityGroupIds)
+	sort.Strings(securityGroupNames)
+
+	span.AddAttributes(
+		trace.StringAttribute("privateIPs", fmt.Sprint(privateIPs)),
+		trace.StringAttribute("ipv6Addresses", fmt.Sprint(ipv6Addresses)),
+		trace.StringAttribute("securityGroupIds", fmt.Sprint(securityGroupIds)),
+		trace.StringAttribute("securityGroupNames", fmt.Sprint(securityGroupNames)),
+	)
+	return networkInterface, nil
 }
 
 func (s *ec2NetworkInterfaceSession) ModifySecurityGroups(ctx context.Context, groupIds []*string) error {
 	ctx, span := trace.StartSpan(ctx, "modifySecurityGroups")
 	defer span.End()
 	ec2client := ec2.New(s.session)
+
+	groupIds2 := aws.StringValueSlice(groupIds)
+	sort.Strings(groupIds2)
+	span.AddAttributes(
+		trace.StringAttribute("groupIds", fmt.Sprint(groupIds2)),
+		trace.StringAttribute("eni", aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)),
+	)
 	networkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
 		Groups:             groupIds,
 		NetworkInterfaceId: s.instanceNetworkInterface.NetworkInterfaceId,
@@ -331,11 +371,7 @@ func (s *ec2NetworkInterfaceSession) ModifySecurityGroups(ctx context.Context, g
 	_, err := ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, networkInterfaceAttributeInput)
 
 	if err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: err.Error(),
-		})
-		return status.Convert(errors.Wrap(err, "Cannot modify security groups")).Err()
+		return handleEC2Error(err, span)
 	}
 
 	return nil
@@ -353,7 +389,7 @@ func (s *ec2NetworkInterfaceSession) GetSubnetByID(ctx context.Context, subnetID
 		s.subnetCache.Remove(subnetID)
 	}
 	if strategy&FetchFromCache > 0 {
-		subnet, ok := s.instanceCache.Get(subnetID)
+		subnet, ok := s.subnetCache.Get(subnetID)
 		if ok {
 			return subnet.(*ec2.Subnet), nil
 		}

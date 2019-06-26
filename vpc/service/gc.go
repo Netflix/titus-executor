@@ -5,6 +5,8 @@ import (
 	"net"
 	"time"
 
+	"go.opencensus.io/trace"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -116,35 +118,50 @@ func setToStringSlice(s set.Set) []string {
 func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GC")
+	defer span.End()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 	ctx = logger.WithField(ctx, "deviceIdx", req.NetworkInterfaceAttachment.DeviceIndex)
+	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
+		trace.Int64Attribute("deviceIdx", int64(req.NetworkInterfaceAttachment.DeviceIndex)))
 
 	ec2instanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+
 	instance, err := ec2instanceSession.GetInstance(ctx, ec2wrapper.UseCache)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 	instanceIface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
 	if instanceIface == nil {
-		return nil, status.Errorf(codes.NotFound, "Cannot find network interface at attachment index %d", req.NetworkInterfaceAttachment.DeviceIndex)
+		err = status.Errorf(codes.NotFound, "Cannot find network interface at attachment index %d", req.NetworkInterfaceAttachment.DeviceIndex)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
 	}
 
 	ec2NetworkInterfaceSession, err := ec2instanceSession.GetSessionFromNetworkInterface(ctx, instanceIface)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
 	return gcInterface(ctx, ec2NetworkInterfaceSession, req)
 }
 func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "gcInterface")
+	defer span.End()
 	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
 
 	// So now I need to list the IP addresses that are owned by the describeNetworkInterfaces objects, and find those which are
 	// not assigned to the interface, and set those to delete.
@@ -153,6 +170,7 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 	currentIPv4AddressesSet := ifaceIPv4Set(iface)
 	unallocatedAddressesMap, err := utilizedAddressesToIPMap(req.UnallocatedAddresses)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 	allocatedAddressesSet := utilizedAddressesToIPSet(req.AllocatedAddresses)
@@ -168,6 +186,7 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 		}
 		_, err = ec2NetworkInterfaceSession.UnassignPrivateIPAddresses(ctx, unassignPrivateIPAddressesInput)
 		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
 			return nil, err
 		}
 	}
@@ -182,6 +201,12 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 	addressesToDeleteSet := addressesKnownToAgentSet.Difference(newCurrentIPAddressesSet)
 	// addressesToBumpSet are addresses that the agent did not know it had, but it still has
 	addressesToBumpSet := newCurrentIPAddressesSet.Difference(addressesKnownToAgentSet)
+	span.AddAttributes(
+		trace.StringAttribute("addressesKnownToAgentSet", addressesKnownToAgentSet.String()),
+		trace.StringAttribute("newCurrentIPAddressesSet", newCurrentIPAddressesSet.String()),
+		trace.StringAttribute("addressesToDeleteSet", addressesToDeleteSet.String()),
+		trace.StringAttribute("addressesToBumpSet", addressesToBumpSet.String()),
+	)
 	logger.G(ctx).WithFields(map[string]interface{}{
 		"addressesKnownToAgentSet": addressesKnownToAgentSet.String(),
 		"newCurrentIPAddressesSet": newCurrentIPAddressesSet.String(),

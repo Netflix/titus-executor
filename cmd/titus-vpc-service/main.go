@@ -67,6 +67,7 @@ func main() {
 
 	v := pkgviper.New()
 
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	var dd *datadog.Exporter
 	rootCmd := &cobra.Command{
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -91,8 +92,6 @@ func main() {
 				}
 				view.RegisterExporter(dd)
 			}
-
-			trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
 			return setupDebugServer(ctx, v.GetString("debug-address"))
 		},
@@ -126,7 +125,7 @@ func main() {
 				if err != nil {
 					return errors.Wrap(err, "Unable to fetch hostname")
 				}
-				endpoint, err := openzipkin.NewEndpoint("titus-vpc-service", hostname+":0")
+				endpoint, err := openzipkin.NewEndpoint("titus-vpc-service", hostname)
 				if err != nil {
 					return errors.Wrap(err, "Failed to create the local zipkinEndpoint")
 				}

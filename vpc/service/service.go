@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 
 	"go.opencensus.io/stats/view"
@@ -23,6 +25,11 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
+
+type vpcService struct {
+	ec2           ec2wrapper.EC2SessionManager
+	gcRateLimiter *rate.Limiter
+}
 
 type Server struct {
 	ListenAddr string
@@ -59,7 +66,8 @@ func (server *Server) Run(ctx context.Context, listener net.Listener) error {
 		}))
 
 	vpc := &vpcService{
-		ec2: ec2wrapper.NewEC2SessionManager(),
+		ec2:           ec2wrapper.NewEC2SessionManager(),
+		gcRateLimiter: rate.NewLimiter(1, 10),
 	}
 	vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
 	reflection.Register(grpcServer)
