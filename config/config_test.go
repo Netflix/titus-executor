@@ -119,6 +119,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				info: &titusproto.ContainerInfo{
 					AppName:          proto.String("app1"),
 					ImageName:        proto.String("image1"),
+					Version:          proto.String("stable"),
+					ImageDigest:      proto.String("digest1"),
 					JobGroupStack:    proto.String("stack1"),
 					JobGroupDetail:   proto.String("detail1"),
 					JobGroupSequence: proto.String("v001"),
@@ -138,6 +140,9 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "100",
 				"TITUS_NUM_DISK":              "1000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "100",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "stable",
+				"TITUS_IMAGE_DIGEST":          "digest1",
 			},
 		},
 		{
@@ -164,6 +169,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "200",
 				"TITUS_NUM_DISK":              "2000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "200",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "latest",
 			},
 		},
 		{
@@ -190,6 +197,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "300",
 				"TITUS_NUM_DISK":              "3000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "300",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "latest",
 			},
 		},
 		{
@@ -216,6 +225,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "400",
 				"TITUS_NUM_DISK":              "4000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "400",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "latest",
 			},
 		},
 		{
@@ -242,6 +253,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "500",
 				"TITUS_NUM_DISK":              "5000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "500",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "latest",
 			},
 		},
 		{
@@ -267,6 +280,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "600",
 				"TITUS_NUM_DISK":              "6000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "600",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "latest",
 			},
 		},
 		{
@@ -291,6 +306,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "700",
 				"TITUS_NUM_DISK":              "7000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "700",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "latest",
 			},
 		},
 		{
@@ -314,6 +331,8 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_MEM":               "800",
 				"TITUS_NUM_DISK":              "8000",
 				"TITUS_NUM_NETWORK_BANDWIDTH": "800",
+				"TITUS_IMAGE_NAME":            "image1",
+				"TITUS_IMAGE_TAG":             "latest",
 			},
 		},
 	}
