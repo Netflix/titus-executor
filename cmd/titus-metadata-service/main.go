@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,6 +30,8 @@ import (
 
 // 169 is the first octet of 169.254...
 const defaultListeningPort = 8169
+
+const certRefreshTime = 5 * time.Minute
 
 /* Either returns a listener, or logs a fatal error */
 func getListener(listenPort int, listenerFd int64) net.Listener {
@@ -76,6 +79,30 @@ func readTaskConfigFile(taskID string) (*titus.ContainerInfo, error) {
 	}
 
 	return &cInfo, nil
+}
+
+func reloadSigner(ms *metadataserver.MetadataServer) {
+	t := time.NewTicker(certRefreshTime)
+	defer t.Stop()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGHUP)
+
+	for {
+		select {
+		case <-t.C:
+		case <-sigs:
+		}
+
+		newSigner, err := identity.NewDefaultSigner()
+		if err != nil {
+			log.WithError(err).Fatal("Cannot instantiate new default signer")
+		}
+
+		if err := ms.SetSigner(newSigner); err != nil {
+			log.WithError(err).Error("Error reloading signing certificate")
+		}
+	}
 }
 
 func main() {
@@ -236,6 +263,7 @@ func main() {
 		}
 		ms := metadataserver.NewMetaDataServer(context.Background(), mdscfg)
 		go notifySystemd()
+		go reloadSigner(ms)
 		// TODO: Wire up logic to shut down mds on signal
 		if err := http.Serve(listener, ms); err != nil {
 			return cli.NewExitError(err.Error(), 1)
