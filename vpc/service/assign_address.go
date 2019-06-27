@@ -53,7 +53,8 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 	defer span.End()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
-	span.AddAttributes(trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
+	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 		trace.BoolAttribute("ipv6AddressRequested", req.Ipv6AddressRequested),
 		trace.StringAttribute("securityGroupIds", fmt.Sprint(req.SecurityGroupIds)),
 		trace.StringAttribute("allowSecurityGroupChange", fmt.Sprint(req.AllowSecurityGroupChange)),
@@ -106,7 +107,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	iface, err := interfaceSession.GetNetworkInterface(ctx)
+	iface, err := interfaceSession.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -183,6 +184,12 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		assignedIPv6addresses.Add(net.ParseIP(*pi.Ipv6Address).String())
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("assignedIPv4addresses", assignedIPv4addresses.String()),
+		trace.StringAttribute("assignedIPv6addresses", assignedIPv6addresses.String()),
+		trace.StringAttribute("utilizedAddressIPv4Set", utilizedAddressIPv4Set.String()),
+		trace.StringAttribute("utilizedAddressIPv6Set", utilizedAddressIPv6Set.String()),
+	)
 	entry.WithField("ipv4addresses", assignedIPv4addresses.ToSlice()).Debug("assigned IPv4 addresses")
 	entry.WithField("ipv6addresses", assignedIPv6addresses.ToSlice()).Debug("assigned IPv6 addresses")
 	entry.WithField("ipv4addresses", utilizedAddressIPv4Set.ToSlice()).Debug("utilized IPv4 addresses")
@@ -243,7 +250,7 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 	}
 
 	time.Sleep(time.Second)
-	ni, err := iface.GetNetworkInterface(ctx)
+	ni, err := iface.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err

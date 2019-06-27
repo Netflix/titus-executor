@@ -2,8 +2,6 @@ package ec2wrapper
 
 import (
 	"context"
-	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -15,69 +13,11 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
-	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-func init() {
-	err := view.Register(
-		&view.View{
-			Name:        getInstanceMs.Name(),
-			Description: getInstanceMs.Description(),
-			TagKeys:     []tag.Key{keyInstance},
-			Measure:     getInstanceMs,
-			Aggregation: view.Distribution(),
-		},
-		&view.View{
-			Name:        getInstanceCount.Name(),
-			Description: getInstanceCount.Description(),
-			TagKeys:     []tag.Key{keyInstance},
-			Measure:     getInstanceCount,
-			Aggregation: view.Count(),
-		},
-		&view.View{
-			Name:        getInstanceSuccess.Name(),
-			Description: getInstanceCount.Description(),
-			TagKeys:     []tag.Key{keyInstance},
-			Measure:     getInstanceCount,
-			Aggregation: view.Count(),
-		},
-		&view.View{
-			Name:        getInstanceFromCacheSuccess.Name(),
-			Description: getInstanceFromCacheSuccess.Description(),
-			TagKeys:     []tag.Key{keyInstance},
-			Measure:     getInstanceFromCacheSuccess,
-			Aggregation: view.Count(),
-		},
-		&view.View{
-			Name:        getInstanceFromCache.Name(),
-			Description: getInstanceFromCache.Description(),
-			TagKeys:     []tag.Key{keyInstance},
-			Measure:     getInstanceFromCache,
-			Aggregation: view.Count(),
-		},
-		&view.View{
-			Name:        storedInstanceInCache.Name(),
-			Description: storedInstanceInCache.Description(),
-			TagKeys:     []tag.Key{keyInstance},
-			Measure:     storedInstanceInCache,
-			Aggregation: view.Count(),
-		},
-		&view.View{
-			Name:        invalidateInstanceFromCache.Name(),
-			Description: invalidateInstanceFromCache.Description(),
-			TagKeys:     []tag.Key{keyInstance},
-			Measure:     invalidateInstanceFromCache,
-			Aggregation: view.Count(),
-		},
-	)
-	if err != nil {
-		panic(err)
-	}
-}
 
 type CacheStrategy int
 
@@ -96,10 +36,10 @@ var (
 	invalidateInstanceFromCache = stats.Int64("invalidateInstanceFromCache.count", "Instance invalidated from cache", "")
 	storedInstanceInCache       = stats.Int64("storeInstanceInCache.count", "How many times we stored instances in the cache", "")
 	getInstanceFromCache        = stats.Int64("getInstanceFromCache.count", "How many times getInstance was tried from cache", "")
-	getInstanceFromCacheSuccess = stats.Int64("getInstanceFromCache.count.success", "How many times getInstance from cache succeeded", "")
+	getInstanceFromCacheSuccess = stats.Int64("getInstanceFromCache.success.count", "How many times getInstance from cache succeeded", "")
 	getInstanceMs               = stats.Float64("getInstance.latency", "The time to fetch an instance", "ns")
 	getInstanceCount            = stats.Int64("getInstance.count", "How many times getInstance was called", "")
-	getInstanceSuccess          = stats.Int64("getInstance.count.success", "How many times getInstance succeeded", "")
+	getInstanceSuccess          = stats.Int64("getInstance.success.count", "How many times getInstance succeeded", "")
 )
 
 var (
@@ -129,7 +69,7 @@ type EC2NetworkInterfaceSession interface {
 	GetSubnetByID(ctx context.Context, subnetID string, strategy CacheStrategy) (*ec2.Subnet, error)
 	GetDefaultSecurityGroups(ctx context.Context) ([]*string, error)
 	ModifySecurityGroups(ctx context.Context, groupIds []*string) error
-	GetNetworkInterface(ctx context.Context) (*ec2.NetworkInterface, error)
+	GetNetworkInterface(ctx context.Context, strategy CacheStrategy) (*ec2.NetworkInterface, error)
 	AssignPrivateIPAddresses(ctx context.Context, assignPrivateIPAddressesInput ec2.AssignPrivateIpAddressesInput) (*ec2.AssignPrivateIpAddressesOutput, error)
 	AssignIPv6Addresses(ctx context.Context, assignIpv6AddressesInput ec2.AssignIpv6AddressesInput) (*ec2.AssignIpv6AddressesOutput, error)
 	UnassignPrivateIPAddresses(ctx context.Context, unassignPrivateIPAddressesInput ec2.UnassignPrivateIpAddressesInput) (*ec2.UnassignPrivateIpAddressesOutput, error)
@@ -187,6 +127,12 @@ func (sessionManager *ec2SessionManager) getSession(ctx context.Context, region,
 	}
 	instanceSession.subnetCache = c
 
+	c, err = lru.New(10000)
+	if err != nil {
+		panic(err)
+	}
+	instanceSession.interfaceCache = c
+
 	sessionManager.sessionsLock.Lock()
 	defer sessionManager.sessionsLock.Unlock()
 	sessionManager.sessions[sessionKey] = instanceSession
@@ -213,9 +159,10 @@ func (sessionManager *ec2SessionManager) GetSessionFromInstanceIdentity(ctx cont
 }
 
 type ec2BaseSession struct {
-	session       *session.Session
-	instanceCache *lru.Cache
-	subnetCache   *lru.Cache
+	session        *session.Session
+	instanceCache  *lru.Cache
+	subnetCache    *lru.Cache
+	interfaceCache *lru.Cache
 }
 
 func (s *ec2BaseSession) Session(ctx context.Context) (*session.Session, error) {
@@ -297,194 +244,4 @@ func (s *ec2InstanceSession) GetInstance(ctx context.Context, strategy CacheStra
 		s.instanceCache.Add(s.instanceIdentity.InstanceID, describeInstancesOutput.Reservations[0].Instances[0])
 	}
 	return describeInstancesOutput.Reservations[0].Instances[0], nil
-}
-
-type ec2NetworkInterfaceSession struct {
-	*ec2BaseSession
-	instanceNetworkInterface *ec2.InstanceNetworkInterface
-}
-
-func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context) (*ec2.NetworkInterface, error) {
-	ctx, span := trace.StartSpan(ctx, "getNetworkInterface")
-	defer span.End()
-	ec2client := ec2.New(s.session)
-
-	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)))
-
-	describeNetworkInterfacesInput := &ec2.DescribeNetworkInterfacesInput{
-		NetworkInterfaceIds: []*string{s.instanceNetworkInterface.NetworkInterfaceId},
-	}
-
-	describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, describeNetworkInterfacesInput)
-	// TODO: Work around rate limiting here, and do some basic retries
-	if err != nil {
-		return nil, handleEC2Error(err, span)
-	}
-
-	networkInterface := describeNetworkInterfacesOutput.NetworkInterfaces[0]
-	privateIPs := make([]string, len(networkInterface.PrivateIpAddresses)+1)
-	for idx := range networkInterface.PrivateIpAddresses {
-		privateIPs[idx+1] = aws.StringValue(networkInterface.PrivateIpAddresses[idx].PrivateIpAddress)
-	}
-	privateIPs[0] = aws.StringValue(networkInterface.PrivateIpAddress)
-
-	ipv6Addresses := make([]string, len(networkInterface.Ipv6Addresses))
-	for idx := range networkInterface.Ipv6Addresses {
-		ipv6Addresses[idx] = aws.StringValue(networkInterface.Ipv6Addresses[idx].Ipv6Address)
-	}
-
-	securityGroupIds := make([]string, len(networkInterface.Groups))
-	securityGroupNames := make([]string, len(networkInterface.Groups))
-
-	for idx := range networkInterface.Groups {
-		securityGroupIds[idx] = aws.StringValue(networkInterface.Groups[idx].GroupId)
-		securityGroupNames[idx] = aws.StringValue(networkInterface.Groups[idx].GroupName)
-	}
-
-	sort.Strings(securityGroupIds)
-	sort.Strings(securityGroupNames)
-
-	span.AddAttributes(
-		trace.StringAttribute("privateIPs", fmt.Sprint(privateIPs)),
-		trace.StringAttribute("ipv6Addresses", fmt.Sprint(ipv6Addresses)),
-		trace.StringAttribute("securityGroupIds", fmt.Sprint(securityGroupIds)),
-		trace.StringAttribute("securityGroupNames", fmt.Sprint(securityGroupNames)),
-	)
-	return networkInterface, nil
-}
-
-func (s *ec2NetworkInterfaceSession) ModifySecurityGroups(ctx context.Context, groupIds []*string) error {
-	ctx, span := trace.StartSpan(ctx, "modifySecurityGroups")
-	defer span.End()
-	ec2client := ec2.New(s.session)
-
-	groupIds2 := aws.StringValueSlice(groupIds)
-	sort.Strings(groupIds2)
-	span.AddAttributes(
-		trace.StringAttribute("groupIds", fmt.Sprint(groupIds2)),
-		trace.StringAttribute("eni", aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)),
-	)
-	networkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
-		Groups:             groupIds,
-		NetworkInterfaceId: s.instanceNetworkInterface.NetworkInterfaceId,
-	}
-	_, err := ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, networkInterfaceAttributeInput)
-
-	if err != nil {
-		return handleEC2Error(err, span)
-	}
-
-	return nil
-}
-
-func (s *ec2NetworkInterfaceSession) GetSubnet(ctx context.Context, strategy CacheStrategy) (*ec2.Subnet, error) {
-	return s.GetSubnetByID(ctx, aws.StringValue(s.instanceNetworkInterface.SubnetId), strategy)
-}
-
-func (s *ec2NetworkInterfaceSession) GetSubnetByID(ctx context.Context, subnetID string, strategy CacheStrategy) (*ec2.Subnet, error) {
-	ctx, span := trace.StartSpan(ctx, "getSubnet")
-	defer span.End()
-
-	if strategy&InvalidateCache > 0 {
-		s.subnetCache.Remove(subnetID)
-	}
-	if strategy&FetchFromCache > 0 {
-		subnet, ok := s.subnetCache.Get(subnetID)
-		if ok {
-			return subnet.(*ec2.Subnet), nil
-		}
-	}
-	// TODO: Cache
-	ec2client := ec2.New(s.session)
-	describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
-		SubnetIds: []*string{&subnetID},
-	})
-	if err != nil {
-		logger.G(ctx).WithField("subnetID", subnetID).Error("Could not get Subnet")
-		return nil, handleEC2Error(err, span)
-	}
-
-	subnet := describeSubnetsOutput.Subnets[0]
-	if strategy&StoreInCache > 0 {
-		s.subnetCache.Add(subnetID, subnet)
-	}
-	return subnet, nil
-}
-
-func (s *ec2NetworkInterfaceSession) GetDefaultSecurityGroups(ctx context.Context) ([]*string, error) {
-	// TODO: Cache
-	ctx, span := trace.StartSpan(ctx, "getDefaultSecurityGroups")
-	defer span.End()
-	ec2client := ec2.New(s.session)
-
-	vpcFilter := &ec2.Filter{
-		Name:   aws.String("vpc-id"),
-		Values: []*string{s.instanceNetworkInterface.VpcId},
-	}
-	groupNameFilter := &ec2.Filter{
-		Name:   aws.String("group-name"),
-		Values: aws.StringSlice([]string{"default"}),
-	}
-	describeSecurityGroupsInput := &ec2.DescribeSecurityGroupsInput{
-		Filters: []*ec2.Filter{vpcFilter, groupNameFilter},
-	}
-	// TODO: Cache this
-	describeSecurityGroupsOutput, err := ec2client.DescribeSecurityGroupsWithContext(ctx, describeSecurityGroupsInput)
-	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Could not describe security groups")).Err()
-	}
-
-	result := make([]*string, len(describeSecurityGroupsOutput.SecurityGroups))
-	for idx := range describeSecurityGroupsOutput.SecurityGroups {
-		result[idx] = describeSecurityGroupsOutput.SecurityGroups[idx].GroupId
-	}
-	return result, nil
-}
-
-func (s *ec2NetworkInterfaceSession) UnassignPrivateIPAddresses(ctx context.Context, unassignPrivateIPAddressesInput ec2.UnassignPrivateIpAddressesInput) (*ec2.UnassignPrivateIpAddressesOutput, error) {
-	unassignPrivateIPAddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
-	ctx, span := trace.StartSpan(ctx, "unassignPrivateIpAddresses")
-	defer span.End()
-	ec2client := ec2.New(s.session)
-	unassignPrivateIPAddressesOutput, err := ec2client.UnassignPrivateIpAddressesWithContext(ctx, &unassignPrivateIPAddressesInput)
-	if err != nil {
-		return nil, errors.Wrap(err, "Unable to unassign private IP addresses")
-	}
-	return unassignPrivateIPAddressesOutput, nil
-}
-
-func (s *ec2NetworkInterfaceSession) AssignPrivateIPAddresses(ctx context.Context, assignPrivateIPAddressesInput ec2.AssignPrivateIpAddressesInput) (*ec2.AssignPrivateIpAddressesOutput, error) {
-	assignPrivateIPAddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
-	ctx, span := trace.StartSpan(ctx, "assignPrivateIpAddresses")
-	defer span.End()
-	ec2client := ec2.New(s.session)
-	assignPrivateIPAddressesOutput, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, &assignPrivateIPAddressesInput)
-	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv4 addresses")).Err()
-	}
-
-	return assignPrivateIPAddressesOutput, nil
-}
-
-func (s *ec2NetworkInterfaceSession) AssignIPv6Addresses(ctx context.Context, assignIpv6AddressesInput ec2.AssignIpv6AddressesInput) (*ec2.AssignIpv6AddressesOutput, error) {
-	assignIpv6AddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
-	ctx, span := trace.StartSpan(ctx, "assignIpv6Addresses")
-	defer span.End()
-	ec2client := ec2.New(s.session)
-	assignIpv6AddressesOutput, err := ec2client.AssignIpv6AddressesWithContext(ctx, &assignIpv6AddressesInput)
-	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv6 addresses")).Err()
-	}
-
-	return assignIpv6AddressesOutput, nil
-}
-
-func GetInterfaceByIdx(instance *ec2.Instance, deviceIdx uint32) *ec2.InstanceNetworkInterface {
-	for _, ni := range instance.NetworkInterfaces {
-		if aws.Int64Value(ni.Attachment.DeviceIndex) == int64(deviceIdx) {
-			return ni
-		}
-	}
-
-	return nil
 }

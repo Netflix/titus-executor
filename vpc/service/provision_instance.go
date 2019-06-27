@@ -31,7 +31,7 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 	if err != nil {
 		return nil, err
 	}
-	instance, err := ec2InstanceSession.GetInstance(ctx, ec2wrapper.InvalidateCache&ec2wrapper.StoreInCache)
+	instance, err := ec2InstanceSession.GetInstance(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
 	if err != nil {
 		return nil, err
 	}

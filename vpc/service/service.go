@@ -6,20 +6,16 @@ import (
 	"net/http"
 	"time"
 
-	"golang.org/x/time/rate"
-
-	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-
-	"go.opencensus.io/stats/view"
-
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
+	"go.opencensus.io/stats/view"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -27,8 +23,7 @@ import (
 )
 
 type vpcService struct {
-	ec2           ec2wrapper.EC2SessionManager
-	gcRateLimiter *rate.Limiter
+	ec2 ec2wrapper.EC2SessionManager
 }
 
 type Server struct {
@@ -66,8 +61,7 @@ func (server *Server) Run(ctx context.Context, listener net.Listener) error {
 		}))
 
 	vpc := &vpcService{
-		ec2:           ec2wrapper.NewEC2SessionManager(),
-		gcRateLimiter: rate.NewLimiter(1, 10),
+		ec2: ec2wrapper.NewEC2SessionManager(),
 	}
 	vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
 	reflection.Register(grpcServer)

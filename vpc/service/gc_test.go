@@ -43,7 +43,7 @@ func (fakeEC2NetworkInterfaceSession) ModifySecurityGroups(ctx context.Context, 
 	panic("implement me")
 }
 
-func (f fakeEC2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context) (*ec2.NetworkInterface, error) {
+func (f fakeEC2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, strategy ec2wrapper.CacheStrategy) (*ec2.NetworkInterface, error) {
 	return f.iface, nil
 }
 
