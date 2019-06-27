@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -83,13 +84,23 @@ func readTaskConfigFile(taskID string) (*titus.ContainerInfo, error) {
 func reloadSigner(ms *metadataserver.MetadataServer) {
 	t := time.NewTicker(certRefreshTime)
 	defer t.Stop()
-	for range t.C {
-		if newSigner, err := identity.NewDefaultSigner(); err != nil {
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGHUP)
+
+	for {
+		select {
+		case <-t.C:
+		case <-sigs:
+		}
+
+		newSigner, err := identity.NewDefaultSigner()
+		if err != nil {
 			log.WithError(err).Fatal("Cannot instantiate new default signer")
-		} else {
-			if err := ms.SetSigner(newSigner); err != nil {
-				log.WithError(err).Error("Error reloading signing certificate")
-			}
+		}
+
+		if err := ms.SetSigner(newSigner); err != nil {
+			log.WithError(err).Error("Error reloading signing certificate")
 		}
 	}
 }
