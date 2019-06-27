@@ -219,6 +219,16 @@ func (c *Config) getEnvBasedOnTask(taskInfo *titus.ContainerInfo, mem, cpu, disk
 	env1["TITUS_NUM_DISK"] = disk
 	env1["TITUS_NUM_NETWORK_BANDWIDTH"] = networkBandwidth
 
+	if name := taskInfo.GetImageName(); name != "" {
+		env1["TITUS_IMAGE_NAME"] = name
+	}
+	if tag := taskInfo.GetVersion(); tag != "" {
+		env1["TITUS_IMAGE_TAG"] = tag
+	}
+	if digest := taskInfo.GetImageDigest(); digest != "" {
+		env1["TITUS_IMAGE_DIGEST"] = digest
+	}
+
 	return env1
 }
 
