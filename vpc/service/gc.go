@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -10,10 +11,12 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
+	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -116,35 +119,100 @@ func setToStringSlice(s set.Set) []string {
 func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GC")
+	defer span.End()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 	ctx = logger.WithField(ctx, "deviceIdx", req.NetworkInterfaceAttachment.DeviceIndex)
+	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
+		trace.Int64Attribute("deviceIdx", int64(req.NetworkInterfaceAttachment.DeviceIndex)))
 
 	ec2instanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	instance, err := ec2instanceSession.GetInstance(ctx)
+
+	instance, err := ec2instanceSession.GetInstance(ctx, ec2wrapper.UseCache)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 	instanceIface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
 	if instanceIface == nil {
-		return nil, status.Errorf(codes.NotFound, "Cannot find network interface at attachment index %d", req.NetworkInterfaceAttachment.DeviceIndex)
+		err = status.Errorf(codes.NotFound, "Cannot find network interface at attachment index %d", req.NetworkInterfaceAttachment.DeviceIndex)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
 	}
 
 	ec2NetworkInterfaceSession, err := ec2instanceSession.GetSessionFromNetworkInterface(ctx, instanceIface)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
 	return gcInterface(ctx, ec2NetworkInterfaceSession, req)
 }
-func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
-	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx)
+
+func unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, addrsToRemoveSet set.Set, retryAllowed bool) error {
+	if addrsToRemoveSet.Cardinality() == 0 {
+		return nil
+	}
+	ctx, span := trace.StartSpan(ctx, "unassignAddresses")
+	defer span.End()
+	span.AddAttributes(trace.BoolAttribute("retryAllowed", retryAllowed), trace.StringAttribute("addrsToRemove", addrsToRemoveSet.String()))
+
+	logger.G(ctx).WithField("addrsToRemove", addrsToRemoveSet.String()).WithField("retryAllowed", retryAllowed).Info("Removing addrs")
+	unassignPrivateIPAddressesInput := ec2.UnassignPrivateIpAddressesInput{
+		PrivateIpAddresses: aws.StringSlice(setToStringSlice(addrsToRemoveSet)),
+	}
+	_, err := ec2NetworkInterfaceSession.UnassignPrivateIPAddresses(ctx, unassignPrivateIPAddressesInput)
+	if err == nil {
+		return nil
+	}
+	awsErr, ok := err.(awserr.Error)
+	if !ok {
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+	if awsErr.Code() != "InvalidParameterValue" {
+		span.SetStatus(traceStatusFromError(awsErr))
+		return awsErr
+	}
+
+	if !strings.Contains(awsErr.Message(), "Some of the specified addresses are not assigned") {
+		span.SetStatus(traceStatusFromError(awsErr))
+		return awsErr
+	}
+
+	logger.G(ctx).WithError(awsErr).WithField("retryAllowed", retryAllowed).Info("Tried to free too many IPs. Likely due to a stale cache entry")
+	if !retryAllowed {
+		span.SetStatus(traceStatusFromError(awsErr))
+		return awsErr
+	}
+
+	// We don't want to store this in the cache, because it's about to be immediately incorrect
+	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	currentIPv4AddressesSet := ifaceIPv4Set(iface)
+
+	return unassignAddresses(ctx, ec2NetworkInterfaceSession, currentIPv4AddressesSet.Intersect(addrsToRemoveSet), false)
+}
+
+func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "gcInterface")
+	defer span.End()
+	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, ec2wrapper.FetchFromCache|ec2wrapper.StoreInCache)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
 
 	// So now I need to list the IP addresses that are owned by the describeNetworkInterfaces objects, and find those which are
 	// not assigned to the interface, and set those to delete.
@@ -153,6 +221,7 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 	currentIPv4AddressesSet := ifaceIPv4Set(iface)
 	unallocatedAddressesMap, err := utilizedAddressesToIPMap(req.UnallocatedAddresses)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 	allocatedAddressesSet := utilizedAddressesToIPSet(req.AllocatedAddresses)
@@ -160,16 +229,10 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 	nonviableAddressesSet := utilizedAddressesToIPSet(req.NonviableAddresses)
 
 	addrsToRemoveSet := ipsToFree(aws.StringValue(iface.PrivateIpAddress), currentIPv4AddressesSet, unallocatedAddressesMap)
-
-	if c := addrsToRemoveSet.Cardinality(); c > 0 {
-		logger.G(ctx).WithField("addrsToRemove", addrsToRemoveSet.String()).Info("Removing addrs")
-		unassignPrivateIPAddressesInput := ec2.UnassignPrivateIpAddressesInput{
-			PrivateIpAddresses: aws.StringSlice(setToStringSlice(addrsToRemoveSet)),
-		}
-		_, err = ec2NetworkInterfaceSession.UnassignPrivateIPAddresses(ctx, unassignPrivateIPAddressesInput)
-		if err != nil {
-			return nil, err
-		}
+	err = unassignAddresses(ctx, ec2NetworkInterfaceSession, addrsToRemoveSet, true)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
 	}
 
 	// We can get the addresses to delete quite easily. We take the unallocated + nonviable set and subtract the current
@@ -182,6 +245,12 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 	addressesToDeleteSet := addressesKnownToAgentSet.Difference(newCurrentIPAddressesSet)
 	// addressesToBumpSet are addresses that the agent did not know it had, but it still has
 	addressesToBumpSet := newCurrentIPAddressesSet.Difference(addressesKnownToAgentSet)
+	span.AddAttributes(
+		trace.StringAttribute("addressesKnownToAgentSet", addressesKnownToAgentSet.String()),
+		trace.StringAttribute("newCurrentIPAddressesSet", newCurrentIPAddressesSet.String()),
+		trace.StringAttribute("addressesToDeleteSet", addressesToDeleteSet.String()),
+		trace.StringAttribute("addressesToBumpSet", addressesToBumpSet.String()),
+	)
 	logger.G(ctx).WithFields(map[string]interface{}{
 		"addressesKnownToAgentSet": addressesKnownToAgentSet.String(),
 		"newCurrentIPAddressesSet": newCurrentIPAddressesSet.String(),

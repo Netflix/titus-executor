@@ -6,23 +6,25 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-
-	"go.opencensus.io/stats/view"
-
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
+	"go.opencensus.io/stats/view"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
+
+type vpcService struct {
+	ec2 ec2wrapper.EC2SessionManager
+}
 
 type Server struct {
 	ListenAddr string

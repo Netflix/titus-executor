@@ -8,6 +8,7 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -26,11 +27,11 @@ func (fakeEC2NetworkInterfaceSession) Session(ctx context.Context) (*session.Ses
 	panic("implement me")
 }
 
-func (fakeEC2NetworkInterfaceSession) GetSubnet(ctx context.Context) (*ec2.Subnet, error) {
+func (fakeEC2NetworkInterfaceSession) GetSubnet(ctx context.Context, strategy ec2wrapper.CacheStrategy) (*ec2.Subnet, error) {
 	panic("implement me")
 }
 
-func (fakeEC2NetworkInterfaceSession) GetSubnetByID(ctx context.Context, subnetID string) (*ec2.Subnet, error) {
+func (fakeEC2NetworkInterfaceSession) GetSubnetByID(ctx context.Context, subnetID string, strategy ec2wrapper.CacheStrategy) (*ec2.Subnet, error) {
 	panic("implement me")
 }
 
@@ -42,7 +43,7 @@ func (fakeEC2NetworkInterfaceSession) ModifySecurityGroups(ctx context.Context, 
 	panic("implement me")
 }
 
-func (f fakeEC2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context) (*ec2.NetworkInterface, error) {
+func (f fakeEC2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, strategy ec2wrapper.CacheStrategy) (*ec2.NetworkInterface, error) {
 	return f.iface, nil
 }
 

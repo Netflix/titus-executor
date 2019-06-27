@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
+
+	"go.opencensus.io/trace"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
@@ -46,41 +49,67 @@ func isAssignIPRequestValidForInstance(req *vpcapi.AssignIPRequest, instance *ec
 func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIPRequest) (*vpcapi.AssignIPResponse, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "AssignIP")
+	defer span.End()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
+	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
+		trace.BoolAttribute("ipv6AddressRequested", req.Ipv6AddressRequested),
+		trace.StringAttribute("securityGroupIds", fmt.Sprint(req.SecurityGroupIds)),
+		trace.StringAttribute("allowSecurityGroupChange", fmt.Sprint(req.AllowSecurityGroupChange)),
+		trace.Int64Attribute("deviceIdx", int64(req.GetNetworkInterfaceAttachment().DeviceIndex)),
+	)
 
 	if err := isAssignIPRequestValid(req); err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
 	ec2session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	instance, err := ec2session.GetInstance(ctx)
+	instance, err := ec2session.GetInstance(ctx, ec2wrapper.UseCache)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
 	err = isAssignIPRequestValidForInstance(req, instance)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	iface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
-	if iface == nil {
-		return nil, status.Error(codes.NotFound, "Could not find interface for attachment")
-	}
-
-	ctx = logger.WithField(ctx, "iface", *iface.NetworkInterfaceId)
-	interfaceSession, err := ec2session.GetSessionFromNetworkInterface(ctx, iface)
-	if err != nil {
+	// ec2InstanceIface is a potentialy stale object, because it's based on DescribeInstances, which is
+	// heavily cached
+	ec2InstanceIface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
+	if ec2InstanceIface == nil {
+		err = status.Error(codes.NotFound, "Could not find interface for attachment")
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	subnet, err := interfaceSession.GetSubnet(ctx)
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(ec2InstanceIface.NetworkInterfaceId)))
+	ctx = logger.WithField(ctx, "iface", aws.StringValue(ec2InstanceIface.NetworkInterfaceId))
+	interfaceSession, err := ec2session.GetSessionFromNetworkInterface(ctx, ec2InstanceIface)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	subnet, err := interfaceSession.GetSubnet(ctx, ec2wrapper.UseCache)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	iface, err := interfaceSession.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
@@ -90,7 +119,9 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 	if len(wantedSecurityGroups) == 0 {
 		wantedSecurityGroups, err = interfaceSession.GetDefaultSecurityGroups(ctx)
 		if err != nil {
-			return nil, errors.Wrap(err, "Could not fetch default security groups")
+			err = status.Error(codes.NotFound, errors.Wrap(err, "Could not fetch default security groups").Error())
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
 		}
 	}
 
@@ -105,19 +136,26 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 
 	if !wantedSecurityGroupsSet.Equal(hasSecurityGroupsSet) {
 		if !req.AllowSecurityGroupChange {
-			return nil, status.Error(codes.FailedPrecondition, "Security group change required, but not allowed")
+			span.AddAttributes(trace.StringAttribute("currentSecurityGroups", hasSecurityGroupsSet.String()))
+			span.Annotate(nil, "Cannot change security groups")
+			err = status.Error(codes.FailedPrecondition, "Security group change required, but not allowed")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
 		}
 		logger.G(ctx).WithField("currentSecurityGroups", hasSecurityGroupsSet.ToSlice()).WithField("newSecurityGroups", wantedSecurityGroupsSet.ToSlice()).Info("Changing security groups")
 		err = interfaceSession.ModifySecurityGroups(ctx, wantedSecurityGroups)
 		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
 			return nil, err
 		}
 	}
 
-	return assignAddresses(ctx, interfaceSession, req, subnet, true)
+	return assignAddresses(ctx, interfaceSession, iface, req, subnet, true)
 }
 
-func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
+func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "assignAddresses")
+	defer span.End()
 	entry := logger.G(ctx).WithField("allowAssignment", allowAssignment)
 	response := &vpcapi.AssignIPResponse{}
 	utilizedAddressIPv4Set := set.NewSet()
@@ -132,10 +170,6 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		}
 	}
 
-	ni, err := iface.GetNetworkInterface(ctx)
-	if err != nil {
-		return nil, err
-	}
 	response.NetworkInterface = networkInterface(*ni)
 	response.SecurityGroupIds = make([]string, len(ni.Groups))
 	assignedIPv4addresses := set.NewSet()
@@ -150,6 +184,12 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		assignedIPv6addresses.Add(net.ParseIP(*pi.Ipv6Address).String())
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("assignedIPv4addresses", assignedIPv4addresses.String()),
+		trace.StringAttribute("assignedIPv6addresses", assignedIPv6addresses.String()),
+		trace.StringAttribute("utilizedAddressIPv4Set", utilizedAddressIPv4Set.String()),
+		trace.StringAttribute("utilizedAddressIPv6Set", utilizedAddressIPv6Set.String()),
+	)
 	entry.WithField("ipv4addresses", assignedIPv4addresses.ToSlice()).Debug("assigned IPv4 addresses")
 	entry.WithField("ipv6addresses", assignedIPv6addresses.ToSlice()).Debug("assigned IPv6 addresses")
 	entry.WithField("ipv4addresses", utilizedAddressIPv4Set.ToSlice()).Debug("utilized IPv4 addresses")
@@ -192,7 +232,7 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 				// TODO: Batch intelligently.
 				SecondaryPrivateIpAddressCount: aws.Int64(4),
 			}
-			if _, err = iface.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
+			if _, err := iface.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
 				return nil, err
 			}
 		}
@@ -210,5 +250,10 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 	}
 
 	time.Sleep(time.Second)
-	return assignAddresses(ctx, iface, req, subnet, false)
+	ni, err := iface.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	return assignAddresses(ctx, iface, ni, req, subnet, false)
 }

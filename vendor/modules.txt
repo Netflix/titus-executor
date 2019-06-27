@@ -258,6 +258,7 @@ github.com/hashicorp/errwrap
 # github.com/hashicorp/go-multierror v0.0.0-20171204182908-b7773ae21874
 github.com/hashicorp/go-multierror
 # github.com/hashicorp/golang-lru v0.5.1
+github.com/hashicorp/golang-lru
 github.com/hashicorp/golang-lru/simplelru
 # github.com/hashicorp/hcl v0.0.0-20180404174102-ef8a98b0bbce
 github.com/hashicorp/hcl
@@ -422,6 +423,8 @@ golang.org/x/text/unicode/norm
 golang.org/x/text/secure/bidirule
 golang.org/x/text/unicode/bidi
 golang.org/x/text/width
+# golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
+golang.org/x/time/rate
 # golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
 golang.org/x/tools/cmd/goimports
 golang.org/x/tools/internal/imports

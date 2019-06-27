@@ -2,8 +2,8 @@
 Description=Runs VPC GC
 
 [Timer]
-OnBootSec=1m
-OnUnitActiveSec=1m
+OnBootSec=5m
+OnUnitActiveSec=3m
 
 [Install]
 WantedBy=timers.target

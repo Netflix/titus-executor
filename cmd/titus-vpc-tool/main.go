@@ -102,7 +102,7 @@ func main() {
 					return err
 				}
 				// 1. Configure exporter to export traces to Zipkin.
-				endpoint, err := openzipkin.NewEndpoint("titus-vpc-tool", hostname+":0")
+				endpoint, err := openzipkin.NewEndpoint("titus-vpc-tool", hostname)
 				if err != nil {
 					return errors.Wrap(err, "Failed to create the local zipkinEndpoint")
 				}

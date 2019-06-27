@@ -26,6 +26,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	statsdAddrFlagName = "statsd-addr"
+	zipkinURLFlagName  = "zipkin"
+)
+
 func setupDebugServer(ctx context.Context, address string) error {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -62,6 +67,7 @@ func main() {
 
 	v := pkgviper.New()
 
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	var dd *datadog.Exporter
 	rootCmd := &cobra.Command{
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -71,8 +77,8 @@ func main() {
 			if v.GetBool("journald") {
 				logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
 			}
-			if statsdAddr := v.GetString("statsd-address"); statsdAddr != "" {
-				logger.G(ctx).WithField("statsd-address", statsdAddr).Info("Setting up statsd exporter")
+			if statsdAddr := v.GetString(statsdAddrFlagName); statsdAddr != "" {
+				logger.G(ctx).WithField(statsdAddrFlagName, statsdAddr).Info("Setting up statsd exporter")
 				var err error
 				dd, err = datadog.NewExporter(datadog.Options{
 					StatsAddr: statsdAddr,
@@ -86,8 +92,6 @@ func main() {
 				}
 				view.RegisterExporter(dd)
 			}
-
-			trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
 			return setupDebugServer(ctx, v.GetString("debug-address"))
 		},
@@ -115,9 +119,17 @@ func main() {
 			defer listener.Close()
 			logger.G(ctx).WithField("address", listener.Addr().String()).Info("Listening")
 
-			if zipkinURL := v.GetString("zipkin"); zipkinURL != "" {
-				reporter := zipkinHTTP.NewReporter(zipkinURL)
-				endpoint, err := openzipkin.NewEndpoint("titus-vpc-service", listener.Addr().String())
+			if zipkinURL := v.GetString(zipkinURLFlagName); zipkinURL != "" {
+				reporter := zipkinHTTP.NewReporter(zipkinURL,
+					zipkinHTTP.BatchInterval(time.Second*5),
+					zipkinHTTP.BatchSize(10000),
+					zipkinHTTP.MaxBacklog(1000),
+				)
+				hostname, err := os.Hostname()
+				if err != nil {
+					return errors.Wrap(err, "Unable to fetch hostname")
+				}
+				endpoint, err := openzipkin.NewEndpoint("titus-vpc-service", hostname)
 				if err != nil {
 					return errors.Wrap(err, "Failed to create the local zipkinEndpoint")
 				}
@@ -136,14 +148,21 @@ func main() {
 
 	rootCmd.Flags().String("address", ":7001", "Listening address")
 	rootCmd.PersistentFlags().String("debug-address", ":7003", "Address for zpages, pprof")
-	rootCmd.PersistentFlags().String("statsd-address", "", "Statsd server address")
+	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
-	rootCmd.PersistentFlags().String("zipkin", "", "URL To send Zipkin spans to")
+	rootCmd.PersistentFlags().String(zipkinURLFlagName, "", "URL To send Zipkin spans to")
 	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
 		logger.G(ctx).WithError(err).Fatal("Unable to configure Viper")
 	}
-	v.AutomaticEnv()
+
+	if err := v.BindEnv(statsdAddrFlagName, "STATSD_ADDR"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(zipkinURLFlagName, "ZIPKIN"); err != nil {
+		panic(err)
+	}
 
 	err := rootCmd.Execute()
 	if ctx.Err() != nil {
