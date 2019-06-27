@@ -1,12 +1,15 @@
 package metadataserver
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
+	"github.com/pkg/errors"
 
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
@@ -29,6 +32,38 @@ func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
 	}
 }
 
+// SetSigner updates the identity server's signer
+func (ms *MetadataServer) SetSigner(newSigner *identity.Signer) error {
+	newCert, err := x509.ParseCertificate(newSigner.Certificate.Certificate[0])
+	if err != nil {
+		return errors.Wrap(err, "error parsing new certificate")
+	}
+
+	ms.signLock.Lock()
+	defer ms.signLock.Unlock()
+	oldSigner := ms.signer
+	oldCert, err := x509.ParseCertificate(oldSigner.Certificate.Certificate[0])
+	if err != nil {
+		return errors.Wrap(err, "error parsing old certificate")
+	}
+
+	log.WithFields(log.Fields{
+		"newSubject":      newCert.Subject,
+		"newIssuer":       newCert.Issuer,
+		"newNotBefore":    newCert.NotBefore,
+		"newNotAfter":     newCert.NotAfter,
+		"newSerialNumber": newCert.SerialNumber,
+		"oldSubject":      oldCert.Subject,
+		"oldIssuer":       oldCert.Issuer,
+		"oldNotBefore":    oldCert.NotBefore,
+		"oldNotAfter":     oldCert.NotAfter,
+		"oldSerialNumber": oldCert.SerialNumber,
+	}).Info("signer cert updated")
+
+	ms.signer = newSigner
+	return nil
+}
+
 func (ms *MetadataServer) taskIdentity(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.task-identity.count")
 
@@ -42,7 +77,9 @@ func (ms *MetadataServer) taskIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ms.signLock.Lock()
 	sig, err := ms.signer.Sign(identData)
+	ms.signLock.Unlock()
 	if err != nil {
 		log.WithError(err).Error("Error signing data")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -80,7 +117,9 @@ func (ms *MetadataServer) taskIdentityJSON(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	ms.signLock.Lock()
 	sig, err := ms.signer.SignString(identData)
+	ms.signLock.Unlock()
 	if err != nil {
 		log.WithError(err).Error("Error signing data")
 		w.WriteHeader(http.StatusInternalServerError)

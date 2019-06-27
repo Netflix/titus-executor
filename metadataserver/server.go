@@ -8,6 +8,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -57,6 +58,8 @@ type MetadataServer struct {
 	eniID               string
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
+	// Need to hold `signLock` while accessing `signer`
+	signLock sync.Mutex
 }
 
 func dumpRoutes(r *mux.Router) {
