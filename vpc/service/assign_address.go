@@ -66,13 +66,13 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	ec2session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	instance, err := ec2session.GetInstance(ctx, ec2wrapper.UseCache)
+	instance, err := ec2InstanceSession.GetInstance(ctx, ec2wrapper.UseCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -84,22 +84,22 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	// ec2InstanceIface is a potentialy stale object, because it's based on DescribeInstances, which is
-	// heavily cached
-	ec2InstanceIface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
-	if ec2InstanceIface == nil {
-		err = status.Error(codes.NotFound, "Could not find interface for attachment")
+	maxIPAddresses, err := vpc.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	interfaceSession, err := ec2InstanceSession.GetInterfaceByIdx(ctx, req.NetworkInterfaceAttachment.DeviceIndex)
+	if err != nil {
+		if ec2wrapper.IsErrInterfaceByIdxNotFound(err) {
+			err = status.Error(codes.NotFound, err.Error())
+		}
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(ec2InstanceIface.NetworkInterfaceId)))
-	ctx = logger.WithField(ctx, "iface", aws.StringValue(ec2InstanceIface.NetworkInterfaceId))
-	interfaceSession, err := ec2session.GetSessionFromNetworkInterface(ctx, ec2InstanceIface)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
+	span.AddAttributes(trace.StringAttribute("eni", interfaceSession.ElasticNetworkInterfaceID()))
+	ctx = logger.WithField(ctx, "eni", interfaceSession.ElasticNetworkInterfaceID())
 
 	subnet, err := interfaceSession.GetSubnet(ctx, ec2wrapper.UseCache)
 	if err != nil {
@@ -150,10 +150,10 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		}
 	}
 
-	return assignAddresses(ctx, interfaceSession, iface, req, subnet, true)
+	return assignAddresses(ctx, interfaceSession, iface, req, subnet, maxIPAddresses, true)
 }
 
-func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
+func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, maxIPAddresses int, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "assignAddresses")
 	defer span.End()
 	entry := logger.G(ctx).WithField("allowAssignment", allowAssignment)
@@ -207,7 +207,6 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 			return nil, errors.Wrap(err, "Cannot parse CIDR block")
 		}
 		prefixlength, _ := ipnet.Mask.Size()
-		// TODO: Set a valid prefix length
 		for addr := range assignedIPv4addresses.Iter() {
 			response.UsableAddresses = append(response.UsableAddresses, &vpcapi.UsableAddress{
 				Address:      &titus.Address{Address: addr.(string)},
@@ -228,9 +227,18 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 
 	if allowAssignment {
 		if needIPv4Addresses {
+			wantToAssignIPv4Addresses := 4
+			if assignedIPv4addresses.Cardinality()+wantToAssignIPv4Addresses > maxIPAddresses {
+				wantToAssignIPv4Addresses = maxIPAddresses - assignedIPv4addresses.Cardinality()
+			}
+
+			if wantToAssignIPv4Addresses <= 0 {
+				return nil, errors.Errorf("Invalid number of IPv4 addresses to assign to interface: %d", wantToAssignIPv4Addresses)
+			}
+
 			assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
 				// TODO: Batch intelligently.
-				SecondaryPrivateIpAddressCount: aws.Int64(4),
+				SecondaryPrivateIpAddressCount: aws.Int64(int64(wantToAssignIPv4Addresses)),
 			}
 			if _, err := iface.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
 				return nil, err
@@ -238,9 +246,18 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		}
 
 		if needIPv6Addresses {
+			wantToAssignIPv6Addresses := 4
+			if assignedIPv6addresses.Cardinality()+wantToAssignIPv6Addresses > maxIPAddresses {
+				wantToAssignIPv6Addresses = maxIPAddresses - assignedIPv4addresses.Cardinality()
+			}
+
+			if wantToAssignIPv6Addresses <= 0 {
+				return nil, errors.Errorf("Invalid number of IPv4 addresses to assign to interface: %d", wantToAssignIPv6Addresses)
+			}
+
 			assignIpv6AddressesInput := ec2.AssignIpv6AddressesInput{
 				// TODO: Batch intelligently.
-				Ipv6AddressCount: aws.Int64(4),
+				Ipv6AddressCount: aws.Int64(int64(wantToAssignIPv6Addresses)),
 			}
 
 			if _, err := iface.AssignIPv6Addresses(ctx, assignIpv6AddressesInput); err != nil {
@@ -255,5 +272,5 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	return assignAddresses(ctx, iface, ni, req, subnet, false)
+	return assignAddresses(ctx, iface, ni, req, subnet, maxIPAddresses, false)
 }

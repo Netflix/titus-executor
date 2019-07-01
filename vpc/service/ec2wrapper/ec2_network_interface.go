@@ -40,6 +40,10 @@ type cacheNetworkInterfaceWrapper struct {
 	fetched time.Time
 }
 
+func (s *ec2NetworkInterfaceSession) ElasticNetworkInterfaceID() string {
+	return aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)
+}
+
 func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, strategy CacheStrategy) (*ec2.NetworkInterface, error) {
 	ctx, span := trace.StartSpan(ctx, "getNetworkInterface")
 	defer span.End()
@@ -243,6 +247,7 @@ func (s *ec2NetworkInterfaceSession) AssignPrivateIPAddresses(ctx context.Contex
 	assignPrivateIPAddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
 	ctx, span := trace.StartSpan(ctx, "assignPrivateIpAddresses")
 	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("secondaryPrivateIpAddressCount", aws.Int64Value(assignPrivateIPAddressesInput.SecondaryPrivateIpAddressCount)))
 	ec2client := ec2.New(s.session)
 	assignPrivateIPAddressesOutput, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, &assignPrivateIPAddressesInput)
 	if err != nil {
@@ -256,6 +261,7 @@ func (s *ec2NetworkInterfaceSession) AssignIPv6Addresses(ctx context.Context, as
 	assignIpv6AddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
 	ctx, span := trace.StartSpan(ctx, "assignIpv6Addresses")
 	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("ipv6AddressCount", aws.Int64Value(assignIpv6AddressesInput.Ipv6AddressCount)))
 	ec2client := ec2.New(s.session)
 	assignIpv6AddressesOutput, err := ec2client.AssignIpv6AddressesWithContext(ctx, &assignIpv6AddressesInput)
 	if err != nil {
@@ -263,14 +269,4 @@ func (s *ec2NetworkInterfaceSession) AssignIPv6Addresses(ctx context.Context, as
 	}
 
 	return assignIpv6AddressesOutput, nil
-}
-
-func GetInterfaceByIdx(instance *ec2.Instance, deviceIdx uint32) *ec2.InstanceNetworkInterface {
-	for _, ni := range instance.NetworkInterfaces {
-		if aws.Int64Value(ni.Attachment.DeviceIndex) == int64(deviceIdx) {
-			return ni
-		}
-	}
-
-	return nil
 }

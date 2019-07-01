@@ -134,20 +134,11 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		return nil, err
 	}
 
-	instance, err := ec2instanceSession.GetInstance(ctx, ec2wrapper.UseCache)
+	ec2NetworkInterfaceSession, err := ec2instanceSession.GetInterfaceByIdx(ctx, req.NetworkInterfaceAttachment.DeviceIndex)
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	instanceIface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
-	if instanceIface == nil {
-		err = status.Errorf(codes.NotFound, "Cannot find network interface at attachment index %d", req.NetworkInterfaceAttachment.DeviceIndex)
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	ec2NetworkInterfaceSession, err := ec2instanceSession.GetSessionFromNetworkInterface(ctx, instanceIface)
-	if err != nil {
+		if ec2wrapper.IsErrInterfaceByIdxNotFound(err) {
+			err = status.Errorf(codes.NotFound, err.Error())
+		}
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}

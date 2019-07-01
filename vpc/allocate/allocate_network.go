@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"os/signal"
@@ -232,6 +233,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address bool, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker, addressesLockPath string) error {
 	optimisticLockTimeout := time.Duration(0)
 
+	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(usableAddresses), func(i, j int) { usableAddresses[i], usableAddresses[j] = usableAddresses[j], usableAddresses[i] })
 	for idx := range usableAddresses {
 		addr := usableAddresses[idx]
 		ip := net.ParseIP(addr.Address.Address)

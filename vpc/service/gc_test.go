@@ -23,6 +23,10 @@ type fakeEC2NetworkInterfaceSession struct {
 	lastUnassignPrivateIPAddressesInput ec2.UnassignPrivateIpAddressesInput
 }
 
+func (f fakeEC2NetworkInterfaceSession) ElasticNetworkInterfaceID() string {
+	panic("implement me")
+}
+
 func (fakeEC2NetworkInterfaceSession) Session(ctx context.Context) (*session.Session, error) {
 	panic("implement me")
 }
