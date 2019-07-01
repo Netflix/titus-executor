@@ -66,13 +66,13 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	ec2session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	instance, err := ec2session.GetInstance(ctx, ec2wrapper.UseCache)
+	instance, err := ec2InstanceSession.GetInstance(ctx, ec2wrapper.UseCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -84,22 +84,17 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	// ec2InstanceIface is a potentialy stale object, because it's based on DescribeInstances, which is
-	// heavily cached
-	ec2InstanceIface := ec2wrapper.GetInterfaceByIdx(instance, req.NetworkInterfaceAttachment.DeviceIndex)
-	if ec2InstanceIface == nil {
-		err = status.Error(codes.NotFound, "Could not find interface for attachment")
+	interfaceSession, err := ec2InstanceSession.GetInterfaceByIdx(ctx, req.NetworkInterfaceAttachment.DeviceIndex)
+	if err != nil {
+		if ec2wrapper.IsErrInterfaceByIdxNotFound(err) {
+			err = status.Error(codes.NotFound, err.Error())
+		}
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(ec2InstanceIface.NetworkInterfaceId)))
-	ctx = logger.WithField(ctx, "iface", aws.StringValue(ec2InstanceIface.NetworkInterfaceId))
-	interfaceSession, err := ec2session.GetSessionFromNetworkInterface(ctx, ec2InstanceIface)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
+	span.AddAttributes(trace.StringAttribute("eni", interfaceSession.ElasticNetworkInterfaceID()))
+	ctx = logger.WithField(ctx, "eni", interfaceSession.ElasticNetworkInterfaceID())
 
 	subnet, err := interfaceSession.GetSubnet(ctx, ec2wrapper.UseCache)
 	if err != nil {

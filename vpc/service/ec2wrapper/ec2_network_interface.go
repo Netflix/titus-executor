@@ -40,6 +40,10 @@ type cacheNetworkInterfaceWrapper struct {
 	fetched time.Time
 }
 
+func (s *ec2NetworkInterfaceSession) ElasticNetworkInterfaceID() string {
+	return aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)
+}
+
 func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, strategy CacheStrategy) (*ec2.NetworkInterface, error) {
 	ctx, span := trace.StartSpan(ctx, "getNetworkInterface")
 	defer span.End()
@@ -263,14 +267,4 @@ func (s *ec2NetworkInterfaceSession) AssignIPv6Addresses(ctx context.Context, as
 	}
 
 	return assignIpv6AddressesOutput, nil
-}
-
-func GetInterfaceByIdx(instance *ec2.Instance, deviceIdx uint32) *ec2.InstanceNetworkInterface {
-	for _, ni := range instance.NetworkInterfaces {
-		if aws.Int64Value(ni.Attachment.DeviceIndex) == int64(deviceIdx) {
-			return ni
-		}
-	}
-
-	return nil
 }
