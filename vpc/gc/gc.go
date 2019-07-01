@@ -65,7 +65,11 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	if err != nil {
 		return errors.Wrap(err, "Cannot get exclusive configuration lock on interface")
 	}
-	defer configurationLock.Unlock()
+	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Took lock on interface configuration lock path")
+	defer func() {
+		configurationLock.Unlock()
+		logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Unlocked configuration lock path")
+	}()
 
 	records, err := locker.ListFiles(addressesLockPath)
 	if err != nil {
@@ -80,16 +84,21 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 		entry := logger.G(ctx).WithField("ip", record.Name)
 		entry.Debug("Checking IP")
 
-		ipAddrLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
+		addressLockPath := filepath.Join(addressesLockPath, record.Name)
+		ipAddrLock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
 		if err == unix.EWOULDBLOCK {
-			entry.Debug("Skipping address, in-use")
+			entry.Info("Skipping address, in-use")
 			allocatedAddresses[record.Name] = &record
 			continue
 		} else if err != nil {
 			entry.WithError(err).Error("Encountered unknown errror")
 			return err
 		}
-		defer ipAddrLock.Unlock()
+		logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Took exclusive lock on address")
+		defer func() {
+			ipAddrLock.Unlock()
+			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Released lock on address")
+		}()
 		unallocatedAddresses[record.Name] = &record
 	}
 
@@ -98,6 +107,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	// and it's safe the unlock.
 	// We unlock here, because in freeIPs, it can take quite a while (minutes).
 	configurationLock.Unlock()
+	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Unlocked configuration lock path")
 
 	gcRequest := &vpcapi.GCRequest{
 		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{

@@ -123,7 +123,11 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 	defer span.End()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
-	ctx = logger.WithField(ctx, "deviceIdx", req.NetworkInterfaceAttachment.DeviceIndex)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"deviceIdx": req.NetworkInterfaceAttachment.DeviceIndex,
+		"instance":  req.InstanceIdentity.InstanceID,
+	})
+
 	span.AddAttributes(
 		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 		trace.Int64Attribute("deviceIdx", int64(req.NetworkInterfaceAttachment.DeviceIndex)))
@@ -247,7 +251,7 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 		"newCurrentIPAddressesSet": newCurrentIPAddressesSet.String(),
 		"addressesToDeleteSet":     addressesToDeleteSet.String(),
 		"addressesToBumpSet":       addressesToBumpSet.String(),
-	}).Debug()
+	}).Info()
 
 	for addrInterface := range addressesToDeleteSet.Iter() {
 		addr := titus.Address{

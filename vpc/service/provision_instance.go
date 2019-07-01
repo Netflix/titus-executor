@@ -94,7 +94,7 @@ func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrap
 	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
 		Description:      aws.String(vpc.NetworkInterfaceDescription),
 		SubnetId:         instance.SubnetId,
-		Ipv6AddressCount: aws.Int64(1),
+		Ipv6AddressCount: aws.Int64(0),
 	}
 
 	createNetworkInterfaceResult, err := ec2client.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)

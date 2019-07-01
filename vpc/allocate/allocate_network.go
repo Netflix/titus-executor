@@ -32,16 +32,16 @@ func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIde
 		"security-groups":     securityGroups,
 		"allocateIPv6Address": allocateIPv6Address,
 	})
-	logger.G(ctx).Debug()
+	logger.G(ctx).Info()
 
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 	allocation, err := doAllocateNetwork(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address)
 	conn.Close()
 	if err != nil {
-		err := errors.Wrap(err, "Unable to perform network allocation")
-		err = json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
-		if err != nil {
-			err = errors.Wrap(err, err.Error())
+		err = errors.Wrap(err, "Unable to perform network allocation")
+		writeError := json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
+		if writeError != nil {
+			err = errors.Wrap(writeError, err.Error())
 		}
 		return err
 	}
@@ -171,10 +171,15 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
 
 	lock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
-	defer lock.Unlock()
 	if err != nil {
 		return nil, err
 	}
+	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Took lock on interface configuration lock path")
+	defer func() {
+		lock.Unlock()
+		logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Unlocked configuration lock path")
+	}()
+
 	records, err := locker.ListFiles(addressesLockPath)
 	if err != nil {
 		return nil, err
@@ -240,8 +245,10 @@ func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address b
 		if ip.To4() == nil {
 			continue
 		}
-		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		addressLockPath := filepath.Join(addressesLockPath, ip.String())
+		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
 		if err == nil {
+			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.exclusiveIP4Lock = lock
 			alloc.ip4Address = addr
 			break
@@ -264,8 +271,11 @@ func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address b
 		if ip.To4() != nil {
 			continue
 		}
-		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		addressLockPath := filepath.Join(addressesLockPath, ip.String())
+
+		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
 		if err == nil {
+			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.ip6Address = addr
 			alloc.exclusiveIP6Lock = lock
 			break
