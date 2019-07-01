@@ -21,7 +21,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -44,7 +44,7 @@ func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdent
 		return err
 	}
 	for i := 1; i < maxInterfaces; i++ {
-		err = doGcInterface(ctx, minIdlePeriod, i, locker, client, instanceIdentity)
+		err = doGcInterface(ctx, i, locker, client, instanceIdentity)
 		if err != nil {
 			return err
 		}
@@ -53,7 +53,7 @@ func GC(ctx context.Context, timeout, minIdlePeriod time.Duration, instanceIdent
 	return nil
 }
 
-func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
+func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
 	ctx = logger.WithField(ctx, "deviceIdx", deviceIdx)
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 10 * time.Second
@@ -79,12 +79,6 @@ func doGcInterface(ctx context.Context, minIdlePeriod time.Duration, deviceIdx i
 		record := records[idx]
 		entry := logger.G(ctx).WithField("ip", record.Name)
 		entry.Debug("Checking IP")
-
-		if t := time.Since(record.BumpTime); t < minIdlePeriod {
-			entry.WithField("idlePeriod", t).Debug("Address not viable for GC, not idle long enough")
-			nonviableAddresses[record.Name] = &record
-			continue
-		}
 
 		ipAddrLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
 		if err == unix.EWOULDBLOCK {

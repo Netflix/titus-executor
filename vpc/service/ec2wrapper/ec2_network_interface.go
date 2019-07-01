@@ -247,6 +247,7 @@ func (s *ec2NetworkInterfaceSession) AssignPrivateIPAddresses(ctx context.Contex
 	assignPrivateIPAddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
 	ctx, span := trace.StartSpan(ctx, "assignPrivateIpAddresses")
 	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("secondaryPrivateIpAddressCount", aws.Int64Value(assignPrivateIPAddressesInput.SecondaryPrivateIpAddressCount)))
 	ec2client := ec2.New(s.session)
 	assignPrivateIPAddressesOutput, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, &assignPrivateIPAddressesInput)
 	if err != nil {
@@ -260,6 +261,7 @@ func (s *ec2NetworkInterfaceSession) AssignIPv6Addresses(ctx context.Context, as
 	assignIpv6AddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
 	ctx, span := trace.StartSpan(ctx, "assignIpv6Addresses")
 	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("ipv6AddressCount", aws.Int64Value(assignIpv6AddressesInput.Ipv6AddressCount)))
 	ec2client := ec2.New(s.session)
 	assignIpv6AddressesOutput, err := ec2client.AssignIpv6AddressesWithContext(ctx, &assignIpv6AddressesInput)
 	if err != nil {
