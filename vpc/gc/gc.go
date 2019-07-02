@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/golang/protobuf/ptypes"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
@@ -14,14 +16,14 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/identity"
 	"github.com/Netflix/titus-executor/vpc/utilities"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
+	"go.opencensus.io/trace"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 )
 
-func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -43,17 +45,34 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 	if err != nil {
 		return err
 	}
-	for i := 1; i < maxInterfaces; i++ {
-		err = doGcInterface(ctx, i, locker, client, instanceIdentity)
-		if err != nil {
-			return err
+
+	var result *multierror.Error
+
+	if len(onlyInterfaces) > 0 {
+		for _, i := range onlyInterfaces {
+			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
+			if err != nil {
+				result = multierror.Append(result, err)
+			}
 		}
+	} else {
+		for i := 1; i < maxInterfaces; i++ {
+			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
+			if err != nil {
+				result = multierror.Append(result, err)
+			}
+		}
+
 	}
 
-	return nil
+	return result.ErrorOrNil()
 }
 
 func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
+	ctx, span := trace.StartSpan(ctx, "assignAddresses")
+	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("deviceIdx", int64(deviceIdx)))
+
 	ctx = logger.WithField(ctx, "deviceIdx", deviceIdx)
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 10 * time.Second
@@ -79,6 +98,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	unallocatedAddresses := make(map[string]*fslocker.Record, len(records))
 	nonviableAddresses := make(map[string]*fslocker.Record, len(records))
 	allocatedAddresses := make(map[string]*fslocker.Record, len(records))
+
 	for idx := range records {
 		record := records[idx]
 		entry := logger.G(ctx).WithField("ip", record.Name)
@@ -108,6 +128,11 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	// We unlock here, because in freeIPs, it can take quite a while (minutes).
 	configurationLock.Unlock()
 	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Unlocked configuration lock path")
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"allocatedAddresses":   allocatedAddresses,
+		"nonviableAddresses":   nonviableAddresses,
+		"unallocatedAddresses": unallocatedAddresses,
+	}).Info()
 
 	gcRequest := &vpcapi.GCRequest{
 		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
@@ -151,15 +176,17 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 
 func recordsToUtilizedAddresses(records map[string]*fslocker.Record) []*vpcapi.UtilizedAddress {
 	ret := make([]*vpcapi.UtilizedAddress, 0, len(records))
+
 	for _, record := range records {
+		ts, err := ptypes.TimestampProto(record.BumpTime)
+		if err != nil {
+			panic(err)
+		}
 		ret = append(ret, &vpcapi.UtilizedAddress{
 			Address: &titus.Address{
 				Address: net.ParseIP(record.Name).String(),
 			},
-			LastUsedTime: &timestamp.Timestamp{
-				Seconds: int64(record.BumpTime.Second()),
-				Nanos:   int32(record.BumpTime.Nanosecond()),
-			},
+			LastUsedTime: ts,
 		})
 	}
 	return ret

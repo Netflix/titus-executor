@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
@@ -21,9 +19,11 @@ import (
 	"github.com/Netflix/titus-executor/vpc/identity"
 	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/Netflix/titus-executor/vpc/utilities"
+	set "github.com/deckarep/golang-set"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
+	"google.golang.org/grpc"
 )
 
 func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, securityGroups []string, deviceIdx int, allocateIPv6Address bool) error {
@@ -185,6 +185,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 		return nil, err
 	}
 
+	previouslyKnownAddresses := set.NewSet()
 	utilizedAddresses := make([]*vpcapi.UtilizedAddress, 0, len(records))
 	for _, record := range records {
 		tmpLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
@@ -192,6 +193,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 			tmpLock.Unlock()
 		} else {
 			ip := net.ParseIP(record.Name)
+			previouslyKnownAddresses.Add(ip.String())
 
 			address := &vpcapi.UtilizedAddress{
 				Address: &titus.Address{
@@ -226,6 +228,8 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 
 	logger.G(ctx).WithField("assignIPResponse", response).Info("AssignIP request suceeded")
 
+	bumpUsableAddresses(ctx, addressesLockPath, previouslyKnownAddresses, response.UsableAddresses, locker)
+
 	alloc := &allocation{}
 	alloc.networkInterface = response.NetworkInterface
 	err = populateAlloc(ctx, alloc, allocateIPv6Address, response.UsableAddresses, locker, addressesLockPath)
@@ -233,6 +237,23 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 		return nil, err
 	}
 	return alloc, nil
+}
+
+func bumpUsableAddresses(ctx context.Context, addressesLockPath string, previouslyKnownAddresses set.Set, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker) {
+	optimisticLockTimeout := time.Duration(0)
+
+	for idx := range usableAddresses {
+		addr := usableAddresses[idx]
+		ip := net.ParseIP(addr.GetAddress().Address)
+		if !previouslyKnownAddresses.Contains(ip.String()) {
+			addressLockPath := filepath.Join(addressesLockPath, ip.String())
+			lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+			if err == nil {
+				lock.Bump()
+				lock.Unlock()
+			}
+		}
+	}
 }
 
 func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address bool, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker, addressesLockPath string) error {

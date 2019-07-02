@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
+
+	"github.com/golang/protobuf/ptypes"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
@@ -12,10 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/sirupsen/logrus"
 	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
 )
 
 type fakeEC2NetworkInterfaceSession struct {
@@ -69,14 +70,10 @@ func TestIPsToFree(t *testing.T) {
 	logruslogger.SetLevel(logrus.DebugLevel)
 	ctx := logger.WithLogger(context.Background(), logruslogger)
 
-	fiveMinutesAgo := timestamp.Timestamp{
-		Seconds: int64(time.Now().Add(-5 * time.Minute).Second()),
-		Nanos:   0,
-	}
-	now := timestamp.Timestamp{
-		Seconds: int64(time.Now().Second()),
-		Nanos:   0,
-	}
+	fiveMinutesAgo, err := ptypes.TimestampProto(time.Now().Add(-5 * time.Minute))
+	assert.NilError(t, err)
+	now := ptypes.TimestampNow()
+
 	req := &vpcapi.GCRequest{
 		CacheVersion:               nil,
 		InstanceIdentity:           nil,
@@ -86,52 +83,55 @@ func TestIPsToFree(t *testing.T) {
 				Address: &titus.Address{
 					Address: "10.0.0.1",
 				},
-				LastUsedTime: &fiveMinutesAgo,
+				LastUsedTime: fiveMinutesAgo,
 			},
 			{
 				Address: &titus.Address{
 					Address: "192.168.1.0",
 				},
-				LastUsedTime: &fiveMinutesAgo,
+				LastUsedTime: fiveMinutesAgo,
 			},
 			{
 				Address: &titus.Address{
 					Address: "192.168.1.10",
 				},
-				LastUsedTime: &fiveMinutesAgo,
+				LastUsedTime: fiveMinutesAgo,
 			},
-		},
-		NonviableAddresses: []*vpcapi.UtilizedAddress{
-			// These shouldn't be deleted, because they are assigned to the interface, but we (the GC client)
-			// have elected them against GC
 			{
 				Address: &titus.Address{
-					Address: "192.168.1.2",
+					Address: "192.168.1.86",
 				},
-				LastUsedTime: &fiveMinutesAgo,
+				LastUsedTime: fiveMinutesAgo,
 			},
 			{
 				Address: &titus.Address{
 					Address: "192.168.1.55",
 				},
-				LastUsedTime: &now,
-			},
-			// This IP address is not part of the interface, so it will be deleted, even though it is part of the
-			// non-viable set
-			{
-				Address: &titus.Address{
-					Address: "192.168.1.42",
-				},
-				LastUsedTime: &now,
+				LastUsedTime: now,
 			},
 		},
+		NonviableAddresses: []*vpcapi.UtilizedAddress{},
 		AllocatedAddresses: []*vpcapi.UtilizedAddress{
 			// This shouldn't be deleted, because it was just added
 			{
 				Address: &titus.Address{
+					Address: "192.168.1.0",
+				},
+				LastUsedTime: now,
+			},
+			{
+				Address: &titus.Address{
 					Address: "192.168.1.5",
 				},
-				LastUsedTime: &fiveMinutesAgo,
+				LastUsedTime: now,
+			},
+
+			{
+				// Should not be freed, even though it's not assigned to the interface, because of recent use.
+				Address: &titus.Address{
+					Address: "192.168.1.111",
+				},
+				LastUsedTime: now,
 			},
 		},
 	}
@@ -157,32 +157,51 @@ func TestIPsToFree(t *testing.T) {
 					Primary:          aws.Bool(false),
 					PrivateIpAddress: aws.String("192.168.1.10"),
 				},
-				{
-					Primary:          aws.Bool(false),
-					PrivateIpAddress: aws.String("192.168.1.55"),
-				},
 			},
 		},
 	}
 	resp, err := gcInterface(ctx, ec2NetworkInterfaceSession, req)
-	t.Log(resp)
 	assert.NilError(t, err)
-	assert.Assert(t, is.Len(resp.AddressToBump, 1))
-	assert.Assert(t, is.Contains(resp.AddressToBump, &titus.Address{
-		Address: "192.168.1.1",
-	}))
 
-	assert.Assert(t, is.Len(resp.AddressToDelete, 3))
-	assert.Assert(t, is.Contains(resp.AddressToDelete, &titus.Address{
-		Address: "10.0.0.1",
-	}))
-	assert.Assert(t, is.Contains(resp.AddressToDelete, &titus.Address{
-		Address: "192.168.1.10",
-	}))
-	assert.Assert(t, is.Contains(resp.AddressToDelete, &titus.Address{
-		Address: "192.168.1.42",
-	}))
+	sort.Slice(resp.AddressToDelete, func(i, j int) bool {
+		return resp.AddressToDelete[i].Address < resp.AddressToDelete[j].Address
+	})
 
-	assert.Assert(t, is.Len(ec2NetworkInterfaceSession.lastUnassignPrivateIPAddressesInput.PrivateIpAddresses, 1))
-	assert.Assert(t, is.Contains(aws.StringValueSlice(ec2NetworkInterfaceSession.lastUnassignPrivateIPAddressesInput.PrivateIpAddresses), "192.168.1.10"))
+	sort.Slice(resp.AddressToBump, func(i, j int) bool {
+		return resp.AddressToBump[i].Address < resp.AddressToBump[j].Address
+	})
+
+	addressesToBump := []*titus.Address{
+		{
+			// Bumped, because assigned to the interface, but not in the unallocated, nor allocated list
+			Address: "192.168.1.1",
+		},
+		{
+			// Bumped, because assigned to the interface, but not in the unallocated, nor allocated list
+			Address: "192.168.1.2",
+		},
+	}
+	assert.DeepEqual(t, addressesToBump, resp.AddressToBump)
+
+	addressesToDelete := []*titus.Address{
+		{
+			// Deleted because never part of interface configuration
+			Address: "10.0.0.1",
+		},
+		{
+			// Deleted (and freed), because unallocated for more than 2 minutes
+			Address: "192.168.1.10",
+		},
+		{
+			// Deleted , because unallocated for more than 2 minutes
+			Address: "192.168.1.86",
+		},
+	}
+	assert.DeepEqual(t, addressesToDelete, resp.AddressToDelete)
+
+	assert.DeepEqual(t, ec2NetworkInterfaceSession.lastUnassignPrivateIPAddressesInput.PrivateIpAddresses, aws.StringSlice([]string{"192.168.1.10"}))
+
+	//	assert.DeepEqual(t, ec2NetworkInterfaceSession.lastUnassignPrivateIPAddressesInput.PrivateIpAddresses, aws.StringSlice([]string{"192.168.1.10"}))
+	//	assert.Assert(t, is.Len(ec2NetworkInterfaceSession.lastUnassignPrivateIPAddressesInput.PrivateIpAddresses, 1))
+	//	assert.Assert(t, is.Contains(aws.StringValueSlice(ec2NetworkInterfaceSession.lastUnassignPrivateIPAddressesInput.PrivateIpAddresses), "192.168.1.10"))
 }

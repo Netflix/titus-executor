@@ -240,6 +240,7 @@ func (s *ec2NetworkInterfaceSession) UnassignPrivateIPAddresses(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
+	s.interfaceCache.Remove(aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId))
 	return unassignPrivateIPAddressesOutput, nil
 }
 

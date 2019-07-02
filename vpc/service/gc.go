@@ -32,37 +32,34 @@ type utilizedAddress struct {
 // addresses, as well as the currently present addresses. Therefore in a gc cycle, they
 // will show up in either the non-viable map, or the unallocated map
 func ipsToFree(privateIPAddress string, currentAddresses set.Set, unallocatedAddressesMap map[string]utilizedAddress) set.Set {
-	// So now I need to list the IP addresses that are owned by the describeNetworkInterfaces objects, and find those which are
-	// not assigned to the interface, and set those to delete.
-	//
-	// I also need to find addresses which are not in any of the three lists, and set those to bump.
-
-	// 1. Check if we have an IP addresses we want to deallocate. Go through the list of unallocated addresses that are in the current addresses pool,
-	// and add them to the deallocation list.
-	addrsToRemoveSet := set.NewSet()
-	for addrInterface := range currentAddresses.Iter() {
-		addr := addrInterface.(string)
-		utilizedAddr, ok := unallocatedAddressesMap[addr]
-		if !ok {
+	addrsToFreeSet := set.NewSet()
+	for addr, utilizedAddressRecord := range unallocatedAddressesMap {
+		// This is an IPv6 address, go ahead and ignore it.
+		ip := net.ParseIP(addr)
+		if ip.To4() == nil {
 			continue
 		}
 
-		if net.ParseIP(addr).To4() == nil {
+		// This is the interface's primary IP address, ignore it.
+		if ip.String() == privateIPAddress {
 			continue
 		}
 
-		if addr == privateIPAddress {
+		// Do not try to free it if we never had it in the first place
+		if !currentAddresses.Contains(ip.String()) {
 			continue
 		}
 
 		// TODO: Make this adjustable
-		if time.Since(utilizedAddr.lastUsedTime) < (2 * time.Minute) {
-			continue
+		// This is an address *that used to be utilized
+		// check if was utilized less than 2 minutes ago.
+		// If so, add it to the deletion pile.
+		if time.Since(utilizedAddressRecord.lastUsedTime) > 2*time.Minute {
+			addrsToFreeSet.Add(addr)
 		}
-		addrsToRemoveSet.Add(addr)
 	}
 
-	return addrsToRemoveSet
+	return addrsToFreeSet
 }
 
 func ifaceIPv4Set(iface *ec2.NetworkInterface) set.Set {
@@ -72,7 +69,7 @@ func ifaceIPv4Set(iface *ec2.NetworkInterface) set.Set {
 		addr := net.ParseIP(aws.StringValue(addr.PrivateIpAddress))
 		ipSet.Add(addr.String())
 	}
-	ipSet.Add(aws.StringValue(iface.PrivateIpAddress))
+	ipSet.Add(net.ParseIP(aws.StringValue((iface.PrivateIpAddress))).String())
 
 	return ipSet
 }
@@ -213,45 +210,101 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 	// not assigned to the interface, and set those to delete.
 	//
 	// I also need to find addresses which are not in any of the three lists, and set those to bump.
-	currentIPv4AddressesSet := ifaceIPv4Set(iface)
+
+	// currentIPv4AddressSet is the set of IP addresses assigned to the ENI. Since the iface is cached, this may have
+	// *fewer* or *more* IP addresses than actually exist.
+	ipAddressesCurrentlyAssignedToInterface := ifaceIPv4Set(iface)
+
+	span.AddAttributes(trace.StringAttribute("ipAddressesCurrentlyAssignedToInterface", ipAddressesCurrentlyAssignedToInterface.String()))
+	ctx = logger.WithField(ctx, "ipAddressesCurrentlyAssignedToInterface", ipAddressesCurrentlyAssignedToInterface.String())
+
+	unallocatedAddressesSet := utilizedAddressesToIPSet(req.UnallocatedAddresses)
+	span.AddAttributes(trace.StringAttribute("unallocatedAddressesSet", unallocatedAddressesSet.String()))
+	ctx = logger.WithField(ctx, "unallocatedAddressesSet", unallocatedAddressesSet.String())
 	unallocatedAddressesMap, err := utilizedAddressesToIPMap(req.UnallocatedAddresses)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
+		logger.G(ctx).WithError(err).Error()
 		return nil, err
 	}
-	allocatedAddressesSet := utilizedAddressesToIPSet(req.AllocatedAddresses)
-	unallocatedAddressesSet := utilizedAddressesToIPSet(req.UnallocatedAddresses)
-	nonviableAddressesSet := utilizedAddressesToIPSet(req.NonviableAddresses)
 
-	addrsToRemoveSet := ipsToFree(aws.StringValue(iface.PrivateIpAddress), currentIPv4AddressesSet, unallocatedAddressesMap)
-	err = unassignAddresses(ctx, ec2NetworkInterfaceSession, addrsToRemoveSet, true)
+	// These are allocated to containers. THEY CANNOT BE DELETED.
+	allocatedAddressesSet := utilizedAddressesToIPSet(req.AllocatedAddresses)
+	span.AddAttributes(trace.StringAttribute("allocatedAddressesSet", allocatedAddressesSet.String()))
+	ctx = logger.WithField(ctx, "allocatedAddressesSet", allocatedAddressesSet.String())
+	if intersection := allocatedAddressesSet.Intersect(unallocatedAddressesSet); intersection.Cardinality() > 1 {
+		err = status.Errorf(codes.InvalidArgument, "The allocated address set (%s), and unallocated set (%s) range overlap", allocatedAddressesSet.String(), unallocatedAddressesSet.String())
+		span.SetStatus(traceStatusFromError(err))
+		logger.G(ctx).WithError(err).Error()
+		return nil, err
+	}
+
+	ipsToFreeSet := ipsToFree(aws.StringValue(iface.PrivateIpAddress), ipAddressesCurrentlyAssignedToInterface, unallocatedAddressesMap)
+	span.AddAttributes(trace.StringAttribute("ipsToFreeSet", ipsToFreeSet.String()))
+	ctx = logger.WithField(ctx, "ipsToFreeSet", ipsToFreeSet.String())
+	if (ipsToFreeSet.Intersect(allocatedAddressesSet)).Cardinality() > 0 {
+		err = status.Errorf(codes.Internal, "Attempted to free IPs %s, that overlap with allocated set %s", ipsToFreeSet.String(), allocatedAddressesSet.String())
+		span.SetStatus(traceStatusFromError(err))
+		logger.G(ctx).WithError(err).Error()
+		return nil, err
+	}
+	if ipsToFreeSet.Contains(aws.StringValue(iface.PrivateIpAddress)) {
+		err = status.Errorf(codes.Internal, "Attempted to free primary IPs %s, that includes primary IP %s", ipsToFreeSet.String(), aws.StringValue(iface.PrivateIpAddress))
+		span.SetStatus(traceStatusFromError(err))
+		logger.G(ctx).WithError(err).Error()
+		return nil, err
+	}
+
+	err = unassignAddresses(ctx, ec2NetworkInterfaceSession, ipsToFreeSet, true)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
+		logger.G(ctx).WithError(err).Error()
 		return nil, err
 	}
 
 	// We can get the addresses to delete quite easily. We take the unallocated + nonviable set and subtract the current
 	// set.
 	resp := vpcapi.GCResponse{}
-	// addressesKnownToAgentSet are the addresses that the agent knows it has.
-	addressesKnownToAgentSet := unallocatedAddressesSet.Union(nonviableAddressesSet).Union(allocatedAddressesSet)
+	// newCurrentIPAddressesSet are the IP addresses that are probably assigned to the interface.
+	newCurrentIPAddressesSet := ipAddressesCurrentlyAssignedToInterface.Difference(ipsToFreeSet)
+	span.AddAttributes(trace.StringAttribute("newCurrentIPAddressesSet", newCurrentIPAddressesSet.String()))
+	ctx = logger.WithField(ctx, "newCurrentIPAddressesSet", newCurrentIPAddressesSet.String())
+
 	// addressesToDeleteSet are the addresses that the agent knew it had MINUS the new current addresses
-	newCurrentIPAddressesSet := currentIPv4AddressesSet.Difference(addrsToRemoveSet)
-	addressesToDeleteSet := addressesKnownToAgentSet.Difference(newCurrentIPAddressesSet)
-	// addressesToBumpSet are addresses that the agent did not know it had, but it still has
-	addressesToBumpSet := newCurrentIPAddressesSet.Difference(addressesKnownToAgentSet)
-	span.AddAttributes(
-		trace.StringAttribute("addressesKnownToAgentSet", addressesKnownToAgentSet.String()),
-		trace.StringAttribute("newCurrentIPAddressesSet", newCurrentIPAddressesSet.String()),
-		trace.StringAttribute("addressesToDeleteSet", addressesToDeleteSet.String()),
-		trace.StringAttribute("addressesToBumpSet", addressesToBumpSet.String()),
-	)
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"addressesKnownToAgentSet": addressesKnownToAgentSet.String(),
-		"newCurrentIPAddressesSet": newCurrentIPAddressesSet.String(),
-		"addressesToDeleteSet":     addressesToDeleteSet.String(),
-		"addressesToBumpSet":       addressesToBumpSet.String(),
-	}).Info()
+	addressesToDeleteSet := ipsToFreeSet
+	for addr := range unallocatedAddressesSet.Iter() {
+		ip := net.ParseIP(addr.(string)).String()
+		if time.Since(unallocatedAddressesMap[ip].lastUsedTime) < 5*time.Minute {
+			continue
+		}
+
+		// If this IP isn't in the IPs currently assigned to the interface, we can (probably) blow it away
+		if !ipAddressesCurrentlyAssignedToInterface.Contains(ip) {
+			addressesToDeleteSet.Add(ip)
+		}
+	}
+	span.AddAttributes(trace.StringAttribute("addressesToDeleteSet", addressesToDeleteSet.String()))
+	ctx = logger.WithField(ctx, "addressesToDeleteSet", addressesToDeleteSet.String())
+
+	addressesToBumpSet := set.NewSet()
+	for addr := range newCurrentIPAddressesSet.Iter() {
+		ip := net.ParseIP(addr.(string)).String()
+		if allocatedAddressesSet.Contains(ip) {
+			continue
+		}
+		if unallocatedAddressesSet.Contains(ip) {
+			continue
+		}
+		if addressesToDeleteSet.Contains(ip) {
+			continue
+		}
+
+		addressesToBumpSet.Add(ip)
+	}
+	span.AddAttributes(trace.StringAttribute("addressesToBumpSet", addressesToBumpSet.String()))
+	ctx = logger.WithField(ctx, "addressesToBumpSet", addressesToBumpSet.String())
+
+	logger.G(ctx).Info("gc interface result")
 
 	for addrInterface := range addressesToDeleteSet.Iter() {
 		addr := titus.Address{
