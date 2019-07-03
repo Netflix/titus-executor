@@ -184,8 +184,7 @@ func unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrappe
 		return awsErr
 	}
 
-	// We don't want to store this in the cache, because it's about to be immediately incorrect
-	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache)
+	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, 10*time.Second)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return err
@@ -199,7 +198,7 @@ func unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrappe
 func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "gcInterface")
 	defer span.End()
-	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, ec2wrapper.FetchFromCache|ec2wrapper.StoreInCache)
+	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, time.Second*10)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err

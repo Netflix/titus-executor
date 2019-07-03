@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -15,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/sirupsen/logrus"
 	"gotest.tools/assert"
 )
@@ -48,7 +47,7 @@ func (fakeEC2NetworkInterfaceSession) ModifySecurityGroups(ctx context.Context, 
 	panic("implement me")
 }
 
-func (f fakeEC2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, strategy ec2wrapper.CacheStrategy) (*ec2.NetworkInterface, error) {
+func (f fakeEC2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, duration time.Duration) (*ec2.NetworkInterface, error) {
 	return f.iface, nil
 }
 
@@ -125,9 +124,9 @@ func TestIPsToFree(t *testing.T) {
 				},
 				LastUsedTime: now,
 			},
-
 			{
-				// Should not be freed, even though it's not assigned to the interface, because of recent use.
+				// Should not be freed, even though it's not attached to the ENI. The reason is that the ENI state
+				// could be cached.
 				Address: &titus.Address{
 					Address: "192.168.1.111",
 				},

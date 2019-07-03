@@ -10,7 +10,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/bpf/filter"
-	"github.com/Netflix/titus-executor/vpc/bpfloader"
+	"github.com/Netflix/titus-executor/vpc/tool/bpfloader"
 	"github.com/pkg/errors"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"

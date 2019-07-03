@@ -7,15 +7,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/Netflix/titus-executor/vpc/identity"
+	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/utilities"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -154,6 +153,9 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 
 	var returnError *multierror.Error
 	for _, addr := range gcResponse.AddressToDelete {
+		if _, ok := unallocatedAddresses[addr.Address]; !ok {
+			logger.G(ctx).WithField("addr", addr).Warn("Trying to remove address that we don't have an exclusive lock for")
+		}
 		err = locker.RemovePath(filepath.Join(addressesLockPath, addr.Address))
 		if err != nil && !os.IsNotExist(err) {
 			logger.G(ctx).WithError(err).WithField("address", addr.Address).Error("Could not remove record")

@@ -8,7 +8,7 @@ import (
 	"contrib.go.opencensus.io/exporter/zipkin"
 	datadog "github.com/Datadog/opencensus-go-exporter-datadog"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc/identity"
+	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	"github.com/pkg/errors"

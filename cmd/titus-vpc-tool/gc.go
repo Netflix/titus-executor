@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/Netflix/titus-executor/vpc/gc"
+	"github.com/Netflix/titus-executor/vpc/tool/gc"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )

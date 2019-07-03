@@ -7,8 +7,29 @@ import (
 )
 
 func init() {
-	registerMetrics([]tag.Key{keyInterface}, invalidateInterfaceFromCache, storedInterfaceInCache, getInterfaceFromCache, getInterfaceFromCacheSuccess, getInterfaceMs, getInterfaceCount, getInterfaceSuccess)
+	registerMetrics([]tag.Key{keyInterface}, getInterfaceMs, getInterfaceCount, getInterfaceSuccess)
 	registerMetrics([]tag.Key{keyInstance}, invalidateInstanceFromCache, storedInstanceInCache, getInstanceFromCache, getInstanceFromCacheSuccess, getInstanceMs, getInstanceCount, getInstanceSuccess)
+	if err := view.Register(&view.View{
+		Name:        batchWaitPeriod.Name(),
+		Description: batchWaitPeriod.Description(),
+		Measure:     batchWaitPeriod,
+		Aggregation: view.Distribution(),
+	},
+		&view.View{
+			Name:        batchSize.Name(),
+			Description: batchSize.Description(),
+			Measure:     batchSize,
+			Aggregation: view.Distribution(),
+		},
+		&view.View{
+			Name:        batchLatency.Name(),
+			Description: batchLatency.Description(),
+			Measure:     batchLatency,
+			Aggregation: view.Distribution(),
+		}); err != nil {
+		panic(err)
+	}
+
 }
 
 func registerMetrics(tags []tag.Key, m ...stats.Measure) {

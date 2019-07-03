@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/Netflix/titus-executor/vpc/allocate"
+	"github.com/Netflix/titus-executor/vpc/tool/allocate"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
