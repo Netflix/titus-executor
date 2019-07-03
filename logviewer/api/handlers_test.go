@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Netflix/titus-executor/darion/conf"
 	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
+	"github.com/Netflix/titus-executor/logviewer/conf"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )

@@ -1,11 +1,11 @@
 [Unit]
-Description=Titus Darion: Log Server
+Description=Titus Log Viewer Server
 Conflicts=halt.target shutdown.target sigpwr.target
 
 [Service]
 EnvironmentFile=-/etc/titus-shared.env
 Environment=CONTAINER_HOME=/var/lib/titus-container-logs
-ExecStart=/apps/titus-executor/bin/titus-darion
+ExecStart=/apps/titus-executor/bin/titus-logviewer
 Restart=always
 StartLimitInterval=0
 RestartSec=5
