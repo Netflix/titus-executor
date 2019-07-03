@@ -155,6 +155,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	for _, addr := range gcResponse.AddressToDelete {
 		if _, ok := unallocatedAddresses[addr.Address]; !ok {
 			logger.G(ctx).WithField("addr", addr).Warn("Trying to remove address that we don't have an exclusive lock for")
+			continue
 		}
 		err = locker.RemovePath(filepath.Join(addressesLockPath, addr.Address))
 		if err != nil && !os.IsNotExist(err) {
