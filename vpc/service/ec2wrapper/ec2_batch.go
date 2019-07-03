@@ -110,8 +110,6 @@ func (b *BatchENIDescriber) innerLoop(ctx context.Context, maxItems int) {
 
 	items := make([]*batchENIDescriptionRequestResponse, 0, maxItems)
 	cases := make([]reflect.SelectCase, 1, maxItems+1)
-	nt := newTimer()
-	defer nt.stop()
 	var start time.Time
 
 	cases[0] = reflect.SelectCase{
@@ -123,6 +121,9 @@ func (b *BatchENIDescriber) innerLoop(ctx context.Context, maxItems int) {
 		index, value, recvOK := reflect.Select(cases)
 		if !recvOK {
 			panic(fmt.Sprintf("Got not recvOk, with index %d, value: %s", index, value.String()))
+		}
+		if start.IsZero() {
+			start = time.Now()
 		}
 		if index != 0 {
 			break
