@@ -12,16 +12,17 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/Netflix/titus-executor/vpc/identity"
+	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/utilities"
-	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
+	"go.opencensus.io/trace"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 )
 
-func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -43,17 +44,34 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 	if err != nil {
 		return err
 	}
-	for i := 1; i < maxInterfaces; i++ {
-		err = doGcInterface(ctx, i, locker, client, instanceIdentity)
-		if err != nil {
-			return err
+
+	var result *multierror.Error
+
+	if len(onlyInterfaces) > 0 {
+		for _, i := range onlyInterfaces {
+			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
+			if err != nil {
+				result = multierror.Append(result, err)
+			}
 		}
+	} else {
+		for i := 1; i < maxInterfaces; i++ {
+			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
+			if err != nil {
+				result = multierror.Append(result, err)
+			}
+		}
+
 	}
 
-	return nil
+	return result.ErrorOrNil()
 }
 
 func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
+	ctx, span := trace.StartSpan(ctx, "assignAddresses")
+	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("deviceIdx", int64(deviceIdx)))
+
 	ctx = logger.WithField(ctx, "deviceIdx", deviceIdx)
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 10 * time.Second
@@ -65,7 +83,11 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	if err != nil {
 		return errors.Wrap(err, "Cannot get exclusive configuration lock on interface")
 	}
-	defer configurationLock.Unlock()
+	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Took lock on interface configuration lock path")
+	defer func() {
+		configurationLock.Unlock()
+		logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Unlocked configuration lock path")
+	}()
 
 	records, err := locker.ListFiles(addressesLockPath)
 	if err != nil {
@@ -75,21 +97,27 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	unallocatedAddresses := make(map[string]*fslocker.Record, len(records))
 	nonviableAddresses := make(map[string]*fslocker.Record, len(records))
 	allocatedAddresses := make(map[string]*fslocker.Record, len(records))
+
 	for idx := range records {
 		record := records[idx]
 		entry := logger.G(ctx).WithField("ip", record.Name)
 		entry.Debug("Checking IP")
 
-		ipAddrLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
+		addressLockPath := filepath.Join(addressesLockPath, record.Name)
+		ipAddrLock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
 		if err == unix.EWOULDBLOCK {
-			entry.Debug("Skipping address, in-use")
+			entry.Info("Skipping address, in-use")
 			allocatedAddresses[record.Name] = &record
 			continue
 		} else if err != nil {
 			entry.WithError(err).Error("Encountered unknown errror")
 			return err
 		}
-		defer ipAddrLock.Unlock()
+		logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Took exclusive lock on address")
+		defer func() {
+			ipAddrLock.Unlock()
+			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Released lock on address")
+		}()
 		unallocatedAddresses[record.Name] = &record
 	}
 
@@ -98,6 +126,12 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	// and it's safe the unlock.
 	// We unlock here, because in freeIPs, it can take quite a while (minutes).
 	configurationLock.Unlock()
+	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Unlocked configuration lock path")
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"allocatedAddresses":   allocatedAddresses,
+		"nonviableAddresses":   nonviableAddresses,
+		"unallocatedAddresses": unallocatedAddresses,
+	}).Info()
 
 	gcRequest := &vpcapi.GCRequest{
 		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
@@ -119,6 +153,10 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 
 	var returnError *multierror.Error
 	for _, addr := range gcResponse.AddressToDelete {
+		if _, ok := unallocatedAddresses[addr.Address]; !ok {
+			logger.G(ctx).WithField("addr", addr).Warn("Trying to remove address that we don't have an exclusive lock for")
+			continue
+		}
 		err = locker.RemovePath(filepath.Join(addressesLockPath, addr.Address))
 		if err != nil && !os.IsNotExist(err) {
 			logger.G(ctx).WithError(err).WithField("address", addr.Address).Error("Could not remove record")
@@ -141,15 +179,17 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 
 func recordsToUtilizedAddresses(records map[string]*fslocker.Record) []*vpcapi.UtilizedAddress {
 	ret := make([]*vpcapi.UtilizedAddress, 0, len(records))
+
 	for _, record := range records {
+		ts, err := ptypes.TimestampProto(record.BumpTime)
+		if err != nil {
+			panic(err)
+		}
 		ret = append(ret, &vpcapi.UtilizedAddress{
 			Address: &titus.Address{
 				Address: net.ParseIP(record.Name).String(),
 			},
-			LastUsedTime: &timestamp.Timestamp{
-				Seconds: int64(record.BumpTime.Second()),
-				Nanos:   int32(record.BumpTime.Nanosecond()),
-			},
+			LastUsedTime: ts,
 		})
 	}
 	return ret

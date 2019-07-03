@@ -1,19 +1,17 @@
 package globalgc
 
 import (
+	"context"
 	"fmt"
 	"time"
 
-	"github.com/Netflix/titus-executor/logger"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"golang.org/x/sync/errgroup"
-
-	"context"
-
 	"github.com/Netflix/titus-executor/ec2util"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"golang.org/x/sync/errgroup"
 )
 
 func GlobalGC(ctx context.Context, timeout, gracePeriod time.Duration) error {

@@ -6,8 +6,6 @@ import (
 	"net"
 	"time"
 
-	"go.opencensus.io/trace"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -18,6 +16,7 @@ import (
 	set "github.com/deckarep/golang-set"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
 	"github.com/pkg/errors"
+	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -107,7 +106,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	iface, err := interfaceSession.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
+	iface, err := interfaceSession.GetNetworkInterface(ctx, time.Millisecond*100)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -223,7 +222,7 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		}
 		return response, nil
 	}
-	entry.WithField("needIPv4Addresses", needIPv4Addresses).WithField("needIPv6Addresses", needIPv6Addresses).Debug("Retrying")
+	entry.WithField("needIPv4Addresses", needIPv4Addresses).WithField("needIPv6Addresses", needIPv6Addresses).Info("NO IPs available, retrying allocation")
 
 	if allowAssignment {
 		if needIPv4Addresses {
@@ -266,8 +265,7 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		}
 	}
 
-	time.Sleep(time.Second)
-	ni, err := iface.GetNetworkInterface(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
+	ni, err := iface.GetNetworkInterface(ctx, time.Millisecond*100)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err

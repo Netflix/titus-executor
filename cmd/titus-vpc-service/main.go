@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"expvar"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -42,6 +43,7 @@ func setupDebugServer(ctx context.Context, address string) error {
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.Handle("/debug/vars", expvar.Handler())
 	zpages.Handle(mux, "/trace")
 
 	go func() {

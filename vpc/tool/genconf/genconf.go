@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Netflix/titus-executor/vpc"
-	"github.com/Netflix/titus-executor/vpc/identity"
+	"github.com/Netflix/titus-executor/vpc/tool/identity"
 )
 
 func GenConf(ctx context.Context, identityProvider identity.InstanceIdentityProvider, export, resourceSetsOnly bool) error {

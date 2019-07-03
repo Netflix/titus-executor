@@ -2,7 +2,14 @@ package ec2wrapper
 
 import (
 	"context"
+	"encoding/json"
+	"expvar"
+	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/Netflix/titus-executor/logger"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/aws/aws-sdk-go/aws"
@@ -25,6 +32,12 @@ const (
 const (
 	UseCache CacheStrategy = StoreInCache | FetchFromCache
 )
+
+var sessionManagerMap *expvar.Map
+
+func init() {
+	sessionManagerMap = expvar.NewMap("sessionManagers")
+}
 
 var (
 	invalidateInstanceFromCache = stats.Int64("invalidateInstanceFromCache.count", "Instance invalidated from cache", "")
@@ -66,16 +79,23 @@ type EC2NetworkInterfaceSession interface {
 	GetSubnetByID(ctx context.Context, subnetID string, strategy CacheStrategy) (*ec2.Subnet, error)
 	GetDefaultSecurityGroups(ctx context.Context) ([]*string, error)
 	ModifySecurityGroups(ctx context.Context, groupIds []*string) error
-	GetNetworkInterface(ctx context.Context, strategy CacheStrategy) (*ec2.NetworkInterface, error)
+	GetNetworkInterface(ctx context.Context, deadline time.Duration) (*ec2.NetworkInterface, error)
 	AssignPrivateIPAddresses(ctx context.Context, assignPrivateIPAddressesInput ec2.AssignPrivateIpAddressesInput) (*ec2.AssignPrivateIpAddressesOutput, error)
 	AssignIPv6Addresses(ctx context.Context, assignIpv6AddressesInput ec2.AssignIpv6AddressesInput) (*ec2.AssignIpv6AddressesOutput, error)
 	UnassignPrivateIPAddresses(ctx context.Context, unassignPrivateIPAddressesInput ec2.UnassignPrivateIpAddressesInput) (*ec2.UnassignPrivateIpAddressesOutput, error)
 }
 
+var sessionManagerID int64
+
 func NewEC2SessionManager() EC2SessionManager {
-	return &ec2SessionManager{
-		sessions: make(map[key]*ec2BaseSession),
+	id := atomic.AddInt64(&sessionManagerID, 1)
+	sessionManager := &ec2SessionManager{
+		sessions:  make(map[key]*ec2BaseSession),
+		expvarMap: expvar.NewMap("session"),
 	}
+	sessionManagerMap.Set(fmt.Sprintf("sessionManager-%d", id), sessionManager.expvarMap)
+
+	return sessionManager
 }
 
 type key struct {
@@ -83,12 +103,19 @@ type key struct {
 	region    string
 }
 
+func (k key) String() string {
+	return fmt.Sprintf("%s-%s", k.accountID, k.region)
+}
+
 type ec2SessionManager struct {
 	sessionsLock sync.RWMutex
 	sessions     map[key]*ec2BaseSession
+	expvarMap    *expvar.Map
 }
 
 func (sessionManager *ec2SessionManager) getSession(ctx context.Context, region, accountID string) *ec2BaseSession {
+	// TODO: Validate the account ID is only integers.
+
 	// TODO: Metrics
 
 	// TODO: Do get called identity, and check if assumerole is required for account assumption
@@ -130,9 +157,13 @@ func (sessionManager *ec2SessionManager) getSession(ctx context.Context, region,
 	}
 	instanceSession.interfaceCache = c
 
+	newCtx := logger.WithLogger(context.Background(), logger.G(ctx))
+	instanceSession.batchENIDescriber = NewBatchENIDescriber(newCtx, time.Second, 50, instanceSession.session)
+
 	sessionManager.sessionsLock.Lock()
 	defer sessionManager.sessionsLock.Unlock()
 	sessionManager.sessions[sessionKey] = instanceSession
+	sessionManager.expvarMap.Set(sessionKey.String(), instanceSession)
 
 	return instanceSession
 }
@@ -156,10 +187,47 @@ func (sessionManager *ec2SessionManager) GetSessionFromInstanceIdentity(ctx cont
 }
 
 type ec2BaseSession struct {
-	session        *session.Session
-	instanceCache  *lru.Cache
-	subnetCache    *lru.Cache
-	interfaceCache *lru.Cache
+	session           *session.Session
+	instanceCache     *lru.Cache
+	subnetCache       *lru.Cache
+	interfaceCache    *lru.Cache
+	batchENIDescriber *BatchENIDescriber
+}
+
+// This is for expvar, it's meant to return JSON
+func (s *ec2BaseSession) String() string {
+	state := struct {
+		InstanceCacheSize  int `json:"instanceCacheSize"`
+		SubnetCacheSize    int `json:"subnetCacheSize"`
+		InterfaceCacheSize int `json:"interfaceCacheSize"`
+
+		InstanceCacheKeys  []interface{} `json:"instanceCacheKeys"`
+		SubnetCacheKeys    []interface{} `json:"subnetCacheKeys"`
+		InterfaceCacheKeys []interface{} `json:"interfaceCacheKeys"`
+	}{
+		InstanceCacheSize:  s.instanceCache.Len(),
+		SubnetCacheSize:    s.subnetCache.Len(),
+		InterfaceCacheSize: s.interfaceCache.Len(),
+		InstanceCacheKeys:  s.instanceCache.Keys(),
+		SubnetCacheKeys:    s.subnetCache.Keys(),
+		InterfaceCacheKeys: s.interfaceCache.Keys(),
+	}
+	marshaled, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		// This shouldn't happen
+		errorMessage := struct {
+			ErrorMessage string
+		}{
+			ErrorMessage: err.Error(),
+		}
+		data, err2 := json.Marshal(errorMessage)
+		if err2 != nil {
+			panic(err2)
+		}
+		return string(data)
+	}
+	return string(marshaled)
+
 }
 
 func (s *ec2BaseSession) Session(ctx context.Context) (*session.Session, error) {

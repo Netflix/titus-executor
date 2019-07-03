@@ -3,8 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/Netflix/titus-executor/vpc/container"
-
+	"github.com/Netflix/titus-executor/vpc/tool/container"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )

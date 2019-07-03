@@ -9,21 +9,22 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"time"
-
-	"google.golang.org/grpc"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/Netflix/titus-executor/vpc/identity"
+	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/Netflix/titus-executor/vpc/utilities"
+	set "github.com/deckarep/golang-set"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
+	"google.golang.org/grpc"
 )
 
 func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, securityGroups []string, deviceIdx int, allocateIPv6Address bool) error {
@@ -32,16 +33,16 @@ func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIde
 		"security-groups":     securityGroups,
 		"allocateIPv6Address": allocateIPv6Address,
 	})
-	logger.G(ctx).Debug()
+	logger.G(ctx).Info()
 
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 	allocation, err := doAllocateNetwork(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address)
 	conn.Close()
 	if err != nil {
-		err := errors.Wrap(err, "Unable to perform network allocation")
-		err = json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
-		if err != nil {
-			err = errors.Wrap(err, err.Error())
+		err = errors.Wrap(err, "Unable to perform network allocation")
+		writeError := json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
+		if writeError != nil {
+			err = errors.Wrap(writeError, err.Error())
 		}
 		return err
 	}
@@ -50,6 +51,9 @@ func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIde
 		ctx = logger.WithField(ctx, "ip6", allocation.ip6Address)
 	}
 	logger.G(ctx).Info("Network setup")
+	// We do an initial refresh just to "lick" the IPs, in case our allocation lasts a very short period.
+	_ = allocation.refresh()
+
 	// TODO: Output JSON as to new network settings
 	err = json.NewEncoder(os.Stdout).
 		Encode(
@@ -171,23 +175,30 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
 
 	lock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
-	defer lock.Unlock()
 	if err != nil {
 		return nil, err
 	}
+	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Took lock on interface configuration lock path")
+	defer func() {
+		lock.Unlock()
+		logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Unlocked configuration lock path")
+	}()
+
 	records, err := locker.ListFiles(addressesLockPath)
 	if err != nil {
 		return nil, err
 	}
 
+	previouslyKnownAddresses := set.NewSet()
 	utilizedAddresses := make([]*vpcapi.UtilizedAddress, 0, len(records))
 	for _, record := range records {
+		ip := net.ParseIP(record.Name)
+		previouslyKnownAddresses.Add(ip.String())
+
 		tmpLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
 		if err == nil {
 			tmpLock.Unlock()
 		} else {
-			ip := net.ParseIP(record.Name)
-
 			address := &vpcapi.UtilizedAddress{
 				Address: &titus.Address{
 					Address: ip.String(),
@@ -221,6 +232,8 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 
 	logger.G(ctx).WithField("assignIPResponse", response).Info("AssignIP request suceeded")
 
+	bumpUsableAddresses(ctx, addressesLockPath, previouslyKnownAddresses, response.UsableAddresses, locker)
+
 	alloc := &allocation{}
 	alloc.networkInterface = response.NetworkInterface
 	err = populateAlloc(ctx, alloc, allocateIPv6Address, response.UsableAddresses, locker, addressesLockPath)
@@ -230,18 +243,67 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	return alloc, nil
 }
 
+func bumpUsableAddresses(ctx context.Context, addressesLockPath string, previouslyKnownAddresses set.Set, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker) {
+	optimisticLockTimeout := time.Duration(0)
+
+	for idx := range usableAddresses {
+		addr := usableAddresses[idx]
+		ip := net.ParseIP(addr.GetAddress().Address)
+		if !previouslyKnownAddresses.Contains(ip.String()) {
+			logger.G(ctx).WithField("previouslyKnownAddresses", previouslyKnownAddresses.String()).WithField("ip", ip.String()).Info("Bumping record")
+			addressLockPath := filepath.Join(addressesLockPath, ip.String())
+			lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+			if err == nil {
+				lock.Bump()
+				lock.Unlock()
+			}
+		}
+	}
+}
+
 func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address bool, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker, addressesLockPath string) error {
 	optimisticLockTimeout := time.Duration(0)
 
-	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(usableAddresses), func(i, j int) { usableAddresses[i], usableAddresses[j] = usableAddresses[j], usableAddresses[i] })
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	timestamps := map[string]time.Time{}
+	records, err := locker.ListFiles(addressesLockPath)
+	if err == nil {
+		for idx := range records {
+			timestamps[net.ParseIP(records[idx].Name).String()] = records[idx].BumpTime
+		}
+	}
+	logger.G(ctx).WithField("timestamps", timestamps).Info()
+
+	sort.Slice(usableAddresses, func(first, second int) bool {
+		firstIP := net.ParseIP(usableAddresses[first].Address.Address).String()
+		firstTimestamp, ok := timestamps[firstIP]
+		if !ok {
+			firstTimestamp = time.Unix(r.Int63(), r.Int63())
+			timestamps[firstIP] = firstTimestamp
+		}
+		secondIP := net.ParseIP(usableAddresses[second].Address.Address).String()
+		secondTimestamp, ok := timestamps[secondIP]
+		if !ok {
+			secondTimestamp = time.Unix(r.Int63(), r.Int63())
+			timestamps[secondIP] = secondTimestamp
+		}
+
+		return firstTimestamp.Before(secondTimestamp)
+	})
+
+	logger.G(ctx).WithField("sorted", usableAddresses).Info()
+
 	for idx := range usableAddresses {
 		addr := usableAddresses[idx]
 		ip := net.ParseIP(addr.Address.Address)
 		if ip.To4() == nil {
 			continue
 		}
-		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		addressLockPath := filepath.Join(addressesLockPath, ip.String())
+		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
 		if err == nil {
+			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.exclusiveIP4Lock = lock
 			alloc.ip4Address = addr
 			break
@@ -264,8 +326,11 @@ func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address b
 		if ip.To4() != nil {
 			continue
 		}
-		lock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, ip.String()), &optimisticLockTimeout)
+		addressLockPath := filepath.Join(addressesLockPath, ip.String())
+
+		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
 		if err == nil {
+			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.ip6Address = addr
 			alloc.exclusiveIP6Lock = lock
 			break

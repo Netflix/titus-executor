@@ -8,7 +8,7 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
-	"github.com/Netflix/titus-executor/vpc/identity"
+	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"

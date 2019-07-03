@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/globalgc"
+	"github.com/Netflix/titus-executor/vpc/tool/globalgc"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )

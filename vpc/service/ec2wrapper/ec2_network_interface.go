@@ -21,13 +21,9 @@ var (
 )
 
 var (
-	invalidateInterfaceFromCache = stats.Int64("invalidateInterfaceFromCache.count", "Interface invalidated from cache", "")
-	storedInterfaceInCache       = stats.Int64("storeInterfaceInCache.count", "How many times we stored interface in the cache", "")
-	getInterfaceFromCache        = stats.Int64("getInterfaceFromCache.count", "How many times getInterface was tried from cache", "")
-	getInterfaceFromCacheSuccess = stats.Int64("getInterfaceFromCache.success.count", "How many times getInterface from cache succeeded", "")
-	getInterfaceMs               = stats.Float64("getInterface.latency", "The time to fetch an Interface", "ns")
-	getInterfaceCount            = stats.Int64("getInterface.count", "How many times getInterface was called", "")
-	getInterfaceSuccess          = stats.Int64("getInterface.success.count", "How many times getInterface succeeded", "")
+	getInterfaceMs      = stats.Float64("getInterface.latency", "The time to fetch an Interface", "ns")
+	getInterfaceCount   = stats.Int64("getInterface.count", "How many times getInterface was called", "")
+	getInterfaceSuccess = stats.Int64("getInterface.success.count", "How many times getInterface succeeded", "")
 )
 
 type ec2NetworkInterfaceSession struct {
@@ -35,20 +31,15 @@ type ec2NetworkInterfaceSession struct {
 	instanceNetworkInterface *ec2.InstanceNetworkInterface
 }
 
-type cacheNetworkInterfaceWrapper struct {
-	ni      *ec2.NetworkInterface
-	fetched time.Time
-}
-
 func (s *ec2NetworkInterfaceSession) ElasticNetworkInterfaceID() string {
 	return aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)
 }
 
-func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, strategy CacheStrategy) (*ec2.NetworkInterface, error) {
+func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, deadline time.Duration) (*ec2.NetworkInterface, error) {
 	ctx, span := trace.StartSpan(ctx, "getNetworkInterface")
 	defer span.End()
+	span.AddAttributes(trace.StringAttribute("deadline", deadline.String()))
 	start := time.Now()
-	ec2client := ec2.New(s.session)
 	ctx, err := tag.New(ctx, tag.Upsert(keyInterface, aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)))
 	if err != nil {
 		return nil, err
@@ -56,45 +47,13 @@ func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, st
 
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)))
 	stats.Record(ctx, getInterfaceCount.M(1))
-	if strategy&InvalidateCache > 0 {
-		stats.Record(ctx, invalidateInterfaceFromCache.M(1))
-		span.AddAttributes(trace.BoolAttribute("invalidatecache", true))
-		s.interfaceCache.Remove(aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId))
-	} else {
-		span.AddAttributes(trace.BoolAttribute("invalidatecache", false))
-	}
-	if strategy&FetchFromCache > 0 {
-		span.AddAttributes(trace.BoolAttribute("fetchfromcache", true))
 
-		stats.Record(ctx, getInterfaceFromCache.M(1))
-		iface, ok := s.interfaceCache.Get(aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId))
-		if ok {
-			niw := iface.(*cacheNetworkInterfaceWrapper)
-			span.AddAttributes(trace.BoolAttribute("cached", true))
-			if time.Since(niw.fetched) < 5*time.Minute {
-				stats.Record(ctx, getInterfaceFromCacheSuccess.M(1), getInterfaceSuccess.M(1))
-				span.AddAttributes(trace.BoolAttribute("expired", false))
-				return niw.ni, nil
-			}
-			span.AddAttributes(trace.BoolAttribute("expired", true))
-		} else {
-			span.AddAttributes(trace.BoolAttribute("cached", false))
-		}
-	} else {
-		span.AddAttributes(trace.BoolAttribute("fetchfromcache", false))
-	}
-
-	describeNetworkInterfacesInput := &ec2.DescribeNetworkInterfacesInput{
-		NetworkInterfaceIds: []*string{s.instanceNetworkInterface.NetworkInterfaceId},
-	}
-
-	describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, describeNetworkInterfacesInput)
+	networkInterface, err := s.batchENIDescriber.DescribeNetworkInterfacesWithTimeout(ctx, aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId), deadline)
 	// TODO: Work around rate limiting here, and do some basic retries
 	if err != nil {
 		return nil, handleEC2Error(err, span)
 	}
 
-	networkInterface := describeNetworkInterfacesOutput.NetworkInterfaces[0]
 	privateIPs := make([]string, len(networkInterface.PrivateIpAddresses)+1)
 	for idx := range networkInterface.PrivateIpAddresses {
 		privateIPs[idx+1] = aws.StringValue(networkInterface.PrivateIpAddresses[idx].PrivateIpAddress)
@@ -125,20 +84,6 @@ func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, st
 	)
 
 	stats.Record(ctx, getInterfaceMs.M(float64(time.Since(start).Nanoseconds())), getInterfaceSuccess.M(1))
-
-	if strategy&StoreInCache > 0 {
-		span.AddAttributes(trace.BoolAttribute("storeincache", true))
-
-		stats.Record(ctx, storedInterfaceInCache.M(1))
-
-		niw := &cacheNetworkInterfaceWrapper{
-			ni:      networkInterface,
-			fetched: time.Now(),
-		}
-		s.interfaceCache.Add(aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId), niw)
-	} else {
-		span.AddAttributes(trace.BoolAttribute("storeincache", false))
-	}
 
 	return networkInterface, nil
 }
@@ -240,6 +185,7 @@ func (s *ec2NetworkInterfaceSession) UnassignPrivateIPAddresses(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
+	s.interfaceCache.Remove(aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId))
 	return unassignPrivateIPAddressesOutput, nil
 }
 
