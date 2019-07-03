@@ -3,16 +3,16 @@ package ec2wrapper
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
-
-	"go.opencensus.io/trace"
-
-	"go.opencensus.io/stats"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
+	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/trace"
 )
 
 var (
@@ -30,8 +30,10 @@ type batchENIDescriptionRequestResponse struct {
 	err               error
 	networkInterfaces []*ec2.NetworkInterface
 
-	// How long to wait for
-	deadline time.Duration
+	triggerChannel <-chan time.Time
+
+	// triggeredChannel is closed when we accept / begin executing on this request
+	triggeredChannel chan struct{}
 }
 
 type BatchENIDescriber struct {
@@ -60,6 +62,8 @@ func runDescribe(ctx context.Context, session *session.Session, items []*batchEN
 	if len(items) == 0 {
 		panic("Asked to run describe with 0 items")
 	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "runDescribe")
 	defer span.End()
 
@@ -93,9 +97,6 @@ func runDescribe(ctx context.Context, session *session.Session, items []*batchEN
 		}
 	}
 	stats.Record(ctx, batchLatency.M(time.Since(start).Nanoseconds()))
-	for idx := range items {
-		close(items[idx].doneCh)
-	}
 }
 
 func (b *BatchENIDescriber) loop(ctx context.Context, maxItems int) {
@@ -108,53 +109,97 @@ func (b *BatchENIDescriber) innerLoop(ctx context.Context, maxItems int) {
 	defer span.End()
 
 	items := make([]*batchENIDescriptionRequestResponse, 0, maxItems)
+	cases := make([]reflect.SelectCase, 1, maxItems+1)
 	nt := newTimer()
 	defer nt.stop()
 	var start time.Time
 
-	for {
-		select {
-		case <-nt.c:
-			goto runDescribe
-		case item := <-b.requests:
-			if start.IsZero() {
-				start = time.Now()
-			}
-			nt.setDeadline(b.maxDeadline)
-			items = append(items, item)
-			if len(items) >= maxItems {
-				goto runDescribe
-			}
-
-		}
+	cases[0] = reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(b.requests),
 	}
-runDescribe:
-	stats.Record(ctx, batchWaitPeriod.M(time.Since(start).Nanoseconds()), batchSize.M(int64(len(items))))
-	go b.runDescribe(ctx, b.session, items)
 
+	for len(items) < maxItems {
+		index, value, recvOK := reflect.Select(cases)
+		if !recvOK {
+			panic(fmt.Sprintf("Got not recvOk, with index %d, value: %s", index, value.String()))
+		}
+		if index != 0 {
+			break
+		}
+
+		// This is a new describe request
+		newBatchENIDescriptionRequestResponse := value.Interface().(*batchENIDescriptionRequestResponse)
+		items = append(items, newBatchENIDescriptionRequestResponse)
+		cases = append(cases, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(newBatchENIDescriptionRequestResponse.triggerChannel),
+		})
+
+	}
+
+	stats.Record(ctx, batchWaitPeriod.M(time.Since(start).Nanoseconds()), batchSize.M(int64(len(items))))
+	go b.finishInnerLoop(ctx, items)
 }
+
+func (b *BatchENIDescriber) finishInnerLoop(ctx context.Context, items []*batchENIDescriptionRequestResponse) {
+	// TODO: Add semaphore for maximum number of inflight describes.
+	for idx := range items {
+		close(items[idx].triggeredChannel)
+	}
+	b.runDescribe(ctx, b.session, items)
+	for idx := range items {
+		close(items[idx].doneCh)
+	}
+}
+
 func (b *BatchENIDescriber) DescribeNetworkInterfaces(ctx context.Context, networkInterfaceID string) (*ec2.NetworkInterface, error) {
 	return b.DescribeNetworkInterfacesWithTimeout(ctx, networkInterfaceID, b.maxDeadline)
 }
 
 func (b *BatchENIDescriber) DescribeNetworkInterfacesWithTimeout(ctx context.Context, networkInterfaceID string, deadline time.Duration) (*ec2.NetworkInterface, error) {
+	ctx, span := trace.StartSpan(ctx, "describeNetworkInterfacesWithTimeout")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("deadline", deadline.String()), trace.StringAttribute("eni", networkInterfaceID))
+
 	ch := make(chan struct{})
+	timer := time.NewTimer(deadline)
+	defer timer.Stop()
+
 	request := &batchENIDescriptionRequestResponse{
 		networkInterfaceID: networkInterfaceID,
 		doneCh:             ch,
-		deadline:           deadline,
+		triggerChannel:     timer.C,
+		triggeredChannel:   make(chan struct{}),
 	}
 
-	b.requests <- request
+	// This really should never block. If it does, something might be very wrong.
+	select {
+	case b.requests <- request:
+	case <-ctx.Done():
+		return nil, errors.Wrap(ctx.Err(), "Could not write request. This seems very wrong")
+	}
+
+	// Once the request has been written, we wait for the executing channel to close, indicating that the request has begun processing
+	// otherwise, we don't really start this span
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-request.triggeredChannel:
+	}
+
+	ctx, span = trace.StartSpan(ctx, "describeNetworkInterfacesWithTimeoutExecuting")
+	defer span.End()
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-ch:
+	case <-request.doneCh:
 	}
 
 	if request.err != nil {
-		return nil, request.err
+		err := handleEC2Error(request.err, span)
+		return nil, err
 	}
 
 	for idx := range request.networkInterfaces {
@@ -163,5 +208,5 @@ func (b *BatchENIDescriber) DescribeNetworkInterfacesWithTimeout(ctx context.Con
 		}
 	}
 
-	return nil, fmt.Errorf("Fatal, unknown error, interface id %s not found in request", networkInterfaceID)
+	return nil, fmt.Errorf("Fatal, unknown error, interface id %s not found in response", networkInterfaceID)
 }
