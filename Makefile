@@ -59,6 +59,10 @@ $(TEST_DIRS): | $(clean)
 .PHONY: build-tests-darwin
 build-tests-darwin: $(TEST_DIRS)
 
+.PHONY: cross-linux
+cross-linux:
+	gox -osarch="linux/amd64" -output="build/bin/{{.OS}}-{{.Arch}}/{{.Dir}}" -verbose ./cmd/...
+
 .PHONY: test-local
 test-local: | $(clean)
 	go test $(TEST_FLAGS) -covermode=count -coverprofile=coverage-local.out -coverpkg=github.com/Netflix/... ./... \

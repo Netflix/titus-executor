@@ -51,7 +51,6 @@ type serviceOpts struct {
 }
 
 const (
-	defaultRuntime            = "runc"
 	titusInits                = "/var/lib/titus-inits"
 	systemServiceStartTimeout = 90 * time.Second
 	umountNoFollow            = 0x8
@@ -160,7 +159,7 @@ func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, c
 
 		// Different runtimes have different root paths that need to be passed to runc with `--root`.
 		// In particular, we use the `oci-add-hooks` runtime for GPU containers.
-		runtime := defaultRuntime
+		runtime := runtimeTypes.DefaultOciRuntime
 		if c.Runtime != "" {
 			runtime = c.Runtime
 		}
@@ -184,7 +183,7 @@ func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, r
 	cmdArgStr := fmt.Sprintf(runcArgFormat, runtime, cID, opts.initCommand)
 	cmdArgs := strings.Split(cmdArgStr, " ")
 
-	runcCommand, err := exec.LookPath(defaultRuntime)
+	runcCommand, err := exec.LookPath(runtimeTypes.DefaultOciRuntime)
 	if err != nil {
 		return err
 	}

@@ -32,6 +32,11 @@ const (
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
 	TitusEnvironmentsDir            = "/var/lib/titus-environments"
 	titusContainerIDEnvVariableName = "TITUS_CONTAINER_ID"
+	// TitusRuntimeEnvVariableName is used to pass the name of the oci-compliant runtime used to run a container.
+	// This can be used to construct the root path for runc to use to run system services.
+	TitusRuntimeEnvVariableName = "TITUS_OCI_RUNTIME"
+	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
+	DefaultOciRuntime = "runc"
 
 	// VPCIPv4Label is the VPC address of the container.
 	//

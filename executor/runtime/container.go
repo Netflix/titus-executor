@@ -51,6 +51,8 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 	strNetwork := strconv.FormatUint(uint64(networkCfgParams.GetBandwidthLimitMbps()), 10)
 
 	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
+	// System service systemd units need this to be set in order to run with the right runtime path
+	env[runtimeTypes.TitusRuntimeEnvVariableName] = runtimeTypes.DefaultOciRuntime
 	labels[titusTaskInstanceIDKey] = env[titusTaskInstanceIDKey]
 	labels[cpuLabelKey] = strCPU
 	labels[memLabelKey] = strMem
