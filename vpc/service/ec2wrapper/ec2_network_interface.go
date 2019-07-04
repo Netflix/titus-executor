@@ -54,11 +54,14 @@ func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, de
 		return nil, handleEC2Error(err, span)
 	}
 
-	privateIPs := make([]string, len(networkInterface.PrivateIpAddresses)+1)
-	for idx := range networkInterface.PrivateIpAddresses {
-		privateIPs[idx+1] = aws.StringValue(networkInterface.PrivateIpAddresses[idx].PrivateIpAddress)
-	}
+	privateIPs := make([]string, 1, len(networkInterface.PrivateIpAddresses))
 	privateIPs[0] = aws.StringValue(networkInterface.PrivateIpAddress)
+
+	for idx := range networkInterface.PrivateIpAddresses {
+		if !aws.BoolValue(networkInterface.PrivateIpAddresses[idx].Primary) {
+			privateIPs = append(privateIPs, aws.StringValue(networkInterface.PrivateIpAddresses[idx].PrivateIpAddress))
+		}
+	}
 
 	ipv6Addresses := make([]string, len(networkInterface.Ipv6Addresses))
 	for idx := range networkInterface.Ipv6Addresses {
