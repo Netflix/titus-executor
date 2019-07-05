@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/darion/conf"
 	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
+	"github.com/Netflix/titus-executor/logviewer/conf"
 	securejoin "github.com/cyphar/filepath-securejoin"
 	log "github.com/sirupsen/logrus"
 )

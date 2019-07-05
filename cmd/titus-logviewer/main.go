@@ -3,8 +3,8 @@ package main
 import (
 	"net/http"
 
-	"github.com/Netflix/titus-executor/darion/api"
 	"github.com/Netflix/titus-executor/logsutil"
+	"github.com/Netflix/titus-executor/logviewer/api"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -16,7 +16,7 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
-	log.Println("Darion is starting")
+	log.Println("Titus logviewer is starting")
 	r := newMux()
 	if err := http.ListenAndServe(":8004", r); err != nil {
 		log.Error("Error: HTTP ListenAndServe: ", err)

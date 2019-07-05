@@ -1723,14 +1723,14 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	// is not protected by a lock
 	pid := os.Getpid()
 	logsRoot := filepath.Join("/proc", strconv.Itoa(pid), "fd", strconv.Itoa(int(rootFile.Fd())))
-	darionRoot := netflixLoggerTempDir(r.cfg, c)
-	if err := os.Symlink(logsRoot, darionRoot); err != nil {
-		log.WithError(err).Warning("Unable to setup symlink for darion")
+	logviewerRoot := netflixLoggerTempDir(r.cfg, c)
+	if err := os.Symlink(logsRoot, logviewerRoot); err != nil {
+		log.WithError(err).Warning("Unable to setup symlink for logviewer")
 		return err
 	}
 
 	c.RegisterRuntimeCleanup(func() error {
-		return os.Remove(darionRoot)
+		return os.Remove(logviewerRoot)
 	})
 
 	if err := setupSystemServices(parentCtx, c, r.cfg, cred); err != nil {
