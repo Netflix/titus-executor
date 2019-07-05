@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/Netflix/titus-executor/vpc/utilities"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-multierror"
@@ -67,8 +69,16 @@ func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instan
 	return result.ErrorOrNil()
 }
 
+func formatUtilizedAddresses(messages []*vpcapi.UtilizedAddress) string {
+	result := make([]string, len(messages))
+	for idx := range messages {
+		result[idx] = messages[idx].String()
+	}
+	return fmt.Sprintf("%+v", result)
+}
+
 func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
-	ctx, span := trace.StartSpan(ctx, "assignAddresses")
+	ctx, span := trace.StartSpan(ctx, "doGcInterface")
 	defer span.End()
 	span.AddAttributes(trace.Int64Attribute("deviceIdx", int64(deviceIdx)))
 
@@ -91,6 +101,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 
 	records, err := locker.ListFiles(addressesLockPath)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -111,6 +122,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 			continue
 		} else if err != nil {
 			entry.WithError(err).Error("Encountered unknown errror")
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 		logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Took exclusive lock on address")
@@ -132,7 +144,6 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 		"nonviableAddresses":   nonviableAddresses,
 		"unallocatedAddresses": unallocatedAddresses,
 	}).Info()
-
 	gcRequest := &vpcapi.GCRequest{
 		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
 			DeviceIndex: uint32(deviceIdx),
@@ -143,8 +154,15 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 		UnallocatedAddresses: recordsToUtilizedAddresses(unallocatedAddresses),
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("allocatedAddresses", formatUtilizedAddresses(gcRequest.AllocatedAddresses)),
+		trace.StringAttribute("nonviableAddresses", formatUtilizedAddresses(gcRequest.NonviableAddresses)),
+		trace.StringAttribute("unallocatedAddresses", formatUtilizedAddresses(gcRequest.UnallocatedAddresses)),
+	)
+
 	gcResponse, err := client.GC(ctx, gcRequest)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return errors.Wrap(err, "Error from IP Service")
 	}
 
@@ -174,6 +192,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 		}
 	}
 
+	tracehelpers.SetStatus(returnError.ErrorOrNil(), span)
 	return returnError.ErrorOrNil()
 }
 
