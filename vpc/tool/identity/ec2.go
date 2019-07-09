@@ -8,22 +8,37 @@ import (
 	"strings"
 	"time"
 
+	"go.opencensus.io/stats"
+
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 )
 
 var (
 	ErrEC2MetadataServiceUnavailable = errors.New("EC2 metadata service unavailable")
 )
 
+var (
+	getIdentityLatency = stats.Float64("getIdentity.latency", "The time to get an instance's identity", "ns")
+	getIdentityCount   = stats.Int64("getIdentity.count", "How many times getIdentity was called", "")
+	getIdentitySuccess = stats.Int64("getIdentity.success.count", "How many times getIdentity succeeded", "")
+)
+
 type ec2Provider struct{}
 
 func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity, error) {
+	ctx, span := trace.StartSpan(ctx, "GetIdentity")
+	defer span.End()
+	start := time.Now()
+	stats.Record(ctx, getIdentityCount.M(1))
+
 	newAWSLogger := &awsLogger{logger: logger.G(ctx), oldMessages: list.New()}
 	ec2MetadataClient := ec2metadata.New(
 		session.Must(
@@ -34,24 +49,30 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 					WithLogLevel(aws.LogDebugWithRequestErrors | aws.LogDebugWithRequestRetries | aws.LogDebugWithHTTPBody))))
 
 	if !ec2MetadataClient.Available() {
+		tracehelpers.SetStatus(ErrEC2MetadataServiceUnavailable, span)
 		return nil, ErrEC2MetadataServiceUnavailable
 	}
 
 	resp, err := ec2MetadataClient.GetDynamicData("instance-identity/document")
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, errors.Wrap(err, "Unable to fetch instance identity document")
 	}
 
 	pkcs7, err := ec2MetadataClient.GetDynamicData("instance-identity/pkcs7")
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, errors.Wrap(err, "Unable to fetch instance identity signature")
 	}
 
 	var doc ec2metadata.EC2InstanceIdentityDocument
 	err = json.Unmarshal([]byte(resp), &doc)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, errors.Wrap(err, "Cannot deserialize instance identity document")
 	}
+
+	stats.Record(ctx, getIdentityLatency.M(float64(time.Since(start).Nanoseconds())), getIdentitySuccess.M(1))
 
 	return &vpcapi.InstanceIdentity{
 		InstanceIdentityDocument:  resp,
