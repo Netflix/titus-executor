@@ -12,6 +12,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"go.opencensus.io/trace"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
@@ -125,9 +128,16 @@ func (a *allocation) String() string {
 }
 
 func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address bool) (*allocation, error) {
+	// TODO: Make timeout adjustable
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-
+	ctx, span := trace.StartSpan(ctx, "doAllocateNetwork")
+	defer span.End()
+	span.AddAttributes(
+		trace.Int64Attribute("deviceIdx", int64(deviceIdx)),
+		trace.StringAttribute("security-groups", fmt.Sprintf("%v", securityGroups)),
+		trace.BoolAttribute("allocateIPv6Address", allocateIPv6Address),
+	)
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 10 * time.Second
 
@@ -138,9 +148,11 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, true)
 		if err != nil {
 			exclusiveSGLock.Unlock()
+			tracehelpers.SetStatus(err, span)
 			return alloc, errors.Wrap(err, "Cannot get shared SG lock")
 		}
 		alloc.sharedSGLock = exclusiveSGLock.ToSharedLock()
+		tracehelpers.SetStatus(err, span)
 		return alloc, err
 	}
 
@@ -153,16 +165,22 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, false)
 		if err != nil {
 			sharedSGLock.Unlock()
+			tracehelpers.SetStatus(err, span)
 			return alloc, err
 		}
 		alloc.sharedSGLock = sharedSGLock
+		tracehelpers.SetStatus(err, span)
 		return alloc, err
 	}
 
+	tracehelpers.SetStatus(lockErr, span)
 	return nil, errors.Wrap(lockErr, "Cannot get exclusive SG Lock")
 }
 
 func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address, allowSecurityGroupChange bool) (*allocation, error) {
+	ctx, span := trace.StartSpan(ctx, "doAllocateNetworkAddress")
+	defer span.End()
+
 	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot retrieve instance identity")
@@ -176,6 +194,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 
 	lock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	logger.G(ctx).WithField("configurationLockPath", configurationLockPath).Info("Took lock on interface configuration lock path")
@@ -186,6 +205,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 
 	records, err := locker.ListFiles(addressesLockPath)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -227,6 +247,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	response, err := client.AssignIP(ctx, assignIPRequest)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("AssignIP request failed")
+		tracehelpers.SetStatus(err, span)
 		return nil, errors.Wrap(err, "Error received from VPC Assign Private IP Server")
 	}
 
@@ -238,12 +259,15 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	alloc.networkInterface = response.NetworkInterface
 	err = populateAlloc(ctx, alloc, allocateIPv6Address, response.UsableAddresses, locker, addressesLockPath)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	return alloc, nil
 }
 
 func bumpUsableAddresses(ctx context.Context, addressesLockPath string, previouslyKnownAddresses set.Set, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker) {
+	ctx, span := trace.StartSpan(ctx, "bumpUsableAddresses")
+	defer span.End()
 	optimisticLockTimeout := time.Duration(0)
 
 	for idx := range usableAddresses {
@@ -262,6 +286,9 @@ func bumpUsableAddresses(ctx context.Context, addressesLockPath string, previous
 }
 
 func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address bool, usableAddresses []*vpcapi.UsableAddress, locker *fslocker.FSLocker, addressesLockPath string) error {
+	ctx, span := trace.StartSpan(ctx, "populateAlloc")
+	defer span.End()
+
 	optimisticLockTimeout := time.Duration(0)
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))

@@ -16,17 +16,17 @@ func handleEC2Error(err error, span *trace.Span) error {
 		case "InvalidSubnetID.NotFound", "InvalidInstanceID.NotFound":
 			span.SetStatus(trace.Status{
 				Code:    trace.StatusCodeNotFound,
-				Message: awsErr.Message(),
+				Message: awsErr.Error(),
 			})
 			return status.Error(codes.NotFound, awsErr.Error())
 		case "Client.RequestLimitExceeded":
 			span.SetStatus(trace.Status{
 				Code:    trace.StatusCodeNotFound,
-				Message: awsErr.Message(),
+				Message: awsErr.Error(),
 			})
 			return status.Error(codes.ResourceExhausted, awsErr.Error())
 		default:
-			reterr := fmt.Sprintf("Error fetching from AWS (code: %s): %s", awsErr.Code(), awsErr.Message())
+			reterr := fmt.Sprintf("Error calling AWS: %s", awsErr.Error())
 			span.SetStatus(trace.Status{
 				Code:    trace.StatusCodeUnknown,
 				Message: reterr,
