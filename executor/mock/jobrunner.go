@@ -23,7 +23,10 @@ import (
 
 var errStatusChannelClosed = errors.New("Status channel closed")
 
-const metatronTestImage = "titusoss/metatron:20190507-1557267290"
+const (
+	logViewerTestImage = "titusoss/titus-logviewer:latest"
+	metatronTestImage  = "titusoss/metatron:20190507-1557267290"
+)
 
 // Process describes what runs inside the container
 type Process struct {
@@ -62,7 +65,9 @@ type JobInput struct {
 	KillWaitSeconds uint32
 	// Tty attaches a tty to the container via a passthrough attribute
 	Tty bool
-	// MetatronEnabled enables running with the metatron sidecar container
+	// LogViewerEnabled enables running with the logviewer system service container
+	LogViewerEnabled bool
+	// MetatronEnabled enables running with the metatron system service container
 	MetatronEnabled bool
 	// Mem sets the memory resource attribute in MiB
 	Mem *int64
@@ -187,9 +192,15 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 		panic(err)
 	}
 
-	if jobInput != nil && jobInput.MetatronEnabled {
-		cfg.MetatronEnabled = true
-		cfg.ContainerMetatronImage = metatronTestImage
+	if jobInput != nil {
+		if jobInput.LogViewerEnabled {
+			cfg.ContainerLogViewer = true
+			cfg.ContainerLogViewerImage = logViewerTestImage
+		}
+		if jobInput.MetatronEnabled {
+			cfg.MetatronEnabled = true
+			cfg.ContainerMetatronImage = metatronTestImage
+		}
 	}
 
 	dockerCfg, err := docker.GenerateConfiguration(nil)

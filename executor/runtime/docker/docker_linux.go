@@ -83,6 +83,14 @@ var systemServices = []serviceOpts{
 		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
 		enabledCheck: shouldStartMetatronSync,
 	},
+	{
+		humanName: "logviewer",
+		unitName:  "titus-logviewer",
+		required:  true,
+		enabledCheck: func(cfg *config.Config, c *runtimeTypes.Container) bool {
+			return cfg.ContainerLogViewer
+		},
+	},
 }
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {

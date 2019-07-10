@@ -4,7 +4,17 @@
 #  tests can run against.
 
 # systemd pieces were inspired by solita/docker-systemd (MIT License)
-FROM ubuntu:xenial-20171006
+FROM ubuntu:bionic
+
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y apt-transport-https ca-certificates
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
+    apt-get install -y build-essential curl make cmake libattr1-dev dbus systemd
+
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+RUN echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable" > /etc/apt/sources.list.d/docker.list
+
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
+    apt-get install -y docker-ce=5:18.09.7~3-0~ubuntu-bionic
 
 ### systemd
 ENV container docker
@@ -20,14 +30,7 @@ RUN find /etc/systemd/system \
 
 RUN systemctl set-default multi-user.target
 STOPSIGNAL SIGRTMIN+3
-###
-RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y apt-transport-https ca-certificates
-
-RUN echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable" > /etc/apt/sources.list.d/docker.list
-RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
-
-RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
-    apt-get install -y build-essential make cmake libattr1-dev dbus docker-ce=5:18.09.1~3-0~ubuntu-xenial wget
+### systemd end
 
 COPY --from=golang:1.12-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
@@ -45,9 +48,6 @@ RUN mkdir -p /etc/docker /run/metatron/certificates
 COPY hack/agent/daemon.json /etc/docker/daemon.json
 COPY hack/agent/titus-shared.env /etc/titus-shared.env
 COPY hack/agent/10-disable-atlas-agent.conf /etc/systemd/system/atlas-titus-agent@.service.d/10-disable-atlas-agent.conf
-
-RUN wget -O /tmp/apparmor.deb http://launchpadlibrarian.net/381273068/apparmor_2.12-4ubuntu7_amd64.deb
-RUN dpkg -i /tmp/apparmor.deb
 
 # Directories that the executor needs access to, which will be available with --volumes-from
 VOLUME /run
@@ -71,4 +71,3 @@ COPY hack/agent/certs/* /metatron/certificates/
 
 # Workaround for docker/docker#27202, technique based on comments from docker/docker#9212
 CMD ["/bin/bash", "-c", "exec /sbin/init --log-target=journal 3>&1"]
-

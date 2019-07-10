@@ -1,11 +1,11 @@
 [Unit]
-Description=Metatron sync for container %i
+Description=Titus logviewer for container %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
 [Service]
 EnvironmentFile=/var/lib/titus-environments/%i.env
 # Run as root (UID 0, GID 0) and with CAP_DAC_OVERRIDE so that containers with a `USER` instruction work
-ExecStart=/usr/bin/runc --root /var/run/docker/runtime-${TITUS_OCI_RUNTIME}/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE ${TITUS_CONTAINER_ID} /titus/metatron/bin/titus-metatrond
+ExecStart=/usr/bin/runc --root /var/run/docker/runtime-${TITUS_OCI_RUNTIME}/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE ${TITUS_CONTAINER_ID} /titus/logviewer/bin/titus-logviewer
 
 Restart=on-failure
 RestartSec=1

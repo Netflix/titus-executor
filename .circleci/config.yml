@@ -57,6 +57,23 @@ jobs:
       - run:
           name: Push builder image
           command: docker push titusoss/titus-ci-builder
+  titus-logviewer:
+    resource_class: xlarge
+    docker:
+      - image: docker:stable-git
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Login into Docker hub
+          command: docker login -u $DOCKER_USER -p $DOCKER_PASS
+      - run:
+          name: Build titus-logviewer image
+          command: docker build -t titusoss/titus-logviewer -f hack/images/titus-logviewer/Dockerfile .
+      - run:
+          name: Push titus-logviewer image
+          command: docker push titusoss/titus-logviewer
   titus-sshd:
     resource_class: xlarge
     docker:
@@ -70,7 +87,7 @@ jobs:
           command: docker login -u $DOCKER_USER -p $DOCKER_PASS
       - run:
           name: Build titus-sshd image
-          command: docker build -t titusoss/titus-sshd hack/titus-sshd
+          command: docker build -t titusoss/titus-sshd hack/images/titus-sshd
       - run:
           name: Push titus-sshd image
           command: docker push titusoss/titus-sshd

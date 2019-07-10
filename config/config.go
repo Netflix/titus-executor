@@ -39,6 +39,10 @@ type Config struct {
 	DockerHost     string
 	DockerRegistry string
 
+	// Enable an in-container logviewer via a volume container?
+	ContainerLogViewer      bool
+	ContainerLogViewerImage string
+
 	// Do we enable a container-specific SSHD?
 	ContainerSSHD       bool
 	ContainerSSHDImage  string
@@ -132,6 +136,18 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value:       "docker.io",
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
+		},
+		cli.BoolTFlag{
+			Name:        "container-logviewer",
+			Destination: &cfg.ContainerLogViewer,
+			EnvVar:      "CONTAINER_LOGVIEWER",
+		},
+		cli.StringFlag{
+			Name: "container-logviewer-image",
+			// This image launches the logviewer inside the container
+			Value:       "titusoss/titus-logviewer@sha256:96c77eb57738f0d929be7a18da496f539a7519937b97451aeb201a5857d99cf2",
+			Destination: &cfg.ContainerLogViewerImage,
+			EnvVar:      "CONTAINER_LOGVIEWER_IMAGE",
 		},
 		cli.StringFlag{
 			Name: "container-metatron-image",

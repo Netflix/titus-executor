@@ -153,6 +153,7 @@ func TestStandalone(t *testing.T) {
 		testExecSlashRun,
 		testSystemdImageMount,
 		testShm,
+		testContainerLogViewer,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -1057,6 +1058,20 @@ func testShm(t *testing.T, jobID string) {
 		Mem:           &mem,
 		ShmSize:       &shmSize,
 		EntrypointOld: `/bin/bash -c 'df | grep -e '^shm' | grep 196608'`,
+		JobID:         jobID,
+	}
+	if !mock.RunJobExpectingSuccess(ji) {
+		t.Fail()
+	}
+}
+
+func testContainerLogViewer(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName:        ubuntu.name,
+		Version:          ubuntu.tag,
+		LogViewerEnabled: true,
+		// More complex logic is required to work around 404s, so use sleep for now, to keep this relatively simple:
+		EntrypointOld: "/bin/bash -c 'echo stdout-should-go-to-log ; sleep 5 ; source /etc/profile.d/netflix_environment.sh ; curl -sf --retry 10 --retry-connrefused --retry-delay 1 http://localhost:8004/logs/${TITUS_TASK_ID}?f=stdout | grep stdout-should-go-to-log'",
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingSuccess(ji) {
