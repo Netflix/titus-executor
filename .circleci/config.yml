@@ -131,6 +131,7 @@ workflows:
       - builder
       - ci-builder
       - test-images
+      - titus-logviewer
       - build:
           requires:
             - builder
