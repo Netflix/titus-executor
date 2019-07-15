@@ -36,7 +36,6 @@ require (
 	github.com/hashicorp/go-multierror v0.0.0-20171204182908-b7773ae21874
 	github.com/hashicorp/golang-lru v0.5.1
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
-	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/mesos/mesos-go v0.0.0-20161004192122-7228b13084ce
 	github.com/myitcv/gobin v0.0.9
@@ -52,25 +51,25 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/cobra v0.0.2
-	github.com/spf13/pflag v1.0.1
+	github.com/spf13/pflag v1.0.3
 	github.com/spf13/viper v1.0.2
 	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/stretchr/testify v1.3.0
 	github.com/tinylib/msgp v1.1.0 // indirect
+	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6
 	github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 	go.opencensus.io v0.22.0
-	golang.org/x/net v0.0.0-20190607181551-461777fb6f67
+	golang.org/x/net v0.0.0-20190613194153-d28f0bde5980
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
-	golang.org/x/sys v0.0.0-20190610200419-93c9922d18ae
-	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
+	golang.org/x/sys v0.0.0-20190616124812-15dcb6c0061f
 	golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
 	google.golang.org/genproto v0.0.0-20190605220351-eb0b1bdb6ae6 // indirect
 	google.golang.org/grpc v1.21.1
 	gopkg.in/DataDog/dd-trace-go.v1 v1.14.0 // indirect
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/urfave/cli.v1 v1.20.0
-	gopkg.in/yaml.v2 v2.2.2 // indirect
 	gotest.tools v2.2.0+incompatible
+	k8s.io/api v0.0.0-20190712022805-31fe033ae6f9
 )
