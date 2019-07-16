@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"regexp"
+	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
@@ -24,8 +27,8 @@ import (
 var errStatusChannelClosed = errors.New("Status channel closed")
 
 const (
-	logViewerTestImage = "titusoss/titus-logviewer:latest"
-	metatronTestImage  = "titusoss/metatron:20190507-1557267290"
+	logViewerTestImage = "titusoss/titus-logviewer@sha256:4375303a8ce6dfb297cc47f2103ae140af89c88e393392c2c7ea01943345bef5"
+	metatronTestImage  = "titusoss/metatron:20190716-1563251672"
 )
 
 // Process describes what runs inside the container
@@ -187,27 +190,43 @@ type JobRunner struct {
 
 // GenerateConfigs generates test configs
 func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
-	cfg, err := config.GenerateConfiguration([]string{"--copy-uploader", "/var/tmp/titus-executor/tests"})
+	configArgs := []string{"--copy-uploader", "/var/tmp/titus-executor/tests"}
+
+	logViewerEnabled := false
+	metatronEnabled := false
+	if jobInput != nil {
+		if jobInput.LogViewerEnabled {
+			logViewerEnabled = true
+		}
+		if jobInput.MetatronEnabled {
+			metatronEnabled = true
+		}
+	}
+
+	// GenerateConfiguration() doesn't actually update the config it generates based
+	// on these flags: this is just to test command-line parsing
+	configArgs = append(configArgs,
+		"--container-logviewer", strconv.FormatBool(logViewerEnabled),
+		"--container-logviewer-image", logViewerTestImage,
+		"--metatron-enabled", strconv.FormatBool(metatronEnabled),
+		"--container-metatron-image", metatronTestImage)
+
+	cfg, err := config.GenerateConfiguration(configArgs)
 	if err != nil {
 		panic(err)
 	}
 
-	if jobInput != nil {
-		if jobInput.LogViewerEnabled {
-			cfg.ContainerLogViewer = true
-			cfg.ContainerLogViewerImage = logViewerTestImage
-		}
-		if jobInput.MetatronEnabled {
-			cfg.MetatronEnabled = true
-			cfg.ContainerMetatronImage = metatronTestImage
-		}
-	}
+	cfg.ContainerLogViewer = logViewerEnabled
+	cfg.ContainerLogViewerImage = logViewerTestImage
+	cfg.MetatronEnabled = metatronEnabled
+	cfg.ContainerMetatronImage = metatronTestImage
 
 	dockerCfg, err := docker.GenerateConfiguration(nil)
 	if err != nil {
 		panic(err)
 	}
 
+	log.Infof("GenerateConfigs: configArgs=%+v, cfg=%+v, dockerCfg=%+v", configArgs, cfg, dockerCfg)
 	return cfg, dockerCfg
 }
 
@@ -252,7 +271,7 @@ func (jobRunner *JobRunner) StopExecutorAsync() {
 }
 
 // StartJob starts a job on an existing JobRunner and returns once the job is started
-func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // nolint: gocyclo
+func (jobRunner *JobRunner) StartJob(t *testing.T, jobInput *JobInput) *JobRunResponse { // nolint: gocyclo
 	// Define some stock job to run
 	var jobID string
 
@@ -263,7 +282,11 @@ func (jobRunner *JobRunner) StartJob(jobInput *JobInput) *JobRunResponse { // no
 	}
 
 	// TODO: refactor this all to use NewContainer()
-	taskID := fmt.Sprintf("Titus-%v%v-Worker-0-2", r.Intn(1000), time.Now().Second())
+	// Strip out characters that aren't allowed in container names, and shorten
+	// the name so that it only includes the name of the test
+	validContainerNameRE := regexp.MustCompile("[^a-zA-Z0-9_.-]")
+	shortTestNameRE := regexp.MustCompile(".*/")
+	taskID := fmt.Sprintf("Titus-%v%v-%s-0-2", r.Intn(1000), time.Now().Second(), validContainerNameRE.ReplaceAllString(shortTestNameRE.ReplaceAllString(t.Name(), ""), "_"))
 
 	env := map[string]string{
 		"TITUS_TASK_ID":          taskID,
@@ -371,28 +394,28 @@ func (jobRunner *JobRunner) KillTask() error {
 }
 
 // RunJobExpectingSuccess is similar to RunJob but returns true when the task completes successfully.
-func RunJobExpectingSuccess(jobInput *JobInput) bool {
+func RunJobExpectingSuccess(t *testing.T, jobInput *JobInput) bool {
 	jobRunner := NewJobRunner(jobInput)
 	defer jobRunner.StopExecutor()
 
-	jobResult := jobRunner.StartJob(jobInput)
+	jobResult := jobRunner.StartJob(t, jobInput)
 	return jobResult.WaitForSuccess()
 }
 
 // RunJobExpectingFailure is similar to RunJob but returns true when the task completes successfully.
-func RunJobExpectingFailure(jobInput *JobInput) bool {
+func RunJobExpectingFailure(t *testing.T, jobInput *JobInput) bool {
 	jobRunner := NewJobRunner(jobInput)
 	defer jobRunner.StopExecutor()
 
-	jobResult := jobRunner.StartJob(jobInput)
+	jobResult := jobRunner.StartJob(t, jobInput)
 	return jobResult.WaitForFailure()
 }
 
 // RunJob runs a single Titus task based on provided JobInput
-func RunJob(jobInput *JobInput) (string, error) {
+func RunJob(t *testing.T, jobInput *JobInput) (string, error) {
 	jobRunner := NewJobRunner(jobInput)
 	defer jobRunner.StopExecutor()
 
-	jobResult := jobRunner.StartJob(jobInput)
+	jobResult := jobRunner.StartJob(t, jobInput)
 	return jobResult.WaitForCompletion()
 }
