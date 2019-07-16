@@ -108,6 +108,20 @@ func describeWithHedge(ctx context.Context, ec2client *ec2.EC2, enis []*string) 
 	ctx, span := trace.StartSpan(ctx, "describeWithHedge")
 	defer span.End()
 
+	/*
+	 * We take this approach because we cannot rely entirely on retries. The number 2 comes from the fact that 500
+	 * microseconds is the median latency we see in prod, and ~1ish second is the 99%.
+	 *
+	 * Because the AWS client doesn't retry until it knows a network call has failed, and the calls don't fail
+	 * because the connection is still in progress, we have to hedge. It doesn't seem like the underlying connection
+	 * timeout is respected, because in Golang, the default round tripper has a timeout of 30 seconds.
+	 *
+	 * So, instead of waiting to retry, we start a second (or third) connection instead. Because the AWS client
+	 * uses HTTP/1.1, only one request can be on a connection at a time. This means, if the prior request
+	 * is still in progress, then the new request will end up on a different TCP connection. This means
+	 * that it will likely end up taking a different network path due to ECMP, and succeed where others
+	 * have failed.
+	 */
 	delays := []time.Duration{0, 2 * time.Second, 15 * time.Second}
 
 	describerOutputChan := make(chan *describerOutput, len(delays))
