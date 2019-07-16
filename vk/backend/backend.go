@@ -18,6 +18,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+var (
+	errContainerInfo = errors.New("Cannot find container info")
+)
+
 func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 	switch state {
 	case titusdriver.Starting:
@@ -40,7 +44,7 @@ func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.File, pod *v1.Pod) error {
 	containerInfoStr, ok := pod.GetAnnotations()["containerInfo"]
 	if !ok {
-		return errors.New("Cannot find container info")
+		return errContainerInfo
 	}
 	data, err := base64.StdEncoding.DecodeString(containerInfoStr)
 	if err != nil {
@@ -68,7 +72,7 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 
 	go func() {
 		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, os.Interrupt, unix.SIGUSR1, unix.SIGHUP, unix.SIGTERM)
+		signal.Notify(ch, os.Interrupt, unix.SIGUSR1, unix.SIGTERM)
 		select {
 		case sig := <-ch:
 			switch sig {

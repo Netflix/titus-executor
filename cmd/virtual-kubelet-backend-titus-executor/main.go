@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
+
+	"github.com/pkg/errors"
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
@@ -39,7 +40,7 @@ func main() {
 	}
 
 	app := cli.NewApp()
-	app.Name = "titus-executor"
+	app.Name = "virtual-kubelet-backend-titus-executor"
 	// avoid os.Exit as much as possible to let deferred functions run
 	defer time.Sleep(1 * time.Second)
 
@@ -70,9 +71,6 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	log.L = logruslogger.FromLogrus(logrus.NewEntry(logger))
 	ctx = log.WithLogger(ctx, log.L)
 
-	log.G(ctx).Debugf("Args: %v, %v", podFileName, statusPipe)
-	log.G(ctx).Debugf("os.Args[0]: %v", os.Args[0])
-
 	podFile, err := os.Open(podFileName)
 	if err != nil {
 		panic(err)
@@ -95,7 +93,7 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 
 	dockerRunner, err := runner.New(ctx, metrics.Discard, logUploaders, *cfg, *dockerCfg)
 	if err != nil {
-		return fmt.Errorf("cannot create Titus executor: %v", err)
+		return errors.Wrap(err, "cannot create Titus executor")
 	}
 
 	err = backend.RunWithBackend(ctx, dockerRunner, pipe, pod)
