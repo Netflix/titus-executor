@@ -3,18 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/Netflix/titus-executor/vk/backend"
 
+	"time"
+
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/sirupsen/logrus"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	logruslogger "github.com/virtual-kubelet/virtual-kubelet/log/logrus"
 	"gopkg.in/urfave/cli.v1"
-	"time"
 
 	"os"
 )
@@ -25,14 +27,14 @@ func main() {
 
 	var flags = []cli.Flag{
 		cli.StringFlag{
-			Name: "pod",
-			Destination:&podFileName,
-			Usage: "The location of the pod spec file (json-ish)",
+			Name:        "pod",
+			Destination: &podFileName,
+			Usage:       "The location of the pod spec file (json-ish)",
 		},
 		cli.StringFlag{
-			Name: "status",
-			Destination:&statusPipe,
-			Usage: "The location of the status pipe",
+			Name:        "status",
+			Destination: &statusPipe,
+			Usage:       "The location of the status pipe",
 		},
 	}
 
@@ -83,10 +85,10 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Got pod %v", pod)
 
 	pipe, err := os.OpenFile(statusPipe, os.O_RDWR, 0600)
-	defer pipe.Close()
 	if err != nil {
 		panic(err)
 	}
+	defer pipe.Close()
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Got pipe %v", statusPipe)
 
 	logUploaders := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{})

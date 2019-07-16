@@ -4,17 +4,18 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"os/signal"
+	"sync"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/executor/drivers"
+	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"golang.org/x/sys/unix"
-	"k8s.io/api/core/v1"
-	"os"
-	"os/signal"
-	"sync"
+	v1 "k8s.io/api/core/v1"
 )
 
 func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
