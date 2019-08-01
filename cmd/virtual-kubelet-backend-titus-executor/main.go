@@ -89,9 +89,16 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	defer pipe.Close()
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Got pipe %v", statusPipe)
 
-	logUploaders := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{})
+	m := metrics.Discard
 
-	dockerRunner, err := runner.New(ctx, metrics.Discard, logUploaders, *cfg, *dockerCfg)
+	log.G(ctx).WithField("pod", pod.Name).Debugf("Getting uploaders from %+v", cfg.S3Uploaders)
+	var logUploaders *uploader.Uploaders
+	if logUploaders, err = uploader.NewUploaders(cfg, m); err != nil {
+		return errors.Wrap(err, "cannot create log uploaders")
+	}
+	log.G(ctx).WithField("pod", pod.Name).Debugf("Got log uploaders %+v", logUploaders)
+
+	dockerRunner, err := runner.New(ctx, m, logUploaders, *cfg, *dockerCfg)
 	if err != nil {
 		return errors.Wrap(err, "cannot create Titus executor")
 	}
