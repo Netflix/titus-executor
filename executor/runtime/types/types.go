@@ -486,6 +486,17 @@ type NetworkConfigurationDetails struct {
 	ResourceID   string
 }
 
+func (n *NetworkConfigurationDetails) ToMap() map[string]string {
+	m := make(map[string]string)
+	m["IsRoutableIp"] = strconv.FormatBool(n.IsRoutableIP)
+	m["IpAddress"] = n.IPAddress
+	m["EniIpAddress"] = n.EniIPAddress
+	m["EniId"] = n.EniID
+	m["ResourceId"] = n.ResourceID
+
+	return m
+}
+
 // Details contains additional details about a container that are
 // not returned by normal container start calls.
 type Details struct {
