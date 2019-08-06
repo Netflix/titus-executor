@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -105,7 +106,14 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 			}
 			pod.Status.Reason = update.State.String()
 			pod.Status.Phase = state2phase(update.State)
-			log.G(ctx).WithField("update", update).WithField("status", pod.Status).Info("Processing update in backend")
+
+			if update.Details != nil && update.Details.NetworkConfiguration != nil {
+				for k, v := range update.Details.NetworkConfiguration.ToMap() {
+					pod.Annotations[k] = v
+				}
+			}
+
+			log.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)).Debugf("Updating pod in backend: %+v", pod)
 			err = encoder.Encode(pod)
 			lock.Unlock()
 
