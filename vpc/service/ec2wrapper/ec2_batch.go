@@ -90,7 +90,7 @@ func describer(ctx context.Context, ec2client *ec2.EC2, enis []*string, describe
 	describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &ec2.DescribeNetworkInterfacesInput{
 		NetworkInterfaceIds: enis,
 	})
-	err = handleEC2Error(err, span)
+	err = HandleEC2Error(err, span)
 
 	select {
 	case describerOutputChan <- &describerOutput{
@@ -318,7 +318,7 @@ func (b *BatchENIDescriber) DescribeNetworkInterfacesWithTimeout(ctx context.Con
 	}
 
 	if request.err != nil {
-		err := handleEC2Error(request.err, span)
+		err := HandleEC2Error(request.err, span)
 		return nil, err
 	}
 

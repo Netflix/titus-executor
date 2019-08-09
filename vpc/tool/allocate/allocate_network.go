@@ -15,7 +15,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"go.opencensus.io/trace"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -220,7 +219,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 			tmpLock.Unlock()
 		} else {
 			address := &vpcapi.UtilizedAddress{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: ip.String(),
 				},
 				LastUsedTime: &timestamp.Timestamp{

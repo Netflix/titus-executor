@@ -2,9 +2,13 @@ syntax = "proto3";
 package com.netflix.titus.executor.vpc;
 
 import "google/protobuf/timestamp.proto";
-import "netflix/titus/titus_vpc_api.proto";
+import "netflix/titus/titus_base.proto";
 
 option go_package = "vpcapi";
+
+message Address {
+    string address = 1;
+}
 
 // This is embedded in responses / replies so that a given IP Service Server may cache data from AWS. Since the client
 // is the only one ever going to make requests for that given ENI, it can take a lock on that ENI. If the cache version
@@ -116,4 +120,15 @@ service TitusAgentVPCService {
     rpc AssignIP (AssignIPRequest) returns (AssignIPResponse);
     // GC extra IPs
     rpc GC (GCRequest) returns (GCResponse);
+}
+
+message PrivateKey {
+    string hostname = 1;
+    google.protobuf.Timestamp generated = 2;
+    message Ed25519Key {
+        bytes rfc8032key = 1;
+    };
+    oneof key {
+        Ed25519Key ed25519Key = 3;
+    };
 }

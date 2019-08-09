@@ -8,6 +8,10 @@ import (
 	"net/url"
 	"testing"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/golang/protobuf/ptypes"
+	"golang.org/x/crypto/ed25519"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"gotest.tools/assert"
@@ -19,11 +23,23 @@ func TestService(t *testing.T) {
 	defer cancel()
 	listener, err := net.Listen("tcp", "localhost:0")
 	assert.NilError(t, err)
-	server := &Server{}
 	serverErrCh := make(chan error, 1)
+	_, privatekey, err := ed25519.GenerateKey(nil)
+	assert.NilError(t, err)
+
+	key := vpcapi.PrivateKey{
+		Hostname:  "",
+		Generated: ptypes.TimestampNow(),
+		Key: &vpcapi.PrivateKey_Ed25519Key_{
+			Ed25519Key: &vpcapi.PrivateKey_Ed25519Key{
+				Rfc8032Key: privatekey.Seed(),
+			},
+		},
+	}
+
 	go func() {
 		defer close(serverErrCh)
-		serverErr := server.Run(ctx, listener)
+		serverErr := Run(ctx, listener, nil, key)
 		if serverErr != nil && serverErr != context.Canceled {
 			serverErrCh <- serverErr
 		}

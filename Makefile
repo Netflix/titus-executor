@@ -121,8 +121,8 @@ push-titus-agent: titus-agent
 ## Protobuf and source code generation
 
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
-PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto
-PROTO_MAP     := Mnetflix/titus/titus_vpc_api.proto=github.com/Netflix/titus-executor/api/netflix/titus
+PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
+PROTO_MAP     := Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
 protogen: $(GOBIN_TOOL) | $(clean) $(clean-proto-defs)
 	mkdir -p api

@@ -268,3 +268,50 @@ message ContainerHealthProvider {
     /// (Optional) Attributes to be used by the provider.
     map<string, string> attributes = 3;
 }
+
+/// The location within the VPC where the address exists.
+message AddressLocation {
+
+    /// (Required) Region the address exists in.
+    string region = 1;
+
+    /// (Required) Availability zone the address exists in.
+    string availabilityZone = 2;
+
+    /// (Required) Subnet the address exists in.
+    string subnetId = 3;
+}
+
+/// An IP address allocation from the Titus VPC service.
+message AddressAllocation {
+
+    /// (Required) The location of the address within the VPC.
+    AddressLocation addressLocation = 1;
+
+    /// (Required) A valid UUID4. It should be set during VPC service allocation, if unset, one will be set for you.
+    string uuid = 2;
+
+    /// (Required) The VPC IP address. The address must be unset when requesting an allocation from the VPC service.
+    string address = 3;
+};
+
+/// An IP address allocation signed by the Titus VPC service.
+message SignedAddressAllocation {
+
+    /// (Required) The IP address and metadata that was allocated.
+    AddressAllocation addressAllocation = 1;
+
+    // This is an x509v3 signed version of the address allocation.
+    bytes signedAddressAllocation = 2 [deprecated = true];
+
+    // authoritative publicKey is the key that came from the database
+    bytes authoritativePublicKey = 3;
+    // the hostPublicKey is the ephemeral public key
+    bytes hostPublicKey = 4;
+    // hostPublicKeySignature is the signature of the authoratative key signing the hostPublicKey
+    bytes hostPublicKeySignature = 5;
+    // serialized version of the addressAllocation message
+    bytes message = 6;
+    // the resultant signature
+    bytes messageSignature = 7;
+};

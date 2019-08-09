@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func handleEC2Error(err error, span *trace.Span) error {
+func HandleEC2Error(err error, span *trace.Span) error {
 	if err == nil {
 		span.SetStatus(trace.Status{
 			Code: trace.StatusCodeOK,

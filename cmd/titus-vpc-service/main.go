@@ -10,6 +10,10 @@ import (
 	"os/signal"
 	"time"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/db"
+	"github.com/golang/protobuf/jsonpb"
+
 	"contrib.go.opencensus.io/exporter/zipkin"
 	datadog "github.com/Datadog/opencensus-go-exporter-datadog"
 	"github.com/Netflix/titus-executor/logger"
@@ -65,7 +69,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ctx = logger.WithLogger(ctx, logrus.StandardLogger())
+	logrusLogger := logrus.StandardLogger()
+	ctx = logger.WithLogger(ctx, logrusLogger)
 
 	v := pkgviper.New()
 
@@ -75,6 +80,7 @@ func main() {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if v.GetBool("debug") {
 				logrus.SetLevel(logrus.DebugLevel)
+				logrusLogger.SetLevel(logrus.DebugLevel)
 			}
 			if v.GetBool("journald") {
 				logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
@@ -101,6 +107,21 @@ func main() {
 			if err := v.BindPFlags(cmd.Flags()); err != nil {
 				return err
 			}
+
+			conn, err := newConnection(ctx, v)
+			if err != nil {
+				return err
+			}
+
+			needsMigration, err := db.NeedsMigration(ctx, conn)
+			if err != nil {
+				return err
+			}
+
+			if needsMigration {
+				logger.G(ctx).Fatal("Cannot startup, need to run database migrations")
+			}
+
 			go func() {
 				c := make(chan os.Signal, 1)
 				signal.Notify(c, unix.SIGTERM, unix.SIGINT)
@@ -111,8 +132,6 @@ func main() {
 				logrus.Fatal("System did not gracefully terminate")
 				_ = unix.Kill(0, unix.SIGKILL)
 			}()
-
-			svc := service.Server{}
 
 			listener, err := net.Listen("tcp", v.GetString("address"))
 			if err != nil {
@@ -139,7 +158,19 @@ func main() {
 				trace.RegisterExporter(zipkin.NewExporter(reporter, endpoint))
 			}
 
-			return svc.Run(ctx, listener)
+			var signingKey vpcapi.PrivateKey
+			signingKeyFile, err := os.Open(v.GetString("signingkey"))
+			if err != nil {
+				return errors.Wrap(err, "Failed to open signing key file")
+			}
+
+			err = jsonpb.Unmarshal(signingKeyFile, &signingKey)
+			if err != nil {
+				return errors.Wrap(err, "Could not deserialize key")
+			}
+			signingKeyFile.Close()
+
+			return service.Run(ctx, listener, conn, signingKey)
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
@@ -149,11 +180,19 @@ func main() {
 	}
 
 	rootCmd.Flags().String("address", ":7001", "Listening address")
+	rootCmd.Flags().String("signingkey", "", "The (file) location of the root signing key")
 	rootCmd.PersistentFlags().String("debug-address", ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
 	rootCmd.PersistentFlags().String(zipkinURLFlagName, "", "URL To send Zipkin spans to")
+	rootCmd.PersistentFlags().String("dburl", "postgres://localhost/titusvpcservice?sslmode=disable", "Connection String for database")
+	rootCmd.PersistentFlags().Bool("dbiam", false, "Generate IAM credentials for database")
+	rootCmd.PersistentFlags().String("region", "", "Region of the database")
+
+	rootCmd.AddCommand(migrateCommand(ctx, v))
+	rootCmd.AddCommand(generateKeyCommand(ctx, v))
+
 	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
 		logger.G(ctx).WithError(err).Fatal("Unable to configure Viper")
 	}

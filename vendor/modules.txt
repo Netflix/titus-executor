@@ -6,56 +6,58 @@ github.com/BurntSushi/toml
 github.com/DataDog/datadog-go/statsd
 # github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
 github.com/Datadog/opencensus-go-exporter-datadog
-# github.com/Microsoft/go-winio v0.3.8
+# github.com/Microsoft/go-winio v0.4.11
 github.com/Microsoft/go-winio
 # github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 github.com/Netflix/metrics-client-go/metrics
-# github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190606060929-13ed82af01c2
+# github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190821104755-2eaaac3afbd0
 github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
 # github.com/OpenPeeDeeP/depguard v0.0.0-20180806142446-a69c782687b2
 github.com/OpenPeeDeeP/depguard
 # github.com/apparentlymart/go-cidr v1.0.0
 github.com/apparentlymart/go-cidr/cidr
-# github.com/aws/aws-sdk-go v1.19.15
+# github.com/aws/aws-sdk-go v1.20.21
+github.com/aws/aws-sdk-go/aws/defaults
+github.com/aws/aws-sdk-go/aws/ec2metadata
+github.com/aws/aws-sdk-go/aws/session
+github.com/aws/aws-sdk-go/service/rds/rdsutils
 github.com/aws/aws-sdk-go/service/ec2
 github.com/aws/aws-sdk-go/aws/arn
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/awserr
-github.com/aws/aws-sdk-go/aws/session
 github.com/aws/aws-sdk-go/service/sts
-github.com/aws/aws-sdk-go/aws/ec2metadata
 github.com/aws/aws-sdk-go/service/s3
 github.com/aws/aws-sdk-go/service/s3/s3manager
+github.com/aws/aws-sdk-go/aws/credentials/stscreds
+github.com/aws/aws-sdk-go/aws/request
 github.com/aws/aws-sdk-go/aws/endpoints
-github.com/aws/aws-sdk-go/aws/awsutil
+github.com/aws/aws-sdk-go/aws/corehandlers
+github.com/aws/aws-sdk-go/aws/credentials
+github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds
+github.com/aws/aws-sdk-go/aws/credentials/endpointcreds
+github.com/aws/aws-sdk-go/internal/shareddefaults
 github.com/aws/aws-sdk-go/aws/client
 github.com/aws/aws-sdk-go/aws/client/metadata
-github.com/aws/aws-sdk-go/aws/request
+github.com/aws/aws-sdk-go/internal/sdkuri
+github.com/aws/aws-sdk-go/aws/credentials/processcreds
+github.com/aws/aws-sdk-go/aws/csm
+github.com/aws/aws-sdk-go/internal/ini
 github.com/aws/aws-sdk-go/aws/signer/v4
+github.com/aws/aws-sdk-go/aws/awsutil
 github.com/aws/aws-sdk-go/internal/sdkrand
 github.com/aws/aws-sdk-go/private/protocol
 github.com/aws/aws-sdk-go/private/protocol/ec2query
-github.com/aws/aws-sdk-go/aws/credentials
 github.com/aws/aws-sdk-go/internal/sdkio
-github.com/aws/aws-sdk-go/aws/corehandlers
-github.com/aws/aws-sdk-go/aws/credentials/processcreds
-github.com/aws/aws-sdk-go/aws/credentials/stscreds
-github.com/aws/aws-sdk-go/aws/csm
-github.com/aws/aws-sdk-go/aws/defaults
-github.com/aws/aws-sdk-go/internal/ini
-github.com/aws/aws-sdk-go/internal/shareddefaults
 github.com/aws/aws-sdk-go/private/protocol/query
-github.com/aws/aws-sdk-go/internal/sdkuri
 github.com/aws/aws-sdk-go/internal/s3err
 github.com/aws/aws-sdk-go/private/protocol/eventstream
 github.com/aws/aws-sdk-go/private/protocol/eventstream/eventstreamapi
 github.com/aws/aws-sdk-go/private/protocol/rest
 github.com/aws/aws-sdk-go/private/protocol/restxml
-github.com/aws/aws-sdk-go/service/s3/s3iface
-github.com/aws/aws-sdk-go/private/protocol/query/queryutil
 github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil
-github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds
-github.com/aws/aws-sdk-go/aws/credentials/endpointcreds
+github.com/aws/aws-sdk-go/service/s3/s3iface
+github.com/aws/aws-sdk-go/private/protocol/json/jsonutil
+github.com/aws/aws-sdk-go/private/protocol/query/queryutil
 # github.com/coreos/go-systemd v0.0.0-20170731111925-d21964639418
 github.com/coreos/go-systemd/daemon
 github.com/coreos/go-systemd/dbus
@@ -66,10 +68,10 @@ github.com/cyphar/filepath-securejoin
 github.com/davecgh/go-spew/spew
 # github.com/deckarep/golang-set v1.7.1
 github.com/deckarep/golang-set
-# github.com/docker/distribution v0.0.0-20170303212246-08b06dc02367
+# github.com/docker/distribution v2.7.0+incompatible
 github.com/docker/distribution/reference
 github.com/docker/distribution/digestset
-# github.com/docker/docker v0.0.0-00010101000000-000000000000 => github.com/docker/engine v0.0.0-20190408150954-50ebe4562dfc
+# github.com/docker/docker v0.7.3-0.20190108045446-77df18c24acf => github.com/docker/engine v0.0.0-20190408150954-50ebe4562dfc
 github.com/docker/docker/api/types
 github.com/docker/docker/api/types/container
 github.com/docker/docker/api/types/events
@@ -92,7 +94,7 @@ github.com/docker/docker/api/types/swarm/runtime
 github.com/docker/go-connections/nat
 github.com/docker/go-connections/sockets
 github.com/docker/go-connections/tlsconfig
-# github.com/docker/go-units v0.3.0
+# github.com/docker/go-units v0.3.3
 github.com/docker/go-units
 # github.com/fatih/color v1.6.0
 github.com/fatih/color
@@ -133,6 +135,13 @@ github.com/gobwas/glob/util/strings
 github.com/godbus/dbus
 # github.com/gogo/protobuf v1.2.1
 github.com/gogo/protobuf/proto
+github.com/gogo/protobuf/sortkeys
+# github.com/golang-migrate/migrate v3.5.4+incompatible
+github.com/golang-migrate/migrate
+github.com/golang-migrate/migrate/database/postgres
+github.com/golang-migrate/migrate/source/go_bindata
+github.com/golang-migrate/migrate/database
+github.com/golang-migrate/migrate/source
 # github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 github.com/golang/glog
 # github.com/golang/mock v1.3.1
@@ -142,14 +151,15 @@ github.com/golang/protobuf/proto
 github.com/golang/protobuf/ptypes/any
 github.com/golang/protobuf/ptypes/empty
 github.com/golang/protobuf/ptypes/timestamp
-github.com/golang/protobuf/protoc-gen-go
-github.com/golang/protobuf/ptypes
+github.com/golang/protobuf/ptypes/wrappers
 github.com/golang/protobuf/jsonpb
+github.com/golang/protobuf/ptypes
+github.com/golang/protobuf/protoc-gen-go
+github.com/golang/protobuf/ptypes/struct
+github.com/golang/protobuf/ptypes/duration
 github.com/golang/protobuf/protoc-gen-go/generator
 github.com/golang/protobuf/protoc-gen-go/grpc
-github.com/golang/protobuf/ptypes/duration
 github.com/golang/protobuf/protoc-gen-go/descriptor
-github.com/golang/protobuf/ptypes/struct
 github.com/golang/protobuf/protoc-gen-go/generator/internal/remap
 github.com/golang/protobuf/protoc-gen-go/plugin
 # github.com/golangci/check v0.0.0-20180506172741-cfe4005ccda2
@@ -240,9 +250,9 @@ github.com/google/go-cmp/cmp/internal/diff
 github.com/google/go-cmp/cmp/internal/flags
 github.com/google/go-cmp/cmp/internal/function
 github.com/google/go-cmp/cmp/internal/value
-# github.com/gorilla/context v1.1.1
-github.com/gorilla/context
-# github.com/gorilla/mux v1.6.2
+# github.com/google/gofuzz v1.0.0
+github.com/google/gofuzz
+# github.com/gorilla/mux v1.7.1
 github.com/gorilla/mux
 # github.com/gostaticanalysis/analysisutil v0.0.0-20190318220348-4088753ea4d3
 github.com/gostaticanalysis/analysisutil
@@ -255,7 +265,7 @@ github.com/grpc-ecosystem/go-grpc-middleware/logging
 github.com/grpc-ecosystem/go-grpc-middleware/tags/logrus
 # github.com/hashicorp/errwrap v1.0.0
 github.com/hashicorp/errwrap
-# github.com/hashicorp/go-multierror v0.0.0-20171204182908-b7773ae21874
+# github.com/hashicorp/go-multierror v1.0.0
 github.com/hashicorp/go-multierror
 # github.com/hashicorp/golang-lru v0.5.1
 github.com/hashicorp/golang-lru
@@ -287,6 +297,10 @@ github.com/konsorten/go-windows-terminal-sequences
 github.com/leanovate/gopter
 github.com/leanovate/gopter/gen
 github.com/leanovate/gopter/prop
+# github.com/lib/pq v1.2.0
+github.com/lib/pq
+github.com/lib/pq/oid
+github.com/lib/pq/scram
 # github.com/magiconair/properties v1.7.6
 github.com/magiconair/properties
 # github.com/mattn/go-colorable v0.0.9
@@ -302,7 +316,7 @@ github.com/mesos/mesos-go/messenger
 github.com/mesos/mesos-go/messenger/sessionid
 github.com/mesos/mesos-go/upid
 github.com/mesos/mesos-go/mesosproto/scheduler
-# github.com/mitchellh/go-homedir v1.0.0
+# github.com/mitchellh/go-homedir v1.1.0
 github.com/mitchellh/go-homedir
 # github.com/mitchellh/mapstructure v0.0.0-20180220230111-00c29f56e238
 github.com/mitchellh/mapstructure
@@ -318,9 +332,9 @@ github.com/nbutton23/zxcvbn-go/adjacency
 github.com/nbutton23/zxcvbn-go/entropy
 github.com/nbutton23/zxcvbn-go/frequency
 github.com/nbutton23/zxcvbn-go/data
-# github.com/opencontainers/go-digest v1.0.0-rc0
+# github.com/opencontainers/go-digest v1.0.0-rc1
 github.com/opencontainers/go-digest
-# github.com/opencontainers/image-spec v0.0.0-20190321123305-da296dcb1e47
+# github.com/opencontainers/image-spec v1.0.1
 github.com/opencontainers/image-spec/specs-go/v1
 github.com/opencontainers/image-spec/specs-go
 # github.com/opencontainers/runc v0.0.0-20180125150909-c4e4bb0df2fc
@@ -365,7 +379,7 @@ github.com/spf13/cast
 github.com/spf13/cobra
 # github.com/spf13/jwalterweatherman v0.0.0-20180109140146-7c0cea34c8ec
 github.com/spf13/jwalterweatherman
-# github.com/spf13/pflag v1.0.1
+# github.com/spf13/pflag v1.0.3
 github.com/spf13/pflag
 # github.com/spf13/viper v1.0.2
 github.com/spf13/viper
@@ -376,6 +390,9 @@ github.com/stretchr/testify/require
 github.com/timakin/bodyclose/passes/bodyclose
 # github.com/tinylib/msgp v1.1.0
 github.com/tinylib/msgp/msgp
+# github.com/virtual-kubelet/virtual-kubelet v1.0.0
+github.com/virtual-kubelet/virtual-kubelet/log
+github.com/virtual-kubelet/virtual-kubelet/log/logrus
 # github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6
 github.com/vishvananda/netlink
 github.com/vishvananda/netlink/nl
@@ -401,9 +418,12 @@ go.opencensus.io/zpages/internal
 go.opencensus.io/trace/propagation
 go.opencensus.io/resource
 go.opencensus.io
-# golang.org/x/net v0.0.0-20190607181551-461777fb6f67
-golang.org/x/net/context
+# golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
+golang.org/x/crypto/ed25519
+golang.org/x/crypto/ed25519/internal/edwards25519
+# golang.org/x/net v0.0.0-20190613194153-d28f0bde5980
 golang.org/x/net/trace
+golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
@@ -414,7 +434,7 @@ golang.org/x/net/idna
 golang.org/x/net/internal/socks
 # golang.org/x/sync v0.0.0-20190423024810-112230192c58
 golang.org/x/sync/errgroup
-# golang.org/x/sys v0.0.0-20190610200419-93c9922d18ae
+# golang.org/x/sys v0.0.0-20190616124812-15dcb6c0061f
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 # golang.org/x/text v0.3.2
@@ -423,8 +443,6 @@ golang.org/x/text/unicode/norm
 golang.org/x/text/secure/bidirule
 golang.org/x/text/unicode/bidi
 golang.org/x/text/width
-# golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
-golang.org/x/time/rate
 # golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
 golang.org/x/tools/cmd/goimports
 golang.org/x/tools/internal/imports
@@ -480,6 +498,7 @@ google.golang.org/genproto/googleapis/rpc/status
 google.golang.org/grpc
 google.golang.org/grpc/keepalive
 google.golang.org/grpc/codes
+google.golang.org/grpc/health/grpc_health_v1
 google.golang.org/grpc/reflection
 google.golang.org/grpc/status
 google.golang.org/grpc/balancer
@@ -515,6 +534,8 @@ google.golang.org/grpc/internal/syscall
 gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext
 # gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 gopkg.in/alessio/shellescape.v1
+# gopkg.in/inf.v0 v0.9.1
+gopkg.in/inf.v0
 # gopkg.in/urfave/cli.v1 v1.20.0
 gopkg.in/urfave/cli.v1
 gopkg.in/urfave/cli.v1/altsrc
@@ -526,6 +547,32 @@ gotest.tools/assert/cmp
 gotest.tools/internal/format
 gotest.tools/internal/source
 gotest.tools/internal/difflib
+# k8s.io/api v0.0.0-20190222213804-5cb15d344471
+k8s.io/api/core/v1
+# k8s.io/apimachinery v0.0.0-20190221213512-86fb29eff628
+k8s.io/apimachinery/pkg/api/resource
+k8s.io/apimachinery/pkg/apis/meta/v1
+k8s.io/apimachinery/pkg/runtime
+k8s.io/apimachinery/pkg/runtime/schema
+k8s.io/apimachinery/pkg/types
+k8s.io/apimachinery/pkg/util/intstr
+k8s.io/apimachinery/pkg/conversion
+k8s.io/apimachinery/pkg/fields
+k8s.io/apimachinery/pkg/labels
+k8s.io/apimachinery/pkg/selection
+k8s.io/apimachinery/pkg/util/runtime
+k8s.io/apimachinery/pkg/watch
+k8s.io/apimachinery/pkg/conversion/queryparams
+k8s.io/apimachinery/pkg/util/errors
+k8s.io/apimachinery/pkg/util/json
+k8s.io/apimachinery/pkg/util/naming
+k8s.io/apimachinery/pkg/util/sets
+k8s.io/apimachinery/third_party/forked/golang/reflect
+k8s.io/apimachinery/pkg/util/validation
+k8s.io/apimachinery/pkg/util/net
+k8s.io/apimachinery/pkg/util/validation/field
+# k8s.io/klog v0.1.0
+k8s.io/klog
 # mvdan.cc/interfacer v0.0.0-20180901003855-c20040233aed
 mvdan.cc/interfacer/check
 # mvdan.cc/lint v0.0.0-20170908181259-adc824a0674b

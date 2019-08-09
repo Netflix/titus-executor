@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -306,14 +305,14 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 	logger.G(ctx).Info("gc interface result")
 
 	for addrInterface := range addressesToDeleteSet.Iter() {
-		addr := titus.Address{
+		addr := vpcapi.Address{
 			Address: addrInterface.(string),
 		}
 		resp.AddressToDelete = append(resp.AddressToDelete, &addr)
 	}
 
 	for addrInterface := range addressesToBumpSet.Iter() {
-		addr := &titus.Address{
+		addr := &vpcapi.Address{
 			Address: addrInterface.(string),
 		}
 		resp.AddressToBump = append(resp.AddressToBump, addr)

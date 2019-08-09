@@ -114,6 +114,7 @@ var (
 	procCreateProcessW                     = modkernel32.NewProc("CreateProcessW")
 	procOpenProcess                        = modkernel32.NewProc("OpenProcess")
 	procShellExecuteW                      = modshell32.NewProc("ShellExecuteW")
+	procSHGetKnownFolderPath               = modshell32.NewProc("SHGetKnownFolderPath")
 	procTerminateProcess                   = modkernel32.NewProc("TerminateProcess")
 	procGetExitCodeProcess                 = modkernel32.NewProc("GetExitCodeProcess")
 	procGetStartupInfoW                    = modkernel32.NewProc("GetStartupInfoW")
@@ -205,6 +206,8 @@ var (
 	procGetPriorityClass                   = modkernel32.NewProc("GetPriorityClass")
 	procSetInformationJobObject            = modkernel32.NewProc("SetInformationJobObject")
 	procGenerateConsoleCtrlEvent           = modkernel32.NewProc("GenerateConsoleCtrlEvent")
+	procGetProcessId                       = modkernel32.NewProc("GetProcessId")
+	procOpenThread                         = modkernel32.NewProc("OpenThread")
 	procDefineDosDeviceW                   = modkernel32.NewProc("DefineDosDeviceW")
 	procDeleteVolumeMountPointW            = modkernel32.NewProc("DeleteVolumeMountPointW")
 	procFindFirstVolumeW                   = modkernel32.NewProc("FindFirstVolumeW")
@@ -228,6 +231,7 @@ var (
 	procCLSIDFromString                    = modole32.NewProc("CLSIDFromString")
 	procStringFromGUID2                    = modole32.NewProc("StringFromGUID2")
 	procCoCreateGuid                       = modole32.NewProc("CoCreateGuid")
+	procCoTaskMemFree                      = modole32.NewProc("CoTaskMemFree")
 	procWSAStartup                         = modws2_32.NewProc("WSAStartup")
 	procWSACleanup                         = modws2_32.NewProc("WSACleanup")
 	procWSAIoctl                           = modws2_32.NewProc("WSAIoctl")
@@ -1084,14 +1088,14 @@ func CreateProcess(appName *uint16, commandLine *uint16, procSecurity *SecurityA
 	return
 }
 
-func OpenProcess(da uint32, inheritHandle bool, pid uint32) (handle Handle, err error) {
+func OpenProcess(desiredAccess uint32, inheritHandle bool, processId uint32) (handle Handle, err error) {
 	var _p0 uint32
 	if inheritHandle {
 		_p0 = 1
 	} else {
 		_p0 = 0
 	}
-	r0, _, e1 := syscall.Syscall(procOpenProcess.Addr(), 3, uintptr(da), uintptr(_p0), uintptr(pid))
+	r0, _, e1 := syscall.Syscall(procOpenProcess.Addr(), 3, uintptr(desiredAccess), uintptr(_p0), uintptr(processId))
 	handle = Handle(r0)
 	if handle == 0 {
 		if e1 != 0 {
@@ -1111,6 +1115,14 @@ func ShellExecute(hwnd Handle, verb *uint16, file *uint16, args *uint16, cwd *ui
 		} else {
 			err = syscall.EINVAL
 		}
+	}
+	return
+}
+
+func shGetKnownFolderPath(id *KNOWNFOLDERID, flags uint32, token Token, path **uint16) (ret error) {
+	r0, _, _ := syscall.Syscall6(procSHGetKnownFolderPath.Addr(), 4, uintptr(unsafe.Pointer(id)), uintptr(flags), uintptr(token), uintptr(unsafe.Pointer(path)), 0, 0)
+	if r0 != 0 {
+		ret = syscall.Errno(r0)
 	}
 	return
 }
@@ -2209,6 +2221,38 @@ func GenerateConsoleCtrlEvent(ctrlEvent uint32, processGroupID uint32) (err erro
 	return
 }
 
+func GetProcessId(process Handle) (id uint32, err error) {
+	r0, _, e1 := syscall.Syscall(procGetProcessId.Addr(), 1, uintptr(process), 0, 0)
+	id = uint32(r0)
+	if id == 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+func OpenThread(desiredAccess uint32, inheritHandle bool, threadId uint32) (handle Handle, err error) {
+	var _p0 uint32
+	if inheritHandle {
+		_p0 = 1
+	} else {
+		_p0 = 0
+	}
+	r0, _, e1 := syscall.Syscall(procOpenThread.Addr(), 3, uintptr(desiredAccess), uintptr(_p0), uintptr(threadId))
+	handle = Handle(r0)
+	if handle == 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
 func DefineDosDevice(flags uint32, deviceName *uint16, targetPath *uint16) (err error) {
 	r1, _, e1 := syscall.Syscall(procDefineDosDeviceW.Addr(), 3, uintptr(flags), uintptr(unsafe.Pointer(deviceName)), uintptr(unsafe.Pointer(targetPath)))
 	if r1 == 0 {
@@ -2468,6 +2512,11 @@ func coCreateGuid(pguid *GUID) (ret error) {
 	if r0 != 0 {
 		ret = syscall.Errno(r0)
 	}
+	return
+}
+
+func coTaskMemFree(address unsafe.Pointer) {
+	syscall.Syscall(procCoTaskMemFree.Addr(), 1, uintptr(address), 0, 0)
 	return
 }
 

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -79,31 +78,31 @@ func TestIPsToFree(t *testing.T) {
 		NetworkInterfaceAttachment: nil,
 		UnallocatedAddresses: []*vpcapi.UtilizedAddress{
 			{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "10.0.0.1",
 				},
 				LastUsedTime: fiveMinutesAgo,
 			},
 			{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "192.168.1.0",
 				},
 				LastUsedTime: fiveMinutesAgo,
 			},
 			{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "192.168.1.10",
 				},
 				LastUsedTime: fiveMinutesAgo,
 			},
 			{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "192.168.1.86",
 				},
 				LastUsedTime: fiveMinutesAgo,
 			},
 			{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "192.168.1.55",
 				},
 				LastUsedTime: now,
@@ -113,13 +112,13 @@ func TestIPsToFree(t *testing.T) {
 		AllocatedAddresses: []*vpcapi.UtilizedAddress{
 			// This shouldn't be deleted, because it was just added
 			{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "192.168.1.0",
 				},
 				LastUsedTime: now,
 			},
 			{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "192.168.1.5",
 				},
 				LastUsedTime: now,
@@ -127,7 +126,7 @@ func TestIPsToFree(t *testing.T) {
 			{
 				// Should not be freed, even though it's not attached to the ENI. The reason is that the ENI state
 				// could be cached.
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "192.168.1.111",
 				},
 				LastUsedTime: now,
@@ -170,7 +169,7 @@ func TestIPsToFree(t *testing.T) {
 		return resp.AddressToBump[i].Address < resp.AddressToBump[j].Address
 	})
 
-	addressesToBump := []*titus.Address{
+	addressesToBump := []*vpcapi.Address{
 		{
 			// Bumped, because assigned to the interface, but not in the unallocated, nor allocated list
 			Address: "192.168.1.1",
@@ -182,7 +181,7 @@ func TestIPsToFree(t *testing.T) {
 	}
 	assert.DeepEqual(t, addressesToBump, resp.AddressToBump)
 
-	addressesToDelete := []*titus.Address{
+	addressesToDelete := []*vpcapi.Address{
 		{
 			// Deleted because never part of interface configuration
 			Address: "10.0.0.1",
