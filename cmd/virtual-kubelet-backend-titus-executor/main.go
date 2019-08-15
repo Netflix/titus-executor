@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"github.com/Netflix/titus-executor/tag"
+
 	"github.com/pkg/errors"
 
 	"github.com/Netflix/metrics-client-go/metrics"
@@ -89,7 +91,10 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	defer pipe.Close()
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Got pipe %v", statusPipe)
 
-	m := metrics.Discard
+	log.G(ctx).WithField("pod", pod.Name).Debug("Starting metrics reporting...")
+	m := metrics.New(ctx, logrus.StandardLogger(), tag.Defaults)
+	m = runner.NewReporter(m)
+	defer m.Flush()
 
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Getting uploaders from %+v", cfg.S3Uploaders)
 	var logUploaders *uploader.Uploaders
