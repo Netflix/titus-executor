@@ -6,7 +6,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -208,13 +207,13 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		prefixlength, _ := ipnet.Mask.Size()
 		for addr := range assignedIPv4addresses.Iter() {
 			response.UsableAddresses = append(response.UsableAddresses, &vpcapi.UsableAddress{
-				Address:      &titus.Address{Address: addr.(string)},
+				Address:      &vpcapi.Address{Address: addr.(string)},
 				PrefixLength: uint32(prefixlength),
 			})
 		}
 		for addr := range assignedIPv6addresses.Iter() {
 			response.UsableAddresses = append(response.UsableAddresses, &vpcapi.UsableAddress{
-				Address: &titus.Address{Address: addr.(string)},
+				Address: &vpcapi.Address{Address: addr.(string)},
 				// AWS only assigns /128s?
 				// This might be a problem for intra-subnet communication? Maybe?
 				PrefixLength: uint32(128),

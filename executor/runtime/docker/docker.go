@@ -986,7 +986,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		// Don't call out to network driver for local development
 		c.Allocation = vpcTypes.Allocation{
 			IPV4Address: &vpcapi.UsableAddress{
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "1.2.3.4",
 				},
 				PrefixLength: 32,

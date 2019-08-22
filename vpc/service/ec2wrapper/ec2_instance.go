@@ -76,8 +76,10 @@ func (s *ec2InstanceSession) GetInterfaceByIdx(ctx context.Context, deviceIdx ui
 
 func (s *ec2InstanceSession) GetSessionFromNetworkInterface(ctx context.Context, instanceNetworkInterface *ec2.InstanceNetworkInterface) (EC2NetworkInterfaceSession, error) {
 	return &ec2NetworkInterfaceSession{
-		ec2BaseSession:           s.ec2BaseSession,
-		instanceNetworkInterface: instanceNetworkInterface,
+		ec2BaseSession: s.ec2BaseSession,
+		networkInterface: &instanceNetworkInterfaceWrapper{
+			instanceNetworkInterface: instanceNetworkInterface,
+		},
 	}, nil
 }
 
@@ -120,7 +122,7 @@ func (s *ec2InstanceSession) GetInstance(ctx context.Context, strategy CacheStra
 
 	if err != nil {
 		logger.G(ctx).WithError(err).WithField("ec2InstanceId", s.instanceIdentity.GetInstanceID()).Error("Could not get EC2 Instance")
-		return nil, handleEC2Error(err, span)
+		return nil, HandleEC2Error(err, span)
 	}
 
 	if describeInstancesOutput.Reservations == nil || len(describeInstancesOutput.Reservations) == 0 {

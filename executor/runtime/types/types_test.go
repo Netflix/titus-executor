@@ -119,7 +119,7 @@ func TestEc2HostnameStyle(t *testing.T) {
 		Allocation: vpcTypes.Allocation{
 			IPV4Address: &vpcapi.UsableAddress{
 				PrefixLength: 32,
-				Address: &titus.Address{
+				Address: &vpcapi.Address{
 					Address: "1.2.3.4"},
 			},
 		},

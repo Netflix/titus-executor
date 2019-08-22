@@ -3,14 +3,13 @@
 
 package titus
 
-import proto "github.com/golang/protobuf/proto"
-import fmt "fmt"
-import math "math"
-import _ "github.com/golang/protobuf/ptypes/timestamp"
-
 import (
-	context "golang.org/x/net/context"
+	context "context"
+	fmt "fmt"
+	proto "github.com/golang/protobuf/proto"
+	_ "github.com/golang/protobuf/ptypes/timestamp"
 	grpc "google.golang.org/grpc"
+	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -22,7 +21,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type Family int32
 
@@ -38,6 +37,7 @@ var Family_name = map[int32]string{
 	1: "FAMILY_V4",
 	2: "FAMILY_V6",
 }
+
 var Family_value = map[string]int32{
 	"FAMILY_DEFAULT": 0,
 	"FAMILY_V4":      1,
@@ -47,208 +47,15 @@ var Family_value = map[string]int32{
 func (x Family) String() string {
 	return proto.EnumName(Family_name, int32(x))
 }
+
 func (Family) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{0}
-}
-
-type Address struct {
-	Address              string   `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *Address) Reset()         { *m = Address{} }
-func (m *Address) String() string { return proto.CompactTextString(m) }
-func (*Address) ProtoMessage()    {}
-func (*Address) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{0}
-}
-func (m *Address) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Address.Unmarshal(m, b)
-}
-func (m *Address) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Address.Marshal(b, m, deterministic)
-}
-func (dst *Address) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Address.Merge(dst, src)
-}
-func (m *Address) XXX_Size() int {
-	return xxx_messageInfo_Address.Size(m)
-}
-func (m *Address) XXX_DiscardUnknown() {
-	xxx_messageInfo_Address.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Address proto.InternalMessageInfo
-
-func (m *Address) GetAddress() string {
-	if m != nil {
-		return m.Address
-	}
-	return ""
-}
-
-type AddressLocation struct {
-	Region               string   `protobuf:"bytes,1,opt,name=region,proto3" json:"region,omitempty"`
-	AvailabilityZone     string   `protobuf:"bytes,2,opt,name=availabilityZone,proto3" json:"availabilityZone,omitempty"`
-	SubnetId             string   `protobuf:"bytes,3,opt,name=subnetId,proto3" json:"subnetId,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *AddressLocation) Reset()         { *m = AddressLocation{} }
-func (m *AddressLocation) String() string { return proto.CompactTextString(m) }
-func (*AddressLocation) ProtoMessage()    {}
-func (*AddressLocation) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{1}
-}
-func (m *AddressLocation) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_AddressLocation.Unmarshal(m, b)
-}
-func (m *AddressLocation) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_AddressLocation.Marshal(b, m, deterministic)
-}
-func (dst *AddressLocation) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AddressLocation.Merge(dst, src)
-}
-func (m *AddressLocation) XXX_Size() int {
-	return xxx_messageInfo_AddressLocation.Size(m)
-}
-func (m *AddressLocation) XXX_DiscardUnknown() {
-	xxx_messageInfo_AddressLocation.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_AddressLocation proto.InternalMessageInfo
-
-func (m *AddressLocation) GetRegion() string {
-	if m != nil {
-		return m.Region
-	}
-	return ""
-}
-
-func (m *AddressLocation) GetAvailabilityZone() string {
-	if m != nil {
-		return m.AvailabilityZone
-	}
-	return ""
-}
-
-func (m *AddressLocation) GetSubnetId() string {
-	if m != nil {
-		return m.SubnetId
-	}
-	return ""
-}
-
-type AddressAllocation struct {
-	AddressLocation *AddressLocation `protobuf:"bytes,1,opt,name=addressLocation,proto3" json:"addressLocation,omitempty"`
-	// A valid UUID4. It should be set during allocation, if unset, one will be set for you.
-	Uuid string `protobuf:"bytes,2,opt,name=uuid,proto3" json:"uuid,omitempty"`
-	// address.address must be unset when requesting an allocation
-	Address              *Address `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *AddressAllocation) Reset()         { *m = AddressAllocation{} }
-func (m *AddressAllocation) String() string { return proto.CompactTextString(m) }
-func (*AddressAllocation) ProtoMessage()    {}
-func (*AddressAllocation) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{2}
-}
-func (m *AddressAllocation) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_AddressAllocation.Unmarshal(m, b)
-}
-func (m *AddressAllocation) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_AddressAllocation.Marshal(b, m, deterministic)
-}
-func (dst *AddressAllocation) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AddressAllocation.Merge(dst, src)
-}
-func (m *AddressAllocation) XXX_Size() int {
-	return xxx_messageInfo_AddressAllocation.Size(m)
-}
-func (m *AddressAllocation) XXX_DiscardUnknown() {
-	xxx_messageInfo_AddressAllocation.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_AddressAllocation proto.InternalMessageInfo
-
-func (m *AddressAllocation) GetAddressLocation() *AddressLocation {
-	if m != nil {
-		return m.AddressLocation
-	}
-	return nil
-}
-
-func (m *AddressAllocation) GetUuid() string {
-	if m != nil {
-		return m.Uuid
-	}
-	return ""
-}
-
-func (m *AddressAllocation) GetAddress() *Address {
-	if m != nil {
-		return m.Address
-	}
-	return nil
-}
-
-type SignedAddressAllocation struct {
-	AddressAllocation *AddressAllocation `protobuf:"bytes,1,opt,name=addressAllocation,proto3" json:"addressAllocation,omitempty"`
-	// This is an x509v3 signed version of the Address allocation.
-	SignedAddressAllocation []byte   `protobuf:"bytes,2,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
-	XXX_NoUnkeyedLiteral    struct{} `json:"-"`
-	XXX_unrecognized        []byte   `json:"-"`
-	XXX_sizecache           int32    `json:"-"`
-}
-
-func (m *SignedAddressAllocation) Reset()         { *m = SignedAddressAllocation{} }
-func (m *SignedAddressAllocation) String() string { return proto.CompactTextString(m) }
-func (*SignedAddressAllocation) ProtoMessage()    {}
-func (*SignedAddressAllocation) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{3}
-}
-func (m *SignedAddressAllocation) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_SignedAddressAllocation.Unmarshal(m, b)
-}
-func (m *SignedAddressAllocation) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_SignedAddressAllocation.Marshal(b, m, deterministic)
-}
-func (dst *SignedAddressAllocation) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SignedAddressAllocation.Merge(dst, src)
-}
-func (m *SignedAddressAllocation) XXX_Size() int {
-	return xxx_messageInfo_SignedAddressAllocation.Size(m)
-}
-func (m *SignedAddressAllocation) XXX_DiscardUnknown() {
-	xxx_messageInfo_SignedAddressAllocation.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SignedAddressAllocation proto.InternalMessageInfo
-
-func (m *SignedAddressAllocation) GetAddressAllocation() *AddressAllocation {
-	if m != nil {
-		return m.AddressAllocation
-	}
-	return nil
-}
-
-func (m *SignedAddressAllocation) GetSignedAddressAllocation() []byte {
-	if m != nil {
-		return m.SignedAddressAllocation
-	}
-	return nil
+	return fileDescriptor_fee69f8d9b907b12, []int{0}
 }
 
 type AllocateAddressRequest struct {
 	AddressAllocation    *AddressAllocation `protobuf:"bytes,1,opt,name=addressAllocation,proto3" json:"addressAllocation,omitempty"`
 	Family               Family             `protobuf:"varint,2,opt,name=family,proto3,enum=com.netflix.titus.Family" json:"family,omitempty"`
+	AccountId            string             `protobuf:"bytes,3,opt,name=accountId,proto3" json:"accountId,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
 	XXX_unrecognized     []byte             `json:"-"`
 	XXX_sizecache        int32              `json:"-"`
@@ -258,16 +65,17 @@ func (m *AllocateAddressRequest) Reset()         { *m = AllocateAddressRequest{}
 func (m *AllocateAddressRequest) String() string { return proto.CompactTextString(m) }
 func (*AllocateAddressRequest) ProtoMessage()    {}
 func (*AllocateAddressRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{4}
+	return fileDescriptor_fee69f8d9b907b12, []int{0}
 }
+
 func (m *AllocateAddressRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AllocateAddressRequest.Unmarshal(m, b)
 }
 func (m *AllocateAddressRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_AllocateAddressRequest.Marshal(b, m, deterministic)
 }
-func (dst *AllocateAddressRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AllocateAddressRequest.Merge(dst, src)
+func (m *AllocateAddressRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AllocateAddressRequest.Merge(m, src)
 }
 func (m *AllocateAddressRequest) XXX_Size() int {
 	return xxx_messageInfo_AllocateAddressRequest.Size(m)
@@ -292,6 +100,13 @@ func (m *AllocateAddressRequest) GetFamily() Family {
 	return Family_FAMILY_DEFAULT
 }
 
+func (m *AllocateAddressRequest) GetAccountId() string {
+	if m != nil {
+		return m.AccountId
+	}
+	return ""
+}
+
 type AllocateAddressResponse struct {
 	SignedAddressAllocation *SignedAddressAllocation `protobuf:"bytes,1,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
 	XXX_NoUnkeyedLiteral    struct{}                 `json:"-"`
@@ -303,16 +118,17 @@ func (m *AllocateAddressResponse) Reset()         { *m = AllocateAddressResponse
 func (m *AllocateAddressResponse) String() string { return proto.CompactTextString(m) }
 func (*AllocateAddressResponse) ProtoMessage()    {}
 func (*AllocateAddressResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{5}
+	return fileDescriptor_fee69f8d9b907b12, []int{1}
 }
+
 func (m *AllocateAddressResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AllocateAddressResponse.Unmarshal(m, b)
 }
 func (m *AllocateAddressResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_AllocateAddressResponse.Marshal(b, m, deterministic)
 }
-func (dst *AllocateAddressResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AllocateAddressResponse.Merge(dst, src)
+func (m *AllocateAddressResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AllocateAddressResponse.Merge(m, src)
 }
 func (m *AllocateAddressResponse) XXX_Size() int {
 	return xxx_messageInfo_AllocateAddressResponse.Size(m)
@@ -344,16 +160,17 @@ func (m *GetAllocationRequest) Reset()         { *m = GetAllocationRequest{} }
 func (m *GetAllocationRequest) String() string { return proto.CompactTextString(m) }
 func (*GetAllocationRequest) ProtoMessage()    {}
 func (*GetAllocationRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_titus_vpc_api_287c2149623615e8, []int{6}
+	return fileDescriptor_fee69f8d9b907b12, []int{2}
 }
+
 func (m *GetAllocationRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_GetAllocationRequest.Unmarshal(m, b)
 }
 func (m *GetAllocationRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_GetAllocationRequest.Marshal(b, m, deterministic)
 }
-func (dst *GetAllocationRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_GetAllocationRequest.Merge(dst, src)
+func (m *GetAllocationRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAllocationRequest.Merge(m, src)
 }
 func (m *GetAllocationRequest) XXX_Size() int {
 	return xxx_messageInfo_GetAllocationRequest.Size(m)
@@ -369,7 +186,7 @@ type isGetAllocationRequest_SearchParameter interface {
 }
 
 type GetAllocationRequest_Address struct {
-	Address *Address `protobuf:"bytes,1,opt,name=address,proto3,oneof"`
+	Address string `protobuf:"bytes,1,opt,name=address,proto3,oneof"`
 }
 
 type GetAllocationRequest_Uuid struct {
@@ -387,11 +204,11 @@ func (m *GetAllocationRequest) GetSearchParameter() isGetAllocationRequest_Searc
 	return nil
 }
 
-func (m *GetAllocationRequest) GetAddress() *Address {
+func (m *GetAllocationRequest) GetAddress() string {
 	if x, ok := m.GetSearchParameter().(*GetAllocationRequest_Address); ok {
 		return x.Address
 	}
-	return nil
+	return ""
 }
 
 func (m *GetAllocationRequest) GetUuid() string {
@@ -401,85 +218,91 @@ func (m *GetAllocationRequest) GetUuid() string {
 	return ""
 }
 
-// XXX_OneofFuncs is for the internal use of the proto package.
-func (*GetAllocationRequest) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
-	return _GetAllocationRequest_OneofMarshaler, _GetAllocationRequest_OneofUnmarshaler, _GetAllocationRequest_OneofSizer, []interface{}{
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*GetAllocationRequest) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
 		(*GetAllocationRequest_Address)(nil),
 		(*GetAllocationRequest_Uuid)(nil),
 	}
 }
 
-func _GetAllocationRequest_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
-	m := msg.(*GetAllocationRequest)
-	// searchParameter
-	switch x := m.SearchParameter.(type) {
-	case *GetAllocationRequest_Address:
-		b.EncodeVarint(1<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Address); err != nil {
-			return err
-		}
-	case *GetAllocationRequest_Uuid:
-		b.EncodeVarint(2<<3 | proto.WireBytes)
-		b.EncodeStringBytes(x.Uuid)
-	case nil:
-	default:
-		return fmt.Errorf("GetAllocationRequest.SearchParameter has unexpected type %T", x)
+type GetAllocationResponse struct {
+	AddressAllocation    *AddressAllocation `protobuf:"bytes,1,opt,name=addressAllocation,proto3" json:"addressAllocation,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
+	XXX_unrecognized     []byte             `json:"-"`
+	XXX_sizecache        int32              `json:"-"`
+}
+
+func (m *GetAllocationResponse) Reset()         { *m = GetAllocationResponse{} }
+func (m *GetAllocationResponse) String() string { return proto.CompactTextString(m) }
+func (*GetAllocationResponse) ProtoMessage()    {}
+func (*GetAllocationResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{3}
+}
+
+func (m *GetAllocationResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetAllocationResponse.Unmarshal(m, b)
+}
+func (m *GetAllocationResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetAllocationResponse.Marshal(b, m, deterministic)
+}
+func (m *GetAllocationResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAllocationResponse.Merge(m, src)
+}
+func (m *GetAllocationResponse) XXX_Size() int {
+	return xxx_messageInfo_GetAllocationResponse.Size(m)
+}
+func (m *GetAllocationResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAllocationResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetAllocationResponse proto.InternalMessageInfo
+
+func (m *GetAllocationResponse) GetAddressAllocation() *AddressAllocation {
+	if m != nil {
+		return m.AddressAllocation
 	}
 	return nil
 }
 
-func _GetAllocationRequest_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
-	m := msg.(*GetAllocationRequest)
-	switch tag {
-	case 1: // searchParameter.address
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(Address)
-		err := b.DecodeMessage(msg)
-		m.SearchParameter = &GetAllocationRequest_Address{msg}
-		return true, err
-	case 2: // searchParameter.uuid
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		x, err := b.DecodeStringBytes()
-		m.SearchParameter = &GetAllocationRequest_Uuid{x}
-		return true, err
-	default:
-		return false, nil
-	}
-}
-
-func _GetAllocationRequest_OneofSizer(msg proto.Message) (n int) {
-	m := msg.(*GetAllocationRequest)
-	// searchParameter
-	switch x := m.SearchParameter.(type) {
-	case *GetAllocationRequest_Address:
-		s := proto.Size(x.Address)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *GetAllocationRequest_Uuid:
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(len(x.Uuid)))
-		n += len(x.Uuid)
-	case nil:
-	default:
-		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
-	}
-	return n
-}
-
 func init() {
-	proto.RegisterType((*Address)(nil), "com.netflix.titus.Address")
-	proto.RegisterType((*AddressLocation)(nil), "com.netflix.titus.AddressLocation")
-	proto.RegisterType((*AddressAllocation)(nil), "com.netflix.titus.AddressAllocation")
-	proto.RegisterType((*SignedAddressAllocation)(nil), "com.netflix.titus.SignedAddressAllocation")
+	proto.RegisterEnum("com.netflix.titus.Family", Family_name, Family_value)
 	proto.RegisterType((*AllocateAddressRequest)(nil), "com.netflix.titus.AllocateAddressRequest")
 	proto.RegisterType((*AllocateAddressResponse)(nil), "com.netflix.titus.AllocateAddressResponse")
 	proto.RegisterType((*GetAllocationRequest)(nil), "com.netflix.titus.GetAllocationRequest")
-	proto.RegisterEnum("com.netflix.titus.Family", Family_name, Family_value)
+	proto.RegisterType((*GetAllocationResponse)(nil), "com.netflix.titus.GetAllocationResponse")
+}
+
+func init() { proto.RegisterFile("netflix/titus/titus_vpc_api.proto", fileDescriptor_fee69f8d9b907b12) }
+
+var fileDescriptor_fee69f8d9b907b12 = []byte{
+	// 412 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x93, 0xcf, 0xaf, 0xd2, 0x40,
+	0x10, 0xc7, 0x5f, 0x9f, 0xca, 0x4b, 0xc7, 0xf0, 0x1e, 0x6c, 0x9e, 0x82, 0x8d, 0x51, 0x6c, 0x4c,
+	0xac, 0x1c, 0x4a, 0x44, 0xe3, 0xc1, 0x5b, 0x89, 0xa2, 0x24, 0x98, 0x90, 0x22, 0x26, 0xea, 0x81,
+	0x6c, 0xdb, 0x01, 0x36, 0xb6, 0xdd, 0xda, 0xdd, 0x12, 0x3d, 0xf9, 0x97, 0xf9, 0xa7, 0xf8, 0xbf,
+	0x18, 0xb7, 0x6b, 0x44, 0x58, 0xa2, 0x17, 0x2f, 0x4d, 0x66, 0xe6, 0x33, 0xbf, 0xbe, 0xd3, 0x85,
+	0x7b, 0x39, 0xca, 0x55, 0xca, 0x3e, 0x0f, 0x24, 0x93, 0x95, 0xa8, 0xbf, 0xcb, 0x6d, 0x11, 0x2f,
+	0x69, 0xc1, 0xfc, 0xa2, 0xe4, 0x92, 0x93, 0x76, 0xcc, 0x33, 0x5f, 0x63, 0xbe, 0x02, 0x9c, 0xbb,
+	0x6b, 0xce, 0xd7, 0x29, 0x0e, 0x14, 0x10, 0x55, 0xab, 0x81, 0x64, 0x19, 0x0a, 0x49, 0xb3, 0xa2,
+	0xce, 0x71, 0xee, 0x98, 0xca, 0x46, 0x54, 0x60, 0x1d, 0x77, 0xbf, 0x59, 0x70, 0x33, 0x48, 0x53,
+	0x1e, 0x53, 0x89, 0x41, 0x92, 0x94, 0x28, 0x44, 0x88, 0x9f, 0x2a, 0x14, 0x92, 0x84, 0xd0, 0xa6,
+	0xb5, 0x47, 0x03, 0x8c, 0xe7, 0x5d, 0xab, 0x67, 0x79, 0xd7, 0x87, 0xf7, 0xfd, 0x83, 0x51, 0xfc,
+	0x60, 0x9f, 0x0d, 0x0f, 0xd3, 0xc9, 0x23, 0x68, 0xac, 0x68, 0xc6, 0xd2, 0x2f, 0xdd, 0xd3, 0x9e,
+	0xe5, 0x9d, 0x0f, 0x6f, 0x19, 0x0a, 0x8d, 0x15, 0x10, 0x6a, 0x90, 0xdc, 0x06, 0x9b, 0xc6, 0x31,
+	0xaf, 0x72, 0x39, 0x49, 0xba, 0x57, 0x7a, 0x96, 0x67, 0x87, 0xbf, 0x1d, 0xee, 0x57, 0xe8, 0x1c,
+	0x8c, 0x2f, 0x0a, 0x9e, 0x0b, 0x24, 0x09, 0x74, 0x04, 0x5b, 0xe7, 0x98, 0x04, 0x47, 0xb6, 0xe8,
+	0x1b, 0x9a, 0xcf, 0xcd, 0x19, 0xe1, 0xb1, 0x52, 0xee, 0x07, 0xb8, 0x7c, 0x89, 0x72, 0x87, 0xd4,
+	0xea, 0x39, 0x70, 0xa6, 0xd7, 0x57, 0xdd, 0xec, 0x57, 0x27, 0xe1, 0x2f, 0x07, 0xb9, 0x84, 0xab,
+	0x55, 0xc5, 0x12, 0xa5, 0xc1, 0xcf, 0x80, 0xb2, 0x46, 0x6d, 0xb8, 0x10, 0x48, 0xcb, 0x78, 0x33,
+	0xa3, 0x25, 0xcd, 0x50, 0x62, 0xe9, 0x7e, 0x84, 0x1b, 0x7b, 0xc5, 0xf5, 0x6e, 0xff, 0xe1, 0x36,
+	0xfd, 0x67, 0xd0, 0xa8, 0xa5, 0x27, 0x04, 0xce, 0xc7, 0xc1, 0xeb, 0xc9, 0xf4, 0xdd, 0xf2, 0xf9,
+	0x8b, 0x71, 0xb0, 0x98, 0xbe, 0x69, 0x9d, 0x90, 0x26, 0xd8, 0xda, 0xf7, 0xf6, 0x49, 0xcb, 0xda,
+	0x35, 0x9f, 0xb6, 0x4e, 0x87, 0xdf, 0x2d, 0x68, 0x2e, 0x04, 0x96, 0x93, 0xd9, 0x1c, 0xcb, 0x2d,
+	0x8b, 0x91, 0x6c, 0xe0, 0x62, 0xef, 0x30, 0xe4, 0xa1, 0x69, 0x32, 0xe3, 0xbf, 0xe7, 0xf4, 0xff,
+	0x05, 0xd5, 0x5a, 0x44, 0xd0, 0xfc, 0x43, 0x24, 0xf2, 0xc0, 0x90, 0x6c, 0xba, 0x91, 0xe3, 0xfd,
+	0x1d, 0xac, 0x7b, 0x8c, 0xce, 0xde, 0x5f, 0x53, 0xe1, 0xa8, 0xa1, 0x9e, 0xcd, 0xe3, 0x1f, 0x01,
+	0x00, 0x00, 0xff, 0xff, 0x3c, 0xb5, 0x67, 0xb3, 0xaf, 0x03, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -496,7 +319,7 @@ const _ = grpc.SupportPackageIsVersion4
 type UserIPServiceClient interface {
 	// Static IP Address flow
 	AllocateAddress(ctx context.Context, in *AllocateAddressRequest, opts ...grpc.CallOption) (*AllocateAddressResponse, error)
-	GetAllocation(ctx context.Context, in *GetAllocationRequest, opts ...grpc.CallOption) (*AllocateAddressResponse, error)
+	GetAllocation(ctx context.Context, in *GetAllocationRequest, opts ...grpc.CallOption) (*GetAllocationResponse, error)
 }
 
 type userIPServiceClient struct {
@@ -516,8 +339,8 @@ func (c *userIPServiceClient) AllocateAddress(ctx context.Context, in *AllocateA
 	return out, nil
 }
 
-func (c *userIPServiceClient) GetAllocation(ctx context.Context, in *GetAllocationRequest, opts ...grpc.CallOption) (*AllocateAddressResponse, error) {
-	out := new(AllocateAddressResponse)
+func (c *userIPServiceClient) GetAllocation(ctx context.Context, in *GetAllocationRequest, opts ...grpc.CallOption) (*GetAllocationResponse, error) {
+	out := new(GetAllocationResponse)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.UserIPService/GetAllocation", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -529,7 +352,7 @@ func (c *userIPServiceClient) GetAllocation(ctx context.Context, in *GetAllocati
 type UserIPServiceServer interface {
 	// Static IP Address flow
 	AllocateAddress(context.Context, *AllocateAddressRequest) (*AllocateAddressResponse, error)
-	GetAllocation(context.Context, *GetAllocationRequest) (*AllocateAddressResponse, error)
+	GetAllocation(context.Context, *GetAllocationRequest) (*GetAllocationResponse, error)
 }
 
 func RegisterUserIPServiceServer(s *grpc.Server, srv UserIPServiceServer) {
@@ -587,43 +410,4 @@ var _UserIPService_serviceDesc = grpc.ServiceDesc{
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "netflix/titus/titus_vpc_api.proto",
-}
-
-func init() {
-	proto.RegisterFile("netflix/titus/titus_vpc_api.proto", fileDescriptor_titus_vpc_api_287c2149623615e8)
-}
-
-var fileDescriptor_titus_vpc_api_287c2149623615e8 = []byte{
-	// 494 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x94, 0xcf, 0x6e, 0xd3, 0x40,
-	0x10, 0xc6, 0xe3, 0x16, 0x12, 0x3a, 0x90, 0x26, 0x59, 0x55, 0x4d, 0xc8, 0x05, 0x30, 0x48, 0x40,
-	0x0e, 0x8e, 0x08, 0x55, 0x85, 0xb8, 0xa5, 0x82, 0xd0, 0x48, 0x41, 0xaa, 0x5c, 0x8a, 0x44, 0x2f,
-	0xd1, 0xc6, 0x9e, 0xa4, 0x2b, 0xd9, 0x5e, 0x77, 0x77, 0x1d, 0xe8, 0x89, 0x47, 0xe1, 0xc8, 0x81,
-	0x87, 0xe2, 0x55, 0x90, 0xd6, 0x9b, 0xbf, 0xb6, 0x11, 0x1c, 0x7a, 0x89, 0x76, 0x36, 0xbf, 0x99,
-	0xf9, 0xe6, 0xdb, 0x49, 0xe0, 0x49, 0x84, 0x6a, 0x1a, 0xb0, 0x6f, 0x5d, 0xc5, 0x54, 0x22, 0xd3,
-	0xcf, 0xf1, 0x3c, 0xf6, 0xc6, 0x34, 0x66, 0x4e, 0x2c, 0xb8, 0xe2, 0xa4, 0xe1, 0xf1, 0xd0, 0x31,
-	0x98, 0xa3, 0x81, 0xf6, 0xa3, 0x19, 0xe7, 0xb3, 0x00, 0xbb, 0x1a, 0x98, 0x24, 0xd3, 0xae, 0x62,
-	0x21, 0x4a, 0x45, 0xc3, 0x38, 0xcd, 0xb1, 0x9f, 0x42, 0xa5, 0xef, 0xfb, 0x02, 0xa5, 0x24, 0x2d,
-	0xa8, 0xd0, 0xf4, 0xd8, 0xb2, 0x1e, 0x5b, 0x2f, 0xf6, 0xdc, 0x45, 0x68, 0x5f, 0x43, 0xcd, 0x40,
-	0x23, 0xee, 0x51, 0xc5, 0x78, 0x44, 0x0e, 0xa1, 0x2c, 0x70, 0xc6, 0x78, 0x64, 0x58, 0x13, 0x91,
-	0x0e, 0xd4, 0xe9, 0x9c, 0xb2, 0x80, 0x4e, 0x58, 0xc0, 0xd4, 0xcd, 0x25, 0x8f, 0xb0, 0xb5, 0xa3,
-	0x89, 0xcc, 0x3d, 0x69, 0xc3, 0x3d, 0x99, 0x4c, 0x22, 0x54, 0x43, 0xbf, 0xb5, 0xab, 0x99, 0x65,
-	0x6c, 0xff, 0xb2, 0xa0, 0x61, 0x7a, 0xf6, 0x83, 0x60, 0xd1, 0x75, 0x04, 0x35, 0xba, 0x29, 0x44,
-	0xb7, 0xbf, 0xdf, 0xb3, 0x9d, 0xcc, 0xec, 0xce, 0x96, 0x64, 0x77, 0x3b, 0x95, 0x10, 0xb8, 0x93,
-	0x24, 0xcc, 0x37, 0xfa, 0xf4, 0x99, 0x1c, 0xad, 0x4c, 0xd8, 0xd5, 0x95, 0xdb, 0xc5, 0x95, 0x57,
-	0x06, 0xfd, 0xb4, 0xa0, 0x79, 0xce, 0x66, 0x11, 0xfa, 0x59, 0xcd, 0x2e, 0x34, 0xe8, 0xf6, 0xa5,
-	0x51, 0xfd, 0xac, 0xb8, 0xf6, 0x8a, 0x75, 0xb3, 0xe9, 0xe4, 0x0d, 0x34, 0x65, 0x7e, 0x3b, 0x3d,
-	0xcc, 0x03, 0xb7, 0xe8, 0x6b, 0xfb, 0x87, 0x05, 0x87, 0x26, 0xc4, 0xc5, 0x18, 0x78, 0x9d, 0xa0,
-	0x54, 0xb7, 0x22, 0xf4, 0x15, 0x94, 0xa7, 0x34, 0x64, 0xc1, 0x8d, 0xd6, 0xb5, 0xdf, 0x7b, 0x98,
-	0x53, 0x68, 0xa0, 0x01, 0xd7, 0x80, 0xf6, 0x77, 0x68, 0x66, 0x04, 0xca, 0x98, 0x47, 0x12, 0x89,
-	0x5f, 0x3c, 0x76, 0xaa, 0xb3, 0x93, 0x53, 0xbe, 0xe0, 0x5d, 0x8a, 0x2d, 0xfa, 0x0a, 0x07, 0x1f,
-	0x50, 0xad, 0x91, 0xc6, 0x9f, 0xe3, 0xcd, 0xdf, 0xc7, 0x5f, 0x57, 0xe3, 0xb4, 0xb4, 0x5c, 0x0e,
-	0x72, 0xb0, 0xbe, 0x66, 0xa7, 0xa5, 0x74, 0xd1, 0x4e, 0x1a, 0x50, 0x93, 0x48, 0x85, 0x77, 0x75,
-	0x46, 0x05, 0x0d, 0x51, 0xa1, 0xe8, 0xbc, 0x85, 0x72, 0xea, 0x05, 0x21, 0xb0, 0x3f, 0xe8, 0x7f,
-	0x1c, 0x8e, 0xbe, 0x8c, 0xdf, 0xbd, 0x1f, 0xf4, 0x2f, 0x46, 0x9f, 0xea, 0x25, 0x52, 0x85, 0x3d,
-	0x73, 0xf7, 0xf9, 0xa8, 0x6e, 0xad, 0x87, 0xc7, 0xf5, 0x9d, 0xde, 0x6f, 0x0b, 0xaa, 0x17, 0x12,
-	0xc5, 0xf0, 0xec, 0x1c, 0xc5, 0x9c, 0x79, 0x48, 0xae, 0xa0, 0xb6, 0xe5, 0x23, 0x79, 0x99, 0x27,
-	0x38, 0x77, 0x19, 0xda, 0x9d, 0x7f, 0x41, 0x97, 0xcf, 0x52, 0xdd, 0x30, 0x8c, 0x3c, 0xcf, 0x49,
-	0xce, 0xb3, 0xf4, 0x7f, 0xba, 0x9c, 0x54, 0x2e, 0xef, 0x6a, 0x60, 0x52, 0xd6, 0xff, 0x5c, 0xaf,
-	0xff, 0x04, 0x00, 0x00, 0xff, 0xff, 0xb4, 0x78, 0xd9, 0x16, 0x12, 0x05, 0x00, 0x00,
 }

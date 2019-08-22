@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -205,7 +204,7 @@ func recordsToUtilizedAddresses(records map[string]*fslocker.Record) []*vpcapi.U
 			panic(err)
 		}
 		ret = append(ret, &vpcapi.UtilizedAddress{
-			Address: &titus.Address{
+			Address: &vpcapi.Address{
 				Address: net.ParseIP(record.Name).String(),
 			},
 			LastUsedTime: ts,

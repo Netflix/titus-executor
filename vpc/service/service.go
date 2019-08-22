@@ -2,9 +2,19 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"net"
 	"net/http"
+	"os"
+	"sync"
 	"time"
+
+	"golang.org/x/crypto/ed25519"
+
+	"github.com/aws/aws-sdk-go/service/ec2"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/pkg/errors"
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -25,13 +35,23 @@ import (
 )
 
 type vpcService struct {
-	ec2 ec2wrapper.EC2SessionManager
+	// We hope this is globally unique
+	hostname string
+	ec2      ec2wrapper.EC2SessionManager
+
+	dummyInterfaceLock     sync.Mutex
+	dummyInterfaceSessions map[string]ec2wrapper.EC2NetworkInterfaceSession
+	dummyInterfaces        map[string]*ec2.NetworkInterface
+
+	conn *sql.DB
+
+	authoritativePublicKey ed25519.PublicKey
+	hostPublicKeySignature []byte
+	hostPrivateKey         ed25519.PrivateKey
+	hostPublicKey          ed25519.PublicKey
 }
 
-type Server struct {
-}
-
-func (server *Server) Run(ctx context.Context, listener net.Listener) error {
+func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.PrivateKey) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
@@ -59,14 +79,37 @@ func (server *Server) Run(ctx context.Context, listener net.Listener) error {
 			MaxConnectionAgeGrace: 5 * time.Minute,
 			Time:                  45 * time.Second,
 		}))
+	hostname, err := os.Hostname()
+	if err != nil {
+		return errors.Wrap(err, "Cannot get hostname")
+	}
+
+	// TODO: actually validate this
+	ed25519key := ed25519.NewKeyFromSeed(key.GetEd25519Key().Rfc8032Key)
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not generate host key")
+	}
+	hostPublicKeySignature := ed25519.Sign(ed25519key, publicKey)
 
 	vpc := &vpcService{
-		ec2: ec2wrapper.NewEC2SessionManager(),
+		hostname:               hostname,
+		ec2:                    ec2wrapper.NewEC2SessionManager(),
+		dummyInterfaceSessions: make(map[string]ec2wrapper.EC2NetworkInterfaceSession),
+		dummyInterfaces:        make(map[string]*ec2.NetworkInterface),
+		conn:                   conn,
+
+		authoritativePublicKey: ed25519key.Public().(ed25519.PublicKey),
+		hostPrivateKey:         privateKey,
+		hostPublicKey:          publicKey,
+		hostPublicKeySignature: hostPublicKeySignature,
 	}
 
 	hc := &healthcheck{}
 	grpc_health_v1.RegisterHealthServer(grpcServer, hc)
 	vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
+	titus.RegisterUserIPServiceServer(grpcServer, vpc)
+
 	reflection.Register(grpcServer)
 
 	m := cmux.New(listener)
@@ -90,7 +133,7 @@ func (server *Server) Run(ctx context.Context, listener net.Listener) error {
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
 
-	err := group.Wait()
+	err = group.Wait()
 	if ctx.Err() != nil {
 		return nil
 	}

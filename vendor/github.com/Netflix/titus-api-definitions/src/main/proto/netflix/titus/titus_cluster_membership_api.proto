@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+// Titus Membership Management API specification. This API provides access to Titus cluster operational state,
+// as well as management operations. The membership management API is intended to be used by internal tools,
+// which should make the calls directly to the desired members (not via proxy or load balancer). The API calls tunneled
+// via gateway are executed against any available cluster member. All members should have identical eventually
+// consistent state.
+//
+
+package com.netflix.titus;
+
+import "google/protobuf/empty.proto";
+import "netflix/titus/titus_base.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "ClusterMembershipProto";
+
+option go_package = "titus";
+
+// ----------------------------------------------------------------------------
+// Titus supervisor data model.
+
+message ClusterMemberAddress {
+
+    string ipAddress = 1;
+
+    uint32 portNumber = 2;
+
+    string protocol = 3;
+
+    bool secure = 4;
+
+    string description = 5;
+}
+
+// A descriptor of a single cluster member.
+message ClusterMember {
+
+    // Current state of a cluster member.
+    enum State {
+
+        // Member instance is starting, and its operational state is not known yet.
+        Starting = 0;
+
+        // Member is inactive, and does not participate in the leader election process. Predefined
+        // reason codes in this state:
+        // * 'notEnabled' - the member is not enabled
+        // * 'outOfService' - the member is healthy, but taken of out of service by an administrator
+        // * 'unhealthy' - the member is not healthy
+        Inactive = 1;
+
+        // Member is fully activated, and if does not participate in the leader election process, is ready to
+        // take traffic.
+        Active = 2;
+    }
+
+    enum LeadershipState {
+        // Member is healthy, and participates in the leader election process, but is not the leader yet.
+        NonLeader = 0;
+
+        // Member became a leader, and is activating all components. It does not accept client requests yet.
+        LeaderActivating = 1;
+
+        // Member is a fully activated leader.
+        LeaderActivated = 2;
+    }
+
+    string memberId = 1;
+
+    // (Required) If set to false, member should not handle traffic, nor participate in the leader election process.
+    bool enabled = 2;
+
+    // (Required) Current state of the given member.
+    State state = 3;
+
+    // (Required) For services with a leader, indicates the leadership status of this instance. Otherwise, always
+    // set to `NonLeader`.
+    LeadershipState leadershipState = 4;
+
+    repeated ClusterMemberAddress addresses = 5;
+
+    // Collection of key/value pairs. Read-only special name spaces:
+    // * 'aws.instanceGroupId' - member's ASG instance group id
+    // * 'aws.deployment.XXX' - deployment data (ASG creation time, EC2 instance launch time, etc)
+    // * 'aws.asgTags.XXX' - service's ASG tags
+    // * 'aws.ec2Tags.XXX' - service's EC2 tags
+    // * 'release.XXX' - release data (number, build time, bake time)
+    map<string, string> labels = 6;
+}
+
+message ClusterMembershipRevision {
+
+    ClusterMember current = 1;
+
+    // (Required) Detailed code for being in a specific state.
+    string code = 2;
+
+    // (Optional) Textual description accompanying the 'reasonCode'.
+    string message = 3;
+
+    // Time when a transition to a state happened.
+    uint64 timestamp = 4;
+}
+
+message ClusterMembershipEvent {
+
+    message Snapshot {
+        repeated ClusterMembershipRevision revisions = 1;
+    }
+
+    message Updated {
+        ClusterMembershipRevision revision = 1;
+    }
+
+    message Removed {
+        ClusterMembershipRevision revision = 1;
+    }
+
+    oneof Event {
+        Snapshot snapshot = 1;
+        Updated updated = 2;
+        Removed removed = 3;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// GRPC services
+
+message MemberId {
+    string id = 1;
+}
+
+message ClusterMembers {
+    repeated ClusterMember members = 1;
+}
+
+message ClusterMembershipQueryRequest {
+    // Filtering criteria:
+    // * 'ids' - comma separated list of instance ids
+    // * 'instanceLimit' - maximum number of records to return per instance
+    // * 'limit' - maximum number of records to return
+    // * 'before' - events before the given timestamp (epoch)
+    // * 'since' - events at or after the given timestamp (epoch)
+    map<string, string> filteringCriteria = 1;
+
+    /// (Optional) If set, only field values explicitly specified in this parameter will be returned.
+    repeated string fields = 2;
+}
+
+message ClusterMembershipRevisions {
+    repeated ClusterMembershipRevision revisions = 1;
+}
+
+message UpdateMemberLabelsRequest {
+    string memberId = 1;
+
+    map<string, string> labels = 2;
+}
+
+message DeleteMemberLabelsRequest {
+    string memberId = 1;
+    repeated string keys = 2;
+}
+
+message EnableMemberRequest {
+    string memberId = 1;
+
+    bool enabled = 2;
+}
+
+// All member update operations are routed internally to the target member instance. If multiple clients attempt
+// to change the same member instance, their requests are serialized.
+service ClusterMembershipService {
+
+    // Get all known cluster members.
+    rpc GetMembers (google.protobuf.Empty) returns (ClusterMembers) {
+    }
+
+    // Get member with the given id.
+    rpc GetMember (MemberId) returns (ClusterMember) {
+    }
+
+    // Get recent changes.
+    rpc GetMembershipRevisions (ClusterMembershipQueryRequest) returns (ClusterMembershipRevisions) {
+    }
+
+    // Adds all labels from the request object to the target member. Labels that exist are
+    // overridden. Returns the updated object.
+    rpc UpdateMemberLabels (UpdateMemberLabelsRequest) returns (ClusterMember) {
+    }
+
+    // Removes all specified labels from the target object. Labels that do not exist are ignored.
+    // Returns the updated object.
+    rpc DeleteMemberLabels (DeleteMemberLabelsRequest) returns (ClusterMember) {
+    }
+
+    // Enable or disable a member.
+    rpc EnableMember (EnableMemberRequest) returns (ClusterMember) {
+    }
+
+    // Requests the member that handles this request to stop being leader. If the given member
+    //  is not a leader, the request is ignored.
+    rpc StopBeingLeader (google.protobuf.Empty) returns (google.protobuf.Empty) {
+    }
+
+    // Event stream.
+    rpc Events (google.protobuf.Empty) returns (stream ClusterMembershipEvent) {
+    }
+}

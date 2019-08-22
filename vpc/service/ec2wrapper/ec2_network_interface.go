@@ -6,7 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Netflix/titus-executor/logger"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
@@ -26,13 +25,23 @@ var (
 	getInterfaceSuccess = stats.Int64("getInterface.success.count", "How many times getInterface succeeded", "")
 )
 
+type networkInterfaceContainer interface {
+	networkInterfaceID() string
+	subnetID() string
+	vpcID() string
+}
+
 type ec2NetworkInterfaceSession struct {
 	*ec2BaseSession
-	instanceNetworkInterface *ec2.InstanceNetworkInterface
+	networkInterface networkInterfaceContainer
 }
 
 func (s *ec2NetworkInterfaceSession) ElasticNetworkInterfaceID() string {
-	return aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)
+	return s.networkInterface.networkInterfaceID()
+}
+
+func (s *ec2NetworkInterfaceSession) Region() string {
+	return s.networkInterface.networkInterfaceID()
 }
 
 func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, deadline time.Duration) (*ec2.NetworkInterface, error) {
@@ -40,18 +49,18 @@ func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, de
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("deadline", deadline.String()))
 	start := time.Now()
-	ctx, err := tag.New(ctx, tag.Upsert(keyInterface, aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)))
+	ctx, err := tag.New(ctx, tag.Upsert(keyInterface, s.networkInterface.networkInterfaceID()))
 	if err != nil {
 		return nil, err
 	}
 
-	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)))
+	span.AddAttributes(trace.StringAttribute("eni", s.networkInterface.networkInterfaceID()))
 	stats.Record(ctx, getInterfaceCount.M(1))
 
-	networkInterface, err := s.batchENIDescriber.DescribeNetworkInterfacesWithTimeout(ctx, aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId), deadline)
+	networkInterface, err := s.batchENIDescriber.DescribeNetworkInterfacesWithTimeout(ctx, s.networkInterface.networkInterfaceID(), deadline)
 	// TODO: Work around rate limiting here, and do some basic retries
 	if err != nil {
-		return nil, handleEC2Error(err, span)
+		return nil, HandleEC2Error(err, span)
 	}
 
 	privateIPs := make([]string, 1, len(networkInterface.PrivateIpAddresses))
@@ -100,53 +109,23 @@ func (s *ec2NetworkInterfaceSession) ModifySecurityGroups(ctx context.Context, g
 	sort.Strings(groupIds2)
 	span.AddAttributes(
 		trace.StringAttribute("groupIds", fmt.Sprint(groupIds2)),
-		trace.StringAttribute("eni", aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId)),
+		trace.StringAttribute("eni", s.networkInterface.networkInterfaceID()),
 	)
 	networkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
 		Groups:             groupIds,
-		NetworkInterfaceId: s.instanceNetworkInterface.NetworkInterfaceId,
+		NetworkInterfaceId: aws.String(s.networkInterface.networkInterfaceID()),
 	}
 	_, err := ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, networkInterfaceAttributeInput)
 
 	if err != nil {
-		return handleEC2Error(err, span)
+		return HandleEC2Error(err, span)
 	}
 
 	return nil
 }
 
 func (s *ec2NetworkInterfaceSession) GetSubnet(ctx context.Context, strategy CacheStrategy) (*ec2.Subnet, error) {
-	return s.GetSubnetByID(ctx, aws.StringValue(s.instanceNetworkInterface.SubnetId), strategy)
-}
-
-func (s *ec2NetworkInterfaceSession) GetSubnetByID(ctx context.Context, subnetID string, strategy CacheStrategy) (*ec2.Subnet, error) {
-	ctx, span := trace.StartSpan(ctx, "getSubnet")
-	defer span.End()
-
-	if strategy&InvalidateCache > 0 {
-		s.subnetCache.Remove(subnetID)
-	}
-	if strategy&FetchFromCache > 0 {
-		subnet, ok := s.subnetCache.Get(subnetID)
-		if ok {
-			return subnet.(*ec2.Subnet), nil
-		}
-	}
-	// TODO: Cache
-	ec2client := ec2.New(s.session)
-	describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
-		SubnetIds: []*string{&subnetID},
-	})
-	if err != nil {
-		logger.G(ctx).WithField("subnetID", subnetID).Error("Could not get Subnet")
-		return nil, handleEC2Error(err, span)
-	}
-
-	subnet := describeSubnetsOutput.Subnets[0]
-	if strategy&StoreInCache > 0 {
-		s.subnetCache.Add(subnetID, subnet)
-	}
-	return subnet, nil
+	return s.GetSubnetByID(ctx, s.networkInterface.subnetID(), strategy)
 }
 
 func (s *ec2NetworkInterfaceSession) GetDefaultSecurityGroups(ctx context.Context) ([]*string, error) {
@@ -157,7 +136,7 @@ func (s *ec2NetworkInterfaceSession) GetDefaultSecurityGroups(ctx context.Contex
 
 	vpcFilter := &ec2.Filter{
 		Name:   aws.String("vpc-id"),
-		Values: []*string{s.instanceNetworkInterface.VpcId},
+		Values: aws.StringSlice([]string{s.networkInterface.vpcID()}),
 	}
 	groupNameFilter := &ec2.Filter{
 		Name:   aws.String("group-name"),
@@ -180,7 +159,7 @@ func (s *ec2NetworkInterfaceSession) GetDefaultSecurityGroups(ctx context.Contex
 }
 
 func (s *ec2NetworkInterfaceSession) UnassignPrivateIPAddresses(ctx context.Context, unassignPrivateIPAddressesInput ec2.UnassignPrivateIpAddressesInput) (*ec2.UnassignPrivateIpAddressesOutput, error) {
-	unassignPrivateIPAddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
+	unassignPrivateIPAddressesInput.NetworkInterfaceId = aws.String(s.networkInterface.networkInterfaceID())
 	ctx, span := trace.StartSpan(ctx, "unassignPrivateIpAddresses")
 	defer span.End()
 	ec2client := ec2.New(s.session)
@@ -188,12 +167,12 @@ func (s *ec2NetworkInterfaceSession) UnassignPrivateIPAddresses(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	s.interfaceCache.Remove(aws.StringValue(s.instanceNetworkInterface.NetworkInterfaceId))
+	s.interfaceCache.Remove(s.networkInterface.networkInterfaceID())
 	return unassignPrivateIPAddressesOutput, nil
 }
 
 func (s *ec2NetworkInterfaceSession) AssignPrivateIPAddresses(ctx context.Context, assignPrivateIPAddressesInput ec2.AssignPrivateIpAddressesInput) (*ec2.AssignPrivateIpAddressesOutput, error) {
-	assignPrivateIPAddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
+	assignPrivateIPAddressesInput.NetworkInterfaceId = aws.String(s.networkInterface.networkInterfaceID())
 	ctx, span := trace.StartSpan(ctx, "assignPrivateIpAddresses")
 	defer span.End()
 	span.AddAttributes(trace.Int64Attribute("secondaryPrivateIpAddressCount", aws.Int64Value(assignPrivateIPAddressesInput.SecondaryPrivateIpAddressCount)))
@@ -207,7 +186,7 @@ func (s *ec2NetworkInterfaceSession) AssignPrivateIPAddresses(ctx context.Contex
 }
 
 func (s *ec2NetworkInterfaceSession) AssignIPv6Addresses(ctx context.Context, assignIpv6AddressesInput ec2.AssignIpv6AddressesInput) (*ec2.AssignIpv6AddressesOutput, error) {
-	assignIpv6AddressesInput.NetworkInterfaceId = s.instanceNetworkInterface.NetworkInterfaceId
+	assignIpv6AddressesInput.NetworkInterfaceId = aws.String(s.networkInterface.networkInterfaceID())
 	ctx, span := trace.StartSpan(ctx, "assignIpv6Addresses")
 	defer span.End()
 	span.AddAttributes(trace.Int64Attribute("ipv6AddressCount", aws.Int64Value(assignIpv6AddressesInput.Ipv6AddressCount)))
@@ -218,4 +197,36 @@ func (s *ec2NetworkInterfaceSession) AssignIPv6Addresses(ctx context.Context, as
 	}
 
 	return assignIpv6AddressesOutput, nil
+}
+
+type networkInterfaceWrapper struct {
+	networkInterface *ec2.NetworkInterface
+}
+
+func (ni *networkInterfaceWrapper) networkInterfaceID() string {
+	return aws.StringValue(ni.networkInterface.NetworkInterfaceId)
+}
+
+func (ni *networkInterfaceWrapper) subnetID() string {
+	return aws.StringValue(ni.networkInterface.SubnetId)
+}
+
+func (ni *networkInterfaceWrapper) vpcID() string {
+	return aws.StringValue(ni.networkInterface.VpcId)
+}
+
+type instanceNetworkInterfaceWrapper struct {
+	instanceNetworkInterface *ec2.InstanceNetworkInterface
+}
+
+func (ni *instanceNetworkInterfaceWrapper) networkInterfaceID() string {
+	return aws.StringValue(ni.instanceNetworkInterface.NetworkInterfaceId)
+}
+
+func (ni *instanceNetworkInterfaceWrapper) subnetID() string {
+	return aws.StringValue(ni.instanceNetworkInterface.SubnetId)
+}
+
+func (ni *instanceNetworkInterfaceWrapper) vpcID() string {
+	return aws.StringValue(ni.instanceNetworkInterface.VpcId)
 }

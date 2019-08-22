@@ -2,6 +2,7 @@ syntax = "proto3";
 package com.netflix.titus;
 
 import "google/protobuf/timestamp.proto";
+import "netflix/titus/titus_base.proto";
 
 option go_package = "titus";
 
@@ -12,35 +13,11 @@ enum Family {
     FAMILY_V6 = 2;
 };
 
-message Address {
-    string address = 1;
-}
-
-message AddressLocation {
-    string region = 1;
-    string availabilityZone = 2;
-    string subnetId = 3;
-}
-
-message AddressAllocation {
-    AddressLocation addressLocation = 1;
-    // A valid UUID4. It should be set during allocation, if unset, one will be set for you.
-    string uuid = 2;
-    // address.address must be unset when requesting an allocation
-    Address address = 3;
-};
-
-message SignedAddressAllocation {
-    AddressAllocation addressAllocation = 1;
-    // This is an x509v3 signed version of the Address allocation.
-    bytes signedAddressAllocation = 2;
-}
-
 message AllocateAddressRequest {
     AddressAllocation addressAllocation = 1;
     Family family = 2;
+    string accountId = 3;
 };
-
 
 message AllocateAddressResponse {
     SignedAddressAllocation signedAddressAllocation = 1;
@@ -48,13 +25,17 @@ message AllocateAddressResponse {
 
 message GetAllocationRequest {
     oneof searchParameter {
-        Address address = 1;
+        string address = 1;
         string uuid = 2;
     }
+};
+
+message GetAllocationResponse {
+    AddressAllocation addressAllocation = 1;
 };
 
 service UserIPService {
     // Static IP Address flow
     rpc AllocateAddress (AllocateAddressRequest) returns (AllocateAddressResponse);
-    rpc GetAllocation (GetAllocationRequest) returns (AllocateAddressResponse);
+    rpc GetAllocation (GetAllocationRequest) returns (GetAllocationResponse);
 }
