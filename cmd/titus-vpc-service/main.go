@@ -170,7 +170,7 @@ func main() {
 			}
 			signingKeyFile.Close()
 
-			return service.Run(ctx, listener, conn, signingKey)
+			return service.Run(ctx, listener, conn, signingKey, v.GetDuration("gc-timeout"))
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
@@ -181,6 +181,7 @@ func main() {
 
 	rootCmd.Flags().String("address", ":7001", "Listening address")
 	rootCmd.Flags().String("signingkey", "", "The (file) location of the root signing key")
+	rootCmd.Flags().Duration("gc-timeout", 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.PersistentFlags().String("debug-address", ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")

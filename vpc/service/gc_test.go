@@ -158,7 +158,7 @@ func TestIPsToFree(t *testing.T) {
 			},
 		},
 	}
-	resp, err := gcInterface(ctx, ec2NetworkInterfaceSession, req)
+	resp, err := gcInterface(ctx, ec2NetworkInterfaceSession, req, time.Minute*2)
 	assert.NilError(t, err)
 
 	sort.Slice(resp.AddressToDelete, func(i, j int) bool {

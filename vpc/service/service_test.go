@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/golang/protobuf/ptypes"
@@ -39,7 +40,7 @@ func TestService(t *testing.T) {
 
 	go func() {
 		defer close(serverErrCh)
-		serverErr := Run(ctx, listener, nil, key)
+		serverErr := Run(ctx, listener, nil, key, 2*time.Minute)
 		if serverErr != nil && serverErr != context.Canceled {
 			serverErrCh <- serverErr
 		}
