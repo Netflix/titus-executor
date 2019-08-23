@@ -206,6 +206,8 @@ func main() {
 		panic(err)
 	}
 
+	v.AutomaticEnv()
+
 	err := rootCmd.Execute()
 	if ctx.Err() != nil {
 		logger.G(ctx).Info("Shutting down gracefully")
