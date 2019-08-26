@@ -30,7 +30,7 @@ type utilizedAddress struct {
 // as at the end of the GC, the machine will take a local recording of the non-viable
 // addresses, as well as the currently present addresses. Therefore in a gc cycle, they
 // will show up in either the non-viable map, or the unallocated map
-func ipsToFree(privateIPAddress string, currentAddresses set.Set, unallocatedAddressesMap map[string]utilizedAddress) set.Set {
+func ipsToFree(privateIPAddress string, currentAddresses set.Set, unallocatedAddressesMap map[string]utilizedAddress, gcTimeout time.Duration) set.Set {
 	addrsToFreeSet := set.NewSet()
 	for addr, utilizedAddressRecord := range unallocatedAddressesMap {
 		// This is an IPv6 address, go ahead and ignore it.
@@ -49,11 +49,10 @@ func ipsToFree(privateIPAddress string, currentAddresses set.Set, unallocatedAdd
 			continue
 		}
 
-		// TODO: Make this adjustable
 		// This is an address *that used to be utilized
-		// check if was utilized less than 2 minutes ago.
+		// check if was utilized less than a period ago
 		// If so, add it to the deletion pile.
-		if time.Since(utilizedAddressRecord.lastUsedTime) > 2*time.Minute {
+		if time.Since(utilizedAddressRecord.lastUsedTime) > gcTimeout {
 			addrsToFreeSet.Add(addr)
 		}
 	}
@@ -143,7 +142,7 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		return nil, err
 	}
 
-	return gcInterface(ctx, ec2NetworkInterfaceSession, req)
+	return gcInterface(ctx, ec2NetworkInterfaceSession, req, vpcService.gcTimeout)
 }
 
 func unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, addrsToRemoveSet set.Set, retryAllowed bool) error {
@@ -194,7 +193,7 @@ func unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrappe
 	return unassignAddresses(ctx, ec2NetworkInterfaceSession, currentIPv4AddressesSet.Intersect(addrsToRemoveSet), false)
 }
 
-func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
+func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest, gcTimeout time.Duration) (*vpcapi.GCResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "gcInterface")
 	defer span.End()
 	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, time.Second*10)
@@ -237,7 +236,7 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 		return nil, err
 	}
 
-	ipsToFreeSet := ipsToFree(aws.StringValue(iface.PrivateIpAddress), ipAddressesCurrentlyAssignedToInterface, unallocatedAddressesMap)
+	ipsToFreeSet := ipsToFree(aws.StringValue(iface.PrivateIpAddress), ipAddressesCurrentlyAssignedToInterface, unallocatedAddressesMap, gcTimeout)
 	span.AddAttributes(trace.StringAttribute("ipsToFreeSet", ipsToFreeSet.String()))
 	ctx = logger.WithField(ctx, "ipsToFreeSet", ipsToFreeSet.String())
 	if (ipsToFreeSet.Intersect(allocatedAddressesSet)).Cardinality() > 0 {

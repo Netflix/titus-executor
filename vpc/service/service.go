@@ -49,9 +49,11 @@ type vpcService struct {
 	hostPublicKeySignature []byte
 	hostPrivateKey         ed25519.PrivateKey
 	hostPublicKey          ed25519.PublicKey
+
+	gcTimeout time.Duration
 }
 
-func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.PrivateKey) error {
+func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.PrivateKey, gcTimeout time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
@@ -103,6 +105,8 @@ func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.Pr
 		hostPrivateKey:         privateKey,
 		hostPublicKey:          publicKey,
 		hostPublicKeySignature: hostPublicKeySignature,
+
+		gcTimeout: gcTimeout,
 	}
 
 	hc := &healthcheck{}
