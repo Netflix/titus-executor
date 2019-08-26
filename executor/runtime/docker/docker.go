@@ -482,7 +482,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	shmSize := c.GetShmSize()
 	if shmSize > 0 {
-		hostCfg.ShmSize = int64(shmSize * MiB)
+		hostCfg.ShmSize = int64(shmSize) * MiB
 	}
 
 	if r.storageOptEnabled {
