@@ -9,22 +9,19 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/ed25519"
-
-	"github.com/aws/aws-sdk-go/service/ec2"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/pkg/errors"
-
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
 	"go.opencensus.io/stats/view"
+	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -88,6 +85,28 @@ func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.Pr
 
 	// TODO: actually validate this
 	ed25519key := ed25519.NewKeyFromSeed(key.GetEd25519Key().Rfc8032Key)
+	if conn != nil {
+		longLivedPublicKey := ed25519key.Public().(ed25519.PublicKey)
+
+		rows, err := conn.QueryContext(ctx, "SELECT hostname, created_at FROM trusted_public_keys WHERE keytype='ed25519' AND key = $1", longLivedPublicKey)
+		if err != nil {
+			return errors.Wrap(err, "Could not fetch trusted public keys")
+		}
+		if !rows.Next() {
+			return errors.New("No matching public key to provided private key found")
+		}
+		var keyHostname string
+		var keyCreatedAt time.Time
+		err = rows.Scan(&keyHostname, &keyCreatedAt)
+		if err != nil {
+			return errors.Wrap(err, "Could not read public keys from database")
+		}
+		logger.G(ctx).WithFields(map[string]interface{}{
+			"hostname":  keyHostname,
+			"createdAt": keyCreatedAt,
+		}).Debug("Found matching public key for private key")
+	}
+
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not generate host key")

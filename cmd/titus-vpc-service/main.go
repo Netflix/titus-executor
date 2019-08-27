@@ -101,9 +101,13 @@ func main() {
 				view.RegisterExporter(dd)
 			}
 
-			return setupDebugServer(ctx, v.GetString("debug-address"))
+			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := setupDebugServer(ctx, v.GetString("debug-address")); err != nil {
+				return err
+			}
+
 			if err := v.BindPFlags(cmd.Flags()); err != nil {
 				return err
 			}

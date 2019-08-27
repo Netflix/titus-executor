@@ -175,6 +175,9 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
+	if rq.AccountId == "" {
+		return nil, status.Error(codes.InvalidArgument, "AccountId must be specified")
+	}
 	if rq.AddressAllocation == nil {
 		return nil, status.Error(codes.InvalidArgument, "AddressAllocation must be specified")
 	}
