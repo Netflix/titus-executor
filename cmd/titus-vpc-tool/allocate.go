@@ -24,13 +24,15 @@ func allocateNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter in
 				conn,
 				v.GetStringSlice("security-groups"),
 				v.GetInt("device-idx"),
-				v.GetBool("allocate-ipv6-address"))
+				v.GetBool("allocate-ipv6-address"),
+				v.GetString("allocation-uuid"))
 		},
 	}
 
 	cmd.Flags().Int("device-idx", 0, "The device index to setup, 1-indexed (1 correlates to AWS device 1) -- using device index 0 not allowed")
 	cmd.Flags().StringSlice("security-groups", []string{}, "Comma separated list of security groups")
 	cmd.Flags().Bool("allocate-ipv6-address", false, "Allocate IPv6 Address for container")
+	cmd.Flags().String("allocation-uuid", "", "The UUID of the allocation")
 	addSharedFlags(cmd.Flags())
 
 	return cmd
