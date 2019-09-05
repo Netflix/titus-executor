@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/lib/pq"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -21,10 +24,6 @@ import (
 )
 
 func isAssignIPRequestValid(req *vpcapi.AssignIPRequest) error {
-	if req.SignedAddressAllocation != nil {
-		return status.Error(codes.Unimplemented, "Static addresses not yet implemented")
-	}
-
 	if req.NetworkInterfaceAttachment.DeviceIndex == 0 {
 		return status.Error(codes.InvalidArgument, "Device index 0 not allowed")
 	}
@@ -148,10 +147,139 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		}
 	}
 
-	return assignAddresses(ctx, interfaceSession, iface, req, subnet, maxIPAddresses, true)
+	if len(req.SignedAddressAllocations) > 0 {
+		logger.G(ctx).Debug("Performing static address allocation")
+		return vpcService.assignAddressesFromAllocations(ctx, interfaceSession, iface, subnet, req)
+	}
+
+	return vpcService.assignAddresses(ctx, interfaceSession, iface, req, subnet, maxIPAddresses, true)
 }
 
-func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, maxIPAddresses int, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
+func (vpcService *vpcService) assignAddressesFromAllocations(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, subnet *ec2.Subnet, req *vpcapi.AssignIPRequest) (*vpcapi.AssignIPResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "assignAddressesFromAllocations")
+	defer span.End()
+
+	_, ipnet, err := net.ParseCIDR(*subnet.CidrBlock)
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot parse CIDR block")
+	}
+	prefixlength, _ := ipnet.Mask.Size()
+
+	assignedIPv4addresses := set.NewSet()
+	assignedIPv6addresses := set.NewSet()
+	assignedIPv4addresses.Add(net.ParseIP(*ni.PrivateIpAddress).String())
+	for idx := range ni.PrivateIpAddresses {
+		pi := ni.PrivateIpAddresses[idx]
+		assignedIPv4addresses.Add(net.ParseIP(*pi.PrivateIpAddress).String())
+	}
+	for idx := range ni.Ipv6Addresses {
+		pi := ni.Ipv6Addresses[idx]
+		assignedIPv6addresses.Add(net.ParseIP(*pi.Ipv6Address).String())
+	}
+
+	ipv6Addresses := []net.IP{}
+	ipv6AddressesToAssign := []net.IP{}
+
+	ipv4Addresses := []net.IP{}
+	ipv4AddressesToAssign := []net.IP{}
+
+	tx, err := vpcService.conn.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	for _, assignment := range req.SignedAddressAllocations {
+		var ipAddress, subnetID string
+		row := tx.QueryRowContext(ctx, "SELECT ip_address, subnet_id FROM ip_addresses WHERE id = $1", assignment.AddressAllocation.Uuid)
+		err = row.Scan(&ipAddress, &subnetID)
+		if err != nil {
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not perform db query").Error())
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		if ip := net.ParseIP(ipAddress); ip.To4() == nil {
+			if !assignedIPv6addresses.Contains(ip.String()) {
+				ipv6AddressesToAssign = append(ipv6AddressesToAssign, ip)
+			}
+			ipv6Addresses = append(ipv6Addresses, ip)
+		} else {
+			if !assignedIPv4addresses.Contains(ip.String()) {
+				ipv4AddressesToAssign = append(ipv6AddressesToAssign, ip)
+			}
+			ipv4Addresses = append(ipv4Addresses, ip)
+		}
+	}
+
+	if len(ipv4AddressesToAssign) > 0 {
+		logger.G(ctx).WithField("ipv4AddressesToAssign", ipv4AddressesToAssign).Debug("Assigning IPv4 Addresses")
+		assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
+			AllowReassignment:  aws.Bool(true),
+			PrivateIpAddresses: make([]*string, len(ipv4AddressesToAssign)),
+		}
+		for idx := range ipv4AddressesToAssign {
+			assignPrivateIPAddressesInput.PrivateIpAddresses[idx] = aws.String(ipv4AddressesToAssign[idx].String())
+		}
+		logger.G(ctx).WithField("ipv4AddressesToAssign", ipv4AddressesToAssign).Debug("Assigning static IPv4 Addresses")
+		if _, err := iface.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
+			return nil, ec2wrapper.HandleEC2Error(err, span)
+		}
+	}
+
+	if len(ipv6AddressesToAssign) > 0 {
+		logger.G(ctx).WithField("ipv6AddressesToAssign", ipv6AddressesToAssign).Debug("Assigning IPv6 Addresses")
+		assignIpv6AddressesInput := ec2.AssignIpv6AddressesInput{
+			Ipv6Addresses: make([]*string, len(ipv6AddressesToAssign)),
+		}
+		for idx := range ipv6AddressesToAssign {
+			assignIpv6AddressesInput.Ipv6Addresses[idx] = aws.String(ipv6AddressesToAssign[idx].String())
+		}
+		logger.G(ctx).WithField("ipv6AddressesToAssign", ipv4AddressesToAssign).Debug("Assigning static IPv6 Addresses")
+		if _, err := iface.AssignIPv6Addresses(ctx, assignIpv6AddressesInput); err != nil {
+			return nil, ec2wrapper.HandleEC2Error(err, span)
+		}
+	}
+
+	ni, err = iface.GetNetworkInterface(ctx, time.Millisecond*100)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	ret := &vpcapi.AssignIPResponse{
+		CacheVersion:     nil,
+		UsableAddresses:  make([]*vpcapi.UsableAddress, 0, len(req.SignedAddressAllocations)),
+		NetworkInterface: networkInterface(*ni),
+	}
+
+	for idx := range ipv4Addresses {
+		ret.UsableAddresses = append(ret.UsableAddresses, &vpcapi.UsableAddress{
+			Address: &vpcapi.Address{
+				Address: ipv4Addresses[idx].String(),
+			},
+			// TODO fix
+			PrefixLength: uint32(prefixlength),
+		})
+	}
+	for idx := range ipv6Addresses {
+		ret.UsableAddresses = append(ret.UsableAddresses, &vpcapi.UsableAddress{
+			Address: &vpcapi.Address{
+				Address: ipv6Addresses[idx].String(),
+			},
+			PrefixLength: uint32(128),
+		})
+	}
+
+	return ret, nil
+}
+
+func (vpcService *vpcService) assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, maxIPAddresses int, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "assignAddresses")
 	defer span.End()
 	entry := logger.G(ctx).WithField("allowAssignment", allowAssignment)
@@ -173,6 +301,19 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 	assignedIPv4addresses := set.NewSet()
 	assignedIPv6addresses := set.NewSet()
 	assignedIPv4addresses.Add(net.ParseIP(*ni.PrivateIpAddress).String())
+
+	tx, err := vpcService.conn.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
 	for idx := range ni.PrivateIpAddresses {
 		pi := ni.PrivateIpAddresses[idx]
 		assignedIPv4addresses.Add(net.ParseIP(*pi.PrivateIpAddress).String())
@@ -182,19 +323,46 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		assignedIPv6addresses.Add(net.ParseIP(*pi.Ipv6Address).String())
 	}
 
+	staticallyAllocatedAddressesSet := set.NewSet()
+	assignedAddresses := []string{}
+	for addr := range assignedIPv4addresses.Iter() {
+		assignedAddresses = append(assignedAddresses, addr.(string))
+	}
+	for addr := range assignedIPv6addresses.Iter() {
+		assignedAddresses = append(assignedAddresses, addr.(string))
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT ip_address FROM ip_addresses WHERE host(ip_address) = any($1)", pq.Array(assignedAddresses))
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	for rows.Next() {
+		var ipAddress string
+		err = rows.Scan(&ipAddress)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		staticallyAllocatedAddressesSet.Add(net.ParseIP(ipAddress).String())
+	}
+
+	_ = tx.Commit()
+
 	span.AddAttributes(
 		trace.StringAttribute("assignedIPv4addresses", assignedIPv4addresses.String()),
 		trace.StringAttribute("assignedIPv6addresses", assignedIPv6addresses.String()),
 		trace.StringAttribute("utilizedAddressIPv4Set", utilizedAddressIPv4Set.String()),
 		trace.StringAttribute("utilizedAddressIPv6Set", utilizedAddressIPv6Set.String()),
+		trace.StringAttribute("staticallyAllocatedAddressesSet", staticallyAllocatedAddressesSet.String()),
 	)
 	entry.WithField("ipv4addresses", assignedIPv4addresses.ToSlice()).Debug("assigned IPv4 addresses")
 	entry.WithField("ipv6addresses", assignedIPv6addresses.ToSlice()).Debug("assigned IPv6 addresses")
 	entry.WithField("ipv4addresses", utilizedAddressIPv4Set.ToSlice()).Debug("utilized IPv4 addresses")
 	entry.WithField("ipv6addresses", utilizedAddressIPv6Set.ToSlice()).Debug("utilized IPv6 addresses")
+	entry.WithField("staticallyAllocatedAddressesSet", staticallyAllocatedAddressesSet.ToSlice()).Debug("statically allocated addresses")
 
-	availableIPv4Addresses := assignedIPv4addresses.Difference(utilizedAddressIPv4Set)
-	availableIPv6Addresses := assignedIPv6addresses.Difference(utilizedAddressIPv6Set)
+	availableIPv4Addresses := assignedIPv4addresses.Difference(utilizedAddressIPv4Set).Difference(staticallyAllocatedAddressesSet)
+	availableIPv6Addresses := assignedIPv6addresses.Difference(utilizedAddressIPv6Set).Difference(staticallyAllocatedAddressesSet)
 
 	needIPv4Addresses := availableIPv4Addresses.Cardinality() == 0
 	needIPv6Addresses := (req.Ipv6AddressRequested && availableIPv6Addresses.Cardinality() == 0)
@@ -205,13 +373,13 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 			return nil, errors.Wrap(err, "Cannot parse CIDR block")
 		}
 		prefixlength, _ := ipnet.Mask.Size()
-		for addr := range assignedIPv4addresses.Iter() {
+		for addr := range assignedIPv4addresses.Difference(staticallyAllocatedAddressesSet).Iter() {
 			response.UsableAddresses = append(response.UsableAddresses, &vpcapi.UsableAddress{
 				Address:      &vpcapi.Address{Address: addr.(string)},
 				PrefixLength: uint32(prefixlength),
 			})
 		}
-		for addr := range assignedIPv6addresses.Iter() {
+		for addr := range assignedIPv6addresses.Difference(staticallyAllocatedAddressesSet).Iter() {
 			response.UsableAddresses = append(response.UsableAddresses, &vpcapi.UsableAddress{
 				Address: &vpcapi.Address{Address: addr.(string)},
 				// AWS only assigns /128s?
@@ -264,10 +432,10 @@ func assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSe
 		}
 	}
 
-	ni, err := iface.GetNetworkInterface(ctx, time.Millisecond*100)
+	ni, err = iface.GetNetworkInterface(ctx, time.Millisecond*100)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	return assignAddresses(ctx, iface, ni, req, subnet, maxIPAddresses, false)
+	return vpcService.assignAddresses(ctx, iface, ni, req, subnet, maxIPAddresses, false)
 }

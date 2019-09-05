@@ -176,7 +176,10 @@ func (sessionManager *ec2SessionManager) getSession(ctx context.Context, region,
 	}
 	// This can race, but that's okay
 	instanceSession = &ec2BaseSession{}
-	config := aws.NewConfig().WithLogLevel(aws.LogDebugWithHTTPBody)
+	config := aws.NewConfig()
+
+	// TODO: Make behind flag
+	//  .WithLogLevel(aws.LogDebugWithHTTPBody)
 	if region != "" {
 		config.Region = &region
 	}

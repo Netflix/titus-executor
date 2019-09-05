@@ -67,14 +67,14 @@ message UtilizedAddress {
 
 message AssignIPRequest {
     CacheVersion cacheVersion = 1;
-    // This is optional. If it is not specified then we will assign a "random" IP to the interface
-    com.netflix.titus.SignedAddressAllocation signedAddressAllocation = 2;
     NetworkInterfaceAttachment networkInterfaceAttachment = 3;
     repeated string securityGroupIds = 4;
     bool ipv6AddressRequested = 5;
     repeated UtilizedAddress utilizedAddresses = 6;
     InstanceIdentity instanceIdentity = 7;
     bool allowSecurityGroupChange = 8;
+    // This is optional. If it is not specified then we will assign a "random" IP to the interface
+    repeated com.netflix.titus.SignedAddressAllocation signedAddressAllocations = 9;
 };
 
 message AssignIPResponse {
