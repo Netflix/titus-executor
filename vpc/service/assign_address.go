@@ -346,6 +346,8 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, iface ec2wrap
 		staticallyAllocatedAddressesSet.Add(net.ParseIP(ipAddress).String())
 	}
 
+	_ = tx.Commit()
+
 	span.AddAttributes(
 		trace.StringAttribute("assignedIPv4addresses", assignedIPv4addresses.String()),
 		trace.StringAttribute("assignedIPv6addresses", assignedIPv6addresses.String()),

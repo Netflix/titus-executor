@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
+	"github.com/pkg/errors"
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -142,22 +146,78 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		return nil, err
 	}
 
-	return gcInterface(ctx, ec2NetworkInterfaceSession, req, vpcService.gcTimeout)
+	return vpcService.gcInterface(ctx, ec2NetworkInterfaceSession, req, vpcService.gcTimeout)
 }
 
-func unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, addrsToRemoveSet set.Set, retryAllowed bool) error {
+func (vpcService *vpcService) unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, addrsToRemoveSet set.Set, retryAllowed bool) error {
 	if addrsToRemoveSet.Cardinality() == 0 {
 		return nil
 	}
+
+	session, err := ec2NetworkInterfaceSession.Session(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Could not get ec2 session")
+	}
+
 	ctx, span := trace.StartSpan(ctx, "unassignAddresses")
 	defer span.End()
 	span.AddAttributes(trace.BoolAttribute("retryAllowed", retryAllowed), trace.StringAttribute("addrsToRemove", addrsToRemoveSet.String()))
+
+	tx, err := vpcService.conn.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	addrsToRemove := setToStringSlice(addrsToRemoveSet)
+
+	rows, err := tx.QueryContext(ctx, "SELECT array_agg(ip_address), home_eni FROM ip_addresses WHERE host(ip_address) = any($1) GROUP BY home_eni", pq.Array(addrsToRemove))
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	// Ugh, I feel bad keeping the txn open so long
+	for rows.Next() {
+		var eni string
+		var staticIPAddresses []string
+		err = rows.Scan(pq.Array(&staticIPAddresses), &eni)
+		if err != nil {
+			return errors.Wrap(err, "Unable to fetch rows from db")
+		}
+		for idx := range staticIPAddresses {
+			addrsToRemoveSet.Remove(staticIPAddresses[idx])
+		}
+
+		logger.G(ctx).WithField("staticIPAddresses", staticIPAddresses).WithField("retryAllowed", retryAllowed).WithField("eni", eni).Info("relocating addrs")
+		assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
+			AllowReassignment:  aws.Bool(true),
+			NetworkInterfaceId: aws.String(eni),
+			PrivateIpAddresses: aws.StringSlice(staticIPAddresses),
+		}
+
+		_, err = ec2.New(session).AssignPrivateIpAddressesWithContext(ctx, &assignPrivateIPAddressesInput)
+		if err != nil {
+			return errors.Wrap(err, "Unable to relocate IP addresses")
+		}
+	}
+	_ = tx.Commit()
+	// There were only static addresses to remove, neat.
+	if addrsToRemoveSet.Cardinality() == 0 {
+		return nil
+	}
 
 	logger.G(ctx).WithField("addrsToRemove", addrsToRemoveSet.String()).WithField("retryAllowed", retryAllowed).Info("Removing addrs")
 	unassignPrivateIPAddressesInput := ec2.UnassignPrivateIpAddressesInput{
 		PrivateIpAddresses: aws.StringSlice(setToStringSlice(addrsToRemoveSet)),
 	}
-	_, err := ec2NetworkInterfaceSession.UnassignPrivateIPAddresses(ctx, unassignPrivateIPAddressesInput)
+	_, err = ec2NetworkInterfaceSession.UnassignPrivateIPAddresses(ctx, unassignPrivateIPAddressesInput)
 	if err == nil {
 		return nil
 	}
@@ -190,7 +250,7 @@ func unassignAddresses(ctx context.Context, ec2NetworkInterfaceSession ec2wrappe
 
 	currentIPv4AddressesSet := ifaceIPv4Set(iface)
 
-	return unassignAddresses(ctx, ec2NetworkInterfaceSession, currentIPv4AddressesSet.Intersect(addrsToRemoveSet), false)
+	return vpcService.unassignAddresses(ctx, ec2NetworkInterfaceSession, currentIPv4AddressesSet.Intersect(addrsToRemoveSet), false)
 }
 
 type gcCalculation struct {
@@ -287,7 +347,7 @@ func calculateGcInterface(ctx context.Context, iface *ec2.NetworkInterface, req 
 	}, nil
 }
 
-func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest, gcTimeout time.Duration) (*vpcapi.GCResponse, error) {
+func (vpcService *vpcService) gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2NetworkInterfaceSession, req *vpcapi.GCRequest, gcTimeout time.Duration) (*vpcapi.GCResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "gcInterface")
 	defer span.End()
 	iface, err := ec2NetworkInterfaceSession.GetNetworkInterface(ctx, time.Second*10)
@@ -307,7 +367,7 @@ func gcInterface(ctx context.Context, ec2NetworkInterfaceSession ec2wrapper.EC2N
 		"unallocatedAddressesSet": gcCalculation.unallocatedAddressesSet.String(),
 	})
 
-	err = unassignAddresses(ctx, ec2NetworkInterfaceSession, gcCalculation.ipsToFreeSet, true)
+	err = vpcService.unassignAddresses(ctx, ec2NetworkInterfaceSession, gcCalculation.ipsToFreeSet, true)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		logger.G(ctx).WithError(err).Error()

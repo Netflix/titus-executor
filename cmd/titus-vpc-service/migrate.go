@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"net"
 	"net/url"
 
 	"github.com/aws/aws-sdk-go/aws/defaults"
@@ -57,6 +58,10 @@ func dbURL(ctx context.Context, v *pkgviper.Viper) (string, error) {
 	rawurl, err := url.Parse(dburl)
 	if err != nil {
 		return "", err
+	}
+
+	if rawurl.Port() == "" {
+		rawurl.Host = net.JoinHostPort(rawurl.Host, "5432")
 	}
 
 	region := v.GetString("region")

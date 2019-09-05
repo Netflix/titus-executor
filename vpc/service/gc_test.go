@@ -127,11 +127,6 @@ func TestIPsToFree(t *testing.T) {
 	calculation, err := calculateGcInterface(ctx, iface, req, time.Minute*2)
 	assert.NilError(t, err)
 
-	calculatedAddressesToBump := []string{}
-	for val := range calculation.addressesToBumpSet.Iter() {
-		calculatedAddressesToBump = append(calculatedAddressesToBump, val.(string))
-	}
-
 	addressesToBump := sortStringSlice([]string{
 
 		// Bumped, because assigned to the interface, but not in the unallocated, nor allocated list
