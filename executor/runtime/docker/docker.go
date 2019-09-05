@@ -690,6 +690,10 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
 	}
 
+	if c.AllocationUUID != "" {
+		args = append(args, "--allocation-uuid", c.AllocationUUID)
+	}
+
 	assignIPv6Address, err := c.AssignIPv6Address()
 	if err != nil {
 		return err
