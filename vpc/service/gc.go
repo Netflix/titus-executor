@@ -163,7 +163,7 @@ func (vpcService *vpcService) unassignAddresses(ctx context.Context, ec2NetworkI
 	defer span.End()
 	span.AddAttributes(trace.BoolAttribute("retryAllowed", retryAllowed), trace.StringAttribute("addrsToRemove", addrsToRemoveSet.String()))
 
-	tx, err := vpcService.conn.BeginTx(ctx, &sql.TxOptions{
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
 	if err != nil {

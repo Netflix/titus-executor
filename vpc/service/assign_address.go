@@ -183,7 +183,7 @@ func (vpcService *vpcService) assignAddressesFromAllocations(ctx context.Context
 	ipv4Addresses := []net.IP{}
 	ipv4AddressesToAssign := []net.IP{}
 
-	tx, err := vpcService.conn.BeginTx(ctx, &sql.TxOptions{
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
 	if err != nil {
@@ -302,7 +302,7 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, iface ec2wrap
 	assignedIPv6addresses := set.NewSet()
 	assignedIPv4addresses.Add(net.ParseIP(*ni.PrivateIpAddress).String())
 
-	tx, err := vpcService.conn.BeginTx(ctx, &sql.TxOptions{
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
 	if err != nil {

@@ -40,7 +40,7 @@ type vpcService struct {
 	dummyInterfaceSessions map[string]ec2wrapper.EC2NetworkInterfaceSession
 	dummyInterfaces        map[string]*ec2.NetworkInterface
 
-	conn *sql.DB
+	db *sql.DB
 
 	authoritativePublicKey ed25519.PublicKey
 	hostPublicKeySignature []byte
@@ -50,7 +50,7 @@ type vpcService struct {
 	gcTimeout time.Duration
 }
 
-func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.PrivateKey, gcTimeout time.Duration) error {
+func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, gcTimeout time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
@@ -85,10 +85,10 @@ func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.Pr
 
 	// TODO: actually validate this
 	ed25519key := ed25519.NewKeyFromSeed(key.GetEd25519Key().Rfc8032Key)
-	if conn != nil {
+	if db != nil {
 		longLivedPublicKey := ed25519key.Public().(ed25519.PublicKey)
 
-		rows, err := conn.QueryContext(ctx, "SELECT hostname, created_at FROM trusted_public_keys WHERE keytype='ed25519' AND key = $1", longLivedPublicKey)
+		rows, err := db.QueryContext(ctx, "SELECT hostname, created_at FROM trusted_public_keys WHERE keytype='ed25519' AND key = $1", longLivedPublicKey)
 		if err != nil {
 			return errors.Wrap(err, "Could not fetch trusted public keys")
 		}
@@ -118,7 +118,7 @@ func Run(ctx context.Context, listener net.Listener, conn *sql.DB, key vpcapi.Pr
 		ec2:                    ec2wrapper.NewEC2SessionManager(),
 		dummyInterfaceSessions: make(map[string]ec2wrapper.EC2NetworkInterfaceSession),
 		dummyInterfaces:        make(map[string]*ec2.NetworkInterface),
-		conn:                   conn,
+		db:                     db,
 
 		authoritativePublicKey: ed25519key.Public().(ed25519.PublicKey),
 		hostPrivateKey:         privateKey,

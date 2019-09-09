@@ -240,7 +240,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 
 	logger.G(ctx).WithField("networkInterfaceId", aws.StringValue(dummyNetworkInterface.NetworkInterfaceId)).Info("Got network interface")
 
-	tx, err := vpcService.conn.BeginTx(ctx, &sql.TxOptions{})
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not start database transaction")
 	}
@@ -347,10 +347,10 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 	var err error
 	switch v := rq.GetSearchParameter().(type) {
 	case *titus.GetAllocationRequest_Address:
-		rows, err = vpcService.conn.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address FROM ip_addresses WHERE ip_address = $1", v.Address)
+		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address FROM ip_addresses WHERE ip_address = $1", v.Address)
 
 	case *titus.GetAllocationRequest_Uuid:
-		rows, err = vpcService.conn.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address FROM ip_addresses WHERE id = $1", v.Uuid)
+		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address FROM ip_addresses WHERE id = $1", v.Uuid)
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not run SQL query")
