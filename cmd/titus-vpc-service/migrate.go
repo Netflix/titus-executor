@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"net"
 	"net/url"
+
+	"github.com/lib/pq"
 
 	"github.com/aws/aws-sdk-go/aws/defaults"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
@@ -50,14 +53,42 @@ func migrateCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 	return cmd
 }
 
-func dbURL(ctx context.Context, v *pkgviper.Viper) (string, error) {
+type connectorWrapper struct {
+	url    *url.URL
+	region string
+}
+
+func (cw *connectorWrapper) Connect(context.Context) (driver.Conn, error) {
+	// Copy the URL struct, so we don't cause concurrency problems
+	rawurl := *cw.url
+
+	authtoken, err := rdsutils.BuildAuthToken(rawurl.Host, cw.region, rawurl.User.Username(), defaults.Get().Config.Credentials)
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not build auth token")
+	}
+	rawurl.User = url.UserPassword(rawurl.User.Username(), authtoken)
+	return pq.Open(rawurl.String())
+}
+
+func (cw *connectorWrapper) Driver() driver.Driver {
+	panic("Should not be called")
+}
+
+func newConnection(ctx context.Context, v *pkgviper.Viper) (*sql.DB, error) {
 	dburl := v.GetString("dburl")
 	if !v.GetBool("dbiam") {
-		return dburl, nil
+		logger.G(ctx).WithField("url", dburl).Debug("Connecting to database via URL")
+		connector, err := pq.NewConnector(dburl)
+		if err != nil {
+			return nil, err
+		}
+
+		return sql.OpenDB(connector), nil
 	}
+
 	rawurl, err := url.Parse(dburl)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if rawurl.Port() == "" {
@@ -69,24 +100,12 @@ func dbURL(ctx context.Context, v *pkgviper.Viper) (string, error) {
 		md := ec2metadata.New(session.Must(session.NewSession()))
 		region, err = md.Region()
 		if err != nil {
-			return "", errors.Wrap(err, "Unable to retrieve region from IMDS")
+			return nil, errors.Wrap(err, "Unable to retrieve region from IMDS")
 		}
 	}
 
-	authtoken, err := rdsutils.BuildAuthToken(rawurl.Host, region, rawurl.User.Username(), defaults.Get().Config.Credentials)
-	if err != nil {
-		return "", errors.Wrap(err, "Could not build auth token")
-	}
-
-	rawurl.User = url.UserPassword(rawurl.User.Username(), authtoken)
-	return rawurl.String(), nil
-}
-
-func newConnection(ctx context.Context, v *pkgviper.Viper) (*sql.DB, error) {
-	dburl, err := dbURL(ctx, v)
-	if err != nil {
-		return nil, err
-	}
-	logger.G(ctx).WithField("url", dburl).Debug("Connecting to database via URL")
-	return sql.Open("postgres", dburl)
+	return sql.OpenDB(&connectorWrapper{
+		url:    rawurl,
+		region: region,
+	}), nil
 }

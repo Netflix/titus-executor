@@ -139,6 +139,7 @@ type Container struct {
 	Allocation         vpcTypes.Allocation
 	NormalizedENIIndex int
 	BandwidthLimitMbps uint32
+	AllocationUUID     string
 
 	// Is this container meant to run SystemD?
 	IsSystemD bool

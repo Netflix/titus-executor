@@ -80,6 +80,10 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 		c.NormalizedENIIndex = titusENIIndex + 1
 	}
 
+	if titusInfo.SignedAddressAllocation != nil {
+		c.AllocationUUID = titusInfo.SignedAddressAllocation.AddressAllocation.Uuid
+	}
+
 	return c
 }
 
