@@ -32,8 +32,9 @@ import (
 )
 
 const (
-	statsdAddrFlagName = "statsd-addr"
-	zipkinURLFlagName  = "zipkin"
+	statsdAddrFlagName   = "statsd-addr"
+	zipkinURLFlagName    = "zipkin"
+	debugAddressFlagName = "debug-address"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -186,7 +187,7 @@ func main() {
 	rootCmd.Flags().String("address", ":7001", "Listening address")
 	rootCmd.Flags().String("signingkey", "", "The (file) location of the root signing key")
 	rootCmd.Flags().Duration("gc-timeout", 2*time.Minute, "How long must an IP be idle before we reclaim it")
-	rootCmd.PersistentFlags().String("debug-address", ":7003", "Address for zpages, pprof")
+	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
@@ -207,6 +208,10 @@ func main() {
 	}
 
 	if err := v.BindEnv(zipkinURLFlagName, "ZIPKIN"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(debugAddressFlagName, "DEBUG_ADDRESS"); err != nil {
 		panic(err)
 	}
 
