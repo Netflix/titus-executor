@@ -190,6 +190,15 @@ func shouldStartMetatronSync(cfg *config.Config, c *runtimeTypes.Container) bool
 	return false
 }
 
+func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool {
+	if cfg.ContainerServiceMeshImage == "" {
+		return false
+	}
+
+	enabled, _ := c.GetServiceMeshEnabled()
+	return enabled
+}
+
 // NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
 var NoEntrypointError = &runtimeTypes.BadEntryPointError{Reason: errors.New("Image, and job have no entrypoint, or command")}
 
@@ -910,6 +919,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string, startTime time.Time) error { // nolint: gocyclo
 	var logViewerContainerName string
 	var metatronContainerName string
+	var serviceMeshContainerName string
 	var sshdContainerName string
 	var volumeContainers []string
 
@@ -984,6 +994,17 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			containerName: &logViewerContainerName,
 			volumes: map[string]struct{}{
 				"/titus/adminlogs": {},
+			},
+		}))
+	}
+
+	if shouldStartServiceMesh(&r.cfg, c) {
+		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+			serviceName:   "servicemesh",
+			image:         r.cfg.ContainerServiceMeshImage,
+			containerName: &serviceMeshContainerName,
+			volumes: map[string]struct{}{
+				"/titus/servicemesh": {},
 			},
 		}))
 	}

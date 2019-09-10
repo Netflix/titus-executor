@@ -91,6 +91,12 @@ var systemServices = []serviceOpts{
 			return cfg.ContainerLogViewer
 		},
 	},
+	{
+		humanName: "service mesh",
+		unitName:  "titus-servicemesh",
+		required:  true,
+		enabledCheck: shouldStartServiceMesh,
+	},
 }
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
