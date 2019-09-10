@@ -235,6 +235,7 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 func NewJobRunner(jobInput *JobInput) *JobRunner {
 	cfg, dockerCfg := GenerateConfigs(jobInput)
 
+	log.SetLevel(log.DebugLevel)
 	// Create an executor
 	logUploaders, err := uploader.NewUploaders(cfg, metrics.Discard)
 	if err != nil {
