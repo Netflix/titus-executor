@@ -28,6 +28,7 @@ const (
 	FuseEnabledParam             = "titusParameter.agent.fuseEnabled"
 	KvmEnabledParam              = "titusParameter.agent.kvmEnabled"
 	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
+	serviceMeshEnabledParam      = "titusParameter.agent.service.serviceMeshEnabled"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
@@ -325,6 +326,20 @@ func (c *Container) AssignIPv6Address() (bool, error) {
 		return false, nil
 	}
 	val, err := strconv.ParseBool(assignIPv6AddressStr)
+	if err != nil {
+		return false, err
+	}
+
+	return val, nil
+}
+
+// GetServiceMeshEnabled should the service mesh system service be enabled?
+func (c *Container) GetServiceMeshEnabled() (bool, error) {
+	enabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[serviceMeshEnabledParam]
+	if !ok {
+		return false, nil
+	}
+	val, err := strconv.ParseBool(enabledStr)
 	if err != nil {
 		return false, err
 	}
