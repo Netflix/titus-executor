@@ -82,6 +82,13 @@ type Config struct { // nolint: maligned
 	enableTitusIsolateBlock bool
 }
 
+type volumeContainerConfig struct {
+	serviceName   string
+	image         string
+	containerName *string
+	volumes       map[string]struct{}
+}
+
 // NewConfig generates a configuration, with a set of flags tied to it for the docker runtime
 func NewConfig() (*Config, []cli.Flag) {
 	cfg := &Config{}
@@ -805,40 +812,31 @@ func cleanContainerName(prefix string, imageName string) string {
 	return prefix + "-" + noSlashes
 }
 
-func (r *DockerRuntime) doSetupMetatronContainer(ctx context.Context, containerName *string) error {
-	cfg := &container.Config{
-		Hostname: "titus-metatron",
-		Volumes: map[string]struct{}{
-			"/titus/metatron": {},
-		},
-		Entrypoint: []string{"/bin/bash"},
-		Image:      r.cfg.ContainerMetatronImage,
-	}
-	hostConfig := &container.HostConfig{
-		NetworkMode: "none",
-	}
+// createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
+func (r *DockerRuntime) createVolumeContainerFunc(ctx context.Context, l *log.Entry, vCfg *volumeContainerConfig) func() error {
+	return func() error {
+		l.Infof("Setting up %s container", vCfg.serviceName)
+		cfg := &container.Config{
+			Hostname:   fmt.Sprintf("titus-%s", vCfg.serviceName),
+			Volumes:    vCfg.volumes,
+			Entrypoint: []string{"/bin/bash"},
+			Image:      vCfg.image,
+		}
+		hostConfig := &container.HostConfig{
+			NetworkMode: "none",
+		}
 
-	return r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
-}
+		createErr := r.createVolumeContainer(ctx, l, vCfg.containerName, cfg, hostConfig)
+		if createErr != nil {
+			return errors.Wrapf(createErr, "Unable to setup %s container", vCfg.serviceName)
+		}
 
-func (r *DockerRuntime) doSetupSSHdContainer(ctx context.Context, containerName *string) error {
-	cfg := &container.Config{
-		Hostname: "titus-sshd",
-		Volumes: map[string]struct{}{
-			"/titus/sshd": {},
-		},
-		Entrypoint: []string{"/bin/bash"},
-		Image:      r.cfg.ContainerSSHDImage,
+		return nil
 	}
-	hostConfig := &container.HostConfig{
-		NetworkMode: "none",
-	}
-
-	return r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
 }
 
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
-func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
+func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
 	image := cfg.Image
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
@@ -846,7 +844,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 	}
 
 	imageSpecifiedByTag := !strings.Contains(image, "@")
-	logger := log.WithField("hostName", cfg.Hostname).WithField("imageName", image)
+	logger := l.WithField("hostName", cfg.Hostname).WithField("imageName", image)
 
 	if tmpImageInfo == nil || imageSpecifiedByTag {
 		logger.WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
@@ -906,6 +904,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string, startTime time.Time) error { // nolint: gocyclo
+	var logViewerContainerName string
 	var metatronContainerName string
 	var sshdContainerName string
 	var volumeContainers []string
@@ -955,26 +954,34 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	})
 
 	if shouldStartMetatronSync(&r.cfg, c) {
-		group.Go(func() error {
-			l.Info("Setting up metatron container")
-			mSetupErr := r.doSetupMetatronContainer(ctx, &metatronContainerName)
-			if mSetupErr != nil {
-				return errors.Wrap(mSetupErr, "Unable to setup metatron container")
-			}
-
-			return nil
-		})
+		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+			serviceName:   "metatron",
+			image:         r.cfg.ContainerMetatronImage,
+			containerName: &metatronContainerName,
+			volumes: map[string]struct{}{
+				"/titus/metatron": {},
+			},
+		}))
 	}
 	if r.cfg.ContainerSSHD {
-		group.Go(func() error {
-			l.Info("Setting up SSHd container")
-			sshdSetuperr := r.doSetupSSHdContainer(ctx, &sshdContainerName)
-			if sshdSetuperr != nil {
-				return errors.Wrap(sshdSetuperr, "Unable to setup SSHd container")
-			}
-
-			return nil
-		})
+		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+			serviceName:   "sshd",
+			image:         r.cfg.ContainerSSHDImage,
+			containerName: &sshdContainerName,
+			volumes: map[string]struct{}{
+				"/titus/sshd": {},
+			},
+		}))
+	}
+	if r.cfg.ContainerLogViewer {
+		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+			serviceName:   "logviewer",
+			image:         r.cfg.ContainerLogViewerImage,
+			containerName: &logViewerContainerName,
+			volumes: map[string]struct{}{
+				"/titus/logviewer": {},
+			},
+		}))
 	}
 
 	if r.cfg.UseNewNetworkDriver {
@@ -1018,6 +1025,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 	if sshdContainerName != "" {
 		volumeContainers = append(volumeContainers, sshdContainerName)
+	}
+	if logViewerContainerName != "" {
+		volumeContainers = append(volumeContainers, logViewerContainerName)
 	}
 
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, volumeContainers)

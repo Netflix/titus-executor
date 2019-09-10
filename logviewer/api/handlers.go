@@ -40,7 +40,8 @@ func LogHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string) {
-	containerLogsRoot := filepath.Join(conf.ContainersHome, containerID, "logs")
+	containerLogsRoot := buildLogLocationBase(containerID)
+
 	filePath, err := securejoin.SecureJoin(containerLogsRoot, fileName)
 	log.Infof("Joined log file %s and %s", containerLogsRoot, filePath)
 	if err != nil {
@@ -82,7 +83,7 @@ func buildVirtualFileMapping(containerID, uriFileName string) map[string]virtual
 			continue
 		}
 
-		diskFileName := filepath.Join(conf.ContainersHome, containerID, "logs", path.Dir(uriFileName), potentialStdioName)
+		diskFileName := filepath.Join(buildLogLocationBase(containerID), path.Dir(uriFileName), potentialStdioName)
 		xattrList, err := xattr.ListXattrs(diskFileName)
 		if err != nil {
 			log.Warningf("Could not fetch xattr list for %s, because %v, not adding to virtual file table", diskFileName, err)
@@ -117,7 +118,7 @@ func maybeVirtualFileStdioLogHandler(w http.ResponseWriter, r *http.Request, con
 
 	offset, length, err := filesystems.FetchStartAndLen(mapping.xattrKey, fout)
 	if err != nil {
-		log.Errorf("Error getting virtual offest for %s -- %s because %v", fout.Name(), mapping.xattrKey, err)
+		log.Errorf("Error getting virtual offset for %s -- %s because %v", fout.Name(), mapping.xattrKey, err)
 		return err
 	}
 
@@ -165,6 +166,10 @@ func ListLogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	containerID := matchResult[1]
+	if conf.RunningInContainer && containerID != conf.ContainerID {
+		http.Error(w, "Unknown container", 404)
+		return
+	}
 	dirName := buildLogLocationBase(containerID)
 
 	fileList := []string{}
@@ -218,7 +223,11 @@ func writeResponse(w io.Writer, containerID string, fileList []string) error {
 }
 
 func buildLogLocationBase(containerID string) string {
-	return conf.ContainersHome + "/" + containerID + "/logs/"
+	if conf.RunningInContainer {
+		return "/logs"
+	}
+
+	return filepath.Join(conf.ContainersHome, containerID, "/logs")
 }
 
 func buildLink(containerID, fileName string) string {
