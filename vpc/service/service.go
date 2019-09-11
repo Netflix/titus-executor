@@ -20,7 +20,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -30,6 +32,36 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 )
+
+var (
+	methodTag     = tag.MustNewKey("method")
+	returnCodeTag = tag.MustNewKey("returnCode")
+)
+
+var (
+	grpcRequest   = stats.Int64("grpcRequest", "Statistics about gRPC requests", "")
+	grpcRequestNs = stats.Int64("grpcRequestNs", "Time of gRPC Request", "ns")
+)
+
+func init() {
+	if err := view.Register(
+		&view.View{
+			Name:        grpcRequest.Name(),
+			Description: grpcRequest.Description(),
+			Measure:     grpcRequest,
+			Aggregation: view.Count(),
+			TagKeys:     []tag.Key{methodTag, returnCodeTag},
+		},
+		&view.View{
+			Name:        grpcRequestNs.Name(),
+			Description: grpcRequestNs.Description(),
+			Measure:     grpcRequestNs,
+			Aggregation: view.Distribution(),
+			TagKeys:     []tag.Key{methodTag, returnCodeTag},
+		}); err != nil {
+		panic(err)
+	}
+}
 
 type vpcService struct {
 	// We hope this is globally unique
@@ -50,6 +82,30 @@ type vpcService struct {
 	gcTimeout time.Duration
 }
 
+func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	ctx, err := tag.New(ctx, tag.Upsert(methodTag, info.FullMethod))
+	if err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	result, err := handler(ctx, req)
+
+	st, _ := status.FromError(err)
+	duration := time.Since(start)
+	logger.G(ctx).WithField("method", info.FullMethod).WithField("statusCode", st.Code().String()).WithField("duration", duration.String()).Info("Finished unary call")
+
+	ctx2, err2 := tag.New(ctx, tag.Upsert(methodTag, st.Code().String()))
+	if err2 != nil {
+		return result, err
+	}
+
+	stats.Record(ctx2, grpcRequestNs.M(duration.Nanoseconds()))
+	stats.Record(ctx2, grpcRequest.M(1))
+
+	return result, err
+}
+
 func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, gcTimeout time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -67,6 +123,7 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 		grpc_middleware.WithUnaryServerChain(
 			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
 			grpc_logrus.UnaryServerInterceptor(logrusEntry),
+			unaryMetricsHandler,
 		),
 		grpc_middleware.WithStreamServerChain(
 			grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),

@@ -170,6 +170,10 @@ func (sessionManager *ec2SessionManager) getSession(ctx context.Context, region,
 		return instanceSession, nil
 	}
 
+	ctx, span := trace.StartSpan(ctx, "describer")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("accountID", accountID), trace.StringAttribute("region", region))
+
 	myIdentity, err := sessionManager.getCallerIdentity(ctx)
 	if err != nil {
 		return nil, err
@@ -282,7 +286,7 @@ func (sessionManager *ec2SessionManager) GetSessionFromNetworkInterface(ctx cont
 }
 
 func (sessionManager *ec2SessionManager) GetSessionFromInstanceIdentity(ctx context.Context, instanceIdentity *vpcapi.InstanceIdentity) (EC2InstanceSession, error) {
-	logger.G(ctx).WithField("instanceIdentity", instanceIdentity).Info("Trying to get session")
+	logger.G(ctx).WithField("instanceIdentity", instanceIdentity).Debug("Trying to get session")
 	session, err := sessionManager.getSession(ctx, instanceIdentity.Region, instanceIdentity.AccountID)
 	if err != nil {
 		return nil, err

@@ -7,7 +7,6 @@ replace github.com/docker/docker => github.com/docker/engine v0.0.0-201904081509
 require (
 	contrib.go.opencensus.io/exporter/zipkin v0.1.1
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
-	github.com/DataDog/datadog-go v2.2.0+incompatible // indirect
 	github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
 	github.com/Microsoft/go-winio v0.4.11 // indirect
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
@@ -41,13 +40,13 @@ require (
 	github.com/lib/pq v1.2.0
 	github.com/mesos/mesos-go v0.0.0-20161004192122-7228b13084ce
 	github.com/myitcv/gobin v0.0.9
+	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/opencontainers/runc v0.0.0-20180125150909-c4e4bb0df2fc
 	github.com/opencontainers/runtime-spec v1.0.1 // indirect
 	github.com/openzipkin/zipkin-go v0.1.6
 	github.com/pborman/uuid v0.0.0-20150824212802-cccd189d45f7
-	github.com/philhofer/fwd v1.0.0 // indirect
 	github.com/pkg/errors v0.8.1
 	github.com/rogpeppe/go-internal v1.3.0 // indirect
 	github.com/sirupsen/logrus v1.4.2
@@ -56,22 +55,19 @@ require (
 	github.com/spf13/pflag v1.0.3
 	github.com/spf13/viper v1.0.2
 	github.com/stretchr/objx v0.2.0 // indirect
-	github.com/stretchr/testify v1.3.0
-	github.com/tinylib/msgp v1.1.0 // indirect
+	github.com/stretchr/testify v1.4.0
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6
 	github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
-	go.opencensus.io v0.22.0
+	go.opencensus.io v0.22.1
 	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
-	golang.org/x/net v0.0.0-20190613194153-d28f0bde5980 // indirect
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 	golang.org/x/sys v0.0.0-20190616124812-15dcb6c0061f
 	golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
 	google.golang.org/appengine v1.5.0 // indirect
 	google.golang.org/genproto v0.0.0-20190605220351-eb0b1bdb6ae6 // indirect
-	google.golang.org/grpc v1.21.1
-	gopkg.in/DataDog/dd-trace-go.v1 v1.14.0 // indirect
+	google.golang.org/grpc v1.23.0
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gotest.tools v2.2.0+incompatible

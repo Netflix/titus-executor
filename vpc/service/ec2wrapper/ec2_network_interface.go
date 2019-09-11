@@ -10,13 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/status"
-)
-
-var (
-	keyInterface = tag.MustNewKey("interfaceId")
 )
 
 var (
@@ -49,10 +44,6 @@ func (s *ec2NetworkInterfaceSession) GetNetworkInterface(ctx context.Context, de
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("deadline", deadline.String()))
 	start := time.Now()
-	ctx, err := tag.New(ctx, tag.Upsert(keyInterface, s.networkInterface.networkInterfaceID()))
-	if err != nil {
-		return nil, err
-	}
 
 	span.AddAttributes(trace.StringAttribute("eni", s.networkInterface.networkInterfaceID()))
 	stats.Record(ctx, getInterfaceCount.M(1))
