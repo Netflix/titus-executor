@@ -144,6 +144,8 @@ github.com/golang-migrate/migrate/database
 github.com/golang-migrate/migrate/source
 # github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 github.com/golang/glog
+# github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6
+github.com/golang/groupcache/lru
 # github.com/golang/mock v1.3.1
 github.com/golang/mock/gomock
 # github.com/golang/protobuf v1.3.1
@@ -332,6 +334,8 @@ github.com/nbutton23/zxcvbn-go/adjacency
 github.com/nbutton23/zxcvbn-go/entropy
 github.com/nbutton23/zxcvbn-go/frequency
 github.com/nbutton23/zxcvbn-go/data
+# github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
+github.com/netflix-skunkworks/opencensus-go-exporter-datadog
 # github.com/opencontainers/go-digest v1.0.0-rc1
 github.com/opencontainers/go-digest
 # github.com/opencontainers/image-spec v1.0.1
@@ -383,7 +387,7 @@ github.com/spf13/jwalterweatherman
 github.com/spf13/pflag
 # github.com/spf13/viper v1.0.2
 github.com/spf13/viper
-# github.com/stretchr/testify v1.3.0
+# github.com/stretchr/testify v1.4.0
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
 # github.com/timakin/bodyclose v0.0.0-20190407043127-4a873e97b2bb
@@ -400,7 +404,7 @@ github.com/vishvananda/netlink/nl
 github.com/vishvananda/netns
 # github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 github.com/wercker/journalhook
-# go.opencensus.io v0.22.0
+# go.opencensus.io v0.22.1
 go.opencensus.io/stats/view
 go.opencensus.io/trace
 go.opencensus.io/zpages
@@ -421,7 +425,7 @@ go.opencensus.io
 # golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
 golang.org/x/crypto/ed25519
 golang.org/x/crypto/ed25519/internal/edwards25519
-# golang.org/x/net v0.0.0-20190613194153-d28f0bde5980
+# golang.org/x/net v0.0.0-20190620200207-3b0461eec859
 golang.org/x/net/trace
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
@@ -494,7 +498,7 @@ golang.org/x/tools/go/analysis/passes/ctrlflow
 golang.org/x/tools/go/cfg
 # google.golang.org/genproto v0.0.0-20190605220351-eb0b1bdb6ae6
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/grpc v1.21.1
+# google.golang.org/grpc v1.23.0
 google.golang.org/grpc
 google.golang.org/grpc/keepalive
 google.golang.org/grpc/codes
@@ -523,6 +527,7 @@ google.golang.org/grpc/peer
 google.golang.org/grpc/resolver
 google.golang.org/grpc/resolver/dns
 google.golang.org/grpc/resolver/passthrough
+google.golang.org/grpc/serviceconfig
 google.golang.org/grpc/stats
 google.golang.org/grpc/tap
 google.golang.org/grpc/reflection/grpc_reflection_v1alpha
@@ -530,7 +535,7 @@ google.golang.org/grpc/balancer/base
 google.golang.org/grpc/credentials/internal
 google.golang.org/grpc/binarylog/grpc_binarylog_v1
 google.golang.org/grpc/internal/syscall
-# gopkg.in/DataDog/dd-trace-go.v1 v1.14.0
+# gopkg.in/DataDog/dd-trace-go.v1 v1.17.0
 gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext
 # gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 gopkg.in/alessio/shellescape.v1

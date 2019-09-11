@@ -15,10 +15,10 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
-	datadog "github.com/Datadog/opencensus-go-exporter-datadog"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/logsutil"
 	"github.com/Netflix/titus-executor/vpc/service"
+	datadog "github.com/netflix-skunkworks/opencensus-go-exporter-datadog"
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	"github.com/pkg/errors"
@@ -95,6 +95,8 @@ func main() {
 					OnError: func(ddErr error) {
 						logger.G(ctx).WithError(ddErr).Error("Error exporting metrics")
 					},
+					Buffered:              true,
+					MaxMessagesPerPayload: 1024,
 				})
 				if err != nil {
 					return errors.Wrap(err, "Failed to create the Datadog exporter")

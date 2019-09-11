@@ -7,7 +7,7 @@ import (
 )
 
 func init() {
-	registerMetrics([]tag.Key{keyInterface}, getInterfaceMs, getInterfaceCount, getInterfaceSuccess)
+	registerMetrics([]tag.Key{}, getInterfaceMs, getInterfaceCount, getInterfaceSuccess)
 	registerMetrics([]tag.Key{keyInstance}, invalidateInstanceFromCache, storedInstanceInCache, getInstanceFromCache, getInstanceFromCacheSuccess, getInstanceMs, getInstanceCount, getInstanceSuccess)
 	if err := view.Register(&view.View{
 		Name:        batchWaitPeriod.Name(),

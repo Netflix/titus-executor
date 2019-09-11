@@ -9,9 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -23,7 +20,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -51,12 +50,14 @@ func init() {
 			Description: grpcRequest.Description(),
 			Measure:     grpcRequest,
 			Aggregation: view.Count(),
+			TagKeys:     []tag.Key{methodTag, returnCodeTag},
 		},
 		&view.View{
 			Name:        grpcRequestNs.Name(),
 			Description: grpcRequestNs.Description(),
 			Measure:     grpcRequestNs,
 			Aggregation: view.Distribution(),
+			TagKeys:     []tag.Key{methodTag, returnCodeTag},
 		}); err != nil {
 		panic(err)
 	}
@@ -82,13 +83,25 @@ type vpcService struct {
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	ctx, err := tag.New(ctx, tag.Upsert(methodTag, info.FullMethod))
+	if err != nil {
+		return nil, err
+	}
+
 	start := time.Now()
 	result, err := handler(ctx, req)
 
 	st, _ := status.FromError(err)
-	stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(methodTag, info.FullMethod), tag.Upsert(returnCodeTag, st.Code().String())}, grpcRequest.M(1))
 	duration := time.Since(start)
-	stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(methodTag, info.FullMethod), tag.Upsert(returnCodeTag, st.Code().String())}, grpcRequestNs.M(duration.Nanoseconds()))
+	logger.G(ctx).WithField("method", info.FullMethod).WithField("statusCode", st.Code().String()).WithField("duration", duration.String()).Info("Finished unary call")
+
+	ctx2, err2 := tag.New(ctx, tag.Upsert(methodTag, st.Code().String()))
+	if err2 != nil {
+		return result, err
+	}
+
+	stats.Record(ctx2, grpcRequestNs.M(duration.Nanoseconds()))
+	stats.Record(ctx2, grpcRequest.M(1))
 
 	return result, err
 }
