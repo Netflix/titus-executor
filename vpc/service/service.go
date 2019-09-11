@@ -9,6 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -31,6 +34,34 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var (
+	methodTag     = tag.MustNewKey("method")
+	returnCodeTag = tag.MustNewKey("returnCode")
+)
+
+var (
+	grpcRequest   = stats.Int64("grpcRequest", "Statistics about gRPC requests", "")
+	grpcRequestNs = stats.Int64("grpcRequestNs", "Time of gRPC Request", "ns")
+)
+
+func init() {
+	if err := view.Register(
+		&view.View{
+			Name:        grpcRequest.Name(),
+			Description: grpcRequest.Description(),
+			Measure:     grpcRequest,
+			Aggregation: view.Count(),
+		},
+		&view.View{
+			Name:        grpcRequestNs.Name(),
+			Description: grpcRequestNs.Description(),
+			Measure:     grpcRequestNs,
+			Aggregation: view.Distribution(),
+		}); err != nil {
+		panic(err)
+	}
+}
+
 type vpcService struct {
 	// We hope this is globally unique
 	hostname string
@@ -50,6 +81,18 @@ type vpcService struct {
 	gcTimeout time.Duration
 }
 
+func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	start := time.Now()
+	result, err := handler(ctx, req)
+
+	st, _ := status.FromError(err)
+	stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(methodTag, info.FullMethod), tag.Upsert(returnCodeTag, st.Code().String())}, grpcRequest.M(1))
+	duration := time.Since(start)
+	stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(methodTag, info.FullMethod), tag.Upsert(returnCodeTag, st.Code().String())}, grpcRequestNs.M(duration.Nanoseconds()))
+
+	return result, err
+}
+
 func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, gcTimeout time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -67,6 +110,7 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 		grpc_middleware.WithUnaryServerChain(
 			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
 			grpc_logrus.UnaryServerInterceptor(logrusEntry),
+			unaryMetricsHandler,
 		),
 		grpc_middleware.WithStreamServerChain(
 			grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
