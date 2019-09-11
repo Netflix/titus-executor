@@ -18,6 +18,9 @@ github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07 h1:F5H05
 github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07/go.mod h1:dKY6lNcNBfC6gYy4CpGw9iQ9Qgvcn+g46Diu21Co81k=
 github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190821104755-2eaaac3afbd0 h1:l42BBEogloN+9WCM/LpsiJS1KQ6hnfzQHVP18vBxoSE=
 github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190821104755-2eaaac3afbd0/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
+github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190911181310-c0c05b4a87a5 h1:9FTOskRaGWsd4QSJCcKfJ+mBmKs2Bxa9nttsrOHtbDg=
+github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190911181310-c0c05b4a87a5/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
+github.com/Netflix/titus-api-definitions v0.0.1-rc9 h1:iGRy3SeFdM+21OqoqdDfRlMtFDOjYOpRIJT7uYUCFkQ=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/OpenPeeDeeP/depguard v0.0.0-20180806142446-a69c782687b2 h1:HTOmFEEYrWi4MW5ZKUx6xfeyM10Sx3kQF65xiQJMPYA=

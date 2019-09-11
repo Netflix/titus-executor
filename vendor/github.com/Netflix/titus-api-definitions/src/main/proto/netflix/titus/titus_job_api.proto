@@ -596,6 +596,25 @@ message JobChangeNotification {
 }
 
 // ----------------------------------------------------------------------------
+// Data model used in the durable storage.
+
+message JobDataRecord {
+
+    DataRecordMetadata metadata = 1;
+
+    Job job = 2;
+}
+
+message TaskDataRecord {
+
+    DataRecordMetadata metadata = 1;
+
+    Job job = 2;
+
+    Task task = 3;
+}
+
+// ----------------------------------------------------------------------------
 // GRPC services
 //
 // The data structures below are wrapper messages that are not part of the
@@ -609,6 +628,8 @@ message JobIds {
     repeated string id = 1;
 }
 
+// Job query request. The query result is limited to the active data set. Finished jobs/tasks are not evaluated
+// when the query is executed.
 message JobQuery {
     /// (Required) Requested page number/size.
     Page page = 1;
@@ -725,6 +746,8 @@ message TaskIds {
     repeated string id = 1;
 }
 
+// Task query request. The query result is limited to the active data set. Finished jobs/tasks are not evaluated
+// when the query is executed.
 message TaskQuery {
     /// (Required) Requested page number/size.
     Page page = 1;
@@ -765,6 +788,11 @@ message TaskKillRequest {
 
     /// (Optional) Should job size be reduced
     bool shrink = 2;
+
+    // (Optional) If set to true, and this is a terminate and shrink request ('shrink' set to true), reject
+    // the kill request if it would cause the job size go below the current minimum size. Otherwise, the job
+    // size minimum size is decremented by 1.
+    bool preventMinSizeUpdate = 3;
 }
 
 message TaskAttributesUpdate {
@@ -802,9 +830,8 @@ service JobManagementService {
     }
 
     /// Modify job capacity for a service job. It allows you to specify only values (min / max / desired) that need to be updated.
-    rpc UpdateJobCapacityWithOptionalAttributes(JobCapacityUpdateWithOptionalAttributes) returns (google.protobuf.Empty) {
+    rpc UpdateJobCapacityWithOptionalAttributes (JobCapacityUpdateWithOptionalAttributes) returns (google.protobuf.Empty) {
     }
-
 
     /// Mark a job as enabled or disabled. Disabled jobs are not auto-scaled.
     rpc UpdateJobStatus (JobStatusUpdate) returns (google.protobuf.Empty) {
@@ -818,7 +845,8 @@ service JobManagementService {
     rpc UpdateJobDisruptionBudget (JobDisruptionBudgetUpdate) returns (google.protobuf.Empty) {
     }
 
-    /// Return a collection of jobs matching a given criteria.
+    // Return a collection of jobs matching the given criteria. The query result is limited to the active data set.
+    // Finished jobs/tasks are not evaluated when the query is executed.
     rpc FindJobs (JobQuery) returns (JobQueryResult) {
     }
 
@@ -855,7 +883,8 @@ service JobManagementService {
     rpc FindTask (TaskId) returns (Task) {
     }
 
-    /// Return a collection of tasks belonging to a job specified in the 'TaskQuery' request matching a given criteria.
+    // Return a collection of tasks specified in the 'TaskQuery' request matching the given criteria. The query result is
+    // limited to the active data set. Finished jobs/tasks are not evaluated when the query is executed.
     rpc FindTasks (TaskQuery) returns (TaskQueryResult) {
     }
 

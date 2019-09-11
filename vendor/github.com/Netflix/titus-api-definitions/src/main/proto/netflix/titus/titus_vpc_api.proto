@@ -32,10 +32,22 @@ message GetAllocationRequest {
 
 message GetAllocationResponse {
     AddressAllocation addressAllocation = 1;
+    SignedAddressAllocation signedAddressAllocation = 2;
 };
 
 service UserIPService {
     // Static IP Address flow
     rpc AllocateAddress (AllocateAddressRequest) returns (AllocateAddressResponse);
     rpc GetAllocation (GetAllocationRequest) returns (GetAllocationResponse);
+}
+
+message ValidationRequest {
+    SignedAddressAllocation signedAddressAllocation = 1;
+};
+
+message ValidationResponse {
+};
+
+service ValidatorIPService {
+    rpc ValidateAllocation (ValidationRequest) returns (ValidationResponse);
 }

@@ -37,45 +37,30 @@ message ClusterMemberAddress {
 // A descriptor of a single cluster member.
 message ClusterMember {
 
-    // Current state of a cluster member.
-    enum State {
-
-        // Member instance is starting, and its operational state is not known yet.
-        Starting = 0;
-
-        // Member is inactive, and does not participate in the leader election process. Predefined
-        // reason codes in this state:
-        // * 'notEnabled' - the member is not enabled
-        // * 'outOfService' - the member is healthy, but taken of out of service by an administrator
-        // * 'unhealthy' - the member is not healthy
-        Inactive = 1;
-
-        // Member is fully activated, and if does not participate in the leader election process, is ready to
-        // take traffic.
-        Active = 2;
-    }
-
     enum LeadershipState {
+        // Member is not participating in the leader election process, either due to configuration or being unhealthy.
+        Disabled = 0;
+
         // Member is healthy, and participates in the leader election process, but is not the leader yet.
-        NonLeader = 0;
+        NonLeader = 1;
 
-        // Member became a leader, and is activating all components. It does not accept client requests yet.
-        LeaderActivating = 1;
+        // Member is a leader.
+        Leader = 2;
 
-        // Member is a fully activated leader.
-        LeaderActivated = 2;
+        // Leadership state is not known.
+        Unknown = 3;
     }
 
     string memberId = 1;
 
-    // (Required) If set to false, member should not handle traffic, nor participate in the leader election process.
+    // (Required) If set to false, the member should not handle traffic, nor participate in the leader election process.
     bool enabled = 2;
 
-    // (Required) Current state of the given member.
-    State state = 3;
+    // (Required) If set to true, the member is registered with the external coordinating component.
+    bool registered = 3;
 
     // (Required) For services with a leader, indicates the leadership status of this instance. Otherwise, always
-    // set to `NonLeader`.
+    // set to `Disabled`.
     LeadershipState leadershipState = 4;
 
     repeated ClusterMemberAddress addresses = 5;
@@ -109,18 +94,18 @@ message ClusterMembershipEvent {
         repeated ClusterMembershipRevision revisions = 1;
     }
 
-    message Updated {
+    message MemberUpdated {
         ClusterMembershipRevision revision = 1;
     }
 
-    message Removed {
+    message MemberRemoved {
         ClusterMembershipRevision revision = 1;
     }
 
     oneof Event {
         Snapshot snapshot = 1;
-        Updated updated = 2;
-        Removed removed = 3;
+        MemberUpdated memberUpdated = 2;
+        MemberRemoved memberRemoved = 3;
     }
 }
 
@@ -174,29 +159,25 @@ message EnableMemberRequest {
 service ClusterMembershipService {
 
     // Get all known cluster members.
-    rpc GetMembers (google.protobuf.Empty) returns (ClusterMembers) {
+    rpc GetMembers (google.protobuf.Empty) returns (ClusterMembershipRevisions) {
     }
 
     // Get member with the given id.
-    rpc GetMember (MemberId) returns (ClusterMember) {
-    }
-
-    // Get recent changes.
-    rpc GetMembershipRevisions (ClusterMembershipQueryRequest) returns (ClusterMembershipRevisions) {
+    rpc GetMember (MemberId) returns (ClusterMembershipRevision) {
     }
 
     // Adds all labels from the request object to the target member. Labels that exist are
     // overridden. Returns the updated object.
-    rpc UpdateMemberLabels (UpdateMemberLabelsRequest) returns (ClusterMember) {
+    rpc UpdateMemberLabels (UpdateMemberLabelsRequest) returns (ClusterMembershipRevision) {
     }
 
     // Removes all specified labels from the target object. Labels that do not exist are ignored.
     // Returns the updated object.
-    rpc DeleteMemberLabels (DeleteMemberLabelsRequest) returns (ClusterMember) {
+    rpc DeleteMemberLabels (DeleteMemberLabelsRequest) returns (ClusterMembershipRevision) {
     }
 
     // Enable or disable a member.
-    rpc EnableMember (EnableMemberRequest) returns (ClusterMember) {
+    rpc EnableMember (EnableMemberRequest) returns (ClusterMembershipRevision) {
     }
 
     // Requests the member that handles this request to stop being leader. If the given member
