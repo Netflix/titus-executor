@@ -347,10 +347,10 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 	var err error
 	switch v := rq.GetSearchParameter().(type) {
 	case *titus.GetAllocationRequest_Address:
-		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address FROM ip_addresses WHERE ip_address = $1", v.Address)
+		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE ip_address = $1", v.Address)
 
 	case *titus.GetAllocationRequest_Uuid:
-		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address FROM ip_addresses WHERE id = $1", v.Uuid)
+		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE id = $1", v.Uuid)
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not run SQL query")
@@ -360,7 +360,8 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 		return nil, errAllocationNotFound
 	}
 	var id, az, region, subnetid, ipaddress string
-	err = rows.Scan(&id, &az, &region, &subnetid, &ipaddress)
+	var hostPublicKey, hostPublicKeySignature, message, messageSignature []byte
+	err = rows.Scan(&id, &az, &region, &subnetid, &ipaddress, &hostPublicKey, &hostPublicKeySignature, &message, &messageSignature)
 	if err == sql.ErrNoRows {
 		return nil, errAllocationNotFound
 	}
@@ -368,15 +369,24 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 		return nil, errors.Wrap(err, "Could not deserialize row")
 	}
 
+	allocation := &titus.AddressAllocation{
+		AddressLocation: &titus.AddressLocation{
+			Region:           region,
+			AvailabilityZone: az,
+			SubnetId:         subnetid,
+		},
+		Uuid:    id,
+		Address: ipaddress,
+	}
+
 	return &titus.GetAllocationResponse{
-		AddressAllocation: &titus.AddressAllocation{
-			AddressLocation: &titus.AddressLocation{
-				Region:           region,
-				AvailabilityZone: az,
-				SubnetId:         subnetid,
-			},
-			Uuid:    id,
-			Address: ipaddress,
+		AddressAllocation: allocation,
+		SignedAddressAllocation: &titus.SignedAddressAllocation{
+			AddressAllocation:      allocation,
+			HostPublicKey:          hostPublicKey,
+			HostPublicKeySignature: hostPublicKeySignature,
+			Message:                message,
+			MessageSignature:       messageSignature,
 		},
 	}, nil
 }

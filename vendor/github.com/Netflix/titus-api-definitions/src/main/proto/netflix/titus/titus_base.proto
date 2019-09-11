@@ -315,3 +315,19 @@ message SignedAddressAllocation {
     // the resultant signature
     bytes messageSignature = 7;
 };
+
+// ----------------------------------------------------------------------------
+// Data model used in the durable storage.
+
+// Data record type independent metadata information.
+message DataRecordMetadata {
+
+    // Description of why new version of the data was created.
+    string description = 1;
+
+    // Identification of the person who changed the data.
+    CallMetadata callMetadata = 2;
+
+    // Time of change.
+    uint64 timestamp = 3;
+}
