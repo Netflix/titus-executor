@@ -16,10 +16,8 @@ github.com/Microsoft/go-winio v0.4.11/go.mod h1:VhR8bwka0BXejwEJY73c50VrPtXAaKcy
 github.com/NYTimes/gziphandler v0.0.0-20170623195520-56545f4a5d46/go.mod h1:3wb06e3pkSAbeQ52E9H9iFoQsEEwGN64994WTCIhntQ=
 github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07 h1:F5H05G+A79FvQAuDyVwulXdVNtV+o8h6TW/n4mtDTsc=
 github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07/go.mod h1:dKY6lNcNBfC6gYy4CpGw9iQ9Qgvcn+g46Diu21Co81k=
-github.com/Netflix/spectator-go v0.0.0-20190913183752-98e9c902389d h1:TavXh0nhbCDTTdXOCs16BUAROVb6okUOZE2bOuAKZL0=
-github.com/Netflix/spectator-go v0.0.0-20190913183752-98e9c902389d/go.mod h1:YyhOdLwcY+c8h0U2v1cW9cCiu+RHZfYrhjRqkhdJFFY=
-github.com/Netflix/spectator-go v0.0.0-20190913195412-dab80da6807a h1:+MAo9IQjtX7ZL8UXLoy2mLqaRv16bpECyPm7d9vUCSY=
-github.com/Netflix/spectator-go v0.0.0-20190913195412-dab80da6807a/go.mod h1:YyhOdLwcY+c8h0U2v1cW9cCiu+RHZfYrhjRqkhdJFFY=
+github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef h1:KJSUpdkLKovenA1HmmoEIPkJ4CYsMApqW2RVVEvjX5Q=
+github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef/go.mod h1:3oJNZd93I7dEODYw8RBj8v5DO8VRgZrZLFZXWkmNqmY=
 github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190911181310-c0c05b4a87a5 h1:9FTOskRaGWsd4QSJCcKfJ+mBmKs2Bxa9nttsrOHtbDg=
 github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190911181310-c0c05b4a87a5/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
