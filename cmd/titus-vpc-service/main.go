@@ -113,6 +113,7 @@ func main() {
 				config := &spectator.Config{
 					Frequency:  5 * time.Second,
 					Timeout:    1 * time.Second,
+					BatchSize:  10000,
 					Uri:        atlasAddr,
 					CommonTags: getCommonTags(),
 				}
@@ -121,7 +122,7 @@ func main() {
 				if err := registry.Start(); err != nil {
 					return err
 				}
-				view.RegisterExporter(registry)
+				view.RegisterExporter(&spectatorGoExporter{registry: registry})
 			}
 
 			if statsdAddr := v.GetString(statsdAddrFlagName); statsdAddr != "" {
@@ -251,6 +252,10 @@ func main() {
 	}
 
 	if err := v.BindEnv(debugAddressFlagName, "DEBUG_ADDRESS"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(atlasAddrFlagName, "ATLAS_ADDR"); err != nil {
 		panic(err)
 	}
 
