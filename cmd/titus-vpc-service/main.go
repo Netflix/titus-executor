@@ -10,14 +10,14 @@ import (
 	"os/signal"
 	"time"
 
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/Netflix/titus-executor/vpc/service/db"
-	"github.com/golang/protobuf/jsonpb"
-
 	"contrib.go.opencensus.io/exporter/zipkin"
+	spectator "github.com/Netflix/spectator-go"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/logsutil"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service"
+	"github.com/Netflix/titus-executor/vpc/service/db"
+	"github.com/golang/protobuf/jsonpb"
 	datadog "github.com/netflix-skunkworks/opencensus-go-exporter-datadog"
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
@@ -32,6 +32,7 @@ import (
 )
 
 const (
+	atlasAddrFlagName    = "atlas-addr"
 	statsdAddrFlagName   = "statsd-addr"
 	zipkinURLFlagName    = "zipkin"
 	debugAddressFlagName = "debug-address"
@@ -66,6 +67,26 @@ func setupDebugServer(ctx context.Context, address string) error {
 	return nil
 }
 
+func addNonEmpty(tags map[string]string, key string, envVar string) {
+	if value := os.Getenv(envVar); value != "" {
+		tags[key] = value
+	}
+}
+
+func getCommonTags() map[string]string {
+	commonTags := map[string]string{}
+	addNonEmpty(commonTags, "nf.app", "NETFLIX_APP")
+	addNonEmpty(commonTags, "nf.asg", "NETFLIX_AUTO_SCALE_GROUP")
+	addNonEmpty(commonTags, "nf.cluster", "NETFLIX_CLUSTER")
+	addNonEmpty(commonTags, "nf.node", "NETFLIX_INSTANCE_ID")
+	addNonEmpty(commonTags, "nf.region", "EC2_REGION")
+	addNonEmpty(commonTags, "nf.vmtype", "EC2_INSTANCE_TYPE")
+	addNonEmpty(commonTags, "nf.zone", "EC2_AVAILABILITY_ZONE")
+	addNonEmpty(commonTags, "nf.stack", "NETFLIX_STACK")
+	addNonEmpty(commonTags, "nf.account", "EC2_OWNER_ID")
+	return commonTags
+}
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -86,6 +107,23 @@ func main() {
 			if v.GetBool("journald") {
 				logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
 			}
+			view.SetReportingPeriod(time.Second * 1)
+
+			if atlasAddr := v.GetString(atlasAddrFlagName); atlasAddr != "" {
+				config := &spectator.Config{
+					Frequency:  5 * time.Second,
+					Timeout:    1 * time.Second,
+					Uri:        atlasAddr,
+					CommonTags: getCommonTags(),
+				}
+				registry := spectator.NewRegistry(config)
+
+				if err := registry.Start(); err != nil {
+					return err
+				}
+				view.RegisterExporter(registry)
+			}
+
 			if statsdAddr := v.GetString(statsdAddrFlagName); statsdAddr != "" {
 				logger.G(ctx).WithField(statsdAddrFlagName, statsdAddr).Info("Setting up statsd exporter")
 				var err error
@@ -95,8 +133,6 @@ func main() {
 					OnError: func(ddErr error) {
 						logger.G(ctx).WithError(ddErr).Error("Error exporting metrics")
 					},
-					Buffered:              true,
-					MaxMessagesPerPayload: 1024,
 				})
 				if err != nil {
 					return errors.Wrap(err, "Failed to create the Datadog exporter")
@@ -191,6 +227,7 @@ func main() {
 	rootCmd.Flags().Duration("gc-timeout", 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
+	rootCmd.PersistentFlags().String(atlasAddrFlagName, "", "Atlas aggregator address")
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
 	rootCmd.PersistentFlags().String(zipkinURLFlagName, "", "URL To send Zipkin spans to")

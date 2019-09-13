@@ -93,9 +93,15 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 
 	st, _ := status.FromError(err)
 	duration := time.Since(start)
-	logger.G(ctx).WithField("method", info.FullMethod).WithField("statusCode", st.Code().String()).WithField("duration", duration.String()).Info("Finished unary call")
+	l := logger.G(ctx).WithField("method", info.FullMethod).WithField("statusCode", st.Code().String()).WithField("duration", duration.String())
+	fun := l.Info
+	if err != nil {
+		fun = l.WithError(err).Warn
+	}
 
-	ctx2, err2 := tag.New(ctx, tag.Upsert(methodTag, st.Code().String()))
+	fun("Finished unary call")
+
+	ctx2, err2 := tag.New(ctx, tag.Upsert(returnCodeTag, st.Code().String()))
 	if err2 != nil {
 		return result, err
 	}

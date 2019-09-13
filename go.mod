@@ -10,6 +10,7 @@ require (
 	github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
 	github.com/Microsoft/go-winio v0.4.11 // indirect
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
+	github.com/Netflix/spectator-go v0.0.0-20190913183752-98e9c902389d
 	github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190911181310-c0c05b4a87a5
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
