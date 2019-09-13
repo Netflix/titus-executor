@@ -10,6 +10,8 @@ github.com/Datadog/opencensus-go-exporter-datadog
 github.com/Microsoft/go-winio
 # github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 github.com/Netflix/metrics-client-go/metrics
+# github.com/Netflix/spectator-go v0.0.0-20190913183752-98e9c902389d
+github.com/Netflix/spectator-go
 # github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190911181310-c0c05b4a87a5
 github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
 # github.com/OpenPeeDeeP/depguard v0.0.0-20180806142446-a69c782687b2
