@@ -6,21 +6,64 @@ import (
 	"database/sql/driver"
 	"net"
 	"net/url"
+	"time"
 
-	"github.com/lib/pq"
-
+	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/db"
 	"github.com/aws/aws-sdk-go/aws/defaults"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/rds/rdsutils"
-	"github.com/pkg/errors"
-
-	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc/service/db"
+	"github.com/lib/pq"
 	_ "github.com/lib/pq"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/stats/view"
 )
+
+var (
+	maxOpenConnections = stats.Int64("db.maxOpenConnections", "Maximum number of open connections to the database", "connections")
+	openConnections    = stats.Int64("db.openConnections", "The number of established connections both in use and idle", "connections")
+	connectionsInUse   = stats.Int64("db.connectionsInUse", "The number of connections currently in use", "connections")
+	connectionsIdle    = stats.Int64("db.connectionsIdle", "The number of idle connections", "connections")
+
+	waitCount         = stats.Int64("db.waitCount", "The total number of connections waited for", "connections")
+	waitDuration      = stats.Int64("db.waitDuration", "The total time blocked waiting for a new connection", "ns")
+	maxIdleClosed     = stats.Int64("db.maxIdleClosed", "The total number of connections closed due to SetMaxIdleConns", "connections")
+	maxLifetimeClosed = stats.Int64("db.maxLifetimeClosed", "The total number of connections closed due to SetConnMaxLifetime", "connections")
+)
+
+func init() {
+	gaugeMeasures := []stats.Measure{maxOpenConnections, openConnections, connectionsInUse, connectionsIdle}
+	for idx := range gaugeMeasures {
+		if err := view.Register(
+			&view.View{
+				Name:        gaugeMeasures[idx].Name(),
+				Description: gaugeMeasures[idx].Description(),
+				Measure:     gaugeMeasures[idx],
+				Aggregation: view.LastValue(),
+			},
+		); err != nil {
+			panic(err)
+		}
+	}
+
+	counterMeasures := []stats.Measure{waitCount, waitDuration, maxIdleClosed, maxLifetimeClosed}
+	for idx := range counterMeasures {
+		if err := view.Register(
+			&view.View{
+				Name:        counterMeasures[idx].Name(),
+				Description: counterMeasures[idx].Description(),
+				Measure:     counterMeasures[idx],
+				Aggregation: view.Count(),
+			},
+		); err != nil {
+			panic(err)
+		}
+	}
+}
 
 func migrateCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
@@ -104,8 +147,52 @@ func newConnection(ctx context.Context, v *pkgviper.Viper) (*sql.DB, error) {
 		}
 	}
 
-	return sql.OpenDB(&connectorWrapper{
+	db := sql.OpenDB(&connectorWrapper{
 		url:    rawurl,
 		region: region,
-	}), nil
+	})
+
+	db.SetMaxIdleConns(v.GetInt(maxIdleConnectionsFlagName))
+
+	return db, nil
+}
+
+func collectDBMetrics(ctx context.Context, db *sql.DB) {
+	var (
+		lastWaitCount         int64
+		lastMaxIdleClosed     int64
+		lastMaxLifetimeClosed int64
+		lastWaitDuration      = time.Duration(0)
+	)
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			dbStats := db.Stats()
+
+			incrementalWaitCount := dbStats.WaitCount - lastWaitCount
+			lastWaitCount = dbStats.WaitCount
+			incrementalLastWaitDuration := dbStats.WaitDuration - lastWaitDuration
+			lastWaitDuration = dbStats.WaitDuration
+			incrementalMaxIdleClosed := dbStats.MaxIdleClosed - lastMaxIdleClosed
+			lastMaxIdleClosed = dbStats.MaxIdleClosed
+			incrementalMaxLifetimeClosed := dbStats.MaxLifetimeClosed - lastMaxLifetimeClosed
+			lastMaxLifetimeClosed = dbStats.MaxLifetimeClosed
+
+			stats.Record(ctx,
+				maxOpenConnections.M(int64(dbStats.MaxOpenConnections)),
+				openConnections.M(int64(dbStats.OpenConnections)),
+				connectionsInUse.M(int64(dbStats.InUse)),
+				connectionsIdle.M(int64(dbStats.Idle)),
+				waitCount.M(incrementalWaitCount),
+				waitDuration.M(incrementalLastWaitDuration.Nanoseconds()),
+				maxIdleClosed.M(incrementalMaxIdleClosed),
+				maxLifetimeClosed.M(incrementalMaxLifetimeClosed),
+			)
+		}
+	}
 }

@@ -32,11 +32,12 @@ import (
 )
 
 const (
-	atlasAddrFlagName    = "atlas-addr"
-	statsdAddrFlagName   = "statsd-addr"
-	zipkinURLFlagName    = "zipkin"
-	debugAddressFlagName = "debug-address"
-	gcTimeoutFlagName    = "gc-timeout"
+	atlasAddrFlagName          = "atlas-addr"
+	statsdAddrFlagName         = "statsd-addr"
+	zipkinURLFlagName          = "zipkin"
+	debugAddressFlagName       = "debug-address"
+	gcTimeoutFlagName          = "gc-timeout"
+	maxIdleConnectionsFlagName = "max-idle-connections"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -167,6 +168,8 @@ func main() {
 				logger.G(ctx).Fatal("Cannot startup, need to run database migrations")
 			}
 
+			go collectDBMetrics(ctx, conn)
+
 			go func() {
 				c := make(chan os.Signal, 1)
 				signal.Notify(c, unix.SIGTERM, unix.SIGINT)
@@ -236,6 +239,7 @@ func main() {
 	rootCmd.PersistentFlags().String("dburl", "postgres://localhost/titusvpcservice?sslmode=disable", "Connection String for database")
 	rootCmd.PersistentFlags().Bool("dbiam", false, "Generate IAM credentials for database")
 	rootCmd.PersistentFlags().String("region", "", "Region of the database")
+	rootCmd.PersistentFlags().Int(maxIdleConnectionsFlagName, 100, "SetMaxIdleConns sets the maximum number of connections in the idle connection pool for the database")
 
 	rootCmd.AddCommand(migrateCommand(ctx, v))
 	rootCmd.AddCommand(generateKeyCommand(ctx, v))
@@ -261,6 +265,10 @@ func main() {
 	}
 
 	if err := v.BindEnv(gcTimeoutFlagName, "GC_TIMEOUT"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(maxIdleConnectionsFlagName, "DB_MAX_IDLE_CONNECTIONS"); err != nil {
 		panic(err)
 	}
 
