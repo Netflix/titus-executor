@@ -296,6 +296,13 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, iface ec2wrap
 		}
 	}
 
+	if utilizedAddressIPv4Set.Cardinality() >= maxIPAddresses {
+		return nil, status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses assigned, interface can only handle %d IPs", utilizedAddressIPv4Set.Cardinality(), maxIPAddresses)
+	}
+	if utilizedAddressIPv6Set.Cardinality() >= maxIPAddresses {
+		return nil, status.Errorf(codes.FailedPrecondition, "%d IPv6 addresses assigned, interface can only handle %d IPs", utilizedAddressIPv6Set.Cardinality(), maxIPAddresses)
+	}
+
 	response.NetworkInterface = networkInterface(*ni)
 	response.SecurityGroupIds = make([]string, len(ni.Groups))
 	assignedIPv4addresses := set.NewSet()
