@@ -18,7 +18,7 @@ const (
 	maxSetupTime = 2 * time.Minute
 )
 
-func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, subnetID, accountID string) error {
 	ctx, cancel := context.WithTimeout(ctx, maxSetupTime)
 	defer cancel()
 
@@ -39,6 +39,14 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 	provisionInstanceRequest := &vpcapi.ProvisionInstanceRequest{
 		InstanceIdentity: instanceIdentity,
 	}
+	if subnetID != "" {
+		provisionInstanceRequest.SubnetID = subnetID
+	}
+
+	if accountID != "" {
+		provisionInstanceRequest.AccountID = accountID
+	}
+
 	provisionInstanceResponse, err := client.ProvisionInstance(ctx, provisionInstanceRequest)
 	if err != nil {
 		return err
