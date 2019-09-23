@@ -21,11 +21,15 @@ func setupInstanceCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 			return setup.Setup(ctx,
 				iipGetter(),
 				locker,
-				conn)
+				conn,
+				v.GetString("subnet"),
+				v.GetString("account"))
 		},
 	}
 
 	addSharedFlags(cmd.Flags())
+	cmd.Flags().String("subnet", "", "subnet ID to place interfaces in")
+	cmd.Flags().String("account", "", "account ID to place interfaces in")
 
 	return cmd
 }

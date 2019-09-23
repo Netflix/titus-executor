@@ -50,8 +50,10 @@ message InstanceIdentity {
 // and other network capabilities.
 // The provisioning service decides which account / subnet / VPC the interface will live in.
 message ProvisionInstanceRequest {
-    // We don't include the subnet ID here because the instance subnets should be decided on the side of the IP Service
     InstanceIdentity instanceIdentity = 1;
+    // If accountID and subnetID are not specified then the titusvpcservice will decide on their behalf
+    string accountID = 2;
+    string subnetID = 3;
 };
 
 message ProvisionInstanceResponse {
