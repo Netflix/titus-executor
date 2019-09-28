@@ -29,7 +29,6 @@ message NetworkInterface {
     string macAddress = 3;
     string networkInterfaceId = 4;
     string ownerAccountId = 5;
-    string attachedInstanceID = 6;
     NetworkInterfaceAttachment networkInterfaceAttachment = 7;
     string vpcId = 8;
 };
@@ -77,6 +76,10 @@ message AssignIPRequest {
     bool allowSecurityGroupChange = 8;
     // This is optional. If it is not specified then we will assign a "random" IP to the interface
     repeated com.netflix.titus.SignedAddressAllocation signedAddressAllocations = 9;
+
+    // If accountID and subnetID are not specified then the titusvpcservice will decide on their behalf
+    string accountID = 10;
+    string subnetID = 11;
 };
 
 message AssignIPResponse {
@@ -106,7 +109,10 @@ message GCRequest {
     repeated UtilizedAddress nonviableAddresses = 5;
     // allocatedAddresses are addresses currently in use.
     repeated UtilizedAddress allocatedAddresses = 6;
-
+    
+    // If accountID and subnetID are not specified then the titusvpcservice will decide on their behalf
+    string accountID = 10;
+    string subnetID = 11;
 }
 
 message GCResponse {

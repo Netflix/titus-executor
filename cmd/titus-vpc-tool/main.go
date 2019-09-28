@@ -28,6 +28,8 @@ const (
 	serviceAddrDefaultValue = "localhost:7001"
 	statsdAddrFlagName      = "statsd-addr"
 	zipkinURLFlagName       = "zipkin"
+	interaceSubnet          = "interface-subnet"
+	interfaceAccount        = "interface-account"
 )
 
 type instanceProviderResolver struct {

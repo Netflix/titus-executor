@@ -7,8 +7,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/lib/pq"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -17,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
+	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
@@ -63,13 +62,13 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	ec2essionForInstance, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: req.InstanceIdentity.Region, AccountID: req.InstanceIdentity.AccountID})
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	instance, err := ec2InstanceSession.GetInstance(ctx, ec2wrapper.UseCache)
+	instance, ownerID, err := ec2essionForInstance.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -86,7 +85,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	interfaceSession, err := ec2InstanceSession.GetInterfaceByIdx(ctx, req.NetworkInterfaceAttachment.DeviceIndex)
+	instanceIface, err := ec2wrapper.GetInterfaceByIdxWithRetries(ctx, ec2essionForInstance, instance, req.NetworkInterfaceAttachment.DeviceIndex)
 	if err != nil {
 		if ec2wrapper.IsErrInterfaceByIdxNotFound(err) {
 			err = status.Error(codes.NotFound, err.Error())
@@ -94,17 +93,38 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	networkInterfaceID := aws.StringValue(instanceIface.NetworkInterfaceId)
 
-	span.AddAttributes(trace.StringAttribute("eni", interfaceSession.ElasticNetworkInterfaceID()))
-	ctx = logger.WithField(ctx, "eni", interfaceSession.ElasticNetworkInterfaceID())
+	var session *ec2wrapper.EC2Session
 
-	subnet, err := interfaceSession.GetSubnet(ctx, ec2wrapper.UseCache)
+	az := aws.StringValue(instance.Placement.AvailabilityZone)
+	region := ec2wrapper.RegionFromAZ(az)
+
+	logger.G(ctx).WithField("req", req).Debug()
+	if req.AccountID != "" && req.AccountID != ownerID {
+		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: req.AccountID})
+	} else {
+		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: ownerID})
+	}
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	iface, err := interfaceSession.GetNetworkInterface(ctx, time.Millisecond*100)
+	span.AddAttributes(trace.StringAttribute("eni", networkInterfaceID))
+	ctx = logger.WithField(ctx, "eni", networkInterfaceID)
+
+	iface, err := session.GetNetworkInterfaceByID(ctx, networkInterfaceID, time.Millisecond*100)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	subnetID := aws.StringValue(instance.SubnetId)
+	if req.SubnetID != "" {
+		subnetID = req.SubnetID
+	}
+	subnet, err := session.GetSubnetByID(ctx, subnetID, ec2wrapper.UseCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -114,7 +134,8 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 	wantedSecurityGroups := aws.StringSlice(req.GetSecurityGroupIds())
 	// Assign default security groups
 	if len(wantedSecurityGroups) == 0 {
-		wantedSecurityGroups, err = interfaceSession.GetDefaultSecurityGroups(ctx)
+
+		wantedSecurityGroups, err = session.GetDefaultSecurityGroups(ctx, aws.StringValue(instanceIface.VpcId))
 		if err != nil {
 			err = status.Error(codes.NotFound, errors.Wrap(err, "Could not fetch default security groups").Error())
 			span.SetStatus(traceStatusFromError(err))
@@ -140,7 +161,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 			return nil, err
 		}
 		logger.G(ctx).WithField("currentSecurityGroups", hasSecurityGroupsSet.ToSlice()).WithField("newSecurityGroups", wantedSecurityGroupsSet.ToSlice()).Info("Changing security groups")
-		err = interfaceSession.ModifySecurityGroups(ctx, wantedSecurityGroups)
+		err = session.ModifySecurityGroups(ctx, networkInterfaceID, wantedSecurityGroups)
 		if err != nil {
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
@@ -149,13 +170,13 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 
 	if len(req.SignedAddressAllocations) > 0 {
 		logger.G(ctx).Debug("Performing static address allocation")
-		return vpcService.assignAddressesFromAllocations(ctx, interfaceSession, iface, subnet, req)
+		return vpcService.assignAddressesFromAllocations(ctx, session, iface, subnet, req)
 	}
 
-	return vpcService.assignAddresses(ctx, interfaceSession, iface, req, subnet, maxIPAddresses, true)
+	return vpcService.assignAddresses(ctx, session, iface, req, subnet, maxIPAddresses, true)
 }
 
-func (vpcService *vpcService) assignAddressesFromAllocations(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, subnet *ec2.Subnet, req *vpcapi.AssignIPRequest) (*vpcapi.AssignIPResponse, error) {
+func (vpcService *vpcService) assignAddressesFromAllocations(ctx context.Context, session *ec2wrapper.EC2Session, ni *ec2.NetworkInterface, subnet *ec2.Subnet, req *vpcapi.AssignIPRequest) (*vpcapi.AssignIPResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "assignAddressesFromAllocations")
 	defer span.End()
 
@@ -222,12 +243,13 @@ func (vpcService *vpcService) assignAddressesFromAllocations(ctx context.Context
 		assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
 			AllowReassignment:  aws.Bool(true),
 			PrivateIpAddresses: make([]*string, len(ipv4AddressesToAssign)),
+			NetworkInterfaceId: ni.NetworkInterfaceId,
 		}
 		for idx := range ipv4AddressesToAssign {
 			assignPrivateIPAddressesInput.PrivateIpAddresses[idx] = aws.String(ipv4AddressesToAssign[idx].String())
 		}
 		logger.G(ctx).WithField("ipv4AddressesToAssign", ipv4AddressesToAssign).Debug("Assigning static IPv4 Addresses")
-		if _, err := iface.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
+		if _, err := session.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
 			return nil, ec2wrapper.HandleEC2Error(err, span)
 		}
 	}
@@ -235,18 +257,19 @@ func (vpcService *vpcService) assignAddressesFromAllocations(ctx context.Context
 	if len(ipv6AddressesToAssign) > 0 {
 		logger.G(ctx).WithField("ipv6AddressesToAssign", ipv6AddressesToAssign).Debug("Assigning IPv6 Addresses")
 		assignIpv6AddressesInput := ec2.AssignIpv6AddressesInput{
-			Ipv6Addresses: make([]*string, len(ipv6AddressesToAssign)),
+			Ipv6Addresses:      make([]*string, len(ipv6AddressesToAssign)),
+			NetworkInterfaceId: ni.NetworkInterfaceId,
 		}
 		for idx := range ipv6AddressesToAssign {
 			assignIpv6AddressesInput.Ipv6Addresses[idx] = aws.String(ipv6AddressesToAssign[idx].String())
 		}
 		logger.G(ctx).WithField("ipv6AddressesToAssign", ipv4AddressesToAssign).Debug("Assigning static IPv6 Addresses")
-		if _, err := iface.AssignIPv6Addresses(ctx, assignIpv6AddressesInput); err != nil {
+		if _, err := session.AssignIPv6Addresses(ctx, assignIpv6AddressesInput); err != nil {
 			return nil, ec2wrapper.HandleEC2Error(err, span)
 		}
 	}
 
-	ni, err = iface.GetNetworkInterface(ctx, time.Millisecond*100)
+	ni, err = session.GetNetworkInterfaceByID(ctx, aws.StringValue(ni.NetworkInterfaceId), time.Millisecond*100)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -279,7 +302,7 @@ func (vpcService *vpcService) assignAddressesFromAllocations(ctx context.Context
 	return ret, nil
 }
 
-func (vpcService *vpcService) assignAddresses(ctx context.Context, iface ec2wrapper.EC2NetworkInterfaceSession, ni *ec2.NetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, maxIPAddresses int, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
+func (vpcService *vpcService) assignAddresses(ctx context.Context, session *ec2wrapper.EC2Session, ni *ec2.NetworkInterface, req *vpcapi.AssignIPRequest, subnet *ec2.Subnet, maxIPAddresses int, allowAssignment bool) (*vpcapi.AssignIPResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "assignAddresses")
 	defer span.End()
 	entry := logger.G(ctx).WithField("allowAssignment", allowAssignment)
@@ -412,8 +435,9 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, iface ec2wrap
 			assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
 				// TODO: Batch intelligently.
 				SecondaryPrivateIpAddressCount: aws.Int64(int64(wantToAssignIPv4Addresses)),
+				NetworkInterfaceId:             ni.NetworkInterfaceId,
 			}
-			if _, err := iface.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
+			if _, err := session.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput); err != nil {
 				return nil, err
 			}
 		}
@@ -430,19 +454,20 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, iface ec2wrap
 
 			assignIpv6AddressesInput := ec2.AssignIpv6AddressesInput{
 				// TODO: Batch intelligently.
-				Ipv6AddressCount: aws.Int64(int64(wantToAssignIPv6Addresses)),
+				Ipv6AddressCount:   aws.Int64(int64(wantToAssignIPv6Addresses)),
+				NetworkInterfaceId: ni.NetworkInterfaceId,
 			}
 
-			if _, err := iface.AssignIPv6Addresses(ctx, assignIpv6AddressesInput); err != nil {
+			if _, err := session.AssignIPv6Addresses(ctx, assignIpv6AddressesInput); err != nil {
 				return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv6 addresses")).Err()
 			}
 		}
 	}
 
-	ni, err = iface.GetNetworkInterface(ctx, time.Millisecond*100)
+	ni, err = session.GetNetworkInterfaceByID(ctx, aws.StringValue(ni.NetworkInterfaceId), time.Millisecond*100)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	return vpcService.assignAddresses(ctx, iface, ni, req, subnet, maxIPAddresses, false)
+	return vpcService.assignAddresses(ctx, session, ni, req, subnet, maxIPAddresses, false)
 }
