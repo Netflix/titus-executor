@@ -33,7 +33,7 @@ var (
 )
 
 // This must be called with the dummy service lock held
-func (vpcService *vpcService) getDummyInterface(ctx context.Context, ec2session ec2wrapper.EC2Session, subnet *ec2.Subnet) (ec2wrapper.EC2NetworkInterfaceSession, *ec2.NetworkInterface, error) {
+func (vpcService *vpcService) getDummyInterface(ctx context.Context, ec2session *ec2wrapper.EC2Session, subnet *ec2.Subnet) (*ec2.NetworkInterface, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "getDummyInterface")
@@ -41,24 +41,15 @@ func (vpcService *vpcService) getDummyInterface(ctx context.Context, ec2session 
 
 	// We need to create / allocate a new dummy interface and keep track of it
 	// TODO(Sargun): Write some code to recycle dummy interfaces, maybe?
-	session, err := ec2session.Session(ctx)
-	if err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: err.Error(),
-		})
-		return nil, nil, err
-	}
 
-	ec2client := ec2.New(session)
+	ec2client := ec2.New(ec2session.Session)
 
 	key := aws.StringValue(subnet.SubnetId)
-	if dummyInterfaceSession, ok := vpcService.dummyInterfaceSessions[key]; ok {
-		dummyInterface := vpcService.dummyInterfaces[key]
+	if dummyInterface, ok := vpcService.dummyInterfaces[key]; ok {
 		// TODO(Sargun): Come up with a better timeout here.
 		logger.G(ctx).WithField("interface", dummyInterface.String()).Debug("Retrieved interface from prior allocation")
 		// TODO: Reallocate if the dummy interface's private IP address count has exceeded some value
-		return dummyInterfaceSession, dummyInterface, nil
+		return dummyInterface, nil
 	}
 
 	// Let's see if we can find another interface. We can only look for interfaces that used to belong to this node, because of the concurrency problem
@@ -84,7 +75,7 @@ func (vpcService *vpcService) getDummyInterface(ctx context.Context, ec2session 
 	for {
 		describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
 		if err != nil {
-			return nil, nil, ec2wrapper.HandleEC2Error(err, span)
+			return nil, ec2wrapper.HandleEC2Error(err, span)
 		}
 		networkInterfaces = append(networkInterfaces, describeNetworkInterfacesOutput.NetworkInterfaces...)
 		if describeNetworkInterfacesOutput.NextToken == nil {
@@ -100,19 +91,9 @@ func (vpcService *vpcService) getDummyInterface(ctx context.Context, ec2session 
 			logger.G(ctx).WithField("eni", ni.String()).Info("Found ENI, performing crash recovery")
 			span.AddAttributes(trace.BoolAttribute("crash-recovered", true))
 
-			dummyInterfaceSession, err := vpcService.ec2.GetSessionFromNetworkInterface(ctx, ec2session, ni)
-			if err != nil {
-				span.SetStatus(trace.Status{
-					Code:    trace.StatusCodeUnknown,
-					Message: err.Error(),
-				})
-				return nil, nil, err
-			}
-
-			vpcService.dummyInterfaceSessions[key] = dummyInterfaceSession
 			vpcService.dummyInterfaces[key] = ni
 			logger.G(ctx).WithField("interface", ni.String()).Info("Performed interface crash recovery")
-			return dummyInterfaceSession, ni, nil
+			return ni, nil
 		}
 
 	}
@@ -120,7 +101,7 @@ func (vpcService *vpcService) getDummyInterface(ctx context.Context, ec2session 
 	return vpcService.createDummyInterface(ctx, ec2session, subnet, ec2client, key)
 }
 
-func (vpcService *vpcService) createDummyInterface(ctx context.Context, ec2session ec2wrapper.EC2Session, subnet *ec2.Subnet, ec2client *ec2.EC2, key string) (ec2wrapper.EC2NetworkInterfaceSession, *ec2.NetworkInterface, error) {
+func (vpcService *vpcService) createDummyInterface(ctx context.Context, ec2session *ec2wrapper.EC2Session, subnet *ec2.Subnet, ec2client *ec2.EC2, key string) (*ec2.NetworkInterface, error) {
 	ctx, span := trace.StartSpan(ctx, "createDummyInterface")
 	defer span.End()
 
@@ -131,7 +112,7 @@ func (vpcService *vpcService) createDummyInterface(ctx context.Context, ec2sessi
 		SubnetId:         subnet.SubnetId,
 	})
 	if err != nil {
-		return nil, nil, ec2wrapper.HandleEC2Error(err, span)
+		return nil, ec2wrapper.HandleEC2Error(err, span)
 	}
 
 	_, err = ec2client.CreateTagsWithContext(ctx, &ec2.CreateTagsInput{
@@ -144,21 +125,10 @@ func (vpcService *vpcService) createDummyInterface(ctx context.Context, ec2sessi
 		},
 	})
 	if err != nil {
-		return nil, nil, ec2wrapper.HandleEC2Error(err, span)
+		return nil, ec2wrapper.HandleEC2Error(err, span)
 	}
-
-	dummyInterfaceSession, err := vpcService.ec2.GetSessionFromNetworkInterface(ctx, ec2session, dummyNetworkInterface.NetworkInterface)
-	if err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: err.Error(),
-		})
-		return nil, nil, err
-	}
-
-	vpcService.dummyInterfaceSessions[key] = dummyInterfaceSession
 	vpcService.dummyInterfaces[key] = dummyNetworkInterface.NetworkInterface
-	return dummyInterfaceSession, dummyNetworkInterface.NetworkInterface, nil
+	return dummyNetworkInterface.NetworkInterface, nil
 }
 
 func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.AllocateAddressRequest) (*titus.AllocateAddressResponse, error) {
@@ -201,7 +171,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	if allocationUUID == "" {
 		allocationUUID = uuid.New()
 	}
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, rq.AccountId, rq.AddressAllocation.AddressLocation.Region)
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: rq.AccountId, Region: rq.AddressAllocation.AddressLocation.Region})
 	if err != nil {
 		return nil, err
 	}
@@ -227,15 +197,10 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	vpcService.dummyInterfaceLock.Lock()
 	defer vpcService.dummyInterfaceLock.Unlock()
 
-	dummyNetworkInterfaceSession, dummyNetworkInterface, err := vpcService.getDummyInterface(ctx, session, subnet)
+	dummyNetworkInterface, err := vpcService.getDummyInterface(ctx, session, subnet)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get dummy interface")
 		return nil, err
-	}
-
-	awsSession, err := dummyNetworkInterfaceSession.Session(ctx)
-	if err != nil {
-		return nil, ec2wrapper.HandleEC2Error(err, span)
 	}
 
 	logger.G(ctx).WithField("networkInterfaceId", aws.StringValue(dummyNetworkInterface.NetworkInterfaceId)).Info("Got network interface")
@@ -257,7 +222,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 		return nil, status.Errorf(codes.AlreadyExists, "UUID %s is already allocated", allocationUUID)
 	}
 
-	assignPrivateIPAddressesOutput, err := dummyNetworkInterfaceSession.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
+	assignPrivateIPAddressesOutput, err := session.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
 		SecondaryPrivateIpAddressCount: aws.Int64(1),
 	})
 	if err != nil {
@@ -271,7 +236,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	ip := net.ParseIP(aws.StringValue(assignPrivateIPAddressesOutput.AssignedPrivateIpAddresses[0].PrivateIpAddress))
 	az := aws.StringValue(dummyNetworkInterface.AvailabilityZone)
 
-	ec2session := ec2.New(awsSession)
+	ec2session := ec2.New(session.Session)
 	_, err = ec2session.CreateTagsWithContext(ctx, &ec2.CreateTagsInput{
 		DryRun:    nil,
 		Resources: []*string{dummyNetworkInterface.NetworkInterfaceId},

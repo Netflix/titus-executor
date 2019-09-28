@@ -66,11 +66,10 @@ func init() {
 type vpcService struct {
 	// We hope this is globally unique
 	hostname string
-	ec2      ec2wrapper.EC2SessionManager
+	ec2      *ec2wrapper.EC2SessionManager
 
-	dummyInterfaceLock     sync.Mutex
-	dummyInterfaceSessions map[string]ec2wrapper.EC2NetworkInterfaceSession
-	dummyInterfaces        map[string]*ec2.NetworkInterface
+	dummyInterfaceLock sync.Mutex
+	dummyInterfaces    map[string]*ec2.NetworkInterface
 
 	db *sql.DB
 
@@ -177,11 +176,10 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 	hostPublicKeySignature := ed25519.Sign(ed25519key, publicKey)
 
 	vpc := &vpcService{
-		hostname:               hostname,
-		ec2:                    ec2wrapper.NewEC2SessionManager(),
-		dummyInterfaceSessions: make(map[string]ec2wrapper.EC2NetworkInterfaceSession),
-		dummyInterfaces:        make(map[string]*ec2.NetworkInterface),
-		db:                     db,
+		hostname:        hostname,
+		ec2:             ec2wrapper.NewEC2SessionManager(),
+		dummyInterfaces: make(map[string]*ec2.NetworkInterface),
+		db:              db,
 
 		authoritativePublicKey: ed25519key.Public().(ed25519.PublicKey),
 		hostPrivateKey:         privateKey,

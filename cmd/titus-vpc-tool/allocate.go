@@ -25,7 +25,10 @@ func allocateNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter in
 				v.GetStringSlice("security-groups"),
 				v.GetInt("device-idx"),
 				v.GetBool("allocate-ipv6-address"),
-				v.GetString("allocation-uuid"))
+				v.GetString("allocation-uuid"),
+				v.GetString(interaceSubnet),
+				v.GetString(interfaceAccount),
+			)
 		},
 	}
 
@@ -33,6 +36,14 @@ func allocateNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter in
 	cmd.Flags().StringSlice("security-groups", []string{}, "Comma separated list of security groups")
 	cmd.Flags().Bool("allocate-ipv6-address", false, "Allocate IPv6 Address for container")
 	cmd.Flags().String("allocation-uuid", "", "The UUID of the allocation")
+	cmd.Flags().String(interaceSubnet, "", "subnet ID to place interfaces in")
+	cmd.Flags().String(interfaceAccount, "", "account ID to place interfaces in")
+	if err := v.BindEnv(interaceSubnet, "VPC_INTERFACE_SUBNET"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(interfaceAccount, "VPC_INTERFACE_ACCOUNT"); err != nil {
+		panic(err)
+	}
 	addSharedFlags(cmd.Flags())
 
 	return cmd

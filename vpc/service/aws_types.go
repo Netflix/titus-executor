@@ -17,7 +17,6 @@ func networkInterface(ni ec2.NetworkInterface) *vpcapi.NetworkInterface {
 		VpcId:              *ni.VpcId,
 	}
 	if ni.Attachment != nil {
-		tni.AttachedInstanceID = *ni.Attachment.InstanceId
 		tni.NetworkInterfaceAttachment = &vpcapi.NetworkInterfaceAttachment{
 			DeviceIndex: uint32(*ni.Attachment.DeviceIndex),
 		}
@@ -41,7 +40,6 @@ func instanceNetworkInterface(instance ec2.Instance, ni ec2.InstanceNetworkInter
 		MacAddress:         *ni.MacAddress,
 		NetworkInterfaceId: *ni.NetworkInterfaceId,
 		OwnerAccountId:     *ni.OwnerId,
-		AttachedInstanceID: *instance.InstanceId,
 		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
 			DeviceIndex: uint32(*ni.Attachment.DeviceIndex),
 		},

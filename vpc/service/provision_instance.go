@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -31,7 +33,8 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 	if err != nil {
 		return nil, err
 	}
-	instance, err := ec2InstanceSession.GetInstance(ctx, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
+
+	instance, ownerID, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
 	if err != nil {
 		return nil, err
 	}
@@ -40,9 +43,20 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	// Check if we need to attach interfaces
+	logger.G(ctx).WithField("req", req).Debug()
 	if len(instance.NetworkInterfaces) != maxInterfaces {
 		// Code to attach interfaces
-		return attachNetworkInterfaces(ctx, ec2InstanceSession, instance, maxInterfaces)
+		if req.AccountID != "" && req.AccountID != ownerID {
+			ec2InterfaceSession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
+				AccountID: req.AccountID,
+				Region:    req.InstanceIdentity.Region,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return vpcService.attachNetworkInterfaces(ctx, ec2InstanceSession, ec2InterfaceSession, instance, maxInterfaces, req.InstanceIdentity.Region, req.InstanceIdentity.AccountID, req.AccountID, req.SubnetID)
+		}
+		return vpcService.attachNetworkInterfaces(ctx, ec2InstanceSession, ec2InstanceSession, instance, maxInterfaces, req.InstanceIdentity.Region, req.InstanceIdentity.AccountID, req.InstanceIdentity.AccountID, aws.StringValue(instance.SubnetId))
 	}
 
 	return &vpcapi.ProvisionInstanceResponse{
@@ -50,7 +64,7 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 	}, nil
 }
 
-func attachNetworkInterfaces(ctx context.Context, ec2InstanceSession ec2wrapper.EC2InstanceSession, instance *ec2.Instance, maxInterfaces int) (*vpcapi.ProvisionInstanceResponse, error) {
+func (vpcService *vpcService) attachNetworkInterfaces(ctx context.Context, ec2InstanceSession, ec2InterfaceSession *ec2wrapper.EC2Session, instance *ec2.Instance, maxInterfaces int, region, instanceAccountID, requestedAccountID, subnetID string) (*vpcapi.ProvisionInstanceResponse, error) {
 	// Since this is serial, we can do this in a simple loop.
 	// 1. Create the network interfaces
 	// 2. Attach the network interfaces
@@ -64,7 +78,7 @@ func attachNetworkInterfaces(ctx context.Context, ec2InstanceSession ec2wrapper.
 
 	for i := 0; i < maxInterfaces; i++ {
 		if _, ok := networkInterfaceByIdx[i]; !ok {
-			networkInterface, err := attachNetworkInterfaceAtIdx(ctx, ec2InstanceSession, instance, i)
+			networkInterface, err := vpcService.attachNetworkInterfaceAtIdx(ctx, ec2InstanceSession, ec2InterfaceSession, instance, i, region, instanceAccountID, requestedAccountID, subnetID)
 			if err != nil {
 				return nil, err
 			}
@@ -80,25 +94,27 @@ func attachNetworkInterfaces(ctx context.Context, ec2InstanceSession ec2wrapper.
 	}, nil
 }
 
-func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrapper.EC2InstanceSession, instance *ec2.Instance, idx int) (*ec2.NetworkInterface, error) {
+func (vpcService *vpcService) attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession, ec2InterfaceSession *ec2wrapper.EC2Session, instance *ec2.Instance, idx int, region, instanceAccountID, requestedAccountID, subnetID string) (*ec2.NetworkInterface, error) {
 	ctx = logger.WithLogger(ctx, logger.G(ctx).WithField("idx", idx))
-	// TODO: Make the subnet ID adjustable
-	// TODO: Make account is adjustable
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"region":             region,
+		"instanceAccountID":  instanceAccountID,
+		"requestedAccountID": requestedAccountID,
+		"subnetID":           subnetID,
+	}).Debug("Attaching network interface")
 
-	session, err := ec2InstanceSession.Session(ctx)
-	if err != nil {
-		return nil, err
-	}
+	instanceEC2Client := ec2.New(ec2InstanceSession.Session)
+	interfaceEC2Client := ec2.New(ec2InterfaceSession.Session)
 
-	ec2client := ec2.New(session)
 	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
 		Description:      aws.String(vpc.NetworkInterfaceDescription),
-		SubnetId:         instance.SubnetId,
+		SubnetId:         aws.String(subnetID),
 		Ipv6AddressCount: aws.Int64(0),
 	}
 
-	createNetworkInterfaceResult, err := ec2client.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
+	createNetworkInterfaceResult, err := interfaceEC2Client.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
 	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not create interface")
 		return nil, status.Convert(err).Err()
 	}
 
@@ -113,9 +129,21 @@ func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrap
 			},
 		},
 	}
-	_, err = ec2client.CreateTagsWithContext(ctx, createTagsInput)
+	_, err = interfaceEC2Client.CreateTagsWithContext(ctx, createTagsInput)
 	if err != nil {
 		logger.G(ctx).WithError(err).Warn("Could not tag network interface")
+	}
+
+	if requestedAccountID != instanceAccountID {
+		createNetworkInterfacePermissionInput := &ec2.CreateNetworkInterfacePermissionInput{
+			AwsAccountId:       aws.String(instanceAccountID),
+			NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
+			Permission:         aws.String("INSTANCE-ATTACH"),
+		}
+		_, err = interfaceEC2Client.CreateNetworkInterfacePermission(createNetworkInterfacePermissionInput)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not create network interface permission")
+		}
 	}
 
 	attachNetworkInterfaceInput := &ec2.AttachNetworkInterfaceInput{
@@ -126,7 +154,7 @@ func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrap
 
 	// TODO: Delete interface if attaching fails.
 	// TODO: Add retries to attach the interface
-	attachNetworkInterfaceResult, err := ec2client.AttachNetworkInterfaceWithContext(ctx, attachNetworkInterfaceInput)
+	attachNetworkInterfaceResult, err := instanceEC2Client.AttachNetworkInterfaceWithContext(ctx, attachNetworkInterfaceInput)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not attach network interface")
 		return nil, status.Convert(err).Err()
@@ -140,7 +168,7 @@ func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrap
 		},
 		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
 	}
-	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
+	_, err = interfaceEC2Client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
 	// This isn't actually the end of the world as long as someone comes and fixes it later
 	if err != nil {
 		logger.G(ctx).WithError(err).Warn("Could not reconfigure network interface to be deleted on termination")
@@ -152,7 +180,7 @@ func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrap
 
 	// TODO: Retry
 	// TODO: Consistency check.
-	describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, describeNetworkInterfacesInput)
+	describeNetworkInterfacesOutput, err := interfaceEC2Client.DescribeNetworkInterfacesWithContext(ctx, describeNetworkInterfacesInput)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not fetch interface after configuration")
 		return nil, status.Convert(err).Err()
@@ -162,5 +190,6 @@ func attachNetworkInterfaceAtIdx(ctx context.Context, ec2InstanceSession ec2wrap
 		return nil, status.Error(codes.NotFound, "Could not find interface")
 	}
 
+	logger.G(ctx).WithField("networkInterface", describeNetworkInterfacesOutput.NetworkInterfaces[0]).Debug("Attached network interface")
 	return describeNetworkInterfacesOutput.NetworkInterfaces[0], nil
 }
