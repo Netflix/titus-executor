@@ -13,6 +13,43 @@ type limits struct {
 }
 
 var interfaceLimits = map[string]map[string]limits{
+	"g4dn": {
+		"xlarge": limits{
+			interfaces:              3,
+			ipAddressesPerInterface: 10,
+			networkThroughput:       5000,
+		},
+		"2xlarge": limits{
+			interfaces:              3,
+			ipAddressesPerInterface: 10,
+			networkThroughput:       10000,
+		},
+		"4xlarge": limits{
+			interfaces:              3,
+			ipAddressesPerInterface: 10,
+			networkThroughput:       20000,
+		},
+		"8xlarge": limits{
+			interfaces:              4,
+			ipAddressesPerInterface: 15,
+			networkThroughput:       50000,
+		},
+		"12xlarge": limits{
+			interfaces:              8,
+			ipAddressesPerInterface: 30,
+			networkThroughput:       50000,
+		},
+		"16xlarge": limits{
+			interfaces:              15,
+			ipAddressesPerInterface: 50,
+			networkThroughput:       50000,
+		},
+		"metal": limits{
+			interfaces:              15,
+			ipAddressesPerInterface: 50,
+			networkThroughput:       100000,
+		},
+	},
 	"m4": {
 		"large": limits{
 			interfaces:              2,
