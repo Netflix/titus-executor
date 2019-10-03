@@ -2,6 +2,7 @@ package service
 
 import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
@@ -9,12 +10,11 @@ import (
 
 func networkInterface(ni ec2.NetworkInterface) *vpcapi.NetworkInterface {
 	tni := &vpcapi.NetworkInterface{
-		SubnetId:           *ni.SubnetId,
-		AvailabilityZone:   *ni.AvailabilityZone,
-		MacAddress:         *ni.MacAddress,
-		NetworkInterfaceId: *ni.NetworkInterfaceId,
-		OwnerAccountId:     *ni.OwnerId,
-		VpcId:              *ni.VpcId,
+		AvailabilityZone:   aws.StringValue(ni.AvailabilityZone),
+		MacAddress:         aws.StringValue(ni.MacAddress),
+		NetworkInterfaceId: aws.StringValue(ni.NetworkInterfaceId),
+		OwnerAccountId:     aws.StringValue(ni.OwnerId),
+		VpcId:              aws.StringValue(ni.VpcId),
 	}
 	if ni.Attachment != nil {
 		tni.NetworkInterfaceAttachment = &vpcapi.NetworkInterfaceAttachment{

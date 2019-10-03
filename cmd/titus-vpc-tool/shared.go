@@ -35,7 +35,7 @@ func getSharedValues(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker
 
 	entry.WithField("serviceAddr", serviceAddr).Debug("Initializing client")
 	grpc_logrus.ReplaceGrpcLogger(entry)
-	conn, err := grpc.Dial(serviceAddr,
+	conn, err := grpc.DialContext(ctx, serviceAddr,
 		grpc.WithStatsHandler(&ocgrpc.ClientHandler{}),
 		grpc.WithInsecure(),
 		grpc.WithKeepaliveParams(keepaliveParams),

@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, subnetID, accountID string) error {
+func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -50,14 +50,14 @@ func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instan
 
 	if len(onlyInterfaces) > 0 {
 		for _, i := range onlyInterfaces {
-			err = doGcInterface(ctx, i, locker, client, instanceIdentity, subnetID, accountID)
+			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
 			if err != nil {
 				result = multierror.Append(result, err)
 			}
 		}
 	} else {
 		for i := 1; i < maxInterfaces; i++ {
-			err = doGcInterface(ctx, i, locker, client, instanceIdentity, subnetID, accountID)
+			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
 			if err != nil {
 				result = multierror.Append(result, err)
 			}
@@ -76,7 +76,7 @@ func formatUtilizedAddresses(messages []*vpcapi.UtilizedAddress) string {
 	return fmt.Sprintf("%+v", result)
 }
 
-func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity, subnetID, accountID string) error {
+func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
 	ctx, span := trace.StartSpan(ctx, "doGcInterface")
 	defer span.End()
 	span.AddAttributes(trace.Int64Attribute("deviceIdx", int64(deviceIdx)))
@@ -151,8 +151,6 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 		AllocatedAddresses:   recordsToUtilizedAddresses(allocatedAddresses),
 		NonviableAddresses:   recordsToUtilizedAddresses(nonviableAddresses),
 		UnallocatedAddresses: recordsToUtilizedAddresses(unallocatedAddresses),
-		SubnetID:             subnetID,
-		AccountID:            accountID,
 	}
 
 	span.AddAttributes(
