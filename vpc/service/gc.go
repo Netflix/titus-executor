@@ -131,18 +131,18 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 		trace.Int64Attribute("deviceIdx", int64(req.NetworkInterfaceAttachment.DeviceIndex)))
 
-	ec2Session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	instance, ownerID, err := ec2Session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
 	if err != nil {
 		return nil, err
 	}
 
-	instanceNetworkInterface, err := ec2wrapper.GetInterfaceByIdxWithRetries(ctx, ec2Session, instance, req.NetworkInterfaceAttachment.DeviceIndex)
+	instanceNetworkInterface, err := ec2wrapper.GetInterfaceByIdxWithRetries(ctx, session, instance, req.NetworkInterfaceAttachment.DeviceIndex)
 	if err != nil {
 		if ec2wrapper.IsErrInterfaceByIdxNotFound(err) {
 			err = status.Errorf(codes.NotFound, err.Error())
@@ -151,20 +151,21 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		return nil, err
 	}
 
-	if req.AccountID != "" && req.AccountID != ownerID {
+	networkInteface, err := session.GetNetworkInterfaceByID(ctx, aws.StringValue(instanceNetworkInterface.NetworkInterfaceId), 5*time.Second)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	if interfaceOwnerID := aws.StringValue(networkInteface.OwnerId); interfaceOwnerID != ownerID {
 		region := ec2wrapper.RegionFromAZ(aws.StringValue(instance.Placement.AvailabilityZone))
-		session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
-			AccountID: req.AccountID,
-			Region:    region,
-		})
+		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: interfaceOwnerID})
 		if err != nil {
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
 		}
-		return vpcService.gcInterface(ctx, instanceNetworkInterface, session, req, vpcService.gcTimeout)
 	}
 
-	return vpcService.gcInterface(ctx, instanceNetworkInterface, ec2Session, req, vpcService.gcTimeout)
+	return vpcService.gcInterface(ctx, instanceNetworkInterface, session, req, vpcService.gcTimeout)
 }
 
 func (vpcService *vpcService) unassignAddresses(ctx context.Context, session *ec2wrapper.EC2Session, networkInterfaceID string, addrsToRemoveSet set.Set, retryAllowed bool) error {

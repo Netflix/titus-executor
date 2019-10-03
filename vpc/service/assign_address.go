@@ -62,13 +62,13 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	ec2essionForInstance, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: req.InstanceIdentity.Region, AccountID: req.InstanceIdentity.AccountID})
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: req.InstanceIdentity.Region, AccountID: req.InstanceIdentity.AccountID})
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	instance, ownerID, err := ec2essionForInstance.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -85,7 +85,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	instanceIface, err := ec2wrapper.GetInterfaceByIdxWithRetries(ctx, ec2essionForInstance, instance, req.NetworkInterfaceAttachment.DeviceIndex)
+	instanceIface, err := ec2wrapper.GetInterfaceByIdxWithRetries(ctx, session, instance, req.NetworkInterfaceAttachment.DeviceIndex)
 	if err != nil {
 		if ec2wrapper.IsErrInterfaceByIdxNotFound(err) {
 			err = status.Error(codes.NotFound, err.Error())
@@ -94,37 +94,32 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 	networkInterfaceID := aws.StringValue(instanceIface.NetworkInterfaceId)
-
-	var session *ec2wrapper.EC2Session
-
-	az := aws.StringValue(instance.Placement.AvailabilityZone)
-	region := ec2wrapper.RegionFromAZ(az)
-
-	logger.G(ctx).WithField("req", req).Debug()
-	if req.AccountID != "" && req.AccountID != ownerID {
-		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: req.AccountID})
-	} else {
-		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: ownerID})
-	}
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
 	span.AddAttributes(trace.StringAttribute("eni", networkInterfaceID))
 	ctx = logger.WithField(ctx, "eni", networkInterfaceID)
 
-	iface, err := session.GetNetworkInterfaceByID(ctx, networkInterfaceID, time.Millisecond*100)
+	iface, err := session.GetNetworkInterfaceByID(ctx, networkInterfaceID, 100*time.Millisecond)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-
-	subnetID := aws.StringValue(instance.SubnetId)
-	if req.SubnetID != "" {
-		subnetID = req.SubnetID
+	// Is the owner of the original session (the instance session) different than the one we need to use for the interface
+	if interfaceOwnerID := aws.StringValue(iface.OwnerId); interfaceOwnerID != ownerID {
+		logger.G(ctx).WithField("accountID", aws.StringValue(iface.OwnerId)).Debug("Setting up session from alternative account for assignment")
+		az := aws.StringValue(instance.Placement.AvailabilityZone)
+		region := ec2wrapper.RegionFromAZ(az)
+		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: interfaceOwnerID})
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		iface, err = session.GetNetworkInterfaceByID(ctx, networkInterfaceID, time.Millisecond*100)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
 	}
-	subnet, err := session.GetSubnetByID(ctx, subnetID, ec2wrapper.UseCache)
+
+	subnet, err := session.GetSubnetByID(ctx, aws.StringValue(iface.SubnetId), ec2wrapper.UseCache)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
