@@ -1950,7 +1950,7 @@ stopped:
 		log.WithField("taskId", c.TaskID).Info("No need to deallocate, no allocation command")
 	}
 
-	if c.TitusInfo.GetNumGpus() > 0 {
+	if c.TitusInfo.GetNumGpus() > 0 && c.GPUInfo != nil {
 		numDealloc := c.GPUInfo.Deallocate()
 		log.Infof("Deallocated %d GPU devices for task %s", numDealloc, c.TaskID)
 	}
