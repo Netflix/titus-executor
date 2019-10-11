@@ -224,6 +224,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 
 	assignPrivateIPAddressesOutput, err := session.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
 		SecondaryPrivateIpAddressCount: aws.Int64(1),
+		NetworkInterfaceId:             dummyNetworkInterface.NetworkInterfaceId,
 	})
 	if err != nil {
 		return nil, ec2wrapper.HandleEC2Error(err, span)
@@ -334,6 +335,24 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 		return nil, errors.Wrap(err, "Could not deserialize row")
 	}
 
+	var trustedPublicKey ed25519.PublicKey
+	rows, err = vpcService.db.QueryContext(ctx, "SELECT key FROM trusted_public_keys")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		err = rows.Scan(&trustedPublicKey)
+		if err != nil {
+			return nil, err
+		}
+		if ed25519.Verify(trustedPublicKey, hostPublicKey, hostPublicKeySignature) {
+			goto key_found
+		}
+	}
+	return nil, status.Error(codes.NotFound, "Could not find authoritative public key for record")
+
+key_found:
+
 	allocation := &titus.AddressAllocation{
 		AddressLocation: &titus.AddressLocation{
 			Region:           region,
@@ -347,6 +366,7 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 	return &titus.GetAllocationResponse{
 		AddressAllocation: allocation,
 		SignedAddressAllocation: &titus.SignedAddressAllocation{
+			AuthoritativePublicKey: trustedPublicKey,
 			AddressAllocation:      allocation,
 			HostPublicKey:          hostPublicKey,
 			HostPublicKeySignature: hostPublicKeySignature,
