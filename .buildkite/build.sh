@@ -15,7 +15,7 @@ fi
 
 export GOPATH="${HOME}/go"
 export PATH="${GO_INSTALL_DIR}/go/bin:${GOPATH}/bin:${PATH}"
-export TEST_FLAGS="-v -parallel 16"
+export TEST_FLAGS="-v -parallel 8"
 
 log "Building executor"
 
