@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"expvar"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -41,6 +44,10 @@ const (
 	refreshIntervalFlagName      = "refresh-interval"
 	maxOpenConnectionsFlagName   = "max-open-connections"
 	maxConcurrentRefreshFlagName = "max-concurrent-refresh"
+
+	sslCertFlagName       = "ssl-cert"
+	sslPrivateKeyFlagName = "ssl-private-key"
+	sslCAFlagName         = "ssl-ca"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -221,7 +228,12 @@ func main() {
 			}
 			signingKeyFile.Close()
 
-			return service.Run(ctx, listener, conn, signingKey, v.GetInt64(maxConcurrentRefreshFlagName), v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"), v.GetDuration(refreshIntervalFlagName))
+			tlsConfig, err := getTLSConfig(ctx, v.GetString(sslCAFlagName), v.GetString(sslCertFlagName), v.GetString(sslPrivateKeyFlagName))
+			if err != nil {
+				return errors.Wrap(err, "Could not generate TLS Config")
+			}
+
+			return service.Run(ctx, listener, conn, signingKey, v.GetInt64(maxConcurrentRefreshFlagName), v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"), v.GetDuration(refreshIntervalFlagName), tlsConfig)
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
@@ -232,6 +244,8 @@ func main() {
 
 	rootCmd.Flags().String("address", ":7001", "Listening address")
 	rootCmd.Flags().String("signingkey", "", "The (file) location of the root signing key")
+	rootCmd.Flags().String(sslPrivateKeyFlagName, "", "The SSL Private Key")
+	rootCmd.Flags().String(sslCertFlagName, "", "The SSL Certificate")
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
 	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
@@ -295,6 +309,20 @@ func bindVariables(v *pkgviper.Viper) {
 		panic(err)
 	}
 
+	if err := v.BindEnv(sslPrivateKeyFlagName, "SSL_PRIVATE_KEY"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(sslCertFlagName, "SSL_CERT"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(sslCAFlagName, "SSL_CA"); err != nil {
+		panic(err)
+	}
+
+	v.AutomaticEnv()
+
 	if err := v.BindEnv(maxOpenConnectionsFlagName, "MAX_OPEN_CONNECTIONS"); err != nil {
 		panic(err)
 	}
@@ -302,4 +330,31 @@ func bindVariables(v *pkgviper.Viper) {
 	if err := v.BindEnv(maxConcurrentRefreshFlagName, "MAX_CONCURRENT_REFRESH"); err != nil {
 		panic(err)
 	}
+}
+
+func getTLSConfig(ctx context.Context, caCertFile, certificateFile, privateKey string) (*tls.Config, error) {
+	if certificateFile == "" && privateKey == "" {
+		return nil, nil
+	}
+
+	certPool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+	if caCertFile != "" {
+		data, err := ioutil.ReadFile(caCertFile)
+		if err != nil {
+			return nil, err
+		}
+		certPool.AppendCertsFromPEM(data)
+	}
+
+	return &tls.Config{
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			cert, err := tls.LoadX509KeyPair(certificateFile, privateKey)
+			return &cert, err
+		},
+		ClientCAs:  certPool,
+		ClientAuth: tls.RequireAndVerifyClientCert,
+	}, nil
 }
