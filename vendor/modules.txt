@@ -10,9 +10,9 @@ github.com/Datadog/opencensus-go-exporter-datadog
 github.com/Microsoft/go-winio
 # github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 github.com/Netflix/metrics-client-go/metrics
-# github.com/Netflix/spectator-go v0.0.0-20190913183752-98e9c902389d
+# github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
 github.com/Netflix/spectator-go
-# github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20190911181310-c0c05b4a87a5
+# github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20191021181820-7e2e4314c840
 github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
 # github.com/OpenPeeDeeP/depguard v0.0.0-20180806142446-a69c782687b2
 github.com/OpenPeeDeeP/depguard
@@ -407,16 +407,16 @@ github.com/vishvananda/netns
 # github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 github.com/wercker/journalhook
 # go.opencensus.io v0.22.1
+go.opencensus.io/stats
 go.opencensus.io/stats/view
 go.opencensus.io/trace
 go.opencensus.io/zpages
 go.opencensus.io/plugin/ocgrpc
-go.opencensus.io/stats
 go.opencensus.io/tag
-go.opencensus.io/internal/tagencoding
 go.opencensus.io/metric/metricdata
-go.opencensus.io/metric/metricproducer
 go.opencensus.io/stats/internal
+go.opencensus.io/internal/tagencoding
+go.opencensus.io/metric/metricproducer
 go.opencensus.io/internal
 go.opencensus.io/trace/internal
 go.opencensus.io/trace/tracestate

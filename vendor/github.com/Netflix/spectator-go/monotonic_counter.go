@@ -10,7 +10,7 @@ type MonotonicCounter struct {
 }
 
 func NewMonotonicCounter(registry *Registry, name string, tags map[string]string) *MonotonicCounter {
-	return NewMonotonicCounterWithId(registry, newId(name, tags))
+	return NewMonotonicCounterWithId(registry, NewId(name, tags))
 }
 
 func NewMonotonicCounterWithId(registry *Registry, id *Id) *MonotonicCounter {

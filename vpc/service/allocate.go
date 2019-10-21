@@ -311,12 +311,22 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 	ctx = logger.WithLogger(ctx, log)
 	var rows *sql.Rows
 	var err error
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not start database transaction")
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
 	switch v := rq.GetSearchParameter().(type) {
 	case *titus.GetAllocationRequest_Address:
-		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE ip_address = $1", v.Address)
+		rows, err = tx.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE ip_address = $1", v.Address)
 
 	case *titus.GetAllocationRequest_Uuid:
-		rows, err = vpcService.db.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE id = $1", v.Uuid)
+		rows, err = tx.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE id = $1", v.Uuid)
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not run SQL query")
@@ -374,4 +384,59 @@ key_found:
 			MessageSignature:       messageSignature,
 		},
 	}, nil
+}
+
+func (vpcService *vpcService) ValidateAllocation(ctx context.Context, req *titus.ValidationRequest) (*titus.ValidationResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not start database transaction")
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	rows, err := tx.QueryContext(ctx, "SELECT count(*) FROM trusted_public_keys WHERE key = $1", req.SignedAddressAllocation.AuthoritativePublicKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not run database query for authoritative public key")
+	}
+	if !rows.Next() {
+		return nil, status.Error(codes.Internal, "Failed to run SQL query")
+	}
+	var count int
+	err = rows.Scan(&count)
+	if err != nil {
+		return nil, errors.Wrap(err, "Unable to fetch public key count")
+	}
+	if count == 0 {
+		return nil, status.Error(codes.NotFound, "authoritative public key not found")
+	}
+
+	verify := ed25519.Verify(req.SignedAddressAllocation.AuthoritativePublicKey, req.SignedAddressAllocation.HostPublicKey, req.SignedAddressAllocation.HostPublicKeySignature)
+	if !verify {
+		return nil, status.Error(codes.InvalidArgument, "Unable to validate host signature")
+	}
+
+	verify = ed25519.Verify(req.SignedAddressAllocation.HostPublicKey, req.SignedAddressAllocation.Message, req.SignedAddressAllocation.MessageSignature)
+	if !verify {
+		return nil, status.Error(codes.InvalidArgument, "Unable to validate message signature")
+	}
+
+	var addressAllocation titus.AddressAllocation
+
+	err = proto.Unmarshal(req.SignedAddressAllocation.Message, &addressAllocation)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, errors.Wrap(err, "Unable to decode message").Error())
+	}
+
+	if !proto.Equal(&addressAllocation, req.SignedAddressAllocation.AddressAllocation) {
+		return nil, status.Error(codes.InvalidArgument, "Address allocation has  been tampered with")
+	}
+
+	return &titus.ValidationResponse{}, nil
 }

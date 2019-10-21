@@ -101,6 +101,10 @@ message Pagination {
     /// Position of the cursor relative to totalItems. It can be used to determine what pageNumber would overlap with a
     // cursor, or to provide an idea of progress when walking all pages. Valid values are [0, totalItems-1].
     int32 cursorPosition = 6;
+
+    /// Whether or not this response is a partial result. While the information in a partial result will be correct,
+    /// there may be missing information so the client should not treat the absence of data as correct.
+    bool partialResult = 7;
 }
 
 /// Retry polices.
@@ -116,7 +120,7 @@ message RetryPolicy {
         /// Initial delay in milliseconds.
         uint64 initialDelayMs = 1;
 
-        /// Subsequenet delays in milliseconds.
+        /// Subsequent delays in milliseconds.
         uint64 delayMs = 2;
 
         /// Maximum number of retries.

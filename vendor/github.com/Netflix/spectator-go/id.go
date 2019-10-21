@@ -53,7 +53,7 @@ func (id *Id) mapKey() string {
 	return id.key
 }
 
-func newId(name string, tags map[string]string) *Id {
+func NewId(name string, tags map[string]string) *Id {
 	var myTags = make(map[string]string)
 	for k, v := range tags {
 		myTags[k] = v
@@ -69,7 +69,7 @@ func (id *Id) WithTag(key string, value string) *Id {
 	}
 	newTags[key] = value
 
-	return newId(id.name, newTags)
+	return NewId(id.name, newTags)
 }
 
 func (id *Id) WithStat(stat string) *Id {
@@ -111,5 +111,5 @@ func (id *Id) WithTags(tags map[string]string) *Id {
 	for k, v := range tags {
 		newTags[k] = v
 	}
-	return newId(id.name, newTags)
+	return NewId(id.name, newTags)
 }

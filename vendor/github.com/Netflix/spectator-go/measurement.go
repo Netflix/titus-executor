@@ -18,3 +18,7 @@ func (m Measurement) Id() *Id {
 func (m Measurement) Value() float64 {
 	return m.value
 }
+
+func NewMeasurement(id *Id, Value float64) Measurement {
+	return Measurement{id: id, value: Value}
+}
