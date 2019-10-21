@@ -193,6 +193,7 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 	grpc_health_v1.RegisterHealthServer(grpcServer, hc)
 	vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
 	titus.RegisterUserIPServiceServer(grpcServer, vpc)
+	titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
 
 	reflection.Register(grpcServer)
 
