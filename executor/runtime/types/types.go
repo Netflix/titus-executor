@@ -28,7 +28,7 @@ const (
 	FuseEnabledParam             = "titusParameter.agent.fuseEnabled"
 	KvmEnabledParam              = "titusParameter.agent.kvmEnabled"
 	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
-	serviceMeshEnabledParam      = "titusParameter.agent.service.serviceMeshEnabled"
+	serviceMeshEnabledParam      = "titusParameter.agent.service.serviceMesh.enabled"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to

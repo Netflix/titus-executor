@@ -191,7 +191,7 @@ func shouldStartMetatronSync(cfg *config.Config, c *runtimeTypes.Container) bool
 }
 
 func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool {
-	if cfg.ContainerServiceMeshImage == "" {
+	if !cfg.ContainerServiceMeshEnabled || cfg.ContainerServiceMeshImage == "" {
 		return false
 	}
 
@@ -1004,7 +1004,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			image:         r.cfg.ContainerServiceMeshImage,
 			containerName: &serviceMeshContainerName,
 			volumes: map[string]struct{}{
-				"/titus/servicemesh": {},
+				"/titus/netflix-envoy": {},
 			},
 		}))
 	}
@@ -1053,6 +1053,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 	if logViewerContainerName != "" {
 		volumeContainers = append(volumeContainers, logViewerContainerName)
+	}
+	if serviceMeshContainerName != "" {
+		volumeContainers = append(volumeContainers, serviceMeshContainerName)
 	}
 
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, volumeContainers)

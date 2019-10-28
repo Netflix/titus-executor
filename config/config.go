@@ -43,7 +43,9 @@ type Config struct {
 	ContainerLogViewer      bool
 	ContainerLogViewerImage string
 
-	ContainerServiceMeshImage string
+	// Enable an in-container system mesh image?
+	ContainerServiceMeshEnabled bool
+	ContainerServiceMeshImage   string
 
 	// Do we enable a container-specific SSHD?
 	ContainerSSHD       bool
@@ -157,6 +159,11 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value:       "titusoss/metatron@sha256:a850a47bda1238f4bad36fd599679ef518cc40874c0102713982d1058b5a3a88",
 			Destination: &cfg.ContainerMetatronImage,
 			EnvVar:      "CONTAINER_METATRON_IMAGE",
+		},
+		cli.BoolFlag{
+			Name:        "container-servicemesh-enabled",
+			EnvVar:      "CONTAINER_SERVICEMESH_ENABLED",
+			Destination: &cfg.ContainerServiceMeshEnabled,
 		},
 		cli.StringFlag{
 			Name: "container-servicemesh-image",
