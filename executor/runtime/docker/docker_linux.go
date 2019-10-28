@@ -92,9 +92,9 @@ var systemServices = []serviceOpts{
 		},
 	},
 	{
-		humanName: "service mesh",
-		unitName:  "titus-servicemesh",
-		required:  true,
+		humanName:    "service mesh",
+		unitName:     "titus-servicemesh",
+		required:     true,
 		enabledCheck: shouldStartServiceMesh,
 	},
 }
