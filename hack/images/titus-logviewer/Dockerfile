@@ -12,4 +12,4 @@ FROM scratch
 
 ENV GOPATH /go
 ENV EXECUTOR_DIR "$GOPATH/src/github.com/Netflix/titus-executor"
-COPY --from=builder $EXECUTOR_DIR/titus-logviewer /titus/logviewer/bin/titus-logviewer
+COPY --from=builder $EXECUTOR_DIR/titus-logviewer /titus/adminlogs/bin/adminlogs
