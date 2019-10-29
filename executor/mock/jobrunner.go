@@ -27,7 +27,7 @@ import (
 var errStatusChannelClosed = errors.New("Status channel closed")
 
 const (
-	logViewerTestImage = "titusoss/titus-logviewer@sha256:4375303a8ce6dfb297cc47f2103ae140af89c88e393392c2c7ea01943345bef5"
+	logViewerTestImage = "titusoss/titus-logviewer@sha256:750a908c244c3f44b2b7abf1d9297aca859592e02736b3bd48aaebac022a87e5"
 	metatronTestImage  = "titusoss/metatron:20190716-1563251672"
 )
 

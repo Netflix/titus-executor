@@ -979,7 +979,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			image:         r.cfg.ContainerLogViewerImage,
 			containerName: &logViewerContainerName,
 			volumes: map[string]struct{}{
-				"/titus/logviewer": {},
+				"/titus/adminlogs": {},
 			},
 		}))
 	}
