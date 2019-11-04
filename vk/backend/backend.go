@@ -42,6 +42,45 @@ func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 	}
 }
 
+func state2containerState(state titusdriver.TitusTaskState) v1.ContainerState {
+	switch state {
+	case titusdriver.Starting:
+		return v1.ContainerState{
+			Waiting: &v1.ContainerStateWaiting{},
+		}
+	case titusdriver.Running:
+		return v1.ContainerState{
+			Running: &v1.ContainerStateRunning{},
+		}
+	case titusdriver.Finished:
+		return v1.ContainerState{
+			Terminated: &v1.ContainerStateTerminated{
+				ExitCode: -1,
+			},
+		}
+	case titusdriver.Failed:
+		return v1.ContainerState{
+			Terminated: &v1.ContainerStateTerminated{
+				ExitCode: -1,
+			},
+		}
+	case titusdriver.Killed:
+		return v1.ContainerState{
+			Terminated: &v1.ContainerStateTerminated{
+				ExitCode: -1,
+			},
+		}
+	case titusdriver.Lost:
+		return v1.ContainerState{
+			Terminated: &v1.ContainerStateTerminated{
+				ExitCode: -1,
+			},
+		}
+	default:
+		panic(state)
+	}
+}
+
 func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.File, pod *v1.Pod) error {
 	containerInfoStr, ok := pod.GetAnnotations()["containerInfo"]
 	if !ok {
@@ -104,8 +143,21 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 			if update.Details != nil {
 				pod.Status.PodIP = update.Details.NetworkConfiguration.IPAddress
 			}
+
 			pod.Status.Reason = update.State.String()
 			pod.Status.Phase = state2phase(update.State)
+
+			log.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)).Debug("Setting ContainerStatus...")
+			pod.Status.ContainerStatuses = []v1.ContainerStatus{{
+				Name:                 pod.Name,
+				State:                state2containerState(update.State),
+				LastTerminationState: v1.ContainerState{},
+				Ready:                true,
+				RestartCount:         0,
+				Image:                "",
+				ImageID:              "",
+				ContainerID:          "",
+			}}
 
 			if update.Details != nil && update.Details.NetworkConfiguration != nil {
 				for k, v := range update.Details.NetworkConfiguration.ToMap() {
