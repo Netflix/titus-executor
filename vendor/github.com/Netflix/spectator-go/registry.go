@@ -9,12 +9,6 @@ import (
 	"sort"
 	"sync"
 	"time"
-
-	"go.opencensus.io/stats/view"
-)
-
-var (
-	_ view.Exporter = (*Registry)(nil)
 )
 
 type Meter interface {
@@ -266,9 +260,9 @@ func (r *Registry) measurementsToJson(measurements []Measurement) ([]byte, error
 	return json.Marshal(payload)
 }
 
-type meterFactoryFun func() Meter
+type MeterFactoryFun func() Meter
 
-func (r *Registry) newMeter(id *Id, meterFactory meterFactoryFun) Meter {
+func (r *Registry) NewMeter(id *Id, meterFactory MeterFactoryFun) Meter {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	meter, exists := r.meters[id.mapKey()]
@@ -280,11 +274,11 @@ func (r *Registry) newMeter(id *Id, meterFactory meterFactoryFun) Meter {
 }
 
 func (r *Registry) NewId(name string, tags map[string]string) *Id {
-	return newId(name, tags)
+	return NewId(name, tags)
 }
 
 func (r *Registry) CounterWithId(id *Id) *Counter {
-	m := r.newMeter(id, func() Meter {
+	m := r.NewMeter(id, func() Meter {
 		return NewCounter(id)
 	})
 
@@ -300,11 +294,11 @@ func (r *Registry) CounterWithId(id *Id) *Counter {
 }
 
 func (r *Registry) Counter(name string, tags map[string]string) *Counter {
-	return r.CounterWithId(newId(name, tags))
+	return r.CounterWithId(NewId(name, tags))
 }
 
 func (r *Registry) TimerWithId(id *Id) *Timer {
-	m := r.newMeter(id, func() Meter {
+	m := r.NewMeter(id, func() Meter {
 		return NewTimer(id)
 	})
 
@@ -320,11 +314,11 @@ func (r *Registry) TimerWithId(id *Id) *Timer {
 }
 
 func (r *Registry) Timer(name string, tags map[string]string) *Timer {
-	return r.TimerWithId(newId(name, tags))
+	return r.TimerWithId(NewId(name, tags))
 }
 
 func (r *Registry) GaugeWithId(id *Id) *Gauge {
-	m := r.newMeter(id, func() Meter {
+	m := r.NewMeter(id, func() Meter {
 		return NewGauge(id)
 	})
 
@@ -340,11 +334,11 @@ func (r *Registry) GaugeWithId(id *Id) *Gauge {
 }
 
 func (r *Registry) Gauge(name string, tags map[string]string) *Gauge {
-	return r.GaugeWithId(newId(name, tags))
+	return r.GaugeWithId(NewId(name, tags))
 }
 
 func (r *Registry) DistributionSummaryWithId(id *Id) *DistributionSummary {
-	m := r.newMeter(id, func() Meter {
+	m := r.NewMeter(id, func() Meter {
 		return NewDistributionSummary(id)
 	})
 
@@ -360,42 +354,5 @@ func (r *Registry) DistributionSummaryWithId(id *Id) *DistributionSummary {
 }
 
 func (r *Registry) DistributionSummary(name string, tags map[string]string) *DistributionSummary {
-	return r.DistributionSummaryWithId(newId(name, tags))
-}
-
-func (r *Registry) opencensusDistributionDataWithId(id *Id) *opencensusDistributionData {
-	m := r.newMeter(id, func() Meter {
-		return newOpencensusDistributionData(id)
-	})
-
-	d, ok := m.(*opencensusDistributionData)
-	if ok {
-		return d
-	}
-
-	r.config.Log.Errorf("Unable to register a gauge with id=%v - an opencensusDistributionData meter %v exists", id, d)
-
-	// throw in strict mode
-	return newOpencensusDistributionData(id)
-}
-
-func (r *Registry) ExportView(vd *view.Data) {
-	for _, row := range vd.Rows {
-		tags := make(map[string]string, len(row.Tags))
-		for idx := range row.Tags {
-			tags[row.Tags[idx].Key.Name()] = row.Tags[idx].Value
-		}
-
-		id := newId(vd.View.Name, tags)
-		switch v := row.Data.(type) {
-		case *view.DistributionData:
-			r.opencensusDistributionDataWithId(id).update(v)
-		case *view.CountData:
-			r.CounterWithId(id).Add(v.Value)
-		case *view.SumData:
-			r.CounterWithId(id).AddFloat(v.Value)
-		case *view.LastValueData:
-			r.GaugeWithId(id).Set(v.Value)
-		}
-	}
+	return r.DistributionSummaryWithId(NewId(name, tags))
 }
