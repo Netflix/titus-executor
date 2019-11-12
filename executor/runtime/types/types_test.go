@@ -116,7 +116,7 @@ func TestEc2HostnameStyle(t *testing.T) {
 		TitusInfo: &titus.ContainerInfo{
 			PassthroughAttributes: map[string]string{hostnameStyleParam: "ec2"},
 		},
-		Allocation: vpcTypes.Allocation{
+		Allocation: vpcTypes.HybridAllocation{
 			IPV4Address: &vpcapi.UsableAddress{
 				PrefixLength: 32,
 				Address: &vpcapi.Address{

@@ -62,7 +62,7 @@ func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIde
 	// TODO: Output JSON as to new network settings
 	err = json.NewEncoder(os.Stdout).
 		Encode(
-			types.Allocation{
+			types.LegacyAllocation{
 				IPV4Address: allocation.ip4Address,
 				IPV6Address: allocation.ip6Address,
 				DeviceIndex: deviceIdx,
@@ -129,7 +129,7 @@ func (a *allocation) String() string {
 	return fmt.Sprintf("%#v", *a)
 }
 
-func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address bool, allocationUUID string) (*allocation, error) {
+func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address bool, allocationUUID string) (*allocation, error) { // nolint:dupl
 	// TODO: Make timeout adjustable
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -188,7 +188,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 		return nil, errors.Wrap(err, "Cannot retrieve instance identity")
 	}
 
-	optimisticLockTimeout := time.Duration(0)
+	optimisticLockTimeout := time.Duration(0) // nolint:dupl
 	reconfigurationTimeout := 10 * time.Second
 
 	configurationLockPath := utilities.GetConfigurationLockPath(deviceIdx)

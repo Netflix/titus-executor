@@ -3,25 +3,26 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net"
 	"strings"
 	"time"
 
-	"github.com/lib/pq"
-	"github.com/pkg/errors"
-
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
+	"github.com/lib/pq"
+	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type utilizedAddress struct {
@@ -419,4 +420,276 @@ func (vpcService *vpcService) gcInterface(ctx context.Context, instanceNetworkIn
 	}
 
 	return &resp, nil
+}
+
+func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2) (_ *vpcapi.GCResponseV2, retErr error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GCV2")
+	defer span.End()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+
+	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	defer func() {
+		// TODO: return error if transaction fails
+		if retErr == nil {
+			retErr = tx.Commit()
+		} else {
+			_ = tx.Rollback()
+		}
+	}()
+
+	_, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(oid::int, branch_enis.id) FROM branch_enis, (SELECT oid FROM pg_class WHERE relname = 'branch_enis') o WHERE branch_eni = $1",
+		req.NetworkInterfaceAttachment.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: Make this a variable / configurable
+	eni, err := session.GetNetworkInterfaceByID(ctx, req.NetworkInterfaceAttachment.Id, 2*time.Second)
+	if err != nil {
+		err = ec2wrapper.HandleEC2Error(err, span)
+		return nil, err
+	}
+
+	unallocatedAddresses := sets.NewString()
+	allocatedAddresses := sets.NewString()
+
+	for _, addr := range req.AllocatedAddresses {
+		allocatedAddresses.Insert(addr.Address)
+	}
+	for _, addr := range req.UnallocatedAddresses {
+		unallocatedAddresses.Insert(addr.Address)
+	}
+
+	assignedAddresses := sets.NewString()
+	assignedRemovableAddresses := sets.NewString()
+	for _, addr := range eni.PrivateIpAddresses {
+		ip := net.ParseIP(aws.StringValue(addr.PrivateIpAddress)).String()
+		assignedAddresses.Insert(ip)
+		if !aws.BoolValue(addr.Primary) {
+			assignedRemovableAddresses.Insert(ip)
+		}
+	}
+	for _, addr := range eni.Ipv6Addresses {
+		ip := net.ParseIP(aws.StringValue(addr.Ipv6Address)).String()
+		assignedAddresses.Insert(ip)
+		assignedRemovableAddresses.Insert(ip)
+	}
+
+	addressesToDelete := unallocatedAddresses.Difference(assignedAddresses)
+	candidates := assignedRemovableAddresses.Difference(allocatedAddresses)
+
+	rows, err := tx.QueryContext(ctx, "SELECT ip_address, home_eni FROM ip_addresses WHERE host(ip_address) = any($1)", pq.Array(assignedRemovableAddresses.List()))
+	if err != nil {
+		err = errors.Wrap(err, "Could not query database for statically assigned addresses")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	staticAddressesToENI := map[string]string{}
+	for rows.Next() {
+		var ip string
+		var homeEni string
+		err = rows.Scan(&ip, &homeEni)
+		if err != nil {
+			err = errors.Wrap(err, "Could not fetch statically assigned address row")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		ipString := net.ParseIP(ip).String()
+		candidates.Delete(ipString)
+		staticAddressesToENI[ipString] = homeEni
+	}
+
+	err = vpcService.reassignAddresses(ctx, session, staticAddressesToENI)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	timeout := time.Now().Add(-1 * vpcService.gcTimeout)
+	logger.G(ctx).WithField("candidates", candidates.List()).WithField("addressesToDelete", addressesToDelete.List()).Debug()
+	rows, err = tx.QueryContext(ctx, `SELECT 
+  known_ips.ip
+FROM 
+  (
+    SELECT 
+      unnest($1::text[]):: inet AS ip
+  ) known_ips 
+  LEFT JOIN ip_last_used ON known_ips.ip = ip_last_used.ip_address 
+WHERE 
+  COALESCE(last_used, 'epoch') < $2 
+  AND COALESCE(last_allocated, 'epoch') < $2`, pq.Array(candidates.List()), timeout)
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch addresses from the database").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	toUnassign := sets.NewString()
+	for rows.Next() {
+		var ip string
+		err = rows.Scan(&ip)
+		if err != nil {
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not read rows from database").Error())
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		toUnassign.Insert(ip)
+		addressesToDelete.Insert(ip)
+	}
+	logger.G(ctx).WithField("toUnassign", toUnassign.List()).Info("Should unassign")
+
+	err = vpcService.unassignAddressesV2(ctx, tx, session, req.NetworkInterfaceAttachment.Id, toUnassign)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &vpcapi.GCResponseV2{}
+	for _, addr := range addressesToDelete.List() {
+		resp.AddressToDelete = append(resp.AddressToDelete, &vpcapi.Address{Address: addr})
+	}
+
+	return resp, nil
+}
+
+func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRequest) (*vpcapi.GCSetupResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GCSetup")
+	defer span.End()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+
+	span.AddAttributes(trace.StringAttribute("instance", req.InstanceIdentity.InstanceID))
+	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	if err != nil {
+		return nil, err
+	}
+
+	trunkENI := vpcService.getTrunkENI(instance)
+	if trunkENI == nil {
+		err = status.Error(codes.FailedPrecondition, "Instance does not have trunk ENI")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	resp := &vpcapi.GCSetupResponse{
+		NetworkInterfaceAttachment: []*vpcapi.NetworkInterfaceAttachment{},
+	}
+
+	// TODO: Replace with query to SQL database
+	ec2client := ec2.New(session.Session)
+
+	describeTrunkInterfaceAssociationsInput := &ec2.DescribeTrunkInterfaceAssociationsInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   aws.String("trunk-interface-association.trunk-interface-id"),
+				Values: []*string{trunkENI.NetworkInterfaceId},
+			},
+		},
+	}
+	for {
+		describeTrunkInterfaceAssociationsOutput, err := ec2client.DescribeTrunkInterfaceAssociationsWithContext(ctx, describeTrunkInterfaceAssociationsInput)
+		if err != nil {
+			err = ec2wrapper.HandleEC2Error(err, span)
+			return nil, err
+		}
+		for _, assoc := range describeTrunkInterfaceAssociationsOutput.InterfaceAssociations {
+			resp.NetworkInterfaceAttachment = append(resp.NetworkInterfaceAttachment, &vpcapi.NetworkInterfaceAttachment{
+				DeviceIndex: uint32(aws.Int64Value(assoc.VlanId)),
+				Id:          aws.StringValue(assoc.BranchInterfaceId),
+			})
+		}
+
+		if describeTrunkInterfaceAssociationsOutput.NextToken == nil {
+			return resp, nil
+		}
+		describeTrunkInterfaceAssociationsInput.NextToken = describeTrunkInterfaceAssociationsOutput.NextToken
+	}
+}
+
+func (vpcService *vpcService) reassignAddresses(ctx context.Context, session *ec2wrapper.EC2Session, ipToENIMap map[string]string) error {
+	for ip, eni := range ipToENIMap {
+		assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
+			AllowReassignment:  aws.Bool(true),
+			NetworkInterfaceId: aws.String(eni),
+			PrivateIpAddresses: aws.StringSlice([]string{ip}),
+		}
+
+		_, err := session.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput)
+		if err != nil {
+			awsErr, ok := err.(awserr.Error)
+			if ok && awsErr.Code() == "InvalidParameterValue" {
+				continue
+			}
+			return errors.Wrap(err, "Unable to relocate IP addresses")
+		}
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) unassignAddressesV2(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, networkInterfaceID string, addrsToRemoveSet sets.String) error {
+	if addrsToRemoveSet.Len() == 0 {
+		return nil
+	}
+
+	ctx, span := trace.StartSpan(ctx, "unassignAddressesV2")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("addrsToRemove", fmt.Sprint((addrsToRemoveSet.List()))))
+
+	v6addrsToRemoveSet := sets.NewString()
+	v4addrsToRemoveSet := sets.NewString()
+	for _, addr := range addrsToRemoveSet.List() {
+		if net.ParseIP(addr).To4() == nil {
+			v6addrsToRemoveSet.Insert(addr)
+		} else {
+			v4addrsToRemoveSet.Insert(addr)
+		}
+	}
+
+	if v4addrsToRemoveSet.Len() > 0 {
+		unassignPrivateIPAddressesInput := ec2.UnassignPrivateIpAddressesInput{
+			PrivateIpAddresses: aws.StringSlice(v4addrsToRemoveSet.List()),
+			NetworkInterfaceId: aws.String(networkInterfaceID),
+		}
+		_, err := session.UnassignPrivateIPAddresses(ctx, unassignPrivateIPAddressesInput)
+		if err != nil {
+			return err
+		}
+	}
+
+	if v6addrsToRemoveSet.Len() > 0 {
+		unassignIpv6AddressesInput := ec2.UnassignIpv6AddressesInput{
+			Ipv6Addresses:      aws.StringSlice(v6addrsToRemoveSet.List()),
+			NetworkInterfaceId: aws.String(networkInterfaceID),
+		}
+		_, err := session.UnassignIpv6Addresses(ctx, unassignIpv6AddressesInput)
+		if err != nil {
+			return err
+		}
+
+	}
+
+	return nil
 }

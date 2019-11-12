@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -48,21 +48,11 @@ func GC(ctx context.Context, onlyInterfaces []int, timeout time.Duration, instan
 
 	var result *multierror.Error
 
-	if len(onlyInterfaces) > 0 {
-		for _, i := range onlyInterfaces {
-			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
-			if err != nil {
-				result = multierror.Append(result, err)
-			}
+	for i := 1; i < maxInterfaces; i++ {
+		err = doGcInterface(ctx, i, locker, client, instanceIdentity)
+		if err != nil {
+			result = multierror.Append(result, err)
 		}
-	} else {
-		for i := 1; i < maxInterfaces; i++ {
-			err = doGcInterface(ctx, i, locker, client, instanceIdentity)
-			if err != nil {
-				result = multierror.Append(result, err)
-			}
-		}
-
 	}
 
 	return result.ErrorOrNil()

@@ -136,7 +136,7 @@ type Container struct {
 
 	// VPC driver fields
 	SecurityGroupIDs   []string
-	Allocation         vpcTypes.Allocation
+	Allocation         vpcTypes.HybridAllocation
 	NormalizedENIIndex int
 	BandwidthLimitMbps uint32
 	AllocationUUID     string

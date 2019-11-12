@@ -1,0 +1,4 @@
+* Add static IP exclusion on allocation
+* Add static IP allocations code
+* Take shared global lock on allocation to prevent GC from occuring
+* Add locking per ENI for modifications

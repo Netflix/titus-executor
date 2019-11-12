@@ -2,6 +2,7 @@ syntax = "proto3";
 package com.netflix.titus.executor.vpc;
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 import "netflix/titus/titus_base.proto";
 
 option go_package = "vpcapi";
@@ -21,6 +22,7 @@ message CacheVersion {
 message NetworkInterfaceAttachment {
     // 0-indexed
     uint32 deviceIndex = 1;
+    string id = 2;
 };
 
 message NetworkInterface {
@@ -61,6 +63,14 @@ message ProvisionInstanceResponse {
     CacheVersion cacheVersion = 2;
 };
 
+message ProvisionInstanceRequestV2 {
+    InstanceIdentity instanceIdentity = 1;
+}
+
+message ProvisionInstanceResponseV2 {
+    NetworkInterface trunkNetworkInterface = 1;
+};
+
 message UtilizedAddress {
     Address address = 1;
     google.protobuf.Timestamp lastUsedTime = 2;
@@ -84,6 +94,32 @@ message AssignIPResponse {
     repeated UsableAddress usableAddresses = 2;
     NetworkInterface networkInterface = 3;
     repeated string securityGroupIds = 4;
+};
+
+
+message AssignIPRequestV2 {
+    NetworkInterfaceAttachment networkInterfaceAttachment = 1;
+    repeated string securityGroupIds = 2;
+    oneof ipv6 {
+        bool ipv6AddressRequested = 3;
+    }
+    oneof ipv4 {
+        bool ipv4AddressRequested = 5;
+        com.netflix.titus.SignedAddressAllocation ipv4SignedAddressAllocation = 6;
+    }
+    repeated UtilizedAddress utilizedAddresses = 7;
+    InstanceIdentity instanceIdentity = 8;
+    bool allowSecurityGroupChange = 9;
+    string accountID = 10;
+    // This is optional. If it is not specified then we will assign a "random" IP to the interface
+};
+
+message AssignIPResponseV2 {
+    UsableAddress ipv4address = 1;
+    UsableAddress ipv6address = 2;
+    NetworkInterface branchNetworkInterface = 3;
+    NetworkInterface trunkNetworkInterface = 4;
+    uint32 vlanId = 5;
 };
 
 
@@ -113,13 +149,47 @@ message GCResponse {
     repeated Address addressToDelete = 3;
 }
 
+message GCRequestV2 {
+    InstanceIdentity instanceIdentity = 1;
+    NetworkInterfaceAttachment networkInterfaceAttachment = 2;
+    // unallocatedAddresses are addresses we were able to take a lock on
+    repeated Address unallocatedAddresses = 3;
+    // allocatedAddresses are addresses currently in use.
+    repeated Address allocatedAddresses = 4;
+}
+
+message GCResponseV2 {
+    repeated Address addressToDelete = 1;
+}
+
+message RefreshIPRequest {
+    repeated UtilizedAddress utilizedAddress = 1;
+}
+
+message RefreshIPResponse {
+    google.protobuf.Duration nextRefresh = 1;
+}
+
+message GCSetupRequest {
+    InstanceIdentity instanceIdentity = 1;
+}
+
+message GCSetupResponse {
+    repeated NetworkInterfaceAttachment networkInterfaceAttachment = 1;
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
+    rpc ProvisionInstanceV2 (ProvisionInstanceRequestV2) returns (ProvisionInstanceResponseV2);
 
     rpc AssignIP (AssignIPRequest) returns (AssignIPResponse);
+    rpc AssignIPV2   (AssignIPRequestV2) returns (AssignIPResponseV2);
+    rpc RefreshIP (RefreshIPRequest) returns (RefreshIPResponse);
     // GC extra IPs
     rpc GC (GCRequest) returns (GCResponse);
+    rpc GCSetup (GCSetupRequest) returns (GCSetupResponse);
+    rpc GCV2 (GCRequestV2) returns (GCResponseV2);
 }
 
 message PrivateKey {

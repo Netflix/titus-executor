@@ -11,13 +11,12 @@ import (
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
-	"github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/service/sts"
-
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/arn"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/sts"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	lru "github.com/hashicorp/golang-lru"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"

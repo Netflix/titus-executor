@@ -10,6 +10,7 @@ import (
 
 	titus "github.com/Netflix/titus-executor/api/netflix/titus"
 	proto "github.com/golang/protobuf/proto"
+	duration "github.com/golang/protobuf/ptypes/duration"
 	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	grpc "google.golang.org/grpc"
 )
@@ -110,6 +111,7 @@ func (m *CacheVersion) GetUuid() []byte {
 type NetworkInterfaceAttachment struct {
 	// 0-indexed
 	DeviceIndex          uint32   `protobuf:"varint,1,opt,name=deviceIndex,proto3" json:"deviceIndex,omitempty"`
+	Id                   string   `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -145,6 +147,13 @@ func (m *NetworkInterfaceAttachment) GetDeviceIndex() uint32 {
 		return m.DeviceIndex
 	}
 	return 0
+}
+
+func (m *NetworkInterfaceAttachment) GetId() string {
+	if m != nil {
+		return m.Id
+	}
+	return ""
 }
 
 type NetworkInterface struct {
@@ -423,6 +432,84 @@ func (m *ProvisionInstanceResponse) GetCacheVersion() *CacheVersion {
 	return nil
 }
 
+type ProvisionInstanceRequestV2 struct {
+	InstanceIdentity     *InstanceIdentity `protobuf:"bytes,1,opt,name=instanceIdentity,proto3" json:"instanceIdentity,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
+}
+
+func (m *ProvisionInstanceRequestV2) Reset()         { *m = ProvisionInstanceRequestV2{} }
+func (m *ProvisionInstanceRequestV2) String() string { return proto.CompactTextString(m) }
+func (*ProvisionInstanceRequestV2) ProtoMessage()    {}
+func (*ProvisionInstanceRequestV2) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{7}
+}
+
+func (m *ProvisionInstanceRequestV2) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ProvisionInstanceRequestV2.Unmarshal(m, b)
+}
+func (m *ProvisionInstanceRequestV2) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ProvisionInstanceRequestV2.Marshal(b, m, deterministic)
+}
+func (m *ProvisionInstanceRequestV2) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ProvisionInstanceRequestV2.Merge(m, src)
+}
+func (m *ProvisionInstanceRequestV2) XXX_Size() int {
+	return xxx_messageInfo_ProvisionInstanceRequestV2.Size(m)
+}
+func (m *ProvisionInstanceRequestV2) XXX_DiscardUnknown() {
+	xxx_messageInfo_ProvisionInstanceRequestV2.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ProvisionInstanceRequestV2 proto.InternalMessageInfo
+
+func (m *ProvisionInstanceRequestV2) GetInstanceIdentity() *InstanceIdentity {
+	if m != nil {
+		return m.InstanceIdentity
+	}
+	return nil
+}
+
+type ProvisionInstanceResponseV2 struct {
+	TrunkNetworkInterface *NetworkInterface `protobuf:"bytes,1,opt,name=trunkNetworkInterface,proto3" json:"trunkNetworkInterface,omitempty"`
+	XXX_NoUnkeyedLiteral  struct{}          `json:"-"`
+	XXX_unrecognized      []byte            `json:"-"`
+	XXX_sizecache         int32             `json:"-"`
+}
+
+func (m *ProvisionInstanceResponseV2) Reset()         { *m = ProvisionInstanceResponseV2{} }
+func (m *ProvisionInstanceResponseV2) String() string { return proto.CompactTextString(m) }
+func (*ProvisionInstanceResponseV2) ProtoMessage()    {}
+func (*ProvisionInstanceResponseV2) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{8}
+}
+
+func (m *ProvisionInstanceResponseV2) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ProvisionInstanceResponseV2.Unmarshal(m, b)
+}
+func (m *ProvisionInstanceResponseV2) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ProvisionInstanceResponseV2.Marshal(b, m, deterministic)
+}
+func (m *ProvisionInstanceResponseV2) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ProvisionInstanceResponseV2.Merge(m, src)
+}
+func (m *ProvisionInstanceResponseV2) XXX_Size() int {
+	return xxx_messageInfo_ProvisionInstanceResponseV2.Size(m)
+}
+func (m *ProvisionInstanceResponseV2) XXX_DiscardUnknown() {
+	xxx_messageInfo_ProvisionInstanceResponseV2.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ProvisionInstanceResponseV2 proto.InternalMessageInfo
+
+func (m *ProvisionInstanceResponseV2) GetTrunkNetworkInterface() *NetworkInterface {
+	if m != nil {
+		return m.TrunkNetworkInterface
+	}
+	return nil
+}
+
 type UtilizedAddress struct {
 	Address              *Address             `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	LastUsedTime         *timestamp.Timestamp `protobuf:"bytes,2,opt,name=lastUsedTime,proto3" json:"lastUsedTime,omitempty"`
@@ -435,7 +522,7 @@ func (m *UtilizedAddress) Reset()         { *m = UtilizedAddress{} }
 func (m *UtilizedAddress) String() string { return proto.CompactTextString(m) }
 func (*UtilizedAddress) ProtoMessage()    {}
 func (*UtilizedAddress) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{7}
+	return fileDescriptor_95d23e4d548ba1d7, []int{9}
 }
 
 func (m *UtilizedAddress) XXX_Unmarshal(b []byte) error {
@@ -489,7 +576,7 @@ func (m *AssignIPRequest) Reset()         { *m = AssignIPRequest{} }
 func (m *AssignIPRequest) String() string { return proto.CompactTextString(m) }
 func (*AssignIPRequest) ProtoMessage()    {}
 func (*AssignIPRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{8}
+	return fileDescriptor_95d23e4d548ba1d7, []int{10}
 }
 
 func (m *AssignIPRequest) XXX_Unmarshal(b []byte) error {
@@ -581,7 +668,7 @@ func (m *AssignIPResponse) Reset()         { *m = AssignIPResponse{} }
 func (m *AssignIPResponse) String() string { return proto.CompactTextString(m) }
 func (*AssignIPResponse) ProtoMessage()    {}
 func (*AssignIPResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{9}
+	return fileDescriptor_95d23e4d548ba1d7, []int{11}
 }
 
 func (m *AssignIPResponse) XXX_Unmarshal(b []byte) error {
@@ -630,6 +717,233 @@ func (m *AssignIPResponse) GetSecurityGroupIds() []string {
 	return nil
 }
 
+type AssignIPRequestV2 struct {
+	NetworkInterfaceAttachment *NetworkInterfaceAttachment `protobuf:"bytes,1,opt,name=networkInterfaceAttachment,proto3" json:"networkInterfaceAttachment,omitempty"`
+	SecurityGroupIds           []string                    `protobuf:"bytes,2,rep,name=securityGroupIds,proto3" json:"securityGroupIds,omitempty"`
+	// Types that are valid to be assigned to Ipv6:
+	//	*AssignIPRequestV2_Ipv6AddressRequested
+	Ipv6 isAssignIPRequestV2_Ipv6 `protobuf_oneof:"ipv6"`
+	// Types that are valid to be assigned to Ipv4:
+	//	*AssignIPRequestV2_Ipv4AddressRequested
+	//	*AssignIPRequestV2_Ipv4SignedAddressAllocation
+	Ipv4                     isAssignIPRequestV2_Ipv4 `protobuf_oneof:"ipv4"`
+	UtilizedAddresses        []*UtilizedAddress       `protobuf:"bytes,7,rep,name=utilizedAddresses,proto3" json:"utilizedAddresses,omitempty"`
+	InstanceIdentity         *InstanceIdentity        `protobuf:"bytes,8,opt,name=instanceIdentity,proto3" json:"instanceIdentity,omitempty"`
+	AllowSecurityGroupChange bool                     `protobuf:"varint,9,opt,name=allowSecurityGroupChange,proto3" json:"allowSecurityGroupChange,omitempty"`
+	AccountID                string                   `protobuf:"bytes,10,opt,name=accountID,proto3" json:"accountID,omitempty"`
+	XXX_NoUnkeyedLiteral     struct{}                 `json:"-"`
+	XXX_unrecognized         []byte                   `json:"-"`
+	XXX_sizecache            int32                    `json:"-"`
+}
+
+func (m *AssignIPRequestV2) Reset()         { *m = AssignIPRequestV2{} }
+func (m *AssignIPRequestV2) String() string { return proto.CompactTextString(m) }
+func (*AssignIPRequestV2) ProtoMessage()    {}
+func (*AssignIPRequestV2) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{12}
+}
+
+func (m *AssignIPRequestV2) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AssignIPRequestV2.Unmarshal(m, b)
+}
+func (m *AssignIPRequestV2) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AssignIPRequestV2.Marshal(b, m, deterministic)
+}
+func (m *AssignIPRequestV2) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AssignIPRequestV2.Merge(m, src)
+}
+func (m *AssignIPRequestV2) XXX_Size() int {
+	return xxx_messageInfo_AssignIPRequestV2.Size(m)
+}
+func (m *AssignIPRequestV2) XXX_DiscardUnknown() {
+	xxx_messageInfo_AssignIPRequestV2.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AssignIPRequestV2 proto.InternalMessageInfo
+
+func (m *AssignIPRequestV2) GetNetworkInterfaceAttachment() *NetworkInterfaceAttachment {
+	if m != nil {
+		return m.NetworkInterfaceAttachment
+	}
+	return nil
+}
+
+func (m *AssignIPRequestV2) GetSecurityGroupIds() []string {
+	if m != nil {
+		return m.SecurityGroupIds
+	}
+	return nil
+}
+
+type isAssignIPRequestV2_Ipv6 interface {
+	isAssignIPRequestV2_Ipv6()
+}
+
+type AssignIPRequestV2_Ipv6AddressRequested struct {
+	Ipv6AddressRequested bool `protobuf:"varint,3,opt,name=ipv6AddressRequested,proto3,oneof"`
+}
+
+func (*AssignIPRequestV2_Ipv6AddressRequested) isAssignIPRequestV2_Ipv6() {}
+
+func (m *AssignIPRequestV2) GetIpv6() isAssignIPRequestV2_Ipv6 {
+	if m != nil {
+		return m.Ipv6
+	}
+	return nil
+}
+
+func (m *AssignIPRequestV2) GetIpv6AddressRequested() bool {
+	if x, ok := m.GetIpv6().(*AssignIPRequestV2_Ipv6AddressRequested); ok {
+		return x.Ipv6AddressRequested
+	}
+	return false
+}
+
+type isAssignIPRequestV2_Ipv4 interface {
+	isAssignIPRequestV2_Ipv4()
+}
+
+type AssignIPRequestV2_Ipv4AddressRequested struct {
+	Ipv4AddressRequested bool `protobuf:"varint,5,opt,name=ipv4AddressRequested,proto3,oneof"`
+}
+
+type AssignIPRequestV2_Ipv4SignedAddressAllocation struct {
+	Ipv4SignedAddressAllocation *titus.SignedAddressAllocation `protobuf:"bytes,6,opt,name=ipv4SignedAddressAllocation,proto3,oneof"`
+}
+
+func (*AssignIPRequestV2_Ipv4AddressRequested) isAssignIPRequestV2_Ipv4() {}
+
+func (*AssignIPRequestV2_Ipv4SignedAddressAllocation) isAssignIPRequestV2_Ipv4() {}
+
+func (m *AssignIPRequestV2) GetIpv4() isAssignIPRequestV2_Ipv4 {
+	if m != nil {
+		return m.Ipv4
+	}
+	return nil
+}
+
+func (m *AssignIPRequestV2) GetIpv4AddressRequested() bool {
+	if x, ok := m.GetIpv4().(*AssignIPRequestV2_Ipv4AddressRequested); ok {
+		return x.Ipv4AddressRequested
+	}
+	return false
+}
+
+func (m *AssignIPRequestV2) GetIpv4SignedAddressAllocation() *titus.SignedAddressAllocation {
+	if x, ok := m.GetIpv4().(*AssignIPRequestV2_Ipv4SignedAddressAllocation); ok {
+		return x.Ipv4SignedAddressAllocation
+	}
+	return nil
+}
+
+func (m *AssignIPRequestV2) GetUtilizedAddresses() []*UtilizedAddress {
+	if m != nil {
+		return m.UtilizedAddresses
+	}
+	return nil
+}
+
+func (m *AssignIPRequestV2) GetInstanceIdentity() *InstanceIdentity {
+	if m != nil {
+		return m.InstanceIdentity
+	}
+	return nil
+}
+
+func (m *AssignIPRequestV2) GetAllowSecurityGroupChange() bool {
+	if m != nil {
+		return m.AllowSecurityGroupChange
+	}
+	return false
+}
+
+func (m *AssignIPRequestV2) GetAccountID() string {
+	if m != nil {
+		return m.AccountID
+	}
+	return ""
+}
+
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*AssignIPRequestV2) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
+		(*AssignIPRequestV2_Ipv6AddressRequested)(nil),
+		(*AssignIPRequestV2_Ipv4AddressRequested)(nil),
+		(*AssignIPRequestV2_Ipv4SignedAddressAllocation)(nil),
+	}
+}
+
+type AssignIPResponseV2 struct {
+	Ipv4Address            *UsableAddress    `protobuf:"bytes,1,opt,name=ipv4address,proto3" json:"ipv4address,omitempty"`
+	Ipv6Address            *UsableAddress    `protobuf:"bytes,2,opt,name=ipv6address,proto3" json:"ipv6address,omitempty"`
+	BranchNetworkInterface *NetworkInterface `protobuf:"bytes,3,opt,name=branchNetworkInterface,proto3" json:"branchNetworkInterface,omitempty"`
+	TrunkNetworkInterface  *NetworkInterface `protobuf:"bytes,4,opt,name=trunkNetworkInterface,proto3" json:"trunkNetworkInterface,omitempty"`
+	VlanId                 uint32            `protobuf:"varint,5,opt,name=vlanId,proto3" json:"vlanId,omitempty"`
+	XXX_NoUnkeyedLiteral   struct{}          `json:"-"`
+	XXX_unrecognized       []byte            `json:"-"`
+	XXX_sizecache          int32             `json:"-"`
+}
+
+func (m *AssignIPResponseV2) Reset()         { *m = AssignIPResponseV2{} }
+func (m *AssignIPResponseV2) String() string { return proto.CompactTextString(m) }
+func (*AssignIPResponseV2) ProtoMessage()    {}
+func (*AssignIPResponseV2) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{13}
+}
+
+func (m *AssignIPResponseV2) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AssignIPResponseV2.Unmarshal(m, b)
+}
+func (m *AssignIPResponseV2) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AssignIPResponseV2.Marshal(b, m, deterministic)
+}
+func (m *AssignIPResponseV2) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AssignIPResponseV2.Merge(m, src)
+}
+func (m *AssignIPResponseV2) XXX_Size() int {
+	return xxx_messageInfo_AssignIPResponseV2.Size(m)
+}
+func (m *AssignIPResponseV2) XXX_DiscardUnknown() {
+	xxx_messageInfo_AssignIPResponseV2.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AssignIPResponseV2 proto.InternalMessageInfo
+
+func (m *AssignIPResponseV2) GetIpv4Address() *UsableAddress {
+	if m != nil {
+		return m.Ipv4Address
+	}
+	return nil
+}
+
+func (m *AssignIPResponseV2) GetIpv6Address() *UsableAddress {
+	if m != nil {
+		return m.Ipv6Address
+	}
+	return nil
+}
+
+func (m *AssignIPResponseV2) GetBranchNetworkInterface() *NetworkInterface {
+	if m != nil {
+		return m.BranchNetworkInterface
+	}
+	return nil
+}
+
+func (m *AssignIPResponseV2) GetTrunkNetworkInterface() *NetworkInterface {
+	if m != nil {
+		return m.TrunkNetworkInterface
+	}
+	return nil
+}
+
+func (m *AssignIPResponseV2) GetVlanId() uint32 {
+	if m != nil {
+		return m.VlanId
+	}
+	return 0
+}
+
 type UsableAddress struct {
 	Address              *Address `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	PrefixLength         uint32   `protobuf:"varint,2,opt,name=prefixLength,proto3" json:"prefixLength,omitempty"`
@@ -642,7 +956,7 @@ func (m *UsableAddress) Reset()         { *m = UsableAddress{} }
 func (m *UsableAddress) String() string { return proto.CompactTextString(m) }
 func (*UsableAddress) ProtoMessage()    {}
 func (*UsableAddress) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{10}
+	return fileDescriptor_95d23e4d548ba1d7, []int{14}
 }
 
 func (m *UsableAddress) XXX_Unmarshal(b []byte) error {
@@ -699,7 +1013,7 @@ func (m *GCRequest) Reset()         { *m = GCRequest{} }
 func (m *GCRequest) String() string { return proto.CompactTextString(m) }
 func (*GCRequest) ProtoMessage()    {}
 func (*GCRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{11}
+	return fileDescriptor_95d23e4d548ba1d7, []int{15}
 }
 
 func (m *GCRequest) XXX_Unmarshal(b []byte) error {
@@ -775,7 +1089,7 @@ func (m *GCResponse) Reset()         { *m = GCResponse{} }
 func (m *GCResponse) String() string { return proto.CompactTextString(m) }
 func (*GCResponse) ProtoMessage()    {}
 func (*GCResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{12}
+	return fileDescriptor_95d23e4d548ba1d7, []int{16}
 }
 
 func (m *GCResponse) XXX_Unmarshal(b []byte) error {
@@ -817,6 +1131,266 @@ func (m *GCResponse) GetAddressToDelete() []*Address {
 	return nil
 }
 
+type GCRequestV2 struct {
+	InstanceIdentity           *InstanceIdentity           `protobuf:"bytes,1,opt,name=instanceIdentity,proto3" json:"instanceIdentity,omitempty"`
+	NetworkInterfaceAttachment *NetworkInterfaceAttachment `protobuf:"bytes,2,opt,name=networkInterfaceAttachment,proto3" json:"networkInterfaceAttachment,omitempty"`
+	// unallocatedAddresses are addresses we were able to take a lock on
+	UnallocatedAddresses []*Address `protobuf:"bytes,3,rep,name=unallocatedAddresses,proto3" json:"unallocatedAddresses,omitempty"`
+	// allocatedAddresses are addresses currently in use.
+	AllocatedAddresses   []*Address `protobuf:"bytes,4,rep,name=allocatedAddresses,proto3" json:"allocatedAddresses,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *GCRequestV2) Reset()         { *m = GCRequestV2{} }
+func (m *GCRequestV2) String() string { return proto.CompactTextString(m) }
+func (*GCRequestV2) ProtoMessage()    {}
+func (*GCRequestV2) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{17}
+}
+
+func (m *GCRequestV2) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GCRequestV2.Unmarshal(m, b)
+}
+func (m *GCRequestV2) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GCRequestV2.Marshal(b, m, deterministic)
+}
+func (m *GCRequestV2) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GCRequestV2.Merge(m, src)
+}
+func (m *GCRequestV2) XXX_Size() int {
+	return xxx_messageInfo_GCRequestV2.Size(m)
+}
+func (m *GCRequestV2) XXX_DiscardUnknown() {
+	xxx_messageInfo_GCRequestV2.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GCRequestV2 proto.InternalMessageInfo
+
+func (m *GCRequestV2) GetInstanceIdentity() *InstanceIdentity {
+	if m != nil {
+		return m.InstanceIdentity
+	}
+	return nil
+}
+
+func (m *GCRequestV2) GetNetworkInterfaceAttachment() *NetworkInterfaceAttachment {
+	if m != nil {
+		return m.NetworkInterfaceAttachment
+	}
+	return nil
+}
+
+func (m *GCRequestV2) GetUnallocatedAddresses() []*Address {
+	if m != nil {
+		return m.UnallocatedAddresses
+	}
+	return nil
+}
+
+func (m *GCRequestV2) GetAllocatedAddresses() []*Address {
+	if m != nil {
+		return m.AllocatedAddresses
+	}
+	return nil
+}
+
+type GCResponseV2 struct {
+	AddressToDelete      []*Address `protobuf:"bytes,1,rep,name=addressToDelete,proto3" json:"addressToDelete,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *GCResponseV2) Reset()         { *m = GCResponseV2{} }
+func (m *GCResponseV2) String() string { return proto.CompactTextString(m) }
+func (*GCResponseV2) ProtoMessage()    {}
+func (*GCResponseV2) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{18}
+}
+
+func (m *GCResponseV2) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GCResponseV2.Unmarshal(m, b)
+}
+func (m *GCResponseV2) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GCResponseV2.Marshal(b, m, deterministic)
+}
+func (m *GCResponseV2) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GCResponseV2.Merge(m, src)
+}
+func (m *GCResponseV2) XXX_Size() int {
+	return xxx_messageInfo_GCResponseV2.Size(m)
+}
+func (m *GCResponseV2) XXX_DiscardUnknown() {
+	xxx_messageInfo_GCResponseV2.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GCResponseV2 proto.InternalMessageInfo
+
+func (m *GCResponseV2) GetAddressToDelete() []*Address {
+	if m != nil {
+		return m.AddressToDelete
+	}
+	return nil
+}
+
+type RefreshIPRequest struct {
+	UtilizedAddress      []*UtilizedAddress `protobuf:"bytes,1,rep,name=utilizedAddress,proto3" json:"utilizedAddress,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
+	XXX_unrecognized     []byte             `json:"-"`
+	XXX_sizecache        int32              `json:"-"`
+}
+
+func (m *RefreshIPRequest) Reset()         { *m = RefreshIPRequest{} }
+func (m *RefreshIPRequest) String() string { return proto.CompactTextString(m) }
+func (*RefreshIPRequest) ProtoMessage()    {}
+func (*RefreshIPRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{19}
+}
+
+func (m *RefreshIPRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RefreshIPRequest.Unmarshal(m, b)
+}
+func (m *RefreshIPRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RefreshIPRequest.Marshal(b, m, deterministic)
+}
+func (m *RefreshIPRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RefreshIPRequest.Merge(m, src)
+}
+func (m *RefreshIPRequest) XXX_Size() int {
+	return xxx_messageInfo_RefreshIPRequest.Size(m)
+}
+func (m *RefreshIPRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_RefreshIPRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RefreshIPRequest proto.InternalMessageInfo
+
+func (m *RefreshIPRequest) GetUtilizedAddress() []*UtilizedAddress {
+	if m != nil {
+		return m.UtilizedAddress
+	}
+	return nil
+}
+
+type RefreshIPResponse struct {
+	NextRefresh          *duration.Duration `protobuf:"bytes,1,opt,name=nextRefresh,proto3" json:"nextRefresh,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
+	XXX_unrecognized     []byte             `json:"-"`
+	XXX_sizecache        int32              `json:"-"`
+}
+
+func (m *RefreshIPResponse) Reset()         { *m = RefreshIPResponse{} }
+func (m *RefreshIPResponse) String() string { return proto.CompactTextString(m) }
+func (*RefreshIPResponse) ProtoMessage()    {}
+func (*RefreshIPResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{20}
+}
+
+func (m *RefreshIPResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RefreshIPResponse.Unmarshal(m, b)
+}
+func (m *RefreshIPResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RefreshIPResponse.Marshal(b, m, deterministic)
+}
+func (m *RefreshIPResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RefreshIPResponse.Merge(m, src)
+}
+func (m *RefreshIPResponse) XXX_Size() int {
+	return xxx_messageInfo_RefreshIPResponse.Size(m)
+}
+func (m *RefreshIPResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_RefreshIPResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RefreshIPResponse proto.InternalMessageInfo
+
+func (m *RefreshIPResponse) GetNextRefresh() *duration.Duration {
+	if m != nil {
+		return m.NextRefresh
+	}
+	return nil
+}
+
+type GCSetupRequest struct {
+	InstanceIdentity     *InstanceIdentity `protobuf:"bytes,1,opt,name=instanceIdentity,proto3" json:"instanceIdentity,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
+}
+
+func (m *GCSetupRequest) Reset()         { *m = GCSetupRequest{} }
+func (m *GCSetupRequest) String() string { return proto.CompactTextString(m) }
+func (*GCSetupRequest) ProtoMessage()    {}
+func (*GCSetupRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{21}
+}
+
+func (m *GCSetupRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GCSetupRequest.Unmarshal(m, b)
+}
+func (m *GCSetupRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GCSetupRequest.Marshal(b, m, deterministic)
+}
+func (m *GCSetupRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GCSetupRequest.Merge(m, src)
+}
+func (m *GCSetupRequest) XXX_Size() int {
+	return xxx_messageInfo_GCSetupRequest.Size(m)
+}
+func (m *GCSetupRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GCSetupRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GCSetupRequest proto.InternalMessageInfo
+
+func (m *GCSetupRequest) GetInstanceIdentity() *InstanceIdentity {
+	if m != nil {
+		return m.InstanceIdentity
+	}
+	return nil
+}
+
+type GCSetupResponse struct {
+	NetworkInterfaceAttachment []*NetworkInterfaceAttachment `protobuf:"bytes,1,rep,name=networkInterfaceAttachment,proto3" json:"networkInterfaceAttachment,omitempty"`
+	XXX_NoUnkeyedLiteral       struct{}                      `json:"-"`
+	XXX_unrecognized           []byte                        `json:"-"`
+	XXX_sizecache              int32                         `json:"-"`
+}
+
+func (m *GCSetupResponse) Reset()         { *m = GCSetupResponse{} }
+func (m *GCSetupResponse) String() string { return proto.CompactTextString(m) }
+func (*GCSetupResponse) ProtoMessage()    {}
+func (*GCSetupResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_95d23e4d548ba1d7, []int{22}
+}
+
+func (m *GCSetupResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GCSetupResponse.Unmarshal(m, b)
+}
+func (m *GCSetupResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GCSetupResponse.Marshal(b, m, deterministic)
+}
+func (m *GCSetupResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GCSetupResponse.Merge(m, src)
+}
+func (m *GCSetupResponse) XXX_Size() int {
+	return xxx_messageInfo_GCSetupResponse.Size(m)
+}
+func (m *GCSetupResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GCSetupResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GCSetupResponse proto.InternalMessageInfo
+
+func (m *GCSetupResponse) GetNetworkInterfaceAttachment() []*NetworkInterfaceAttachment {
+	if m != nil {
+		return m.NetworkInterfaceAttachment
+	}
+	return nil
+}
+
 type PrivateKey struct {
 	Hostname  string               `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	Generated *timestamp.Timestamp `protobuf:"bytes,2,opt,name=generated,proto3" json:"generated,omitempty"`
@@ -832,7 +1406,7 @@ func (m *PrivateKey) Reset()         { *m = PrivateKey{} }
 func (m *PrivateKey) String() string { return proto.CompactTextString(m) }
 func (*PrivateKey) ProtoMessage()    {}
 func (*PrivateKey) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{13}
+	return fileDescriptor_95d23e4d548ba1d7, []int{23}
 }
 
 func (m *PrivateKey) XXX_Unmarshal(b []byte) error {
@@ -909,7 +1483,7 @@ func (m *PrivateKey_Ed25519Key) Reset()         { *m = PrivateKey_Ed25519Key{} }
 func (m *PrivateKey_Ed25519Key) String() string { return proto.CompactTextString(m) }
 func (*PrivateKey_Ed25519Key) ProtoMessage()    {}
 func (*PrivateKey_Ed25519Key) Descriptor() ([]byte, []int) {
-	return fileDescriptor_95d23e4d548ba1d7, []int{13, 0}
+	return fileDescriptor_95d23e4d548ba1d7, []int{23, 0}
 }
 
 func (m *PrivateKey_Ed25519Key) XXX_Unmarshal(b []byte) error {
@@ -945,12 +1519,22 @@ func init() {
 	proto.RegisterType((*InstanceIdentity)(nil), "com.netflix.titus.executor.vpc.InstanceIdentity")
 	proto.RegisterType((*ProvisionInstanceRequest)(nil), "com.netflix.titus.executor.vpc.ProvisionInstanceRequest")
 	proto.RegisterType((*ProvisionInstanceResponse)(nil), "com.netflix.titus.executor.vpc.ProvisionInstanceResponse")
+	proto.RegisterType((*ProvisionInstanceRequestV2)(nil), "com.netflix.titus.executor.vpc.ProvisionInstanceRequestV2")
+	proto.RegisterType((*ProvisionInstanceResponseV2)(nil), "com.netflix.titus.executor.vpc.ProvisionInstanceResponseV2")
 	proto.RegisterType((*UtilizedAddress)(nil), "com.netflix.titus.executor.vpc.UtilizedAddress")
 	proto.RegisterType((*AssignIPRequest)(nil), "com.netflix.titus.executor.vpc.AssignIPRequest")
 	proto.RegisterType((*AssignIPResponse)(nil), "com.netflix.titus.executor.vpc.AssignIPResponse")
+	proto.RegisterType((*AssignIPRequestV2)(nil), "com.netflix.titus.executor.vpc.AssignIPRequestV2")
+	proto.RegisterType((*AssignIPResponseV2)(nil), "com.netflix.titus.executor.vpc.AssignIPResponseV2")
 	proto.RegisterType((*UsableAddress)(nil), "com.netflix.titus.executor.vpc.UsableAddress")
 	proto.RegisterType((*GCRequest)(nil), "com.netflix.titus.executor.vpc.GCRequest")
 	proto.RegisterType((*GCResponse)(nil), "com.netflix.titus.executor.vpc.GCResponse")
+	proto.RegisterType((*GCRequestV2)(nil), "com.netflix.titus.executor.vpc.GCRequestV2")
+	proto.RegisterType((*GCResponseV2)(nil), "com.netflix.titus.executor.vpc.GCResponseV2")
+	proto.RegisterType((*RefreshIPRequest)(nil), "com.netflix.titus.executor.vpc.RefreshIPRequest")
+	proto.RegisterType((*RefreshIPResponse)(nil), "com.netflix.titus.executor.vpc.RefreshIPResponse")
+	proto.RegisterType((*GCSetupRequest)(nil), "com.netflix.titus.executor.vpc.GCSetupRequest")
+	proto.RegisterType((*GCSetupResponse)(nil), "com.netflix.titus.executor.vpc.GCSetupResponse")
 	proto.RegisterType((*PrivateKey)(nil), "com.netflix.titus.executor.vpc.PrivateKey")
 	proto.RegisterType((*PrivateKey_Ed25519Key)(nil), "com.netflix.titus.executor.vpc.PrivateKey.Ed25519Key")
 }
@@ -958,76 +1542,103 @@ func init() {
 func init() { proto.RegisterFile("vpc.proto", fileDescriptor_95d23e4d548ba1d7) }
 
 var fileDescriptor_95d23e4d548ba1d7 = []byte{
-	// 1101 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x57, 0xdb, 0x6e, 0x23, 0x45,
-	0x10, 0xc5, 0xce, 0xcd, 0xae, 0x38, 0xc4, 0x69, 0x45, 0x68, 0xd6, 0x42, 0x21, 0x1a, 0x24, 0x58,
-	0xa2, 0x65, 0x12, 0xbc, 0x0a, 0xca, 0x46, 0x68, 0x25, 0x27, 0x41, 0xc1, 0x5a, 0x40, 0x61, 0x92,
-	0xdd, 0x95, 0x96, 0xcb, 0xaa, 0x3d, 0x53, 0x76, 0x5a, 0x19, 0x77, 0x0f, 0xd3, 0x3d, 0x93, 0x78,
-	0x9f, 0x78, 0x42, 0x7c, 0x00, 0x1f, 0xc0, 0x37, 0xf0, 0x13, 0x3c, 0xf1, 0x0b, 0x3c, 0xf1, 0x8a,
-	0xc4, 0x27, 0xa0, 0xb9, 0xf9, 0x32, 0x1e, 0xaf, 0x9d, 0x90, 0x68, 0x5f, 0x22, 0x77, 0x75, 0xd5,
-	0xe9, 0xea, 0xaa, 0x53, 0x27, 0x3d, 0x50, 0x0e, 0x5c, 0xcb, 0x70, 0x3d, 0xa1, 0x04, 0xd9, 0xb0,
-	0x44, 0xd7, 0xe0, 0xa8, 0xda, 0x0e, 0xbb, 0x32, 0x14, 0x53, 0xbe, 0x34, 0xf0, 0x0a, 0x2d, 0x5f,
-	0x09, 0xcf, 0x08, 0x5c, 0xab, 0xf6, 0x5e, 0x47, 0x88, 0x8e, 0x83, 0xdb, 0x91, 0x77, 0xcb, 0x6f,
-	0x6f, 0x2b, 0xd6, 0x45, 0xa9, 0x68, 0xd7, 0x8d, 0x01, 0x6a, 0x1b, 0x49, 0xf0, 0x76, 0x14, 0x1c,
-	0xff, 0x7d, 0xd9, 0xa2, 0x12, 0xe3, 0x7d, 0xfd, 0x7d, 0x58, 0x6a, 0xd8, 0xb6, 0x87, 0x52, 0x12,
-	0x0d, 0x96, 0x68, 0xfc, 0x53, 0x2b, 0x6c, 0x16, 0xee, 0x97, 0xcd, 0x74, 0xa9, 0xeb, 0x50, 0x39,
-	0xa4, 0xd6, 0x39, 0x3e, 0x43, 0x4f, 0x32, 0xc1, 0x09, 0x81, 0x79, 0xdf, 0x67, 0x76, 0xe4, 0x56,
-	0x31, 0xa3, 0xdf, 0xfa, 0x63, 0xa8, 0x7d, 0x8d, 0xea, 0x52, 0x78, 0x17, 0x4d, 0xae, 0xd0, 0x6b,
-	0x53, 0x0b, 0x1b, 0x4a, 0x51, 0xeb, 0xbc, 0x8b, 0x5c, 0x91, 0x4d, 0x58, 0xb6, 0x31, 0x60, 0x16,
-	0x36, 0xb9, 0x8d, 0x57, 0x51, 0xe0, 0x8a, 0x39, 0x6c, 0xd2, 0xff, 0x2e, 0x42, 0x35, 0x0b, 0x40,
-	0x6a, 0x50, 0x92, 0x7e, 0x8b, 0xa3, 0x6a, 0xda, 0x49, 0x4e, 0xfd, 0x35, 0xd9, 0x82, 0x2a, 0x0d,
-	0x28, 0x73, 0x68, 0x8b, 0x39, 0x4c, 0xf5, 0x5e, 0x08, 0x8e, 0x5a, 0x31, 0xf2, 0x19, 0xb3, 0x93,
-	0x0d, 0x80, 0x2e, 0xb5, 0x92, 0x8b, 0x6a, 0x73, 0x91, 0xd7, 0x90, 0x85, 0x18, 0x40, 0x78, 0xe6,
-	0xec, 0xa6, 0xad, 0xcd, 0x47, 0x7e, 0x39, 0x3b, 0xe4, 0x03, 0x78, 0x5b, 0x5c, 0x72, 0xf4, 0x1a,
-	0x96, 0x25, 0x7c, 0x1e, 0x66, 0xb7, 0x10, 0xf9, 0x66, 0xac, 0xe4, 0x15, 0xd4, 0xf8, 0xc4, 0xa2,
-	0x68, 0x4b, 0x9b, 0x85, 0xfb, 0xcb, 0xf5, 0x7d, 0xe3, 0xf5, 0x3d, 0x36, 0x26, 0x97, 0xd5, 0x7c,
-	0x0d, 0x3a, 0x59, 0x87, 0x85, 0xc0, 0xb5, 0x9a, 0xb6, 0x56, 0x8a, 0x52, 0x8b, 0x17, 0xfa, 0xcf,
-	0x45, 0xa8, 0x36, 0xb9, 0x54, 0x94, 0x87, 0x17, 0x41, 0xae, 0x98, 0xea, 0x91, 0x7d, 0xd0, 0x58,
-	0xc6, 0x76, 0x24, 0x2c, 0x3f, 0x4a, 0x32, 0x2e, 0xfb, 0xc4, 0x7d, 0xf2, 0x19, 0xdc, 0xcb, 0xee,
-	0x9d, 0xb2, 0x0e, 0xa7, 0xca, 0xf7, 0xd2, 0x7e, 0x4c, 0x76, 0x08, 0x1b, 0xd3, 0xdf, 0x3c, 0x4a,
-	0x1b, 0x33, 0xb0, 0x90, 0x77, 0x60, 0xd1, 0xc3, 0x0e, 0x13, 0x3c, 0x69, 0x46, 0xb2, 0x22, 0xef,
-	0x42, 0x99, 0x26, 0x55, 0x3e, 0x4a, 0x6a, 0x3f, 0x30, 0x10, 0x1d, 0x2a, 0x29, 0xc6, 0x59, 0xcf,
-	0x45, 0x6d, 0x31, 0x72, 0x18, 0xb1, 0xe9, 0xbf, 0x17, 0x40, 0x3b, 0xf1, 0x44, 0xc0, 0x42, 0x46,
-	0xa7, 0x15, 0x31, 0xf1, 0x47, 0x1f, 0xa5, 0x22, 0xdf, 0x41, 0x35, 0x9b, 0x73, 0x54, 0x88, 0xe5,
-	0xfa, 0xce, 0xb4, 0x6e, 0x65, 0x8b, 0x6b, 0x8e, 0x21, 0x8d, 0x26, 0x5f, 0xcc, 0x26, 0x3f, 0xe0,
-	0x7c, 0x5a, 0x90, 0xfe, 0x5a, 0xff, 0xb3, 0x00, 0xf7, 0x72, 0x92, 0x96, 0xae, 0xe0, 0x12, 0xc9,
-	0x0f, 0xb0, 0x96, 0xe5, 0x43, 0x38, 0xca, 0x73, 0xb3, 0xa4, 0x9d, 0x25, 0x99, 0x39, 0x0e, 0x45,
-	0x4e, 0xa0, 0x62, 0x0d, 0xc9, 0x40, 0x94, 0xfa, 0x72, 0xfd, 0xc1, 0x34, 0xe8, 0x61, 0xe9, 0x30,
-	0x47, 0x10, 0xf4, 0x5f, 0x0b, 0xb0, 0xfa, 0x54, 0x31, 0x87, 0xbd, 0x42, 0x3b, 0x9d, 0xc5, 0xc6,
-	0xa8, 0x0c, 0x2d, 0xd7, 0x3f, 0x9c, 0x76, 0x40, 0x12, 0xd9, 0xd7, 0x2b, 0xf2, 0x18, 0x2a, 0x0e,
-	0x95, 0xea, 0xa9, 0x44, 0xfb, 0x8c, 0x75, 0x31, 0x49, 0xb4, 0x66, 0xc4, 0x62, 0x69, 0xa4, 0x62,
-	0x69, 0x9c, 0xa5, 0x62, 0x69, 0x8e, 0xf8, 0xeb, 0xbf, 0x2d, 0xc0, 0x6a, 0x43, 0x4a, 0xd6, 0xe1,
-	0xcd, 0x93, 0x94, 0x12, 0xd9, 0xcb, 0x17, 0xfe, 0xef, 0xe5, 0xa7, 0x88, 0xc3, 0xdc, 0x9d, 0x8a,
-	0xc3, 0x16, 0x54, 0x25, 0x5a, 0xbe, 0xc7, 0x54, 0xef, 0xd8, 0x13, 0xbe, 0xdb, 0xb4, 0xa5, 0x36,
-	0xbf, 0x39, 0x17, 0x8a, 0x67, 0xd6, 0x4e, 0xea, 0xb0, 0xce, 0xdc, 0xe0, 0xd3, 0xb4, 0xca, 0x71,
-	0x3d, 0x30, 0x96, 0xbc, 0x92, 0x99, 0xbb, 0x47, 0xbe, 0x87, 0x35, 0x7f, 0xb4, 0xaf, 0x28, 0xb5,
-	0xc5, 0x88, 0x8a, 0xdb, 0xd3, 0xae, 0x94, 0x21, 0x84, 0x39, 0x8e, 0x94, 0x3b, 0x9f, 0x4b, 0xb7,
-	0x36, 0x9f, 0xfb, 0xa0, 0x51, 0xc7, 0x11, 0x97, 0xa7, 0xc3, 0x95, 0x38, 0x3c, 0xa7, 0xbc, 0x83,
-	0x91, 0x98, 0x96, 0xcc, 0x89, 0xfb, 0xa4, 0x0d, 0x5a, 0xc8, 0x9b, 0x7e, 0xb2, 0x0d, 0xc7, 0x11,
-	0x16, 0x55, 0x4c, 0x70, 0xa9, 0x95, 0xa3, 0xfb, 0x6f, 0xe5, 0x64, 0x78, 0x9a, 0x1f, 0x62, 0x4e,
-	0xc4, 0xd2, 0xff, 0x28, 0x42, 0x75, 0x40, 0xd1, 0x44, 0x00, 0x6e, 0x9f, 0xa3, 0xcf, 0x61, 0xd5,
-	0x97, 0xb4, 0xe5, 0xe0, 0xa0, 0x8b, 0xc5, 0xe8, 0x16, 0x1f, 0x4f, 0xed, 0xe2, 0x70, 0x98, 0x99,
-	0x45, 0x09, 0x3b, 0x98, 0xa5, 0x67, 0x42, 0xf9, 0xeb, 0x4b, 0xd5, 0x18, 0xd2, 0x75, 0xe8, 0xad,
-	0x07, 0xb0, 0x32, 0x92, 0xeb, 0x6d, 0x08, 0x90, 0x0e, 0x15, 0xd7, 0xc3, 0x36, 0xbb, 0xfa, 0x12,
-	0x79, 0x47, 0x9d, 0x47, 0x02, 0xb4, 0x62, 0x8e, 0xd8, 0xf4, 0xbf, 0xe6, 0xa1, 0x7c, 0x7c, 0x78,
-	0x77, 0xf2, 0x92, 0x37, 0x23, 0xc5, 0x5b, 0x9b, 0x91, 0x37, 0x29, 0x5e, 0x16, 0xac, 0xfb, 0x9c,
-	0xc6, 0xc3, 0x30, 0xac, 0x2f, 0xf3, 0x37, 0xd3, 0x97, 0x5c, 0x30, 0xf2, 0x12, 0x08, 0x17, 0x3c,
-	0x60, 0xa3, 0xe4, 0x5f, 0xb8, 0xd9, 0x11, 0x39, 0x50, 0xe1, 0x01, 0x39, 0x77, 0xb8, 0xa1, 0x46,
-	0xe6, 0x40, 0xe9, 0x3f, 0x15, 0x01, 0x42, 0x82, 0xdd, 0x99, 0x38, 0x7c, 0x05, 0x2b, 0x09, 0xe1,
-	0xcf, 0xc4, 0x81, 0xdf, 0x75, 0x13, 0x69, 0x98, 0x79, 0x5c, 0x46, 0xa3, 0xc9, 0x37, 0xb0, 0xda,
-	0x37, 0x1c, 0xa1, 0x83, 0x2a, 0x54, 0x84, 0x6b, 0x01, 0x66, 0xe3, 0xf5, 0x7f, 0x0b, 0x00, 0x27,
-	0x1e, 0x0b, 0xa8, 0xc2, 0x27, 0xd8, 0x0b, 0x9f, 0x56, 0xe7, 0x42, 0x2a, 0x4e, 0xbb, 0x98, 0x7e,
-	0x4e, 0xa4, 0x6b, 0xb2, 0x07, 0xe5, 0x0e, 0x72, 0xf4, 0xc2, 0x1a, 0xce, 0xf0, 0x60, 0x18, 0x38,
-	0x93, 0xe7, 0x00, 0x68, 0xd7, 0x77, 0x77, 0x3f, 0x79, 0xf4, 0x04, 0x7b, 0x09, 0xf5, 0x77, 0xa7,
-	0xa5, 0x3c, 0xc8, 0xca, 0xf8, 0xbc, 0x1f, 0xfc, 0xc5, 0x5b, 0xe6, 0x10, 0x54, 0xed, 0x01, 0xc0,
-	0x60, 0x2f, 0x7c, 0x2a, 0x7b, 0x6d, 0x6b, 0x6f, 0xe7, 0x61, 0xfd, 0x02, 0x7b, 0xc9, 0xa7, 0xd7,
-	0x90, 0xe5, 0x60, 0x01, 0xe6, 0x2e, 0xb0, 0x57, 0xff, 0xa7, 0x08, 0xeb, 0x67, 0xe1, 0x79, 0x8d,
-	0x0e, 0x72, 0xf5, 0xec, 0xe4, 0xf0, 0x14, 0xbd, 0xf0, 0x2b, 0x8b, 0xfc, 0x52, 0x80, 0xb5, 0xb1,
-	0xb7, 0x23, 0xd9, 0x9b, 0x9e, 0x68, 0xfe, 0x1b, 0xb9, 0xf6, 0xe8, 0x06, 0x91, 0x09, 0x15, 0xbb,
-	0x50, 0x4a, 0xff, 0x77, 0x91, 0xa9, 0x54, 0xcf, 0x3c, 0xc4, 0x6a, 0x3b, 0xb3, 0x07, 0x24, 0xc7,
-	0x7d, 0x0b, 0xc5, 0xe3, 0x43, 0xf2, 0xd1, 0xb4, 0xb8, 0xbe, 0x18, 0xd7, 0xb6, 0x66, 0x71, 0x8d,
-	0xc1, 0x0f, 0x4a, 0x2f, 0x16, 0x03, 0xd7, 0xa2, 0x2e, 0x6b, 0x2d, 0x46, 0x34, 0x79, 0xf8, 0x5f,
-	0x00, 0x00, 0x00, 0xff, 0xff, 0xcc, 0x52, 0xda, 0xc5, 0xbf, 0x0f, 0x00, 0x00,
+	// 1533 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x58, 0x4f, 0x6f, 0xdb, 0xc6,
+	0x12, 0x0f, 0x29, 0xd9, 0x96, 0x46, 0x76, 0x6c, 0xef, 0xf3, 0x0b, 0x18, 0xe6, 0xc1, 0xcf, 0xe0,
+	0x03, 0x5e, 0x53, 0x37, 0x95, 0x13, 0xe6, 0x0f, 0x12, 0xa7, 0x28, 0xe0, 0x3f, 0x85, 0x2d, 0xa4,
+	0x4d, 0x5d, 0xda, 0x61, 0xd0, 0xa4, 0x6d, 0x40, 0x91, 0x2b, 0x69, 0x6b, 0x69, 0xc9, 0x92, 0x4b,
+	0xc5, 0xca, 0xa9, 0x97, 0x16, 0xbd, 0xb4, 0xa7, 0x5e, 0x0b, 0xe4, 0x33, 0x14, 0x3d, 0xf7, 0xda,
+	0x53, 0xbf, 0x42, 0x4f, 0xfd, 0x00, 0xfd, 0x08, 0x05, 0xa9, 0xa5, 0xfe, 0x50, 0x64, 0x28, 0x29,
+	0x56, 0x7a, 0xb1, 0xb5, 0xb3, 0x3b, 0xbf, 0x9d, 0x9d, 0xf9, 0xcd, 0xec, 0x70, 0xa1, 0xd8, 0x76,
+	0xcc, 0xb2, 0xe3, 0xda, 0xcc, 0x46, 0xeb, 0xa6, 0xdd, 0x2a, 0x53, 0xcc, 0x6a, 0x4d, 0x72, 0x56,
+	0x66, 0x84, 0xf9, 0x5e, 0x19, 0x9f, 0x61, 0xd3, 0x67, 0xb6, 0x5b, 0x6e, 0x3b, 0xa6, 0xfc, 0xdf,
+	0xba, 0x6d, 0xd7, 0x9b, 0x78, 0x2b, 0x5c, 0x5d, 0xf5, 0x6b, 0x5b, 0x8c, 0xb4, 0xb0, 0xc7, 0x8c,
+	0x96, 0xd3, 0x05, 0x90, 0xd7, 0xe3, 0x0b, 0x2c, 0xdf, 0x35, 0x18, 0xb1, 0x69, 0x34, 0xcf, 0xc1,
+	0xb7, 0x42, 0xf0, 0xee, 0xdf, 0x67, 0x55, 0xc3, 0xc3, 0xdd, 0x79, 0xe5, 0x7f, 0xb0, 0xb0, 0x63,
+	0x59, 0x2e, 0xf6, 0x3c, 0x24, 0xc1, 0x82, 0xd1, 0xfd, 0x29, 0x09, 0x1b, 0xc2, 0xd5, 0xa2, 0x16,
+	0x0d, 0x15, 0x05, 0x16, 0xf7, 0x0c, 0xb3, 0x81, 0x75, 0xec, 0x7a, 0xc4, 0xa6, 0x08, 0x41, 0xde,
+	0xf7, 0x89, 0x15, 0x2e, 0x5b, 0xd4, 0xc2, 0xdf, 0xca, 0x43, 0x90, 0x1f, 0x62, 0xf6, 0xdc, 0x76,
+	0x4f, 0x2b, 0x94, 0x61, 0xb7, 0x66, 0x98, 0x78, 0x87, 0x31, 0xc3, 0x6c, 0xb4, 0x30, 0x65, 0x68,
+	0x03, 0x4a, 0x16, 0x6e, 0x13, 0x13, 0x57, 0xa8, 0x85, 0xcf, 0x42, 0xc5, 0x25, 0x6d, 0x50, 0x84,
+	0x2e, 0x82, 0x48, 0x2c, 0x49, 0x0c, 0x37, 0x16, 0x89, 0xa5, 0xfc, 0x29, 0xc2, 0x4a, 0x1c, 0x10,
+	0xc9, 0x50, 0xf0, 0xfc, 0x2a, 0xc5, 0xac, 0x62, 0x71, 0x1b, 0x7b, 0x63, 0xb4, 0x09, 0x2b, 0x46,
+	0xdb, 0x20, 0x4d, 0xa3, 0x4a, 0x9a, 0x84, 0x75, 0x9e, 0xd8, 0x14, 0x73, 0xb8, 0x11, 0x39, 0x5a,
+	0x07, 0x68, 0x19, 0x26, 0x3f, 0xb8, 0x94, 0x0b, 0x57, 0x0d, 0x48, 0x50, 0x19, 0x10, 0x8d, 0xed,
+	0x5d, 0xb1, 0xa4, 0x7c, 0xb8, 0x2e, 0x61, 0x06, 0xfd, 0x1f, 0x2e, 0xda, 0xcf, 0x29, 0x76, 0x77,
+	0x4c, 0xd3, 0xf6, 0x69, 0x60, 0xdd, 0x5c, 0xb8, 0x36, 0x26, 0x45, 0x2f, 0x40, 0xa6, 0xa9, 0x4e,
+	0x92, 0x16, 0x36, 0x84, 0xab, 0x25, 0x75, 0xbb, 0xfc, 0x6a, 0x4e, 0x94, 0xd3, 0xdd, 0xac, 0xbd,
+	0x02, 0x1d, 0xad, 0xc1, 0x5c, 0xdb, 0x31, 0x2b, 0x96, 0x54, 0x08, 0x4d, 0xeb, 0x0e, 0x94, 0x6f,
+	0x45, 0x58, 0xa9, 0x50, 0x8f, 0x19, 0x34, 0x38, 0x08, 0xa6, 0x8c, 0xb0, 0x0e, 0xda, 0x06, 0x89,
+	0xc4, 0x64, 0xfb, 0xb6, 0xe9, 0x87, 0x46, 0x76, 0xdd, 0x9e, 0x3a, 0x8f, 0xde, 0x83, 0xcb, 0xf1,
+	0xb9, 0x63, 0x52, 0xa7, 0x06, 0xf3, 0xdd, 0x28, 0x1e, 0xe9, 0x0b, 0x82, 0xc0, 0xf4, 0x26, 0xf7,
+	0xa3, 0xc0, 0xf4, 0x25, 0xe8, 0x12, 0xcc, 0xbb, 0xb8, 0x4e, 0x6c, 0xca, 0x83, 0xc1, 0x47, 0xe8,
+	0x3f, 0x50, 0x34, 0xb8, 0x97, 0xf7, 0xb9, 0xef, 0xfb, 0x02, 0xa4, 0xc0, 0x62, 0x84, 0x71, 0xd2,
+	0x71, 0xb0, 0x34, 0x1f, 0x2e, 0x18, 0x92, 0x29, 0x3f, 0x0b, 0x20, 0x1d, 0xb9, 0x76, 0x9b, 0x04,
+	0x0c, 0x8f, 0x3c, 0xa2, 0xe1, 0xaf, 0x7c, 0xec, 0x31, 0xf4, 0x19, 0xac, 0xc4, 0x6d, 0x0e, 0x1d,
+	0x51, 0x52, 0xaf, 0x67, 0x45, 0x2b, 0xee, 0x5c, 0x6d, 0x04, 0x69, 0xd8, 0x78, 0x31, 0x6e, 0x7c,
+	0x9f, 0xf3, 0x91, 0x43, 0x7a, 0x63, 0xe5, 0x77, 0x01, 0x2e, 0x27, 0x18, 0xed, 0x39, 0x36, 0xf5,
+	0x30, 0xfa, 0x02, 0x56, 0xe3, 0x7c, 0x08, 0x52, 0x3b, 0x37, 0x8e, 0xd9, 0x71, 0x92, 0x69, 0xa3,
+	0x50, 0xe8, 0x08, 0x16, 0xcd, 0x81, 0xb2, 0x10, 0x9a, 0x5e, 0x52, 0xaf, 0x65, 0x41, 0x0f, 0x96,
+	0x12, 0x6d, 0x08, 0x41, 0x79, 0x01, 0x72, 0x5a, 0x0c, 0x74, 0x75, 0xb6, 0x51, 0x50, 0xbe, 0x11,
+	0xe0, 0x4a, 0xaa, 0x2f, 0x75, 0x15, 0xd5, 0xe0, 0xdf, 0xcc, 0xf5, 0xe9, 0x69, 0xdc, 0x33, 0xe3,
+	0x9a, 0x30, 0xe2, 0xd1, 0x64, 0x38, 0xe5, 0x47, 0x01, 0x96, 0x1f, 0x31, 0xd2, 0x24, 0x2f, 0xb0,
+	0x15, 0xd5, 0xa3, 0x9d, 0xe1, 0xd2, 0x5c, 0x52, 0xdf, 0xca, 0xda, 0x8d, 0x6b, 0xf6, 0x6a, 0x38,
+	0x7a, 0x1f, 0x16, 0x9b, 0x86, 0xc7, 0x1e, 0x79, 0xd8, 0x3a, 0x21, 0x2d, 0xcc, 0x83, 0x25, 0x97,
+	0xbb, 0xf7, 0x47, 0x39, 0xba, 0x3f, 0xca, 0x27, 0xd1, 0x05, 0xa3, 0x0d, 0xad, 0x57, 0x5e, 0xce,
+	0xc1, 0xf2, 0x8e, 0xe7, 0x91, 0x3a, 0xad, 0x1c, 0x45, 0x69, 0x11, 0x27, 0x80, 0xf0, 0xba, 0x04,
+	0xc8, 0x28, 0x90, 0xb9, 0x99, 0x16, 0xc8, 0x4d, 0x58, 0xf1, 0xb0, 0xe9, 0xbb, 0x84, 0x75, 0x0e,
+	0x5c, 0xdb, 0x77, 0x2a, 0x96, 0x27, 0xe5, 0x37, 0x72, 0xc1, 0x05, 0x12, 0x97, 0x23, 0x15, 0xd6,
+	0x88, 0xd3, 0xbe, 0x13, 0x79, 0xb9, 0xeb, 0x0f, 0xdc, 0x2d, 0xfb, 0x05, 0x2d, 0x71, 0x0e, 0x7d,
+	0x0e, 0xab, 0xfe, 0x70, 0x5c, 0xb1, 0x27, 0xcd, 0x87, 0xe9, 0xb8, 0x95, 0x75, 0xa4, 0x18, 0x21,
+	0xb4, 0x51, 0xa4, 0xc4, 0xec, 0x58, 0x38, 0xb7, 0x1a, 0xb5, 0x0d, 0x92, 0xd1, 0x6c, 0xda, 0xcf,
+	0x8f, 0x07, 0x3d, 0xb1, 0xd7, 0x30, 0x68, 0x1d, 0x87, 0x17, 0x4a, 0x41, 0x4b, 0x9d, 0x47, 0x35,
+	0x90, 0x02, 0xde, 0xf4, 0x8c, 0xdd, 0x69, 0x36, 0x6d, 0x33, 0x6c, 0x52, 0x3c, 0xa9, 0x18, 0x9e,
+	0x7f, 0x33, 0xc1, 0xc2, 0xe3, 0x64, 0x15, 0x2d, 0x15, 0x4b, 0xf9, 0x4d, 0x84, 0x95, 0x3e, 0x45,
+	0x79, 0x11, 0x3c, 0x7f, 0x8e, 0x3e, 0x86, 0x65, 0xdf, 0x33, 0xaa, 0x4d, 0xdc, 0x8f, 0xa2, 0x18,
+	0x9e, 0xe2, 0xdd, 0xcc, 0x28, 0x0e, 0xaa, 0x69, 0x71, 0x94, 0x20, 0x82, 0x71, 0x7a, 0x72, 0xca,
+	0x4f, 0x5e, 0x5c, 0x46, 0x90, 0x26, 0xa1, 0xb7, 0xf2, 0xeb, 0x1c, 0xac, 0xc6, 0x92, 0x5d, 0x57,
+	0x33, 0x92, 0x53, 0x78, 0xe3, 0xc9, 0x29, 0xa6, 0x24, 0xe7, 0xad, 0x94, 0xe4, 0x0c, 0x7c, 0x59,
+	0x38, 0xbc, 0x90, 0x92, 0x9e, 0x5d, 0xad, 0x5b, 0xc9, 0x29, 0x7d, 0x28, 0x68, 0x89, 0xb3, 0x88,
+	0xc2, 0x95, 0x40, 0x9e, 0x42, 0xd6, 0xb0, 0xd3, 0x98, 0x88, 0xde, 0x87, 0x82, 0xf6, 0x2a, 0xc0,
+	0xe4, 0x22, 0xb2, 0x30, 0xd3, 0x22, 0x52, 0x78, 0x23, 0x45, 0xa4, 0x98, 0x51, 0x44, 0x86, 0x9a,
+	0x24, 0x88, 0x35, 0x49, 0xbb, 0xf3, 0x90, 0x0f, 0x82, 0xca, 0xff, 0xdf, 0x52, 0x5e, 0xe6, 0x00,
+	0xc5, 0x4b, 0x81, 0xae, 0xa2, 0x8f, 0xa1, 0x14, 0x4c, 0x0f, 0xdf, 0xa5, 0x13, 0xa6, 0xed, 0x20,
+	0x02, 0x07, 0xbc, 0x13, 0x01, 0x8a, 0xd3, 0x02, 0x46, 0x08, 0xa8, 0x01, 0x97, 0xaa, 0xae, 0x41,
+	0xcd, 0xc6, 0xc3, 0xf3, 0xaa, 0x04, 0x29, 0x78, 0xe9, 0xfd, 0x4c, 0xfe, 0x5c, 0xfb, 0x99, 0xa0,
+	0x65, 0x6f, 0x37, 0x0d, 0xca, 0xbf, 0x89, 0x96, 0x34, 0x3e, 0x52, 0xda, 0xb0, 0x34, 0xe4, 0x87,
+	0xf3, 0x68, 0x72, 0x14, 0x58, 0x74, 0x5c, 0x5c, 0x23, 0x67, 0x1f, 0x62, 0x5a, 0x67, 0x8d, 0x30,
+	0x1e, 0x4b, 0xda, 0x90, 0x4c, 0xf9, 0x23, 0x0f, 0xc5, 0x83, 0xbd, 0xd9, 0xb5, 0x30, 0x49, 0x29,
+	0x24, 0x9e, 0x5b, 0x0a, 0xfd, 0x93, 0x0d, 0x92, 0x09, 0x6b, 0x3e, 0x35, 0xba, 0xb5, 0x68, 0xb0,
+	0xfc, 0xe4, 0xa7, 0x2b, 0x3f, 0x89, 0x60, 0xe8, 0x19, 0x20, 0x6a, 0xd3, 0x36, 0x19, 0xbe, 0x60,
+	0xe7, 0xa6, 0xdb, 0x22, 0x01, 0x2a, 0xd8, 0x20, 0xe1, 0x0c, 0x53, 0xf6, 0x61, 0x09, 0x50, 0xca,
+	0xd7, 0x22, 0x40, 0x40, 0xb0, 0x99, 0x35, 0x20, 0x1f, 0xc1, 0x12, 0x27, 0xfc, 0x89, 0xbd, 0xeb,
+	0xb7, 0x1c, 0xde, 0x7e, 0x8c, 0x9d, 0x2e, 0xc3, 0xda, 0xe8, 0x13, 0x58, 0xee, 0x09, 0xf6, 0x71,
+	0x13, 0xb3, 0xa0, 0xd6, 0x4c, 0x04, 0x18, 0xd7, 0x57, 0x7e, 0xca, 0x41, 0xa9, 0x97, 0x63, 0xb3,
+	0xfe, 0x72, 0xcb, 0xc8, 0x09, 0x71, 0xa6, 0x39, 0xf1, 0x34, 0x25, 0x27, 0x26, 0xf4, 0x60, 0x72,
+	0x2e, 0x3c, 0x4e, 0xa4, 0x6a, 0x7e, 0x32, 0xe8, 0x24, 0x8a, 0x1a, 0xb0, 0xd8, 0x67, 0xa8, 0xae,
+	0x26, 0x51, 0x40, 0x78, 0x4d, 0x0a, 0xb4, 0x60, 0x45, 0xc3, 0x35, 0x17, 0x7b, 0x8d, 0xfe, 0xf7,
+	0xe2, 0xa7, 0xb0, 0x1c, 0x6b, 0x39, 0xf8, 0x36, 0x13, 0xe7, 0x5d, 0x1c, 0x47, 0x39, 0x82, 0xd5,
+	0x81, 0xed, 0x78, 0xea, 0xdd, 0x87, 0x12, 0xc5, 0x67, 0x8c, 0x4f, 0x70, 0xc6, 0x5d, 0x1e, 0xf9,
+	0xe4, 0xdd, 0xe7, 0x4f, 0xa6, 0xda, 0xe0, 0x6a, 0x85, 0xc2, 0xc5, 0x83, 0xbd, 0x63, 0xcc, 0x7c,
+	0xe7, 0x8d, 0xbc, 0x02, 0x29, 0xdf, 0x0b, 0xb0, 0xdc, 0xdb, 0x90, 0x1f, 0x20, 0xab, 0xe3, 0xce,
+	0xcd, 0x8e, 0xd9, 0xca, 0x5f, 0x02, 0xc0, 0x91, 0x4b, 0xda, 0x06, 0xc3, 0x0f, 0x70, 0x07, 0xc9,
+	0x50, 0x68, 0xd8, 0x1e, 0xa3, 0x46, 0x0b, 0x47, 0x4f, 0xaf, 0xd1, 0x18, 0xdd, 0x85, 0x62, 0x1d,
+	0x53, 0xec, 0x06, 0x24, 0x1b, 0xe3, 0x61, 0xa1, 0xbf, 0x18, 0x3d, 0x06, 0xc0, 0x96, 0x7a, 0xfb,
+	0xf6, 0x8d, 0x7b, 0x0f, 0x70, 0x87, 0x5f, 0x5f, 0xb7, 0xb3, 0x0e, 0xd4, 0xb7, 0xaa, 0xfc, 0x41,
+	0x4f, 0xf9, 0xf0, 0x82, 0x36, 0x00, 0x25, 0x5f, 0x03, 0xe8, 0xcf, 0xa1, 0x75, 0x00, 0xb7, 0x66,
+	0xde, 0xbd, 0x7e, 0x53, 0x3d, 0xc5, 0x1d, 0xfe, 0x6c, 0x3d, 0x20, 0xd9, 0x9d, 0x83, 0xdc, 0x29,
+	0xee, 0xa8, 0xbf, 0x2c, 0xc0, 0xda, 0x49, 0xb0, 0xdf, 0x4e, 0x1d, 0x53, 0xa6, 0x1f, 0xed, 0x1d,
+	0x63, 0xb7, 0x4d, 0x4c, 0x8c, 0xbe, 0x13, 0x60, 0x75, 0xe4, 0x6d, 0x08, 0xdd, 0xcd, 0x36, 0x34,
+	0xf9, 0x2d, 0x4b, 0xbe, 0x37, 0x85, 0x26, 0xa7, 0xc4, 0x0f, 0x02, 0xfc, 0x6b, 0x64, 0x56, 0x57,
+	0xd1, 0xf6, 0xb4, 0xc6, 0xe8, 0xaa, 0x7c, 0x7f, 0x6a, 0x73, 0x74, 0x15, 0xb5, 0xa0, 0x10, 0x75,
+	0xda, 0x28, 0x33, 0x8f, 0x63, 0x1f, 0x95, 0xf2, 0xf5, 0xf1, 0x15, 0xf8, 0xf9, 0x3d, 0x80, 0x48,
+	0xa6, 0xab, 0xe8, 0xc6, 0x84, 0x1b, 0xea, 0xaa, 0xac, 0x4e, 0xba, 0xa5, 0xae, 0x22, 0x07, 0x8a,
+	0xbd, 0xea, 0x82, 0x32, 0x6d, 0x8e, 0xd7, 0x3d, 0xf9, 0xc6, 0x04, 0x1a, 0xfc, 0x98, 0x4f, 0x41,
+	0x3c, 0xd8, 0x43, 0x6f, 0x67, 0x29, 0xf6, 0x2e, 0x59, 0x79, 0x73, 0x9c, 0xa5, 0x1c, 0xfc, 0x4b,
+	0x58, 0xe0, 0x95, 0x06, 0x95, 0xb3, 0xd5, 0x06, 0x6b, 0xa0, 0xbc, 0x35, 0xf6, 0x7a, 0xbe, 0x97,
+	0x01, 0xf9, 0x83, 0x3d, 0x5d, 0x45, 0xef, 0x8c, 0x7d, 0x14, 0x5d, 0x95, 0xaf, 0x8d, 0x7f, 0x18,
+	0x5d, 0xdd, 0x2d, 0x3c, 0x99, 0x6f, 0x3b, 0xa6, 0xe1, 0x90, 0xea, 0x7c, 0x58, 0x6d, 0x6e, 0xfe,
+	0x1d, 0x00, 0x00, 0xff, 0xff, 0x69, 0xf1, 0xef, 0x90, 0x62, 0x1b, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1044,9 +1655,14 @@ const _ = grpc.SupportPackageIsVersion4
 type TitusAgentVPCServiceClient interface {
 	// This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
 	ProvisionInstance(ctx context.Context, in *ProvisionInstanceRequest, opts ...grpc.CallOption) (*ProvisionInstanceResponse, error)
+	ProvisionInstanceV2(ctx context.Context, in *ProvisionInstanceRequestV2, opts ...grpc.CallOption) (*ProvisionInstanceResponseV2, error)
 	AssignIP(ctx context.Context, in *AssignIPRequest, opts ...grpc.CallOption) (*AssignIPResponse, error)
+	AssignIPV2(ctx context.Context, in *AssignIPRequestV2, opts ...grpc.CallOption) (*AssignIPResponseV2, error)
+	RefreshIP(ctx context.Context, in *RefreshIPRequest, opts ...grpc.CallOption) (*RefreshIPResponse, error)
 	// GC extra IPs
 	GC(ctx context.Context, in *GCRequest, opts ...grpc.CallOption) (*GCResponse, error)
+	GCSetup(ctx context.Context, in *GCSetupRequest, opts ...grpc.CallOption) (*GCSetupResponse, error)
+	GCV2(ctx context.Context, in *GCRequestV2, opts ...grpc.CallOption) (*GCResponseV2, error)
 }
 
 type titusAgentVPCServiceClient struct {
@@ -1066,9 +1682,36 @@ func (c *titusAgentVPCServiceClient) ProvisionInstance(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *titusAgentVPCServiceClient) ProvisionInstanceV2(ctx context.Context, in *ProvisionInstanceRequestV2, opts ...grpc.CallOption) (*ProvisionInstanceResponseV2, error) {
+	out := new(ProvisionInstanceResponseV2)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ProvisionInstanceV2", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *titusAgentVPCServiceClient) AssignIP(ctx context.Context, in *AssignIPRequest, opts ...grpc.CallOption) (*AssignIPResponse, error) {
 	out := new(AssignIPResponse)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/AssignIP", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *titusAgentVPCServiceClient) AssignIPV2(ctx context.Context, in *AssignIPRequestV2, opts ...grpc.CallOption) (*AssignIPResponseV2, error) {
+	out := new(AssignIPResponseV2)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/AssignIPV2", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *titusAgentVPCServiceClient) RefreshIP(ctx context.Context, in *RefreshIPRequest, opts ...grpc.CallOption) (*RefreshIPResponse, error) {
+	out := new(RefreshIPResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/RefreshIP", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1084,13 +1727,36 @@ func (c *titusAgentVPCServiceClient) GC(ctx context.Context, in *GCRequest, opts
 	return out, nil
 }
 
+func (c *titusAgentVPCServiceClient) GCSetup(ctx context.Context, in *GCSetupRequest, opts ...grpc.CallOption) (*GCSetupResponse, error) {
+	out := new(GCSetupResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/GCSetup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *titusAgentVPCServiceClient) GCV2(ctx context.Context, in *GCRequestV2, opts ...grpc.CallOption) (*GCResponseV2, error) {
+	out := new(GCResponseV2)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/GCV2", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TitusAgentVPCServiceServer is the server API for TitusAgentVPCService service.
 type TitusAgentVPCServiceServer interface {
 	// This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
 	ProvisionInstance(context.Context, *ProvisionInstanceRequest) (*ProvisionInstanceResponse, error)
+	ProvisionInstanceV2(context.Context, *ProvisionInstanceRequestV2) (*ProvisionInstanceResponseV2, error)
 	AssignIP(context.Context, *AssignIPRequest) (*AssignIPResponse, error)
+	AssignIPV2(context.Context, *AssignIPRequestV2) (*AssignIPResponseV2, error)
+	RefreshIP(context.Context, *RefreshIPRequest) (*RefreshIPResponse, error)
 	// GC extra IPs
 	GC(context.Context, *GCRequest) (*GCResponse, error)
+	GCSetup(context.Context, *GCSetupRequest) (*GCSetupResponse, error)
+	GCV2(context.Context, *GCRequestV2) (*GCResponseV2, error)
 }
 
 func RegisterTitusAgentVPCServiceServer(s *grpc.Server, srv TitusAgentVPCServiceServer) {
@@ -1115,6 +1781,24 @@ func _TitusAgentVPCService_ProvisionInstance_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TitusAgentVPCService_ProvisionInstanceV2_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionInstanceRequestV2)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentVPCServiceServer).ProvisionInstanceV2(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ProvisionInstanceV2",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentVPCServiceServer).ProvisionInstanceV2(ctx, req.(*ProvisionInstanceRequestV2))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TitusAgentVPCService_AssignIP_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AssignIPRequest)
 	if err := dec(in); err != nil {
@@ -1129,6 +1813,42 @@ func _TitusAgentVPCService_AssignIP_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TitusAgentVPCServiceServer).AssignIP(ctx, req.(*AssignIPRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TitusAgentVPCService_AssignIPV2_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AssignIPRequestV2)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentVPCServiceServer).AssignIPV2(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/AssignIPV2",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentVPCServiceServer).AssignIPV2(ctx, req.(*AssignIPRequestV2))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TitusAgentVPCService_RefreshIP_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RefreshIPRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentVPCServiceServer).RefreshIP(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/RefreshIP",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentVPCServiceServer).RefreshIP(ctx, req.(*RefreshIPRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1151,6 +1871,42 @@ func _TitusAgentVPCService_GC_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TitusAgentVPCService_GCSetup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GCSetupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentVPCServiceServer).GCSetup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/GCSetup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentVPCServiceServer).GCSetup(ctx, req.(*GCSetupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TitusAgentVPCService_GCV2_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GCRequestV2)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentVPCServiceServer).GCV2(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/GCV2",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentVPCServiceServer).GCV2(ctx, req.(*GCRequestV2))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _TitusAgentVPCService_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "com.netflix.titus.executor.vpc.TitusAgentVPCService",
 	HandlerType: (*TitusAgentVPCServiceServer)(nil),
@@ -1160,12 +1916,32 @@ var _TitusAgentVPCService_serviceDesc = grpc.ServiceDesc{
 			Handler:    _TitusAgentVPCService_ProvisionInstance_Handler,
 		},
 		{
+			MethodName: "ProvisionInstanceV2",
+			Handler:    _TitusAgentVPCService_ProvisionInstanceV2_Handler,
+		},
+		{
 			MethodName: "AssignIP",
 			Handler:    _TitusAgentVPCService_AssignIP_Handler,
 		},
 		{
+			MethodName: "AssignIPV2",
+			Handler:    _TitusAgentVPCService_AssignIPV2_Handler,
+		},
+		{
+			MethodName: "RefreshIP",
+			Handler:    _TitusAgentVPCService_RefreshIP_Handler,
+		},
+		{
 			MethodName: "GC",
 			Handler:    _TitusAgentVPCService_GC_Handler,
+		},
+		{
+			MethodName: "GCSetup",
+			Handler:    _TitusAgentVPCService_GCSetup_Handler,
+		},
+		{
+			MethodName: "GCV2",
+			Handler:    _TitusAgentVPCService_GCV2_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

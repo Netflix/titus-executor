@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/Netflix/titus-executor/vpc/tool/setup"
+
+	"github.com/Netflix/titus-executor/vpc/tool/setup2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
@@ -17,13 +21,22 @@ func setupInstanceCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 			if err != nil {
 				return err
 			}
-
-			return setup.Setup(ctx,
-				iipGetter(),
-				locker,
-				conn,
-				v.GetString(interaceSubnet),
-				v.GetString(interfaceAccount))
+			switch strings.ToLower(v.GetString(generationFlagName)) {
+			case "v1":
+				return setup.Setup(ctx,
+					iipGetter(),
+					locker,
+					conn,
+					v.GetString(interaceSubnet),
+					v.GetString(interfaceAccount))
+			case "v2":
+				return setup2.Setup(ctx,
+					iipGetter(),
+					locker,
+					conn)
+			default:
+				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
+			}
 		},
 	}
 
