@@ -9,9 +9,9 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
+func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
 	return nil, types.ErrUnsupported
 }
 
-func teardownNetwork(ctx context.Context, allocation types.Allocation, link netlink.Link, netnsfd int) {
+func teardownNetwork(ctx context.Context, allocation types.LegacyAllocation, link netlink.Link, netnsfd int) {
 }

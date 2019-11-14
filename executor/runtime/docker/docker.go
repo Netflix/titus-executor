@@ -445,6 +445,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv6.conf.default.disable_ipv6":  "0",
 			"net.ipv6.conf.lo.disable_ipv6":       "0",
 			"net.ipv6.conf.default.stable_secret": stableSecret(), // This is to ensure each container sets their addresses differently
+			"net.ipv6.conf.all.use_tempaddr":      "0",
+			"net.ipv6.conf.default.use_tempaddr":  "0",
 		},
 		Init: &useInit,
 	}
@@ -538,8 +540,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	if c.Allocation.IPV6Address != nil {
 		c.Env["EC2_IPV6S"] = c.Allocation.IPV6Address.Address.Address
 	}
-	c.Env["EC2_VPC_ID"] = c.Allocation.VPC
-	c.Env["EC2_INTERFACE_ID"] = c.Allocation.ENI
+	c.Env["EC2_VPC_ID"] = c.Allocation.BranchENIVPC
+	c.Env["EC2_INTERFACE_ID"] = c.Allocation.BranchENIID
 
 	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")
@@ -692,13 +694,13 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	log.Printf("Configuring VPC network for %s", c.TaskID)
 
 	args := []string{
-		"allocate",
+		"assign",
 		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
 	}
 
 	if c.AllocationUUID != "" {
-		args = append(args, "--allocation-uuid", c.AllocationUUID)
+		args = append(args, "--ipv4-allocation-uuid", c.AllocationUUID)
 	}
 
 	assignIPv6Address, err := c.AssignIPv6Address()
@@ -706,7 +708,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		return err
 	}
 	if assignIPv6Address {
-		args = append(args, "--allocate-ipv6-address=true")
+		args = append(args, "--assign-ipv6-address=true")
 	}
 
 	// This channel indicates when allocation is done, successful or not
@@ -995,7 +997,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		})
 	} else {
 		// Don't call out to network driver for local development
-		c.Allocation = vpcTypes.Allocation{
+		c.Allocation = vpcTypes.HybridAllocation{
 			IPV4Address: &vpcapi.UsableAddress{
 				Address: &vpcapi.Address{
 					Address: "1.2.3.4",
@@ -1005,7 +1007,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			DeviceIndex: 1,
 			Success:     true,
 			Error:       "",
-			ENI:         "eni-cat-dog",
+			BranchENIID: "eni-cat-dog",
 		}
 		l.Info("Mocking networking configuration in dev mode to IP: ", c.Allocation)
 	}
@@ -1408,7 +1410,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 			IsRoutableIP: true,
 			IPAddress:    c.Allocation.IPV4Address.Address.Address,
 			EniIPAddress: c.Allocation.IPV4Address.Address.Address,
-			EniID:        c.Allocation.ENI,
+			EniID:        c.Allocation.BranchENIID,
 			ResourceID:   fmt.Sprintf("resource-eni-%d", c.Allocation.DeviceIndex-1),
 		},
 	}

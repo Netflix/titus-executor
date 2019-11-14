@@ -218,7 +218,7 @@ func main() {
 			}
 			signingKeyFile.Close()
 
-			return service.Run(ctx, listener, conn, signingKey, v.GetDuration(gcTimeoutFlagName))
+			return service.Run(ctx, listener, conn, signingKey, v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"))
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
@@ -230,6 +230,7 @@ func main() {
 	rootCmd.Flags().String("address", ":7001", "Listening address")
 	rootCmd.Flags().String("signingkey", "", "The (file) location of the root signing key")
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
+	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().String(atlasAddrFlagName, "", "Atlas aggregator address")

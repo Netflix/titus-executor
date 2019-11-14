@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

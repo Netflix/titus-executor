@@ -36,6 +36,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.0
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/hashicorp/golang-lru v0.5.1
+	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.2.0
@@ -58,11 +59,12 @@ require (
 	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/stretchr/testify v1.4.0
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
-	github.com/vishvananda/netlink v1.0.1-0.20190618143317-99a56c251ae6
+	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
 	github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 	go.opencensus.io v0.22.1
 	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
+	golang.org/x/net v0.0.0-20190620200207-3b0461eec859
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 	golang.org/x/sys v0.0.0-20190616124812-15dcb6c0061f
 	golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
@@ -73,4 +75,5 @@ require (
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.0.0-20190222213804-5cb15d344471
+	k8s.io/apimachinery v0.0.0-20190221213512-86fb29eff628
 )

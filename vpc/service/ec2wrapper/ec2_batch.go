@@ -8,9 +8,9 @@ import (
 
 	"google.golang.org/grpc/status"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"

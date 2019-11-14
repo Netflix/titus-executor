@@ -1,4 +1,4 @@
-package container
+package container // nolint:dupl
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 )
 
 func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, netns int, bandwidth uint64, burst, jumbo bool) error {
-	var allocation types.Allocation
+	var allocation types.LegacyAllocation
 	err := json.NewDecoder(os.Stdin).Decode(&allocation)
 	if err != nil {
 		return errors.Wrap(err, "Unable to read allocation")

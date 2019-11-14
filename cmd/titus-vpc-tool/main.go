@@ -28,8 +28,11 @@ const (
 	serviceAddrDefaultValue = "localhost:7001"
 	statsdAddrFlagName      = "statsd-addr"
 	zipkinURLFlagName       = "zipkin"
-	interaceSubnet          = "interface-subnet"
-	interfaceAccount        = "interface-account"
+	// which generation of titus-vpc-tool version to use, it must be set to 1 or 2
+	generationFlagName     = "generation"
+	generationDefaultValue = "v0"
+	interaceSubnet         = "interface-subnet"
+	interfaceAccount       = "interface-account"
 )
 
 type instanceProviderResolver struct {
@@ -155,10 +158,13 @@ func main() {
 	if err := v.BindEnv(serviceAddrFlagName, "VPC_SERVICE_ADDR"); err != nil {
 		panic(err)
 	}
+	if err := v.BindEnv(generationFlagName, "VPC_SERVICE_GENERATION"); err != nil {
+		panic(err)
+	}
 	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
 		panic(err)
 	}
-	rootCmd.AddCommand(allocateNetworkCommand(ctx, v, ipr.getProvider))
+	rootCmd.AddCommand(assignNetworkCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(genConfCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(setupInstanceCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(backfilleniCommand(ctx, v))

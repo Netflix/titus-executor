@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
@@ -215,6 +215,17 @@ func (s *EC2Session) UnassignPrivateIPAddresses(ctx context.Context, unassignPri
 	defer span.End()
 	ec2client := ec2.New(s.Session)
 	unassignPrivateIPAddressesOutput, err := ec2client.UnassignPrivateIpAddressesWithContext(ctx, &unassignPrivateIPAddressesInput)
+	if err != nil {
+		return nil, err
+	}
+	return unassignPrivateIPAddressesOutput, nil
+}
+
+func (s *EC2Session) UnassignIpv6Addresses(ctx context.Context, unassignIpv6AddressesInput ec2.UnassignIpv6AddressesInput) (*ec2.UnassignIpv6AddressesOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "UnassignIpv6Addresses")
+	defer span.End()
+	ec2client := ec2.New(s.Session)
+	unassignPrivateIPAddressesOutput, err := ec2client.UnassignIpv6AddressesWithContext(ctx, &unassignIpv6AddressesInput)
 	if err != nil {
 		return nil, err
 	}

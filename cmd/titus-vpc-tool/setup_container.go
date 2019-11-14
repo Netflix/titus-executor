@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/Netflix/titus-executor/vpc/tool/container"
+
+	"github.com/Netflix/titus-executor/vpc/tool/container2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
@@ -17,7 +21,14 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 			bandwidth := v.GetInt64("bandwidth")
 			burst := v.GetBool("burst")
 			jumbo := v.GetBool("jumbo")
-			return container.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
+			switch strings.ToLower(v.GetString(generationFlagName)) {
+			case "v1":
+				return container.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
+			case "v2":
+				return container2.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
+			default:
+				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
+			}
 		},
 	}
 

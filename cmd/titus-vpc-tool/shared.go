@@ -22,6 +22,7 @@ import (
 func addSharedFlags(flags *pflag.FlagSet) {
 	flags.String(stateDirFlagName, stateDirDefaultValue, "Where do we put the state")
 	flags.String(serviceAddrFlagName, serviceAddrDefaultValue, "VPC service address")
+	flags.String(generationFlagName, generationDefaultValue, "Generation of VPC Tool to use, specify v1, or v2")
 }
 
 func getSharedValues(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker, *grpc.ClientConn, error) {

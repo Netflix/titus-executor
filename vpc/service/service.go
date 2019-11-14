@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
@@ -111,7 +111,7 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 	return result, err
 }
 
-func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, gcTimeout time.Duration) error {
+func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, gcTimeout, reconcileInterval time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
@@ -217,6 +217,18 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 	group.Go(func() error { return grpcServer.Serve(anyListener) })
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
+	group.Go(func() error {
+		t := time.NewTimer(reconcileInterval)
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-t.C:
+				vpc.reconcileBranchENIs(ctx, reconcileInterval)
+				t.Reset(reconcileInterval)
+			}
+		}
+	})
 
 	err = group.Wait()
 	if ctx.Err() != nil {

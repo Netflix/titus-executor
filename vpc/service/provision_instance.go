@@ -2,17 +2,19 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
-	"github.com/pkg/errors"
+	"go.opencensus.io/trace"
 
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -192,4 +194,128 @@ func (vpcService *vpcService) attachNetworkInterfaceAtIdx(ctx context.Context, e
 
 	logger.G(ctx).WithField("networkInterface", describeNetworkInterfacesOutput.NetworkInterfaces[0]).Debug("Attached network interface")
 	return describeNetworkInterfacesOutput.NetworkInterfaces[0], nil
+}
+
+func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpcapi.ProvisionInstanceRequestV2) (_ *vpcapi.ProvisionInstanceResponseV2, retErr error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "ProvisionInstanceV2")
+	defer span.End()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+
+	// - Add instance AZ, etc.. to logger
+	// TODO:
+	// - Check that the AWS instance is in the same account as our session object
+	// - Add timeout
+	// - Verify instance identity document
+	// - Check the server's region is our own
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	defer func() {
+		if retErr == nil {
+			retErr = tx.Commit()
+		} else {
+			_ = tx.Rollback()
+		}
+	}()
+
+	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	if err != nil {
+		return nil, err
+	}
+
+	instance, _, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.InvalidateCache)
+	if err != nil {
+		return nil, err
+	}
+
+	// Does this have 2 network interfaces?
+	// TODO: Verify the second network interface is a trunk
+	eni := vpcService.getTrunkENI(instance)
+	if eni != nil {
+		return &vpcapi.ProvisionInstanceResponseV2{
+			TrunkNetworkInterface: instanceNetworkInterface(*instance, *eni),
+		}, nil
+	}
+
+	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
+		Description:      aws.String(vpc.TrunkNetworkInterfaceDescription),
+		InterfaceType:    aws.String("trunk"),
+		Ipv6AddressCount: aws.Int64(0),
+		SubnetId:         instance.SubnetId,
+	}
+
+	ec2client := ec2.New(ec2InstanceSession.Session)
+
+	// TODO: Record creation of the interface
+	createNetworkInterfaceResult, err := ec2client.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not create interface")
+		return nil, status.Convert(err).Err()
+	}
+
+	// TODO: Add retries to tag the interface
+	now := time.Now()
+	createTagsInput := &ec2.CreateTagsInput{
+		Resources: aws.StringSlice([]string{*createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId}),
+		Tags: []*ec2.Tag{
+			{
+				Key:   aws.String(vpc.ENICreationTimeTag),
+				Value: aws.String(now.Format(time.RFC3339)),
+			},
+		},
+	}
+	_, err = ec2client.CreateTagsWithContext(ctx, createTagsInput)
+	if err != nil {
+		logger.G(ctx).WithError(err).Warn("Could not tag network interface")
+	}
+
+	attachNetworkInterfaceInput := &ec2.AttachNetworkInterfaceInput{
+		DeviceIndex:        aws.Int64(int64(1)),
+		InstanceId:         instance.InstanceId,
+		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
+	}
+
+	// TODO: Delete interface if attaching fails.
+	// TODO: Add retries to attach the interface
+	attachNetworkInterfaceResult, err := ec2client.AttachNetworkInterfaceWithContext(ctx, attachNetworkInterfaceInput)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not attach network interface")
+		return nil, status.Convert(err).Err()
+	}
+
+	// TODO: Add retries to modify the interface
+	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
+		Attachment: &ec2.NetworkInterfaceAttachmentChanges{
+			AttachmentId:        attachNetworkInterfaceResult.AttachmentId,
+			DeleteOnTermination: aws.Bool(true),
+		},
+		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
+	}
+	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
+	// This isn't actually the end of the world as long as someone comes and fixes it later
+	if err != nil {
+		logger.G(ctx).WithError(err).Warn("Could not reconfigure network interface to be deleted on termination")
+	}
+
+	// TODO: Add retries to modify the interface
+	modifyNetworkInterfaceAttributeInput = &ec2.ModifyNetworkInterfaceAttributeInput{
+		Attachment: &ec2.NetworkInterfaceAttachmentChanges{
+			AttachmentId: attachNetworkInterfaceResult.AttachmentId,
+		},
+		SourceDestCheck:    &ec2.AttributeBooleanValue{Value: aws.Bool(false)},
+		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
+	}
+	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
+	// This isn't actually the end of the world as long as someone comes and fixes it later
+	if err != nil {
+		logger.G(ctx).WithError(err).Warn("Could not reconfigure network interface to disable source / dest check")
+	}
+
+	return &vpcapi.ProvisionInstanceResponseV2{}, nil
 }

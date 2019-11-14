@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	"strconv"
+	"fmt"
+	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/Netflix/titus-executor/vpc/tool/gc"
+
+	"github.com/Netflix/titus-executor/vpc/tool/gc2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
@@ -22,27 +23,28 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 				return err
 			}
 			defer conn.Close()
-
-			interfacesStrSlice := v.GetStringSlice("interfaces")
-			interfacesIntSlice := make([]int, len(interfacesStrSlice))
-			for idx := range interfacesStrSlice {
-				interfacesIntSlice[idx], err = strconv.Atoi(interfacesStrSlice[idx])
-				if err != nil {
-					return errors.Wrapf(err, "Cannot parse interface %s", interfacesStrSlice[idx])
-				}
+			switch strings.ToLower(v.GetString(generationFlagName)) {
+			case "v1":
+				return gc.GC(ctx,
+					v.GetDuration("timeout"),
+					iipGetter(),
+					locker,
+					conn,
+				)
+			case "v2":
+				return gc2.GC(ctx,
+					v.GetDuration("timeout"),
+					iipGetter(),
+					locker,
+					conn,
+				)
+			default:
+				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}
 
-			return gc.GC(ctx,
-				interfacesIntSlice,
-				v.GetDuration("timeout"),
-				iipGetter(),
-				locker,
-				conn,
-			)
 		},
 	}
 
-	cmd.Flags().StringSlice("interfaces", []string{}, "Which interfaces to GC")
 	cmd.Flags().Duration("timeout", 10*time.Minute, "How long to allow the GC to run for")
 	addSharedFlags(cmd.Flags())
 

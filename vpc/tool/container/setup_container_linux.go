@@ -32,7 +32,7 @@ var (
 	errAddressSetupTimeout = errors.New("IPv6 address setup timed out")
 )
 
-func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
+func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
 	parentLink, err := getLinkByMac(allocation.MAC)
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	return nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, mtu int, allocation types.Allocation) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, mtu int, allocation types.LegacyAllocation) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -292,7 +292,7 @@ func ipaddressToHandle(ip net.IP) uint16 {
 	return binary.BigEndian.Uint16([]byte(ip.To4()[2:4]))
 }
 
-func teardownNetwork(ctx context.Context, allocation types.Allocation, link netlink.Link, netnsfd int) {
+func teardownNetwork(ctx context.Context, allocation types.LegacyAllocation, link netlink.Link, netnsfd int) {
 	deleteLink(ctx, link, netnsfd)
 	ip := net.ParseIP(allocation.IPV4Address.Address.Address)
 
