@@ -256,7 +256,18 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	createNetworkInterfaceResult, err := ec2client.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not create interface")
-		return nil, status.Convert(err).Err()
+		return nil, ec2wrapper.HandleEC2Error(err, span)
+	}
+
+	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
+		SourceDestCheck:    &ec2.AttributeBooleanValue{Value: aws.Bool(false)},
+		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
+	}
+	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
+	// This isn't actually the end of the world as long as someone comes and fixes it later
+	if err != nil {
+		logger.G(ctx).WithError(err).Warn("Could not reconfigure network interface to disable source / dest check")
+		return nil, ec2wrapper.HandleEC2Error(err, span)
 	}
 
 	// TODO: Add retries to tag the interface
@@ -280,7 +291,6 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 		InstanceId:         instance.InstanceId,
 		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
 	}
-
 	// TODO: Delete interface if attaching fails.
 	// TODO: Add retries to attach the interface
 	attachNetworkInterfaceResult, err := ec2client.AttachNetworkInterfaceWithContext(ctx, attachNetworkInterfaceInput)
@@ -290,7 +300,7 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	}
 
 	// TODO: Add retries to modify the interface
-	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
+	modifyNetworkInterfaceAttributeInput = &ec2.ModifyNetworkInterfaceAttributeInput{
 		Attachment: &ec2.NetworkInterfaceAttachmentChanges{
 			AttachmentId:        attachNetworkInterfaceResult.AttachmentId,
 			DeleteOnTermination: aws.Bool(true),
@@ -304,18 +314,6 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	}
 
 	// TODO: Add retries to modify the interface
-	modifyNetworkInterfaceAttributeInput = &ec2.ModifyNetworkInterfaceAttributeInput{
-		Attachment: &ec2.NetworkInterfaceAttachmentChanges{
-			AttachmentId: attachNetworkInterfaceResult.AttachmentId,
-		},
-		SourceDestCheck:    &ec2.AttributeBooleanValue{Value: aws.Bool(false)},
-		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
-	}
-	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
-	// This isn't actually the end of the world as long as someone comes and fixes it later
-	if err != nil {
-		logger.G(ctx).WithError(err).Warn("Could not reconfigure network interface to disable source / dest check")
-	}
 
 	return &vpcapi.ProvisionInstanceResponseV2{}, nil
 }
