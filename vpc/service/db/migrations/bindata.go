@@ -119,15 +119,16 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() ([]byte, error){
-	"1_init.down.sql": _1_init_down_sql,
-	"1_init.up.sql": _1_init_up_sql,
-	"2_branch_enis.down.sql": _2_branch_enis_down_sql,
-	"2_branch_enis.up.sql": _2_branch_enis_up_sql,
+	"1_init.down.sql":         _1_init_down_sql,
+	"1_init.up.sql":           _1_init_up_sql,
+	"2_branch_enis.down.sql":  _2_branch_enis_down_sql,
+	"2_branch_enis.up.sql":    _2_branch_enis_up_sql,
 	"3_branch_enis2.down.sql": _3_branch_enis2_down_sql,
-	"3_branch_enis2.up.sql": _3_branch_enis2_up_sql,
-	"bindata.go": bindata_go,
-	"generate.go": generate_go,
+	"3_branch_enis2.up.sql":   _3_branch_enis2_up_sql,
+	"bindata.go":              bindata_go,
+	"generate.go":             generate_go,
 }
+
 // AssetDir returns the file names below a certain
 // directory embedded in the file by go-bindata.
 // For example if you run go-bindata on data/... and data contains the
@@ -164,24 +165,17 @@ func AssetDir(name string) ([]string, error) {
 }
 
 type _bintree_t struct {
-	Func func() ([]byte, error)
+	Func     func() ([]byte, error)
 	Children map[string]*_bintree_t
 }
+
 var _bintree = &_bintree_t{nil, map[string]*_bintree_t{
-	"1_init.down.sql": &_bintree_t{_1_init_down_sql, map[string]*_bintree_t{
-	}},
-	"1_init.up.sql": &_bintree_t{_1_init_up_sql, map[string]*_bintree_t{
-	}},
-	"2_branch_enis.down.sql": &_bintree_t{_2_branch_enis_down_sql, map[string]*_bintree_t{
-	}},
-	"2_branch_enis.up.sql": &_bintree_t{_2_branch_enis_up_sql, map[string]*_bintree_t{
-	}},
-	"3_branch_enis2.down.sql": &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{
-	}},
-	"3_branch_enis2.up.sql": &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{
-	}},
-	"bindata.go": &_bintree_t{bindata_go, map[string]*_bintree_t{
-	}},
-	"generate.go": &_bintree_t{generate_go, map[string]*_bintree_t{
-	}},
+	"1_init.down.sql":         &_bintree_t{_1_init_down_sql, map[string]*_bintree_t{}},
+	"1_init.up.sql":           &_bintree_t{_1_init_up_sql, map[string]*_bintree_t{}},
+	"2_branch_enis.down.sql":  &_bintree_t{_2_branch_enis_down_sql, map[string]*_bintree_t{}},
+	"2_branch_enis.up.sql":    &_bintree_t{_2_branch_enis_up_sql, map[string]*_bintree_t{}},
+	"3_branch_enis2.down.sql": &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{}},
+	"3_branch_enis2.up.sql":   &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{}},
+	"bindata.go":              &_bintree_t{bindata_go, map[string]*_bintree_t{}},
+	"generate.go":             &_bintree_t{generate_go, map[string]*_bintree_t{}},
 }}
