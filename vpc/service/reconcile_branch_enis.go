@@ -3,8 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"time"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -14,35 +12,6 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
-
-func (vpcService *vpcService) reconcileBranchENIs(ctx context.Context, reconcileTimeout time.Duration) {
-	// 1. We scan all branch ENIs to make sure they're in the database
-	// 2. We make sure all branch ENI associations are up to date
-	// 3. TODO: delete branch ENIs
-	// 4. TODO: delete branch ENIs from table that no longer exist
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIs")
-	defer span.End()
-	logger.G(ctx).Info("Starting branch ENI reconcilation")
-	regionAccounts, err := vpcService.getRegionAccounts(ctx)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not get region / accounts")
-		return
-	}
-	logger.G(ctx).Info(regionAccounts)
-	for _, regionAndAccount := range regionAccounts {
-		taskName := fmt.Sprintf("reconcile_eni_%s_%s", regionAndAccount.accountID, regionAndAccount.region)
-		// rebind this so it doesn't get overwritten on the subsequent loop
-		regionAndAccount := regionAndAccount
-		err := vpcService.runScheduledTask(ctx, taskName, reconcileTimeout, func(ctx context.Context, tx *sql.Tx) error {
-			return vpcService.reconcileBranchENIsForRegionAccount(ctx, regionAndAccount, tx)
-		})
-		if err != nil {
-			logger.G(ctx).WithError(err).Error("Cannot reconcile")
-		}
-	}
-}
 
 func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) (retErr error) {
 	ctx, cancel := context.WithCancel(ctx)

@@ -1,0 +1,4 @@
+START TRANSACTION;
+ALTER TABLE ip_last_used ALTER COLUMN id TYPE bigint;
+ALTER SEQUENCE ip_last_used_id_seq AS bigint NO CYCLE;
+COMMIT;
