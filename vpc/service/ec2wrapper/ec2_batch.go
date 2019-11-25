@@ -297,7 +297,10 @@ func (b *BatchENIDescriber) DescribeNetworkInterfacesWithTimeout(ctx context.Con
 	select {
 	case b.requests <- request:
 	case <-ctx.Done():
-		return nil, errors.Wrap(ctx.Err(), "Could not write request. This seems very wrong")
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, errors.Wrap(ctx.Err(), "Could not write request before deadline exceeded. This seems very wrong")
+		}
+		return nil, ctx.Err()
 	}
 
 	// Once the request has been written, we wait for the executing channel to close, indicating that the request has begun processing
