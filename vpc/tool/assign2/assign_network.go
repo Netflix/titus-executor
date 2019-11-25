@@ -161,6 +161,7 @@ func (a *allocation) refresh(ctx context.Context, client vpcapi.TitusAgentVPCSer
 		})
 	}
 
+	req.BranchNetworkInterface = a.branchNetworkInterface
 	resp, err := client.RefreshIP(ctx, req)
 	if err == nil {
 		parsedDuration, err := ptypes.Duration(resp.NextRefresh)

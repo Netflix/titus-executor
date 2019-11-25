@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -1037,6 +1038,8 @@ func (vpcService *vpcService) RefreshIP(ctx context.Context, request *vpcapi.Ref
 		_ = tx.Rollback()
 	}()
 
+	utilizedAddressList := make([]string, 0, len(request.UtilizedAddress))
+
 	for _, addr := range request.UtilizedAddress {
 		ts, err := ptypes.Timestamp(addr.LastUsedTime)
 		if err != nil {
@@ -1046,6 +1049,18 @@ func (vpcService *vpcService) RefreshIP(ctx context.Context, request *vpcapi.Ref
 		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used(ip_address, last_used) VALUES($1, $2) ON CONFLICT(ip_address) DO UPDATE SET last_used = $2", addr.Address.Address, ts)
 		if err != nil {
 			err = errors.Wrap(err, "Could not update ip_last_used table")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		utilizedAddressList = append(utilizedAddressList, addr.Address.Address)
+	}
+	span.AddAttributes(trace.StringAttribute("utilizedAddresses", strings.Join(utilizedAddressList, ",")))
+	if request.BranchNetworkInterface != nil && request.BranchNetworkInterface.NetworkInterfaceId != "" {
+		span.AddAttributes(trace.StringAttribute("branchNetworkInterfaceId", request.BranchNetworkInterface.NetworkInterfaceId))
+		_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_last_used(branch_eni, last_used) VALUES ($1, now()) ON CONFLICT(branch_eni) DO UPDATE SET last_used = now()", request.BranchNetworkInterface.NetworkInterfaceId)
+		if err != nil {
+			err = errors.Wrap(err, "Could not update branch_eni_last_used table")
+			span.SetStatus(traceStatusFromError(err))
 			return nil, err
 		}
 	}
