@@ -164,6 +164,7 @@ message GCResponseV2 {
 
 message RefreshIPRequest {
     repeated UtilizedAddress utilizedAddress = 1;
+    NetworkInterface branchNetworkInterface = 2;
 }
 
 message RefreshIPResponse {

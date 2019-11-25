@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -28,18 +29,6 @@ import (
 func isAssignIPRequestValid(req *vpcapi.AssignIPRequest) error {
 	if req.NetworkInterfaceAttachment.DeviceIndex == 0 {
 		return status.Error(codes.InvalidArgument, "Device index 0 not allowed")
-	}
-
-	return nil
-}
-
-func isAssignIPRequestValidForInstance(req *vpcapi.AssignIPRequest, instance *ec2.Instance) error {
-	maxInterfaces, err := vpc.GetMaxInterfaces(*instance.InstanceType)
-	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
-	}
-	if int(req.NetworkInterfaceAttachment.DeviceIndex) >= maxInterfaces {
-		return status.Error(codes.InvalidArgument, "Interface is out of bounds")
 	}
 
 	return nil
@@ -72,12 +61,6 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 	}
 
 	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	err = isAssignIPRequestValidForInstance(req, instance)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -1055,6 +1038,8 @@ func (vpcService *vpcService) RefreshIP(ctx context.Context, request *vpcapi.Ref
 		_ = tx.Rollback()
 	}()
 
+	utilizedAddressList := make([]string, 0, len(request.UtilizedAddress))
+
 	for _, addr := range request.UtilizedAddress {
 		ts, err := ptypes.Timestamp(addr.LastUsedTime)
 		if err != nil {
@@ -1064,6 +1049,18 @@ func (vpcService *vpcService) RefreshIP(ctx context.Context, request *vpcapi.Ref
 		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used(ip_address, last_used) VALUES($1, $2) ON CONFLICT(ip_address) DO UPDATE SET last_used = $2", addr.Address.Address, ts)
 		if err != nil {
 			err = errors.Wrap(err, "Could not update ip_last_used table")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		utilizedAddressList = append(utilizedAddressList, addr.Address.Address)
+	}
+	span.AddAttributes(trace.StringAttribute("utilizedAddresses", strings.Join(utilizedAddressList, ",")))
+	if request.BranchNetworkInterface != nil && request.BranchNetworkInterface.NetworkInterfaceId != "" {
+		span.AddAttributes(trace.StringAttribute("branchNetworkInterfaceId", request.BranchNetworkInterface.NetworkInterfaceId))
+		_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_last_used(branch_eni, last_used) VALUES ($1, now()) ON CONFLICT(branch_eni) DO UPDATE SET last_used = now()", request.BranchNetworkInterface.NetworkInterfaceId)
+		if err != nil {
+			err = errors.Wrap(err, "Could not update branch_eni_last_used table")
+			span.SetStatus(traceStatusFromError(err))
 			return nil, err
 		}
 	}

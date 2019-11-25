@@ -435,10 +435,10 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	span.AddAttributes(trace.StringAttribute("instanceId", req.InstanceIdentity.InstanceID))
+	span.AddAttributes(trace.StringAttribute("interfaceId", req.NetworkInterfaceAttachment.Id))
 
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		ReadOnly: true,
-	})
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
 		span.SetStatus(traceStatusFromError(err))
@@ -456,6 +456,7 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 	_, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(oid::int, branch_enis.id) FROM branch_enis, (SELECT oid FROM pg_class WHERE relname = 'branch_enis') o WHERE branch_eni = $1",
 		req.NetworkInterfaceAttachment.Id)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
@@ -472,9 +473,11 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 	for _, addr := range req.AllocatedAddresses {
 		allocatedAddresses.Insert(addr.Address)
 	}
+	span.AddAttributes(trace.StringAttribute("allocatedAddresses", strings.Join(allocatedAddresses.UnsortedList(), ",")))
 	for _, addr := range req.UnallocatedAddresses {
 		unallocatedAddresses.Insert(addr.Address)
 	}
+	span.AddAttributes(trace.StringAttribute("unallocatedAddresses", strings.Join(unallocatedAddresses.UnsortedList(), ",")))
 
 	assignedAddresses := sets.NewString()
 	assignedRemovableAddresses := sets.NewString()
@@ -490,9 +493,17 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 		assignedAddresses.Insert(ip)
 		assignedRemovableAddresses.Insert(ip)
 	}
+	span.AddAttributes(trace.StringAttribute("assignedAddresses", strings.Join(assignedAddresses.UnsortedList(), ",")))
+	span.AddAttributes(trace.StringAttribute("assignedRemovableAddresses", strings.Join(assignedRemovableAddresses.UnsortedList(), ",")))
+
+	if allocatedAddresses.Len() == 0 && assignedRemovableAddresses.Len() == 0 {
+		logger.G(ctx).Info("Interface has no allocated addresses, and has no assigned removable addresses, checking if it can be freed")
+	}
 
 	addressesToDelete := unallocatedAddresses.Difference(assignedAddresses)
+	span.AddAttributes(trace.StringAttribute("addressesToDelete", strings.Join(addressesToDelete.UnsortedList(), ",")))
 	candidates := assignedRemovableAddresses.Difference(allocatedAddresses)
+	span.AddAttributes(trace.StringAttribute("candidates", strings.Join(candidates.UnsortedList(), ",")))
 
 	rows, err := tx.QueryContext(ctx, "SELECT ip_address, home_eni FROM ip_addresses WHERE host(ip_address) = any($1)", pq.Array(assignedRemovableAddresses.List()))
 	if err != nil {
@@ -556,6 +567,7 @@ WHERE
 
 	err = vpcService.unassignAddressesV2(ctx, tx, session, req.NetworkInterfaceAttachment.Id, toUnassign)
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 

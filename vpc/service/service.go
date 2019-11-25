@@ -218,18 +218,11 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
 	group.Go(func() error {
-		t := time.NewTimer(reconcileInterval)
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-t.C:
-				vpc.reconcileBranchENIs(ctx, reconcileInterval)
-				t.Reset(reconcileInterval)
-			}
-		}
+		return vpc.taskLoop(ctx, reconcileInterval, "reconcile_branch_enis", vpc.reconcileBranchENIsForRegionAccount)
 	})
-
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, reconcileInterval, "delete_dangling_trunks", vpc.deleteDanglingTrunksForRegionAccount)
+	})
 	err = group.Wait()
 	if ctx.Err() != nil {
 		return nil
