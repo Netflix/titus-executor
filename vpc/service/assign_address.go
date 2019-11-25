@@ -33,18 +33,6 @@ func isAssignIPRequestValid(req *vpcapi.AssignIPRequest) error {
 	return nil
 }
 
-func isAssignIPRequestValidForInstance(req *vpcapi.AssignIPRequest, instance *ec2.Instance) error {
-	maxInterfaces, err := vpc.GetMaxInterfaces(*instance.InstanceType)
-	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
-	}
-	if int(req.NetworkInterfaceAttachment.DeviceIndex) >= maxInterfaces {
-		return status.Error(codes.InvalidArgument, "Interface is out of bounds")
-	}
-
-	return nil
-}
-
 func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIPRequest) (*vpcapi.AssignIPResponse, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -72,12 +60,6 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 	}
 
 	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	err = isAssignIPRequestValidForInstance(req, instance)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
