@@ -25,6 +25,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	})
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get session")
+		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
 
@@ -35,6 +36,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 
 	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_enis (branch_eni TEXT PRIMARY KEY, account_id text, subnet_id text, az text, vpc_id text, state text) ON COMMIT DROP ")
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return errors.Wrap(err, "Could not create temporary table for known branch enis")
 	}
 
@@ -53,7 +55,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		output, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Could not describe network interfaces")
-			return err
+			return ec2wrapper.HandleEC2Error(err, span)
 		}
 		for _, branchENI := range output.NetworkInterfaces {
 			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, state) VALUES ($1, $2, $3, $4, $5, $6)",
