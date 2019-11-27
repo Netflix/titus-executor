@@ -38,6 +38,7 @@ const (
 	debugAddressFlagName       = "debug-address"
 	gcTimeoutFlagName          = "gc-timeout"
 	maxIdleConnectionsFlagName = "max-idle-connections"
+	refreshIntervalFlagName    = "refresh-interval"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -218,7 +219,7 @@ func main() {
 			}
 			signingKeyFile.Close()
 
-			return service.Run(ctx, listener, conn, signingKey, v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"))
+			return service.Run(ctx, listener, conn, signingKey, v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"), v.GetDuration(refreshIntervalFlagName))
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
@@ -231,6 +232,7 @@ func main() {
 	rootCmd.Flags().String("signingkey", "", "The (file) location of the root signing key")
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
+	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().String(atlasAddrFlagName, "", "Atlas aggregator address")
@@ -270,6 +272,10 @@ func main() {
 	}
 
 	if err := v.BindEnv(maxIdleConnectionsFlagName, "DB_MAX_IDLE_CONNECTIONS"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(refreshIntervalFlagName, "REFRESH_INTERVAL"); err != nil {
 		panic(err)
 	}
 

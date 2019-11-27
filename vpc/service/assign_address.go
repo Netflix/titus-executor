@@ -1133,6 +1133,6 @@ func (vpcService *vpcService) RefreshIP(ctx context.Context, request *vpcapi.Ref
 		return nil, err
 	}
 	return &vpcapi.RefreshIPResponse{
-		NextRefresh: ptypes.DurationProto(vpc.RefreshInterval),
+		NextRefresh: ptypes.DurationProto(vpcService.refreshInterval),
 	}, nil
 }
