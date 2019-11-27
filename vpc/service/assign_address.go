@@ -752,7 +752,7 @@ func assignArbitraryIPv6Address(ctx context.Context, tx *sql.Tx, ec2client *ec2.
 	unusedIPv6Addresses := interfaceIPv6Addresses.Difference(usedIPv6Addresses)
 	if unusedIPv6Addresses.Len() > 0 {
 		unusedIPv6AddressesList := unusedIPv6Addresses.List()
-		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_used FROM ip_last_used WHERE host(ip_address) = any($1)", pq.Array(unusedIPv6AddressesList))
+		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_used FROM ip_last_used WHERE host(ip_address) = any($1) AND last_used IS NOT NULL", pq.Array(unusedIPv6AddressesList))
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
 			span.SetStatus(traceStatusFromError(err))
@@ -873,7 +873,7 @@ func assignArbitraryIPv4Address(ctx context.Context, tx *sql.Tx, ec2client *ec2.
 	if unusedIPv4Addresses.Len() > 0 {
 		unusedIPv4AddressesList := unusedIPv4Addresses.List()
 
-		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_used FROM ip_last_used WHERE host(ip_address) = any($1)", pq.Array(unusedIPv4AddressesList))
+		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_used FROM ip_last_used WHERE host(ip_address) = any($1) AND last_used IS NOT NULL", pq.Array(unusedIPv4AddressesList))
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
 			span.SetStatus(traceStatusFromError(err))
@@ -1088,8 +1088,18 @@ func (vpcService *vpcService) RefreshIP(ctx context.Context, request *vpcapi.Ref
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "RefreshIP")
 	defer span.End()
+
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
+
+	if err := vpcService.refreshLock.Acquire(ctx, 1); err != nil {
+		err = errors.Wrap(err, "Cannot get refresh lock")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+
+	}
+	defer vpcService.refreshLock.Release(1)
+
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())

@@ -32,13 +32,15 @@ import (
 )
 
 const (
-	atlasAddrFlagName          = "atlas-addr"
-	statsdAddrFlagName         = "statsd-addr"
-	zipkinURLFlagName          = "zipkin"
-	debugAddressFlagName       = "debug-address"
-	gcTimeoutFlagName          = "gc-timeout"
-	maxIdleConnectionsFlagName = "max-idle-connections"
-	refreshIntervalFlagName    = "refresh-interval"
+	atlasAddrFlagName            = "atlas-addr"
+	statsdAddrFlagName           = "statsd-addr"
+	zipkinURLFlagName            = "zipkin"
+	debugAddressFlagName         = "debug-address"
+	gcTimeoutFlagName            = "gc-timeout"
+	maxIdleConnectionsFlagName   = "max-idle-connections"
+	refreshIntervalFlagName      = "refresh-interval"
+	maxOpenConnectionsFlagName   = "max-open-connections"
+	maxConcurrentRefreshFlagName = "max-concurrent-refresh"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -219,7 +221,7 @@ func main() {
 			}
 			signingKeyFile.Close()
 
-			return service.Run(ctx, listener, conn, signingKey, v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"), v.GetDuration(refreshIntervalFlagName))
+			return service.Run(ctx, listener, conn, signingKey, v.GetInt64(maxConcurrentRefreshFlagName), v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"), v.GetDuration(refreshIntervalFlagName))
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
@@ -243,13 +245,27 @@ func main() {
 	rootCmd.PersistentFlags().Bool("dbiam", false, "Generate IAM credentials for database")
 	rootCmd.PersistentFlags().String("region", "", "Region of the database")
 	rootCmd.PersistentFlags().Int(maxIdleConnectionsFlagName, 100, "SetMaxIdleConns sets the maximum number of connections in the idle connection pool for the database")
-
+	rootCmd.PersistentFlags().Int(maxOpenConnectionsFlagName, 200, "Maximum number of open connections allows to open to the database")
+	rootCmd.PersistentFlags().Int64(maxConcurrentRefreshFlagName, 10, "The number of maximum concurrent refreshes to allow")
 	rootCmd.AddCommand(migrateCommand(ctx, v))
 	rootCmd.AddCommand(generateKeyCommand(ctx, v))
 
 	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
 		logger.G(ctx).WithError(err).Fatal("Unable to configure Viper")
 	}
+
+	bindVariables(v)
+	v.AutomaticEnv()
+
+	err := rootCmd.Execute()
+	if ctx.Err() != nil {
+		logger.G(ctx).Info("Shutting down gracefully")
+	} else if err != nil {
+		logger.G(ctx).WithError(err).Fatal("Failed")
+	}
+}
+
+func bindVariables(v *pkgviper.Viper) {
 
 	if err := v.BindEnv(statsdAddrFlagName, "STATSD_ADDR"); err != nil {
 		panic(err)
@@ -279,12 +295,11 @@ func main() {
 		panic(err)
 	}
 
-	v.AutomaticEnv()
+	if err := v.BindEnv(maxOpenConnectionsFlagName, "MAX_OPEN_CONNECTIONS"); err != nil {
+		panic(err)
+	}
 
-	err := rootCmd.Execute()
-	if ctx.Err() != nil {
-		logger.G(ctx).Info("Shutting down gracefully")
-	} else if err != nil {
-		logger.G(ctx).WithError(err).Fatal("Failed")
+	if err := v.BindEnv(maxConcurrentRefreshFlagName, "MAX_CONCURRENT_REFRESH"); err != nil {
+		panic(err)
 	}
 }

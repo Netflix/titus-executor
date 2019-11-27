@@ -153,6 +153,7 @@ func newConnection(ctx context.Context, v *pkgviper.Viper) (*sql.DB, error) {
 	})
 
 	db.SetMaxIdleConns(v.GetInt(maxIdleConnectionsFlagName))
+	db.SetMaxOpenConns(v.GetInt(maxOpenConnectionsFlagName))
 
 	return db, nil
 }

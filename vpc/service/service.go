@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
@@ -80,6 +82,8 @@ type vpcService struct {
 
 	gcTimeout       time.Duration
 	refreshInterval time.Duration
+
+	refreshLock *semaphore.Weighted
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -112,7 +116,7 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 	return result, err
 }
 
-func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, gcTimeout, reconcileInterval, refreshInterval time.Duration) error {
+func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, maxConcurrentRefresh int64, gcTimeout, reconcileInterval, refreshInterval time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
@@ -192,6 +196,8 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 
 		gcTimeout:       gcTimeout,
 		refreshInterval: refreshInterval,
+
+		refreshLock: semaphore.NewWeighted(maxConcurrentRefresh),
 	}
 
 	hc := &healthcheck{}
