@@ -119,8 +119,12 @@ func (sessionManager *EC2SessionManager) GetSessionFromInstanceIdentity(ctx cont
 }
 
 func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx context.Context, sessionKey Key) (*EC2Session, error) {
-	// TODO: Validate the account ID is only integers.
 	logger.G(ctx).WithField("AccountID", sessionKey.AccountID).Debug("Getting session")
+	ctx, span := trace.StartSpan(ctx, "GetSessionFromAccountAndRegion")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("AccountID", sessionKey.AccountID), trace.StringAttribute("Region", sessionKey.Region))
+
+	// TODO: Validate the account ID is only integers.
 	// TODO: Metrics
 	sessionManager.sessionsLock.RLock()
 	instanceSession, ok := sessionManager.sessions[sessionKey]
@@ -128,10 +132,6 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 	if ok {
 		return instanceSession, nil
 	}
-
-	ctx, span := trace.StartSpan(ctx, "describer")
-	defer span.End()
-	span.AddAttributes(trace.StringAttribute("AccountID", sessionKey.AccountID), trace.StringAttribute("Region", sessionKey.Region))
 
 	myIdentity, err := sessionManager.getCallerIdentity(ctx)
 	if err != nil {
