@@ -62,7 +62,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -109,7 +109,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		}
 	}
 
-	subnet, err := session.GetSubnetByID(ctx, aws.StringValue(iface.SubnetId), ec2wrapper.UseCache)
+	subnet, err := session.GetSubnetByID(ctx, aws.StringValue(iface.SubnetId))
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -970,7 +970,7 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
-	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -1027,7 +1027,7 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
-	subnet, err := session.GetSubnetByID(ctx, aws.StringValue(ec2BranchENI.SubnetId), ec2wrapper.UseCache)
+	subnet, err := session.GetSubnetByID(ctx, aws.StringValue(ec2BranchENI.SubnetId))
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err

@@ -127,7 +127,7 @@ func main() {
 				if err := registry.Start(); err != nil {
 					return err
 				}
-				view.RegisterExporter(&spectatorGoExporter{registry: registry})
+				view.RegisterExporter(newSpectatorGoExporter(registry))
 			}
 
 			if statsdAddr := v.GetString(statsdAddrFlagName); statsdAddr != "" {

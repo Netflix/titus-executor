@@ -85,7 +85,7 @@ func GetInterfaceByIdxWithRetries(ctx context.Context, session *EC2Session, inst
 	}
 
 	// Retry / refresh the interface
-	instance, _, err := session.GetInstance(ctx, aws.StringValue(instance.InstanceId), InvalidateCache|StoreInCache)
+	instance, _, err := session.GetInstance(ctx, aws.StringValue(instance.InstanceId), true)
 	if err != nil {
 		span.SetStatus(trace.Status{
 			Code:    trace.StatusCodeUnknown,

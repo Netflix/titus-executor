@@ -138,7 +138,7 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		return nil, err
 	}
 
-	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +594,7 @@ func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRe
 		return nil, err
 	}
 
-	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
 	if err != nil {
 		return nil, err
 	}

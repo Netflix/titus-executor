@@ -45,8 +45,15 @@ func (d *opencensusDistributionData) Measure() []spectator.Measurement {
 }
 
 type spectatorGoExporter struct {
-	registry *spectator.Registry
+	registry       *spectator.Registry
 	previousValues map[string]int64
+}
+
+func newSpectatorGoExporter(registry *spectator.Registry) *spectatorGoExporter {
+	return &spectatorGoExporter{
+		previousValues: make(map[string]int64),
+		registry:       registry,
+	}
 }
 
 func (s *spectatorGoExporter) opencensusDistributionDataWithId(id *spectator.Id) *opencensusDistributionData { // nolint: golint

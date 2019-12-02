@@ -271,9 +271,6 @@ github.com/grpc-ecosystem/go-grpc-middleware/tags/logrus
 github.com/hashicorp/errwrap
 # github.com/hashicorp/go-multierror v1.0.0
 github.com/hashicorp/go-multierror
-# github.com/hashicorp/golang-lru v0.5.1
-github.com/hashicorp/golang-lru
-github.com/hashicorp/golang-lru/simplelru
 # github.com/hashicorp/hcl v0.0.0-20180404174102-ef8a98b0bbce
 github.com/hashicorp/hcl
 github.com/hashicorp/hcl/hcl/printer
@@ -292,6 +289,8 @@ github.com/jmespath/go-jmespath
 # github.com/jteeuwen/go-bindata v3.0.7+incompatible
 github.com/jteeuwen/go-bindata/go-bindata
 github.com/jteeuwen/go-bindata
+# github.com/karlseguin/ccache v2.0.3+incompatible
+github.com/karlseguin/ccache
 # github.com/kisielk/gotool v1.0.0
 github.com/kisielk/gotool
 github.com/kisielk/gotool/internal/load
@@ -442,6 +441,7 @@ golang.org/x/net/proxy
 golang.org/x/net/internal/socks
 # golang.org/x/sync v0.0.0-20190423024810-112230192c58
 golang.org/x/sync/errgroup
+golang.org/x/sync/semaphore
 # golang.org/x/sys v0.0.0-20190616124812-15dcb6c0061f
 golang.org/x/sys/unix
 golang.org/x/sys/windows

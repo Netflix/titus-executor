@@ -36,7 +36,7 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 		return nil, err
 	}
 
-	instance, ownerID, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.InvalidateCache|ec2wrapper.StoreInCache)
+	instance, ownerID, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +229,7 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 		return nil, err
 	}
 
-	instance, _, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.InvalidateCache)
+	instance, _, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, true)
 	if err != nil {
 		return nil, err
 	}
