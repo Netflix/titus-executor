@@ -13,7 +13,6 @@ import (
 	"github.com/karlseguin/ccache"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -231,10 +230,6 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalid
 	ctx, span := trace.StartSpan(ctx, "getInstance")
 	defer span.End()
 	start := time.Now()
-	ctx, err := tag.New(ctx, tag.Upsert(keyInstance, instanceID))
-	if err != nil {
-		return nil, "", err
-	}
 	stats.Record(ctx, getInstanceCount.M(1))
 
 	if invalidateCache {

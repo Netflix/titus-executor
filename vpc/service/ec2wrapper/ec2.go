@@ -48,7 +48,6 @@ var (
 )
 
 var (
-	keyInstance  = tag.MustNewKey("instanceId")
 	keyRegion    = tag.MustNewKey("region")
 	keyAccountID = tag.MustNewKey("accountId")
 )
