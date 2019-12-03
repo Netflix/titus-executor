@@ -239,11 +239,13 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalid
 
 	stats.Record(ctx, getInstanceFromCache.M(1))
 	if item := s.instanceCache.Get(instanceID); item != nil && !item.Expired() {
+		span.AddAttributes(trace.BoolAttribute("cached", true))
 		stats.Record(ctx, getInstanceFromCacheSuccess.M(1), getInstanceSuccess.M(1))
 		val := item.Value().(*EC2InstanceCacheValue)
 		return val.instance, val.ownerID, nil
 	}
 
+	span.AddAttributes(trace.BoolAttribute("cached", false))
 	ec2client := ec2.New(s.Session)
 	describeInstancesOutput, err := ec2client.DescribeInstancesWithContext(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: aws.StringSlice([]string{instanceID}),
