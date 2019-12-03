@@ -978,6 +978,15 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 
 	trunkENI := vpcService.getTrunkENI(instance)
 	if trunkENI == nil {
+		instance, _, err = session.GetInstance(ctx, req.InstanceIdentity.InstanceID, true)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		trunkENI = vpcService.getTrunkENI(instance)
+	}
+
+	if trunkENI == nil {
 		err = status.Error(codes.FailedPrecondition, "Instance does not have trunk ENI")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
