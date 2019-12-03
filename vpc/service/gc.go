@@ -499,7 +499,7 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 	if allocatedAddresses.Len() == 0 && assignedRemovableAddresses.Len() == 0 {
 		logger.G(ctx).Info("Interface has no allocated addresses, and has no assigned removable addresses, checking if it can be freed")
 		var lastUsed time.Time
-		rowContext := tx.QueryRowContext(ctx, "SELECT last_used FROM branch_eni_last_used WHERE branch_eni = ?", req.NetworkInterfaceAttachment.Id)
+		rowContext := tx.QueryRowContext(ctx, "SELECT last_used FROM branch_eni_last_used WHERE branch_eni = $1", req.NetworkInterfaceAttachment.Id)
 		err = rowContext.Scan(&lastUsed)
 		if err == sql.ErrNoRows {
 			// If we have no record of the ENI ever being used, we should probably just say it was last used right now to the database.

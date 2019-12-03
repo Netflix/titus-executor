@@ -614,10 +614,11 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, ec2cl
 					for _, assoc := range output.InterfaceAssociations {
 						// Don't touch other associations
 						if aws.Int64Value(assoc.VlanId) == int64(idx) {
-							_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, state, idx) VALUES ($1, $2, 'attached', $3) ON CONFLICT DO NOTHING",
+							_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, state, idx, association_id) VALUES ($1, $2, 'attached', $3, $4) ON CONFLICT DO NOTHING",
 								aws.StringValue(assoc.BranchInterfaceId),
 								aws.StringValue(assoc.TrunkInterfaceId),
 								aws.Int64Value(assoc.VlanId),
+								aws.StringValue(assoc.AssociationId),
 							)
 							if err != nil {
 								err = errors.Wrap(err, "Could not update known_branch_enis")

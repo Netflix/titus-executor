@@ -224,6 +224,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	if lockErr == unix.EWOULDBLOCK {
 		sharedSGLock, err := locker.SharedLock(ctx, securityGroupLockPath, &reconfigurationTimeout)
 		if err != nil {
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, false, allocationUUID)
