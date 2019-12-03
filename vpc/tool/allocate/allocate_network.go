@@ -135,6 +135,8 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "doAllocateNetwork")
 	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("pid", int64(os.Getpid())))
+
 	span.AddAttributes(
 		trace.Int64Attribute("deviceIdx", int64(deviceIdx)),
 		trace.StringAttribute("security-groups", fmt.Sprintf("%v", securityGroups)),
