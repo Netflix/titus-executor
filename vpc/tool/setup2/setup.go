@@ -25,7 +25,7 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 
 	lockTimeout := time.Second
 
-	exclusiveLock, err := locker.ExclusiveLock(utilities.GetGlobalConfigurationLock(), &lockTimeout)
+	exclusiveLock, err := locker.ExclusiveLock(ctx, utilities.GetGlobalConfigurationLock(), &lockTimeout)
 	if err != nil {
 		return err
 	}

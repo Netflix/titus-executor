@@ -1,6 +1,7 @@
 package fslocker
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -28,6 +29,8 @@ func TestFSLockerTwice(t *testing.T) {
 }
 
 func TestFSLocker(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
@@ -35,58 +38,66 @@ func TestFSLocker(t *testing.T) {
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
 
-	l1, err := locker.ExclusiveLock("test", durationPointer(time.Second))
+	l1, err := locker.ExclusiveLock(ctx, "test", durationPointer(time.Second))
 	assert.NoError(t, err)
-	_, err = locker.ExclusiveLock("test", durationPointer(time.Second))
+	_, err = locker.ExclusiveLock(ctx, "test", durationPointer(time.Second))
 	assert.Error(t, err)
 	l1.ToSharedLock()
-	l3, err := locker.SharedLock("test", durationPointer(time.Second))
+	l3, err := locker.SharedLock(ctx, "test", durationPointer(time.Second))
 	assert.NoError(t, err)
 	l1.Unlock()
 	l3.Unlock()
 }
 
 func TestFSLockerDir(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
 
-	l1, err := locker.ExclusiveLock("test/test/test", durationPointer(time.Second))
+	l1, err := locker.ExclusiveLock(ctx, "test/test/test", durationPointer(time.Second))
 	assert.NoError(t, err)
-	l2, err := locker.ExclusiveLock("test/test", durationPointer(time.Second))
+	l2, err := locker.ExclusiveLock(ctx, "test/test", durationPointer(time.Second))
 	assert.NoError(t, err)
 	l2.Unlock()
 	l1.Unlock()
 }
 
 func TestFSLockUpgradeDowngrade(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
 
-	l1, err := locker.SharedLock("test/test", nil)
+	l1, err := locker.SharedLock(ctx, "test/test", nil)
 	assert.NoError(t, err)
-	l2, err := locker.SharedLock("test/test", nil)
+	l2, err := locker.SharedLock(ctx, "test/test", nil)
 	assert.NoError(t, err)
 
-	_, err = l1.ToExclusiveLock(durationPointer(time.Second))
+	_, err = l1.ToExclusiveLock(ctx, durationPointer(time.Second))
 	assert.Error(t, err)
 	l2.Unlock()
-	_, err = l1.ToExclusiveLock(durationPointer(time.Second))
+	_, err = l1.ToExclusiveLock(ctx, durationPointer(time.Second))
 	assert.NoError(t, err)
 }
 
 func TestFSLockerRemove(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
-	l1, err := locker.ExclusiveLock("test", durationPointer(time.Second))
+	l1, err := locker.ExclusiveLock(ctx, "test", durationPointer(time.Second))
 	assert.NoError(t, err)
 	l1.Unlock()
 
@@ -101,6 +112,9 @@ func TestFSLockerRemove(t *testing.T) {
 }
 
 func TestFSLockerOptimistic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
@@ -108,9 +122,9 @@ func TestFSLockerOptimistic(t *testing.T) {
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
 
-	l1, err := locker.ExclusiveLock("test", durationPointer(0))
+	l1, err := locker.ExclusiveLock(ctx, "test", durationPointer(0))
 	assert.NoError(t, err)
-	l2, err := locker.ExclusiveLock("test", durationPointer(0))
+	l2, err := locker.ExclusiveLock(ctx, "test", durationPointer(0))
 	assert.Equal(t, unix.EWOULDBLOCK, err)
 
 	l1.Unlock()
@@ -118,6 +132,9 @@ func TestFSLockerOptimistic(t *testing.T) {
 }
 
 func TestFSLockerPessimisticSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
@@ -125,7 +142,7 @@ func TestFSLockerPessimisticSuccess(t *testing.T) {
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
 
-	l1, err := locker.ExclusiveLock("test", durationPointer(0))
+	l1, err := locker.ExclusiveLock(ctx, "test", durationPointer(0))
 	assert.NoError(t, err)
 	start := time.Now()
 	go func() {
@@ -133,7 +150,7 @@ func TestFSLockerPessimisticSuccess(t *testing.T) {
 		l1.Unlock()
 	}()
 
-	l2, err := locker.ExclusiveLock("test", durationPointer(5*time.Second))
+	l2, err := locker.ExclusiveLock(ctx, "test", durationPointer(5*time.Second))
 	assert.NoError(t, err)
 	assert.NotNil(t, l2)
 	defer l2.Unlock()
@@ -141,6 +158,8 @@ func TestFSLockerPessimisticSuccess(t *testing.T) {
 }
 
 func TestFSLockerPessimisticFail(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
@@ -148,7 +167,7 @@ func TestFSLockerPessimisticFail(t *testing.T) {
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
 
-	l1, err := locker.ExclusiveLock("test", durationPointer(0))
+	l1, err := locker.ExclusiveLock(ctx, "test", durationPointer(0))
 	assert.NoError(t, err)
 	start := time.Now()
 	go func() {
@@ -156,7 +175,7 @@ func TestFSLockerPessimisticFail(t *testing.T) {
 		l1.Unlock()
 	}()
 
-	l2, err := locker.ExclusiveLock("test", durationPointer(2*time.Second))
+	l2, err := locker.ExclusiveLock(ctx, "test", durationPointer(2*time.Second))
 	assert.Error(t, err)
 	assert.Equal(t, err, unix.ETIMEDOUT)
 	assert.Nil(t, l2)
@@ -168,6 +187,8 @@ func removeAll(t *testing.T, dir string) {
 }
 
 func TestDoubleUnlock(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	dir, err := ioutil.TempDir("", "fs-locker")
 	require.NoError(t, err)
 	defer removeAll(t, dir)
@@ -175,9 +196,61 @@ func TestDoubleUnlock(t *testing.T) {
 	locker, err := NewFSLocker(dir)
 	assert.NoError(t, err)
 
-	l1, err := locker.ExclusiveLock("test", durationPointer(time.Second))
+	l1, err := locker.ExclusiveLock(ctx, "test", durationPointer(time.Second))
 	assert.NoError(t, err)
 	l1.Bump()
 	l1.Unlock()
+	l1.Unlock()
+}
+
+func TestLockContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir, err := ioutil.TempDir("", "fs-locker")
+	require.NoError(t, err)
+	defer removeAll(t, dir)
+
+	locker, err := NewFSLocker(dir)
+	assert.NoError(t, err)
+
+	l1, err := locker.ExclusiveLock(ctx, "test", durationPointer(time.Second))
+	assert.NoError(t, err)
+
+	ctx2, cancel2 := context.WithTimeout(ctx, time.Second)
+	defer cancel2()
+	_, err = locker.ExclusiveLock(ctx2, "test", durationPointer(10*time.Second))
+	assert.Error(t, err)
+	assert.Equal(t, context.DeadlineExceeded, err)
+	l1.Unlock()
+
+	// Make sure we can relock the file (check we're not leaking locks)
+	l1, err = locker.ExclusiveLock(ctx, "test", durationPointer(time.Second))
+	assert.NoError(t, err)
+	l1.Unlock()
+}
+
+func TestLockContextIndefinite(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir, err := ioutil.TempDir("", "fs-locker")
+	require.NoError(t, err)
+	defer removeAll(t, dir)
+
+	locker, err := NewFSLocker(dir)
+	assert.NoError(t, err)
+
+	l1, err := locker.ExclusiveLock(ctx, "test", nil)
+	assert.NoError(t, err)
+
+	ctx2, cancel2 := context.WithTimeout(ctx, time.Second)
+	defer cancel2()
+	_, err = locker.ExclusiveLock(ctx2, "test", nil)
+	assert.Error(t, err)
+	assert.Equal(t, context.DeadlineExceeded, err)
+	l1.Unlock()
+
+	//	Make sure we can relock the file (check we're not leaking locks)
+	l1, err = locker.ExclusiveLock(ctx, "test", nil)
+	assert.NoError(t, err)
 	l1.Unlock()
 }

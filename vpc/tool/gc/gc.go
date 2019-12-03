@@ -28,7 +28,7 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 	defer cancel()
 
 	optimisticTimeout := time.Duration(0)
-	exclusiveLock, err := locker.ExclusiveLock(utilities.GetGlobalConfigurationLock(), &optimisticTimeout)
+	exclusiveLock, err := locker.ExclusiveLock(ctx, utilities.GetGlobalConfigurationLock(), &optimisticTimeout)
 	if err != nil {
 		return errors.Wrap(err, "Cannot get global configuration lock")
 	}
@@ -78,7 +78,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	configurationLockPath := utilities.GetConfigurationLockPath(deviceIdx)
 	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
 
-	configurationLock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
+	configurationLock, err := locker.ExclusiveLock(ctx, configurationLockPath, &reconfigurationTimeout)
 	if err != nil {
 		return errors.Wrap(err, "Cannot get exclusive configuration lock on interface")
 	}
@@ -104,7 +104,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 		entry.Debug("Checking IP")
 
 		addressLockPath := filepath.Join(addressesLockPath, record.Name)
-		ipAddrLock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+		ipAddrLock, err := locker.ExclusiveLock(ctx, addressLockPath, &optimisticLockTimeout)
 		if err == unix.EWOULDBLOCK {
 			entry.Info("Skipping address, in-use")
 			allocatedAddresses[record.Name] = &record
@@ -172,7 +172,7 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 	}
 
 	for _, addr := range gcResponse.AddressToBump {
-		tmpLock, err := locker.SharedLock(filepath.Join(addressesLockPath, addr.Address), &optimisticLockTimeout)
+		tmpLock, err := locker.SharedLock(ctx, filepath.Join(addressesLockPath, addr.Address), &optimisticLockTimeout)
 		if err == nil {
 			tmpLock.Bump()
 			tmpLock.Unlock()

@@ -146,7 +146,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	reconfigurationTimeout := 10 * time.Second
 
 	securityGroupLockPath := utilities.GetSecurityGroupLockPath(deviceIdx)
-	exclusiveSGLock, lockErr := locker.ExclusiveLock(securityGroupLockPath, &optimisticLockTimeout)
+	exclusiveSGLock, lockErr := locker.ExclusiveLock(ctx, securityGroupLockPath, &optimisticLockTimeout)
 
 	if lockErr == nil {
 		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, true, allocationUUID)
@@ -162,7 +162,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 
 	// We cannot get an exclusive lock, maybe we can get a shared lock?
 	if lockErr == unix.EWOULDBLOCK {
-		sharedSGLock, err := locker.SharedLock(securityGroupLockPath, &reconfigurationTimeout)
+		sharedSGLock, err := locker.SharedLock(ctx, securityGroupLockPath, &reconfigurationTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +196,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	configurationLockPath := utilities.GetConfigurationLockPath(deviceIdx)
 	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
 
-	lock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
+	lock, err := locker.ExclusiveLock(ctx, configurationLockPath, &reconfigurationTimeout)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
@@ -219,7 +219,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 		ip := net.ParseIP(record.Name)
 		previouslyKnownAddresses.Add(ip.String())
 
-		tmpLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
+		tmpLock, err := locker.ExclusiveLock(ctx, filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
 		if err == nil {
 			tmpLock.Unlock()
 		} else {
@@ -289,7 +289,7 @@ func bumpUsableAddresses(ctx context.Context, addressesLockPath string, previous
 		if !previouslyKnownAddresses.Contains(ip.String()) {
 			logger.G(ctx).WithField("previouslyKnownAddresses", previouslyKnownAddresses.String()).WithField("ip", ip.String()).Info("Bumping record")
 			addressLockPath := filepath.Join(addressesLockPath, ip.String())
-			lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+			lock, err := locker.ExclusiveLock(ctx, addressLockPath, &optimisticLockTimeout)
 			if err == nil {
 				lock.Bump()
 				lock.Unlock()
@@ -341,7 +341,7 @@ func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address b
 			continue
 		}
 		addressLockPath := filepath.Join(addressesLockPath, ip.String())
-		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+		lock, err := locker.ExclusiveLock(ctx, addressLockPath, &optimisticLockTimeout)
 		if err == nil {
 			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.exclusiveIP4Lock = lock
@@ -368,7 +368,7 @@ func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address b
 		}
 		addressLockPath := filepath.Join(addressesLockPath, ip.String())
 
-		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+		lock, err := locker.ExclusiveLock(ctx, addressLockPath, &optimisticLockTimeout)
 		if err == nil {
 			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.ip6Address = addr
