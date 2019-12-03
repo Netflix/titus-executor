@@ -3,6 +3,7 @@ package ec2wrapper
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sort"
 	"time"
 
@@ -19,8 +20,9 @@ import (
 )
 
 const (
-	subnetExpirationTime   = 2 * time.Hour
-	instanceExpirationTime = time.Hour
+	subnetExpirationTime      = 2 * time.Hour
+	minInstanceExpirationTime = 45 * time.Minute
+	maxInstanceExpirationTime = 75 * time.Minute
 )
 
 var (
@@ -283,6 +285,7 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalid
 		instance: describeInstancesOutput.Reservations[0].Instances[0],
 	}
 
+	instanceExpirationTime := time.Nanosecond * time.Duration(minInstanceExpirationTime.Nanoseconds()+rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))
 	s.instanceCache.Set(instanceID, ret, instanceExpirationTime)
 
 	return ret.instance, ret.ownerID, nil
