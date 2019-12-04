@@ -304,6 +304,10 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, session *ec2w
 		}
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("utilizedAddressIPv6Set", utilizedAddressIPv6Set.String()),
+		trace.StringAttribute("utilizedAddressIPv4Set", utilizedAddressIPv4Set.String()),
+	)
 	if utilizedAddressIPv4Set.Cardinality() >= maxIPAddresses {
 		return nil, status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses assigned, interface can only handle %d IPs", utilizedAddressIPv4Set.Cardinality(), maxIPAddresses)
 	}
