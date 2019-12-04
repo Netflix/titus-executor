@@ -45,7 +45,15 @@ func (d *opencensusDistributionData) Measure() []spectator.Measurement {
 }
 
 type spectatorGoExporter struct {
-	registry *spectator.Registry
+	registry       *spectator.Registry
+	previousValues map[string]int64
+}
+
+func newSpectatorGoExporter(registry *spectator.Registry) *spectatorGoExporter {
+	return &spectatorGoExporter{
+		previousValues: make(map[string]int64),
+		registry:       registry,
+	}
 }
 
 func (s *spectatorGoExporter) opencensusDistributionDataWithId(id *spectator.Id) *opencensusDistributionData { // nolint: golint
@@ -74,7 +82,14 @@ func (s *spectatorGoExporter) ExportView(vd *view.Data) {
 		case *view.DistributionData:
 			s.opencensusDistributionDataWithId(id).update(v)
 		case *view.CountData:
-			s.registry.CounterWithId(id).Add(v.Value)
+			key := id.String()
+			if prevValue, ok := s.previousValues[key]; ok {
+				s.registry.CounterWithId(id).Add(v.Value - prevValue)
+				s.previousValues[key] = v.Value
+			} else {
+				s.registry.CounterWithId(id).Add(v.Value)
+				s.previousValues[key] = v.Value
+			}
 		case *view.SumData:
 			s.registry.CounterWithId(id).AddFloat(v.Value)
 		case *view.LastValueData:

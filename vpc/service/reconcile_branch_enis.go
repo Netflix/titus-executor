@@ -25,6 +25,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	})
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get session")
+		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
 
@@ -35,6 +36,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 
 	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_enis (branch_eni TEXT PRIMARY KEY, account_id text, subnet_id text, az text, vpc_id text, state text) ON COMMIT DROP ")
 	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
 		return errors.Wrap(err, "Could not create temporary table for known branch enis")
 	}
 
@@ -53,7 +55,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		output, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Could not describe network interfaces")
-			return err
+			return ec2wrapper.HandleEC2Error(err, span)
 		}
 		for _, branchENI := range output.NetworkInterfaces {
 			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, state) VALUES ($1, $2, $3, $4, $5, $6)",
@@ -78,7 +80,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		return errors.Wrap(err, "Could not insert new branch ENIs")
 	}
 
-	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_eni_attachments (branch_eni TEXT PRIMARY KEY, trunk_eni text, idx int) ON COMMIT DROP")
+	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_eni_attachments (branch_eni TEXT PRIMARY KEY, trunk_eni text, idx int, association_id text) ON COMMIT DROP")
 	if err != nil {
 		return errors.Wrap(err, "Could not create temporary table for known branch enis")
 	}
@@ -93,10 +95,11 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 			logger.G(ctx).WithError(err).Error()
 		}
 		for _, assoc := range output.InterfaceAssociations {
-			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_eni_attachments(branch_eni, trunk_eni, idx) VALUES ($1, $2, $3)",
+			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_eni_attachments(branch_eni, trunk_eni, idx, association_id) VALUES ($1, $2, $3, $4)",
 				aws.StringValue(assoc.BranchInterfaceId),
 				aws.StringValue(assoc.TrunkInterfaceId),
 				aws.Int64Value(assoc.VlanId),
+				aws.StringValue(assoc.AssociationId),
 			)
 			if err != nil {
 				return errors.Wrap(err, "Could not update known_branch_enis")
@@ -118,7 +121,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		return errors.Wrap(err, "Could not update unknown branch eni status")
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, state) SELECT branch_eni, trunk_eni, idx, 'attached' FROM known_branch_eni_attachments ON CONFLICT(branch_eni) DO UPDATE SET trunk_eni = excluded.trunk_eni, state = 'attached', idx = excluded.idx")
+	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, state) SELECT branch_eni, trunk_eni, idx, association_id, 'attached' FROM known_branch_eni_attachments ON CONFLICT(branch_eni) DO UPDATE SET trunk_eni = excluded.trunk_eni, state = 'attached', idx = excluded.idx, association_id = excluded.association_id")
 	if err != nil {
 		return errors.Wrap(err, "Could not insert new branch eni attachments")
 	}

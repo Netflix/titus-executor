@@ -126,7 +126,7 @@ func (n *PluginInfo) initHostGpuInfo(parentCtx context.Context) error {
 // AllocDevices allocates GPU device names from the free device list for the given task ID.
 // Returns an error if no devices are available. If an error is returned,
 // the allocation change must not be applied.
-func (n *PluginInfo) AllocDevices(numDevs int) (types.GPUContainer, error) {
+func (n *PluginInfo) AllocDevices(ctx context.Context, numDevs int) (types.GPUContainer, error) {
 	var lock *fslocker.ExclusiveLock
 	var err error
 	zeroTimeout := time.Duration(0)
@@ -136,7 +136,7 @@ func (n *PluginInfo) AllocDevices(numDevs int) (types.GPUContainer, error) {
 
 	allocatedDevices := make(map[string]*fslocker.ExclusiveLock, numDevs)
 	for _, id := range n.gpuIds {
-		lock, err = n.fsLocker.ExclusiveLock(id, &zeroTimeout)
+		lock, err = n.fsLocker.ExclusiveLock(ctx, id, &zeroTimeout)
 		if err == nil && lock != nil {
 			allocatedDevices[id] = lock
 		}

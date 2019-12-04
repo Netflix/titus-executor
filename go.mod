@@ -35,9 +35,9 @@ require (
 	github.com/gorilla/mux v1.7.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.0
 	github.com/hashicorp/go-multierror v1.0.0
-	github.com/hashicorp/golang-lru v0.5.1
 	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
+	github.com/karlseguin/ccache v2.0.3+incompatible
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.2.0
 	github.com/mesos/mesos-go v0.0.0-20161004192122-7228b13084ce

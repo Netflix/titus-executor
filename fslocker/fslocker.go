@@ -1,6 +1,7 @@
 package fslocker
 
 import (
+	"context"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -65,8 +66,8 @@ type SharedLock struct {
 // If timeout is nil, then this function will be blocking, otherwise it will be non-blocking.
 // It will return unix.ETIMEDOUT if timeout occurs
 // If timeout is 0
-func (sl *SharedLock) ToExclusiveLock(timeout *time.Duration) (*ExclusiveLock, error) {
-	err := lockHelper(sl.file, int(exclusive), timeout)
+func (sl *SharedLock) ToExclusiveLock(ctx context.Context, timeout *time.Duration) (*ExclusiveLock, error) {
+	err := lockHelper(ctx, sl.file, int(exclusive), timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +112,8 @@ func NewFSLocker(path string) (*FSLocker, error) {
 // If timeout is nil, then this function will be blocking until lock acquisition is successful
 // if timeout is 0, it will be non-blocking and return unix.EWOULDBLOCK if we cannot acquire the lock
 // if timeout is non-zero, and we timeout, it will return unix.ETIMEDOUT
-func (locker *FSLocker) ExclusiveLock(path string, timeout *time.Duration) (*ExclusiveLock, error) {
-	lock, err := locker.doLock(exclusive, path, timeout)
+func (locker *FSLocker) ExclusiveLock(ctx context.Context, path string, timeout *time.Duration) (*ExclusiveLock, error) {
+	lock, err := locker.doLock(ctx, exclusive, path, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -123,8 +124,8 @@ func (locker *FSLocker) ExclusiveLock(path string, timeout *time.Duration) (*Exc
 // If timeout is nil, then this function will be blocking until lock acquisition is successful
 // if timeout is 0, it will be non-blocking and return unix.EWOULDBLOCK if we cannot acquire the lock
 // if timeout is non-zero, and we timeout, it will return unix.ETIMEDOUT
-func (locker *FSLocker) SharedLock(path string, timeout *time.Duration) (*SharedLock, error) {
-	lock, err := locker.doLock(shared, path, timeout)
+func (locker *FSLocker) SharedLock(ctx context.Context, path string, timeout *time.Duration) (*SharedLock, error) {
+	lock, err := locker.doLock(ctx, shared, path, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +173,7 @@ func (locker *FSLocker) ListFiles(path string) ([]Record, error) {
 	return ret, nil
 }
 
-func (locker *FSLocker) doLock(how lockType, path string, timeout *time.Duration) (*Lock, error) {
+func (locker *FSLocker) doLock(ctx context.Context, how lockType, path string, timeout *time.Duration) (*Lock, error) {
 	pendingWorkFile, err := os.OpenFile(locker.pendingWorkPath, os.O_RDONLY|os.O_CREATE, 0400)
 	if err != nil {
 		return nil, err
@@ -190,18 +191,36 @@ func (locker *FSLocker) doLock(how lockType, path string, timeout *time.Duration
 		return nil, err
 	}
 
-	err = lockHelper(fd, int(how), timeout)
+	err = lockHelper(ctx, fd, int(how), timeout)
 	if err != nil {
-		shouldClose(fd)
+		if err != ctx.Err() {
+			shouldClose(fd)
+		}
 		return nil, err
 	}
 
 	return &Lock{file: fd}, nil
 }
 
-func lockHelper(fd *os.File, how int, timeout *time.Duration) error {
+func lockHelper(ctx context.Context, fd *os.File, how int, timeout *time.Duration) error {
 	if timeout == nil {
-		return unix.Flock(int(fd.Fd()), how)
+		var err error
+		locked := make(chan struct{})
+		go func() {
+			err = unix.Flock(int(fd.Fd()), how)
+			locked <- struct{}{}
+		}()
+		select {
+		case <-ctx.Done():
+			go func() {
+				<-locked
+				_ = unix.Flock(int(fd.Fd()), unix.LOCK_UN)
+				shouldClose(fd)
+			}()
+			return ctx.Err()
+		case <-locked:
+			return err
+		}
 	}
 
 	if *timeout == 0 {
@@ -211,6 +230,9 @@ func lockHelper(fd *os.File, how int, timeout *time.Duration) error {
 	start := time.Now()
 	firstLoop := true
 	for time.Since(start) < *timeout || firstLoop {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		firstLoop = false
 		err := unix.Flock(int(fd.Fd()), how|unix.LOCK_NB)
 		if err == unix.EWOULDBLOCK {

@@ -2,12 +2,12 @@ package ec2wrapper
 
 import (
 	"context"
-	"expvar"
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"github.com/karlseguin/ccache"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
@@ -17,7 +17,6 @@ import (
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/sts"
 	"github.com/Netflix/titus-executor/logger"
-	lru "github.com/hashicorp/golang-lru"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
@@ -36,12 +35,6 @@ const (
 	UseCache CacheStrategy = StoreInCache | FetchFromCache
 )
 
-var sessionManagerMap *expvar.Map
-
-func init() {
-	sessionManagerMap = expvar.NewMap("sessionManagers")
-}
-
 var (
 	invalidateInstanceFromCache = stats.Int64("invalidateInstanceFromCache.count", "Instance invalidated from cache", "")
 	storedInstanceInCache       = stats.Int64("storeInstanceInCache.count", "How many times we stored instances in the cache", "")
@@ -50,22 +43,21 @@ var (
 	getInstanceMs               = stats.Float64("getInstance.latency", "The time to fetch an instance", "ns")
 	getInstanceCount            = stats.Int64("getInstance.count", "How many times getInstance was called", "")
 	getInstanceSuccess          = stats.Int64("getInstance.success.count", "How many times getInstance succeeded", "")
+	cachedInstances             = stats.Int64("cache.instances", "How many instances are cached", "")
+	cachedSubnets               = stats.Int64("cache.subnets", "How many subnets are cached", "")
+	cachedInstancesFreed        = stats.Int64("cache.instance.freed", "How many instances have been evicted from cache", "")
 )
 
 var (
-	keyInstance = tag.MustNewKey("instanceId")
+	keyRegion    = tag.MustNewKey("region")
+	keyAccountID = tag.MustNewKey("accountId")
 )
 
-var sessionManagerID int64
-
 func NewEC2SessionManager() *EC2SessionManager {
-	id := atomic.AddInt64(&sessionManagerID, 1)
 	sessionManager := &EC2SessionManager{
 		baseSession: session.Must(session.NewSession()),
 		sessions:    make(map[Key]*EC2Session),
-		expvarMap:   expvar.NewMap("session"),
 	}
-	sessionManagerMap.Set(fmt.Sprintf("sessionManager-%d", id), sessionManager.expvarMap)
 
 	return sessionManager
 }
@@ -86,7 +78,6 @@ type EC2SessionManager struct {
 
 	sessionsLock sync.RWMutex
 	sessions     map[Key]*EC2Session
-	expvarMap    *expvar.Map
 }
 
 func (sessionManager *EC2SessionManager) getCallerIdentity(ctx context.Context) (*sts.GetCallerIdentityOutput, error) {
@@ -119,8 +110,12 @@ func (sessionManager *EC2SessionManager) GetSessionFromInstanceIdentity(ctx cont
 }
 
 func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx context.Context, sessionKey Key) (*EC2Session, error) {
-	// TODO: Validate the account ID is only integers.
 	logger.G(ctx).WithField("AccountID", sessionKey.AccountID).Debug("Getting session")
+	ctx, span := trace.StartSpan(ctx, "GetSessionFromAccountAndRegion")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("AccountID", sessionKey.AccountID), trace.StringAttribute("Region", sessionKey.Region))
+
+	// TODO: Validate the account ID is only integers.
 	// TODO: Metrics
 	sessionManager.sessionsLock.RLock()
 	instanceSession, ok := sessionManager.sessions[sessionKey]
@@ -128,10 +123,6 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 	if ok {
 		return instanceSession, nil
 	}
-
-	ctx, span := trace.StartSpan(ctx, "describer")
-	defer span.End()
-	span.AddAttributes(trace.StringAttribute("AccountID", sessionKey.AccountID), trace.StringAttribute("Region", sessionKey.Region))
 
 	myIdentity, err := sessionManager.getCallerIdentity(ctx)
 	if err != nil {
@@ -185,25 +176,26 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 		logger.G(ctx).Info("Setting up session")
 	}
 
-	c, err := lru.New(10000)
-	if err != nil {
-		panic(err)
-	}
-	instanceSession.instanceCache = c
+	instanceSession.instanceCache = ccache.New(ccache.Configure().MaxSize(10000).ItemsToPrune(10))
+	instanceSession.instanceCache.OnDelete(func(*ccache.Item) {
+		stats.Record(ctx, cachedInstancesFreed.M(1))
+	})
+	instanceSession.subnetCache = ccache.New(ccache.Configure().MaxSize(1000).ItemsToPrune(10))
 
-	c, err = lru.New(100)
-	if err != nil {
-		panic(err)
-	}
-	instanceSession.subnetCache = c
-
+	go func() {
+		mutators := []tag.Mutator{tag.Upsert(keyRegion, sessionKey.Region), tag.Upsert(keyAccountID, sessionKey.AccountID)}
+		for {
+			time.Sleep(time.Second)
+			_ = stats.RecordWithTags(ctx, mutators, cachedSubnets.M(int64(instanceSession.subnetCache.ItemCount())))
+			_ = stats.RecordWithTags(ctx, mutators, cachedInstances.M(int64(instanceSession.instanceCache.ItemCount())))
+		}
+	}()
 	newCtx := logger.WithLogger(context.Background(), logger.G(ctx))
 	instanceSession.batchENIDescriber = NewBatchENIDescriber(newCtx, time.Second, 50, instanceSession.Session)
 
 	sessionManager.sessionsLock.Lock()
 	defer sessionManager.sessionsLock.Unlock()
 	sessionManager.sessions[sessionKey] = instanceSession
-	sessionManager.expvarMap.Set(sessionKey.String(), instanceSession)
 
 	return instanceSession, nil
 }

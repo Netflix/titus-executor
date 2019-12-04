@@ -121,7 +121,7 @@ func doAllocateIndex(ctx context.Context, locker *fslocker.FSLocker) (*fslocker.
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := r.Intn(maxAllocationIndex); i < maxAllocationIndex; i++ {
 		val := (i % (maxAllocationIndex - 3)) + 3
-		lock, err := locker.ExclusiveLock(filepath.Join("allocation-index", strconv.Itoa(val)), &optimisticLockTimeout)
+		lock, err := locker.ExclusiveLock(ctx, filepath.Join("allocation-index", strconv.Itoa(val)), &optimisticLockTimeout)
 		if err == nil {
 			return lock, uint16(val), nil
 		}
@@ -195,6 +195,8 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "doAllocateNetwork")
 	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("pid", int64(os.Getpid())))
+
 	span.AddAttributes(
 		trace.Int64Attribute("deviceIdx", int64(deviceIdx)),
 		trace.StringAttribute("security-groups", fmt.Sprintf("%v", securityGroups)),
@@ -204,7 +206,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	reconfigurationTimeout := 10 * time.Second
 
 	securityGroupLockPath := utilities.GetSecurityGroupLockPath(deviceIdx)
-	exclusiveSGLock, lockErr := locker.ExclusiveLock(securityGroupLockPath, &optimisticLockTimeout)
+	exclusiveSGLock, lockErr := locker.ExclusiveLock(ctx, securityGroupLockPath, &optimisticLockTimeout)
 
 	if lockErr == nil {
 		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, true, allocationUUID)
@@ -220,8 +222,9 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 
 	// We cannot get an exclusive lock, maybe we can get a shared lock?
 	if lockErr == unix.EWOULDBLOCK {
-		sharedSGLock, err := locker.SharedLock(securityGroupLockPath, &reconfigurationTimeout)
+		sharedSGLock, err := locker.SharedLock(ctx, securityGroupLockPath, &reconfigurationTimeout)
 		if err != nil {
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, false, allocationUUID)
@@ -249,13 +252,14 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	}
 
 	optimisticLockTimeout := time.Duration(0)
-	reconfigurationTimeout := 10 * time.Second
+	reconfigurationTimeout := 100 * time.Second
 
 	configurationLockPath := utilities.GetConfigurationLockPath(deviceIdx)
 	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
 
-	lock, err := locker.ExclusiveLock(configurationLockPath, &reconfigurationTimeout)
+	lock, err := locker.ExclusiveLock(ctx, configurationLockPath, &reconfigurationTimeout)
 	if err != nil {
+		err = errors.Wrap(err, "Unable to get exclusive configuration lock")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -275,7 +279,7 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 	for _, record := range records {
 		ip := net.ParseIP(record.Name)
 
-		tmpLock, err := locker.ExclusiveLock(filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
+		tmpLock, err := locker.ExclusiveLock(ctx, filepath.Join(addressesLockPath, record.Name), &optimisticLockTimeout)
 		if err == nil {
 			tmpLock.Unlock()
 		} else {
@@ -348,7 +352,7 @@ func populateAlloc(ctx context.Context, alloc *allocation, response *vpcapi.Assi
 
 	if response.Ipv4Address != nil {
 		addressLockPath := filepath.Join(addressesLockPath, response.Ipv4Address.Address.Address)
-		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+		lock, err := locker.ExclusiveLock(ctx, addressLockPath, &optimisticLockTimeout)
 		if err == nil {
 			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.exclusiveIP4Lock = lock
@@ -366,7 +370,7 @@ func populateAlloc(ctx context.Context, alloc *allocation, response *vpcapi.Assi
 
 	if response.Ipv6Address != nil {
 		addressLockPath := filepath.Join(addressesLockPath, response.Ipv6Address.Address.Address)
-		lock, err := locker.ExclusiveLock(addressLockPath, &optimisticLockTimeout)
+		lock, err := locker.ExclusiveLock(ctx, addressLockPath, &optimisticLockTimeout)
 		if err == nil {
 			logger.G(ctx).WithField("addressLockPath", addressLockPath).Info("Successfully took lock on address")
 			alloc.exclusiveIP6Lock = lock

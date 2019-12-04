@@ -184,7 +184,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	})
 	logger.G(ctx).Info("Performing Address allocation")
 
-	subnet, err := session.GetSubnetByID(ctx, rq.AddressAllocation.AddressLocation.SubnetId, ec2wrapper.UseCache)
+	subnet, err := session.GetSubnetByID(ctx, rq.AddressAllocation.AddressLocation.SubnetId)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get subnet")
 		return nil, err

@@ -2,8 +2,8 @@ package ec2wrapper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sort"
 	"time"
 
@@ -11,13 +11,18 @@ import (
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
-	lru "github.com/hashicorp/golang-lru"
+	"github.com/karlseguin/ccache"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	subnetExpirationTime      = 2 * time.Hour
+	minInstanceExpirationTime = 45 * time.Minute
+	maxInstanceExpirationTime = 75 * time.Minute
 )
 
 var (
@@ -28,8 +33,8 @@ var (
 
 type EC2Session struct {
 	Session           *session.Session
-	instanceCache     *lru.Cache
-	subnetCache       *lru.Cache
+	instanceCache     *ccache.Cache
+	subnetCache       *ccache.Cache
 	batchENIDescriber *BatchENIDescriber
 }
 
@@ -40,68 +45,28 @@ func (s *EC2Session) Region(ctx context.Context) (string, error) {
 	return *s.Session.Config.Region, nil
 }
 
-// This is for expvar, it's meant to return JSON
-func (s *EC2Session) String() string {
-	state := struct {
-		InstanceCacheSize  int `json:"instanceCacheSize"`
-		SubnetCacheSize    int `json:"subnetCacheSize"`
-		InterfaceCacheSize int `json:"interfaceCacheSize"`
-
-		InstanceCacheKeys  []interface{} `json:"instanceCacheKeys"`
-		SubnetCacheKeys    []interface{} `json:"subnetCacheKeys"`
-		InterfaceCacheKeys []interface{} `json:"interfaceCacheKeys"`
-	}{
-		InstanceCacheSize: s.instanceCache.Len(),
-		SubnetCacheSize:   s.subnetCache.Len(),
-		InstanceCacheKeys: s.instanceCache.Keys(),
-		SubnetCacheKeys:   s.subnetCache.Keys(),
-	}
-	marshaled, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		// This shouldn't happen
-		errorMessage := struct {
-			ErrorMessage string
-		}{
-			ErrorMessage: err.Error(),
-		}
-		data, err2 := json.Marshal(errorMessage)
-		if err2 != nil {
-			panic(err2)
-		}
-		return string(data)
-	}
-	return string(marshaled)
-
-}
-
-func (s *EC2Session) GetSubnetByID(ctx context.Context, subnetID string, strategy CacheStrategy) (*ec2.Subnet, error) {
+func (s *EC2Session) GetSubnetByID(ctx context.Context, subnetID string) (*ec2.Subnet, error) {
 	ctx, span := trace.StartSpan(ctx, "getSubnetbyID")
 	defer span.End()
 
-	if strategy&InvalidateCache > 0 {
-		s.subnetCache.Remove(subnetID)
-	}
-	if strategy&FetchFromCache > 0 {
-		subnet, ok := s.subnetCache.Get(subnetID)
-		if ok {
-			return subnet.(*ec2.Subnet), nil
+	item, err := s.subnetCache.Fetch(subnetID, subnetExpirationTime, func() (interface{}, error) {
+		ec2client := ec2.New(s.Session)
+		describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
+			SubnetIds: []*string{&subnetID},
+		})
+		if err != nil {
+			logger.G(ctx).WithField("subnetID", subnetID).Error("Could not get Subnet")
+			return nil, err
 		}
-	}
-	// TODO: Cache
-	ec2client := ec2.New(s.Session)
-	describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
-		SubnetIds: []*string{&subnetID},
+
+		subnet := describeSubnetsOutput.Subnets[0]
+		return subnet, nil
 	})
 	if err != nil {
-		logger.G(ctx).WithField("subnetID", subnetID).Error("Could not get Subnet")
 		return nil, HandleEC2Error(err, span)
 	}
 
-	subnet := describeSubnetsOutput.Subnets[0]
-	if strategy&StoreInCache > 0 {
-		s.subnetCache.Add(subnetID, subnet)
-	}
-	return subnet, nil
+	return item.Value().(*ec2.Subnet), nil
 }
 
 func (s *EC2Session) GetNetworkInterfaceByID(ctx context.Context, networkInterfaceID string, deadline time.Duration) (*ec2.NetworkInterface, error) {
@@ -263,28 +228,30 @@ type EC2InstanceCacheValue struct {
 	instance *ec2.Instance
 }
 
-func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, strategy CacheStrategy) (*ec2.Instance, string, error) {
+func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalidateCache bool) (*ec2.Instance, string, error) {
 	ctx, span := trace.StartSpan(ctx, "getInstance")
 	defer span.End()
 	start := time.Now()
-	ctx, err := tag.New(ctx, tag.Upsert(keyInstance, instanceID))
-	if err != nil {
-		return nil, "", err
-	}
 	stats.Record(ctx, getInstanceCount.M(1))
 
-	if strategy&InvalidateCache > 0 {
+	if invalidateCache {
 		stats.Record(ctx, invalidateInstanceFromCache.M(1))
-		s.instanceCache.Remove(instanceID)
+		s.instanceCache.Delete(instanceID)
 	}
-	if strategy&FetchFromCache > 0 {
-		stats.Record(ctx, getInstanceFromCache.M(1))
-		instance, ok := s.instanceCache.Get(instanceID)
-		if ok {
+
+	stats.Record(ctx, getInstanceFromCache.M(1))
+	if item := s.instanceCache.Get(instanceID); item != nil {
+		span.AddAttributes(trace.BoolAttribute("cached", true))
+		if !item.Expired() {
+			span.AddAttributes(trace.BoolAttribute("expired", false))
 			stats.Record(ctx, getInstanceFromCacheSuccess.M(1), getInstanceSuccess.M(1))
-			val := instance.(*EC2InstanceCacheValue)
+			val := item.Value().(*EC2InstanceCacheValue)
 			return val.instance, val.ownerID, nil
 		}
+		span.AddAttributes(trace.BoolAttribute("expired", true))
+		s.instanceCache.Delete(instanceID)
+	} else {
+		span.AddAttributes(trace.BoolAttribute("cached", false))
 	}
 
 	ec2client := ec2.New(s.Session)
@@ -317,11 +284,9 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, strateg
 		ownerID:  aws.StringValue(describeInstancesOutput.Reservations[0].OwnerId),
 		instance: describeInstancesOutput.Reservations[0].Instances[0],
 	}
-	if strategy&StoreInCache > 0 {
-		stats.Record(ctx, storedInstanceInCache.M(1))
 
-		s.instanceCache.Add(instanceID, ret)
-	}
+	instanceExpirationTime := time.Nanosecond * time.Duration(minInstanceExpirationTime.Nanoseconds()+rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))
+	s.instanceCache.Set(instanceID, ret, instanceExpirationTime)
 
 	return ret.instance, ret.ownerID, nil
 }

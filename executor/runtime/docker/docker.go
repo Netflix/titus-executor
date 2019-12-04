@@ -1888,7 +1888,7 @@ func (r *DockerRuntime) setupGPU(ctx context.Context, c *runtimeTypes.Container,
 	}
 
 	// Allocate a specific GPU to add to the container
-	c.GPUInfo, err = gpuInfo.AllocDevices(int(c.TitusInfo.GetNumGpus()))
+	c.GPUInfo, err = gpuInfo.AllocDevices(ctx, int(c.TitusInfo.GetNumGpus()))
 	if err != nil {
 		return fmt.Errorf("Cannot allocate %d requested GPU device: %v", c.TitusInfo.GetNumGpus(), err)
 	}

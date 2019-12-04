@@ -138,7 +138,7 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		return nil, err
 	}
 
-	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -498,6 +498,22 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 
 	if allocatedAddresses.Len() == 0 && assignedRemovableAddresses.Len() == 0 {
 		logger.G(ctx).Info("Interface has no allocated addresses, and has no assigned removable addresses, checking if it can be freed")
+		var lastUsed time.Time
+		rowContext := tx.QueryRowContext(ctx, "SELECT last_used FROM branch_eni_last_used WHERE branch_eni = $1", req.NetworkInterfaceAttachment.Id)
+		err = rowContext.Scan(&lastUsed)
+		if err == sql.ErrNoRows {
+			// If we have no record of the ENI ever being used, we should probably just say it was last used right now to the database.
+			_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_last_used(branch_eni, last_used) VALUES ($1, now()) ON CONFLICT(branch_eni) DO UPDATE SET last_used = now()", req.NetworkInterfaceAttachment.Id)
+			if err != nil {
+				logger.G(ctx).WithError(err).Error("Unable to set branch eni last used time to now")
+			}
+		} else if err != nil {
+			err = errors.Wrap(err, "Unable to fetch when ENI was last used")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		} else {
+			logger.G(ctx).WithField("lastUsed", lastUsed).Info("Interface should be freed")
+		}
 	}
 
 	addressesToDelete := unallocatedAddresses.Difference(assignedAddresses)
@@ -594,7 +610,7 @@ func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRe
 		return nil, err
 	}
 
-	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, ec2wrapper.UseCache)
+	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
 	if err != nil {
 		return nil, err
 	}

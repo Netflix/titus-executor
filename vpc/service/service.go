@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
@@ -78,7 +80,10 @@ type vpcService struct {
 	hostPrivateKey         ed25519.PrivateKey
 	hostPublicKey          ed25519.PublicKey
 
-	gcTimeout time.Duration
+	gcTimeout       time.Duration
+	refreshInterval time.Duration
+
+	refreshLock *semaphore.Weighted
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -111,11 +116,14 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 	return result, err
 }
 
-func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, gcTimeout, reconcileInterval time.Duration) error {
+func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, maxConcurrentRefresh int64, gcTimeout, reconcileInterval, refreshInterval time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
 
+	if refreshInterval == 0 {
+		panic("Refresh interval is 0")
+	}
 	logrusEntry := logger.G(ctx).WithField("origin", "grpc")
 	grpc_logrus.ReplaceGrpcLogger(logrusEntry)
 
@@ -186,7 +194,10 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 		hostPublicKey:          publicKey,
 		hostPublicKeySignature: hostPublicKeySignature,
 
-		gcTimeout: gcTimeout,
+		gcTimeout:       gcTimeout,
+		refreshInterval: refreshInterval,
+
+		refreshLock: semaphore.NewWeighted(maxConcurrentRefresh),
 	}
 
 	hc := &healthcheck{}

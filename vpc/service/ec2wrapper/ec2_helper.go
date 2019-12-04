@@ -74,6 +74,8 @@ func HandleEC2Error(err error, span *trace.Span) error {
 }
 
 func GetInterfaceByIdxWithRetries(ctx context.Context, session *EC2Session, instance *ec2.Instance, deviceIdx uint32) (*ec2.InstanceNetworkInterface, error) {
+	ctx, span := trace.StartSpan(ctx, "GetInterfaceByIdxWithRetries")
+	defer span.End()
 	// Fetch the interface from the instance from cache. If the cached instance doesn't have the interface
 	// attached, then try to refresh the instance cache from cache
 	for _, ni := range instance.NetworkInterfaces {
@@ -83,8 +85,12 @@ func GetInterfaceByIdxWithRetries(ctx context.Context, session *EC2Session, inst
 	}
 
 	// Retry / refresh the interface
-	instance, _, err := session.GetInstance(ctx, aws.StringValue(instance.InstanceId), InvalidateCache|StoreInCache)
+	instance, _, err := session.GetInstance(ctx, aws.StringValue(instance.InstanceId), true)
 	if err != nil {
+		span.SetStatus(trace.Status{
+			Code:    trace.StatusCodeUnknown,
+			Message: err.Error(),
+		})
 		return nil, err
 	}
 	for _, ni := range instance.NetworkInterfaces {
@@ -92,7 +98,12 @@ func GetInterfaceByIdxWithRetries(ctx context.Context, session *EC2Session, inst
 			return ni, nil
 		}
 	}
-	return nil, &ErrInterfaceByIdxNotFound{instance: instance, deviceIdx: deviceIdx}
+	err = &ErrInterfaceByIdxNotFound{instance: instance, deviceIdx: deviceIdx}
+	span.SetStatus(trace.Status{
+		Code:    trace.StatusCodeUnknown,
+		Message: err.Error(),
+	})
+	return nil, err
 }
 
 func RegionFromAZ(az string) string {

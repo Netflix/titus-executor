@@ -7,8 +7,7 @@ import (
 )
 
 func init() {
-	registerMetrics([]tag.Key{}, getInterfaceMs, getInterfaceCount, getInterfaceSuccess)
-	registerMetrics([]tag.Key{keyInstance}, invalidateInstanceFromCache, storedInstanceInCache, getInstanceFromCache, getInstanceFromCacheSuccess, getInstanceMs, getInstanceCount, getInstanceSuccess)
+	registerMetrics([]tag.Key{}, getInterfaceMs, getInterfaceCount, getInterfaceSuccess, invalidateInstanceFromCache, storedInstanceInCache, getInstanceFromCache, getInstanceFromCacheSuccess, getInstanceMs, getInstanceCount, getInstanceSuccess, cachedInstancesFreed)
 	if err := view.Register(&view.View{
 		Name:        batchWaitPeriod.Name(),
 		Description: batchWaitPeriod.Description(),
@@ -26,6 +25,20 @@ func init() {
 			Description: batchLatency.Description(),
 			Measure:     batchLatency,
 			Aggregation: view.Distribution(),
+		},
+		&view.View{
+			Name:        cachedInstances.Name(),
+			Description: cachedInstances.Description(),
+			TagKeys:     []tag.Key{keyRegion, keyAccountID},
+			Measure:     cachedInstances,
+			Aggregation: view.LastValue(),
+		},
+		&view.View{
+			Name:        cachedSubnets.Name(),
+			Description: cachedSubnets.Description(),
+			TagKeys:     []tag.Key{keyRegion, keyAccountID},
+			Measure:     cachedSubnets,
+			Aggregation: view.LastValue(),
 		}); err != nil {
 		panic(err)
 	}
