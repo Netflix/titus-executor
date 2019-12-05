@@ -623,7 +623,7 @@ func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRe
 	}
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		ReadOnly:true,
+		ReadOnly: true,
 	})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
