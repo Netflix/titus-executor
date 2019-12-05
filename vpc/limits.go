@@ -117,7 +117,7 @@ var interfaceLimits = map[string]map[string]limits{
 		},
 		"metal": limits{
 			interfaces:              12,
-			ipAddressesPerInterface: 48,
+			ipAddressesPerInterface: 50,
 			networkThroughput:       23000,
 		},
 	},
