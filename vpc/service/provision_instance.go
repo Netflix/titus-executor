@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/limitsold"
+
 	"go.opencensus.io/trace"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -40,7 +42,7 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 	if err != nil {
 		return nil, err
 	}
-	maxInterfaces, err := vpc.GetMaxInterfaces(aws.StringValue(instance.InstanceType))
+	maxInterfaces, err := limitsold.GetMaxInterfaces(aws.StringValue(instance.InstanceType))
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
