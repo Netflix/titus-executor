@@ -203,7 +203,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		trace.BoolAttribute("allocateIPv6Address", allocateIPv6Address),
 	)
 	optimisticLockTimeout := time.Duration(0)
-	reconfigurationTimeout := 10 * time.Second
+	reconfigurationTimeout := 100 * time.Second
 
 	securityGroupLockPath := utilities.GetSecurityGroupLockPath(deviceIdx)
 	exclusiveSGLock, lockErr := locker.ExclusiveLock(ctx, securityGroupLockPath, &optimisticLockTimeout)
@@ -212,8 +212,9 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, true, allocationUUID)
 		if err != nil {
 			exclusiveSGLock.Unlock()
+			err = errors.Wrap(err, "Cannot allocate address under exclusive SG lock")
 			tracehelpers.SetStatus(err, span)
-			return alloc, errors.Wrap(err, "Cannot allocate address under exclusive SG lock")
+			return alloc, err
 		}
 		alloc.sharedSGLock = exclusiveSGLock.ToSharedLock()
 		tracehelpers.SetStatus(err, span)
@@ -224,6 +225,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	if lockErr == unix.EWOULDBLOCK {
 		sharedSGLock, err := locker.SharedLock(ctx, securityGroupLockPath, &reconfigurationTimeout)
 		if err != nil {
+			err = errors.Wrap(err, "Unable to get shared SG lock")
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
