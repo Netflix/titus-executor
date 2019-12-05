@@ -179,6 +179,14 @@ message GCSetupResponse {
     repeated NetworkInterfaceAttachment networkInterfaceAttachment = 1;
 }
 
+message GCLegacySetupRequest {
+    InstanceIdentity instanceIdentity = 1;
+}
+
+message GCLegacySetupResponse {
+    repeated NetworkInterfaceAttachment networkInterfaceAttachment = 1;
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
@@ -188,6 +196,7 @@ service TitusAgentVPCService {
     rpc AssignIPV2   (AssignIPRequestV2) returns (AssignIPResponseV2);
     rpc RefreshIP (RefreshIPRequest) returns (RefreshIPResponse);
     // GC extra IPs
+    rpc GCSetupLegacy (GCLegacySetupRequest) returns (GCLegacySetupResponse);
     rpc GC (GCRequest) returns (GCResponse);
     rpc GCSetup (GCSetupRequest) returns (GCSetupResponse);
     rpc GCV2 (GCRequestV2) returns (GCResponseV2);

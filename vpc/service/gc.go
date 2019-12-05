@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -592,6 +594,38 @@ WHERE
 		resp.AddressToDelete = append(resp.AddressToDelete, &vpcapi.Address{Address: addr})
 	}
 
+	return resp, nil
+}
+
+func (vpcService *vpcService) GCSetupLegacy(ctx context.Context, req *vpcapi.GCLegacySetupRequest) (*vpcapi.GCLegacySetupResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GCSetupLegacy")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("instance", req.InstanceIdentity.InstanceID))
+	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &vpcapi.GCLegacySetupResponse{
+		NetworkInterfaceAttachment: []*vpcapi.NetworkInterfaceAttachment{},
+	}
+	for _, ni := range instance.NetworkInterfaces {
+		if aws.StringValue(ni.Description) == vpc.NetworkInterfaceDescription {
+			resp.NetworkInterfaceAttachment = append(resp.NetworkInterfaceAttachment, &vpcapi.NetworkInterfaceAttachment{
+				DeviceIndex: uint32(aws.Int64Value(ni.Attachment.DeviceIndex)),
+				Id:          aws.StringValue(ni.NetworkInterfaceId),
+			})
+		}
+	}
 	return resp, nil
 }
 
