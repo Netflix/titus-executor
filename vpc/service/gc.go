@@ -621,39 +621,43 @@ func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRe
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	rows, err := tx.QueryContext(ctx, "SELECT branch_eni, idx FROM branch_eni_attachments WHERE trunk_eni = $1 AND state = 'attached'", aws.StringValue(trunkENI.NetworkInterfaceId))
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not run database query").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	resp := &vpcapi.GCSetupResponse{
 		NetworkInterfaceAttachment: []*vpcapi.NetworkInterfaceAttachment{},
 	}
 
-	// TODO: Replace with query to SQL database
-	ec2client := ec2.New(session.Session)
-
-	describeTrunkInterfaceAssociationsInput := &ec2.DescribeTrunkInterfaceAssociationsInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String("trunk-interface-association.trunk-interface-id"),
-				Values: []*string{trunkENI.NetworkInterfaceId},
-			},
-		},
-	}
-	for {
-		describeTrunkInterfaceAssociationsOutput, err := ec2client.DescribeTrunkInterfaceAssociationsWithContext(ctx, describeTrunkInterfaceAssociationsInput)
+	for rows.Next() {
+		var branchENI string
+		var idx int
+		err := rows.Scan(&branchENI, &idx)
 		if err != nil {
-			err = ec2wrapper.HandleEC2Error(err, span)
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not scan row from database").Error())
+			span.SetStatus(traceStatusFromError(err))
 			return nil, err
 		}
-		for _, assoc := range describeTrunkInterfaceAssociationsOutput.InterfaceAssociations {
-			resp.NetworkInterfaceAttachment = append(resp.NetworkInterfaceAttachment, &vpcapi.NetworkInterfaceAttachment{
-				DeviceIndex: uint32(aws.Int64Value(assoc.VlanId)),
-				Id:          aws.StringValue(assoc.BranchInterfaceId),
-			})
-		}
-
-		if describeTrunkInterfaceAssociationsOutput.NextToken == nil {
-			return resp, nil
-		}
-		describeTrunkInterfaceAssociationsInput.NextToken = describeTrunkInterfaceAssociationsOutput.NextToken
+		resp.NetworkInterfaceAttachment = append(resp.NetworkInterfaceAttachment, &vpcapi.NetworkInterfaceAttachment{
+			DeviceIndex: uint32(idx),
+			Id:          branchENI,
+		})
 	}
+
+	return resp, nil
 }
 
 func (vpcService *vpcService) reassignAddresses(ctx context.Context, session *ec2wrapper.EC2Session, ipToENIMap map[string]string) error {
