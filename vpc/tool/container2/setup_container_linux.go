@@ -54,12 +54,12 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 				VlanProtocol: netlink.VLAN_PROTOCOL_8021Q,
 			})
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrap(err, "Cannot add vlan link")
 			}
 			vlanLink, err = netlink.LinkByName(vlanLinkName)
 		}
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "Cannot get vlan link by name")
 		}
 	}
 
@@ -104,7 +104,7 @@ func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 	err = netlink.LinkAdd(&ipvlan)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not add link")
-		return nil, err
+		return nil, errors.Wrapf(err, "Cannot create link with name %s", containerInterfaceName)
 	}
 	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
 	// what it's index is, so there's no point returning it.
@@ -112,7 +112,7 @@ func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 	newLink, err := nsHandle.LinkByName(containerInterfaceName)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not find after adding link")
-		return nil, err
+		return nil, errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 	}
 
 	var mtu *int
@@ -138,7 +138,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	err := nsHandle.AddrAdd(link, &new4Addr)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add IPv4 addr to link")
-		return err
+		return errors.Wrap(err, "Unable to add IPv4 addr to link")
 	}
 
 	gateway := cidr.Inc(ip.Mask(mask))
@@ -154,7 +154,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	err = nsHandle.RouteAdd(&newRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add route to link")
-		return err
+		return errors.Wrap(err, "Unable to add default route to link")
 	}
 
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding gateway route")
@@ -167,7 +167,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	err = nsHandle.RouteAdd(&newRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add route to link")
-		return err
+		return errors.Wrap(err, "Unable to add gateway route to link")
 	}
 
 	newRoute = netlink.Route{
@@ -184,7 +184,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	err = nsHandle.RouteDel(&newRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to delete route on link")
-		return err
+		return errors.Wrap(err, "Unable to add delete existing 'link' route to link")
 	}
 
 	return nil
@@ -195,12 +195,12 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to set link name")
-		return err
+		return errors.Wrapf(err, "Unable to rename link from %s to eth0", link.Attrs().Name)
 	}
 	err = nsHandle.LinkSetUp(link)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to set link up")
-		return err
+		return errors.Wrap(err, "Unable to set link up")
 	}
 
 	if allocation.IPV6Address != nil {
@@ -212,7 +212,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		err = nsHandle.AddrAdd(link, &new6Addr)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Unable to add IPv6 addr to link")
-			return err
+			return errors.Wrap(err, "Unable to add IPv6 addr to link")
 		}
 	}
 
