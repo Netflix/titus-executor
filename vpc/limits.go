@@ -1,4 +1,4 @@
-package vpc
+package vpc // nolint:dupl
 
 import (
 	"fmt"
