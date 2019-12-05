@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
@@ -17,6 +18,7 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -42,42 +44,43 @@ func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 	}
 }
 
-func state2containerState(state titusdriver.TitusTaskState) v1.ContainerState {
-	switch state {
+func getTerminatedContainerState(prevState *v1.ContainerState) v1.ContainerState {
+	terminated := v1.ContainerState{
+		Terminated: &v1.ContainerStateTerminated{
+			FinishedAt: metav1.NewTime(time.Now()),
+			ExitCode:   -1,
+		},
+	}
+
+	if prevState != nil && prevState.Running != nil {
+		terminated.Terminated.StartedAt = prevState.Running.StartedAt
+	}
+
+	return terminated
+}
+
+func state2containerState(prevState *v1.ContainerState, currState titusdriver.TitusTaskState) v1.ContainerState {
+	switch currState {
 	case titusdriver.Starting:
 		return v1.ContainerState{
 			Waiting: &v1.ContainerStateWaiting{},
 		}
 	case titusdriver.Running:
 		return v1.ContainerState{
-			Running: &v1.ContainerStateRunning{},
+			Running: &v1.ContainerStateRunning{
+				StartedAt: metav1.NewTime(time.Now()),
+			},
 		}
 	case titusdriver.Finished:
-		return v1.ContainerState{
-			Terminated: &v1.ContainerStateTerminated{
-				ExitCode: -1,
-			},
-		}
+		return getTerminatedContainerState(prevState)
 	case titusdriver.Failed:
-		return v1.ContainerState{
-			Terminated: &v1.ContainerStateTerminated{
-				ExitCode: -1,
-			},
-		}
+		return getTerminatedContainerState(prevState)
 	case titusdriver.Killed:
-		return v1.ContainerState{
-			Terminated: &v1.ContainerStateTerminated{
-				ExitCode: -1,
-			},
-		}
+		return getTerminatedContainerState(prevState)
 	case titusdriver.Lost:
-		return v1.ContainerState{
-			Terminated: &v1.ContainerStateTerminated{
-				ExitCode: -1,
-			},
-		}
+		return getTerminatedContainerState(prevState)
 	default:
-		panic(state)
+		panic(currState)
 	}
 }
 
@@ -147,10 +150,15 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 			pod.Status.Reason = update.State.String()
 			pod.Status.Phase = state2phase(update.State)
 
+			var prevContainerState *v1.ContainerState
+			if pod.Status.ContainerStatuses != nil && len(pod.Status.ContainerStatuses) > 0 {
+				prevContainerState = &pod.Status.ContainerStatuses[0].State
+			}
+
 			log.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)).Debug("Setting ContainerStatus...")
 			pod.Status.ContainerStatuses = []v1.ContainerStatus{{
 				Name:                 pod.Name,
-				State:                state2containerState(update.State),
+				State:                state2containerState(prevContainerState, update.State),
 				LastTerminationState: v1.ContainerState{},
 				Ready:                true,
 				RestartCount:         0,
