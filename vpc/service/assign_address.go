@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/limits"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	set "github.com/deckarep/golang-set"
 	"github.com/golang/protobuf/ptypes"
@@ -68,7 +68,7 @@ func (vpcService *vpcService) AssignIP(ctx context.Context, req *vpcapi.AssignIP
 		return nil, err
 	}
 
-	maxIPAddresses, err := vpc.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
+	maxIPAddresses, err := limits.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
 	if err != nil {
 		err = status.Error(codes.InvalidArgument, err.Error())
 		span.SetStatus(traceStatusFromError(err))
@@ -729,7 +729,7 @@ func assignArbitraryIPv6Address(ctx context.Context, tx *sql.Tx, ec2client *ec2.
 	ctx, span := trace.StartSpan(ctx, "assignArbitraryIPv4Address")
 	defer span.End()
 
-	maxIPAddresses, err := vpc.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
+	maxIPAddresses, err := limits.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
 	if err != nil {
 		err = status.Error(codes.InvalidArgument, err.Error())
 		span.SetStatus(traceStatusFromError(err))
@@ -828,7 +828,7 @@ func assignArbitraryIPv4Address(ctx context.Context, tx *sql.Tx, ec2client *ec2.
 	defer span.End()
 	prefixlength, _ := ipnet.Mask.Size()
 
-	maxIPAddresses, err := vpc.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
+	maxIPAddresses, err := limits.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
 	if err != nil {
 		err = status.Error(codes.InvalidArgument, err.Error())
 		span.SetStatus(traceStatusFromError(err))

@@ -5,16 +5,16 @@ import (
 	"database/sql"
 	"time"
 
-	"go.opencensus.io/trace"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/limitsold"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
 	"github.com/pkg/errors"
+	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -40,7 +40,7 @@ func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi
 	if err != nil {
 		return nil, err
 	}
-	maxInterfaces, err := vpc.GetMaxInterfaces(aws.StringValue(instance.InstanceType))
+	maxInterfaces, err := limitsold.GetMaxInterfaces(aws.StringValue(instance.InstanceType))
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
