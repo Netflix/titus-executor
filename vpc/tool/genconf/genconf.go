@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Netflix/titus-executor/vpc/limits"
-
+	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 )
 
@@ -15,9 +14,9 @@ func GenConf(ctx context.Context, identityProvider identity.InstanceIdentityProv
 		return err
 	}
 
-	maxInterfaces := limits.MustGetMaxInterfaces(instanceIdentity.InstanceType)
-	maxIPs := limits.MustGetMaxIPAddresses(instanceIdentity.InstanceType)
-	maxNetworkMbps := limits.MustGetMaxNetworkMbps(instanceIdentity.InstanceType)
+	maxInterfaces := vpc.MustGetMaxInterfaces(instanceIdentity.InstanceType)
+	maxIPs := vpc.MustGetMaxIPAddresses(instanceIdentity.InstanceType)
+	maxNetworkMbps := vpc.MustGetMaxNetworkMbps(instanceIdentity.InstanceType)
 	// The number of interfaces exposed to the Titus scheduler is the maximum number of interfaces this instance can handle minus 1.
 	resourceSet := fmt.Sprintf("ResourceSet-ENIs-%d-%d", maxInterfaces-1, maxIPs)
 	if resourceSetsOnly {

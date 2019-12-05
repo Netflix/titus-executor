@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/Netflix/titus-executor/vpc/limits"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -202,7 +200,7 @@ func setupIFBHTBRootClass(ctx context.Context, instanceType string, link netlink
 		Handle:    rootHtbClass,
 	}
 
-	rate := limits.MustGetMaxNetworkbps(instanceType)
+	rate := vpc.MustGetMaxNetworkbps(instanceType)
 	htbclassattrs := netlink.HtbClassAttrs{
 		Rate:    rate,
 		Buffer:  9001,

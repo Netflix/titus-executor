@@ -6,9 +6,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/Netflix/titus-executor/vpc/limits"
-
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/pkg/errors"
@@ -28,7 +27,7 @@ func SetupContainer(ctx context.Context, instanceIdentityProvider identity.Insta
 		if err != nil {
 			return errors.Wrap(err, "Cannot get instance identity")
 		}
-		ceil, err = limits.GetMaxNetworkbps(instanceIdentity.InstanceType)
+		ceil, err = vpc.GetMaxNetworkbps(instanceIdentity.InstanceType)
 		if err != nil {
 			return errors.Wrap(err, "Cannot get max network bps, and burst is set")
 		}
