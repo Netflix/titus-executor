@@ -53,7 +53,7 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 				VlanId:       allocations.VlanID,
 				VlanProtocol: netlink.VLAN_PROTOCOL_8021Q,
 			})
-			if err != nil {
+			if err != nil && err != unix.EEXIST {
 				return nil, errors.Wrap(err, "Cannot add vlan link")
 			}
 			vlanLink, err = netlink.LinkByName(vlanLinkName)
