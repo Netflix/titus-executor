@@ -30,23 +30,29 @@ func addAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.Hos
 }
 
 func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) error {
-	addedCapabilities := addAdditionalCapabilities(c, hostCfg)
+	if c.TitusInfo.GetAllowNestedContainers() {
+		return errors.New("nested containers no longer supported")
+	}
 
-	// Privileged containers automaticaly deactivate seccomp and friends, no need to do this
 	fuseEnabled, err := c.GetFuseEnabled()
-
 	if err != nil {
 		return err
 	}
-	if fuseEnabled {
-		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
-			hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
-		}
+
+	kvmEnabled, err := c.GetKvmEnabled()
+	if err != nil {
+		return err
 	}
+
+	addedCapabilities := addAdditionalCapabilities(c, hostCfg)
 	seccompProfile := "default.json"
 	apparmorProfile := "docker_titus"
 
 	if fuseEnabled {
+		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
+			hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
+		}
+
 		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
 			PathOnHost:        fuseDev,
 			PathInContainer:   fuseDev,
@@ -54,12 +60,19 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		})
 		apparmorProfile = "docker_fuse"
 		seccompProfile = "fuse-container.json"
-
 	}
 
-	// We can do this here because nested containers can do everything fuse containers can
-	if c.TitusInfo.GetAllowNestedContainers() {
-		return errors.New("Nested containers no longer supported")
+	if kvmEnabled {
+		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
+			PathOnHost:        kvmDev,
+			PathInContainer:   kvmDev,
+			CgroupPermissions: "rmw",
+		})
+		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
+			PathOnHost:        tunDev,
+			PathInContainer:   tunDev,
+			CgroupPermissions: "rmw",
+		})
 	}
 
 	if c.IsSystemD {
