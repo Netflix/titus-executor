@@ -30,8 +30,8 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					conn,
 					v.GetStringSlice("security-groups"),
 					v.GetInt("device-idx"),
-					v.GetBool("allocate-ipv6-address"),
-					v.GetString("allocation-uuid"),
+					v.GetBool("assign-ipv6-address"),
+					v.GetString("ipv4-allocation-uuid"),
 				)
 			case "v2":
 				return assign2.Assign(ctx,

@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -294,6 +293,8 @@ func (vpcService *vpcService) assignAddresses(ctx context.Context, session *ec2w
 	response := &vpcapi.AssignIPResponse{}
 	utilizedAddressIPv4Set := set.NewSet()
 	utilizedAddressIPv6Set := set.NewSet()
+
+	logger.G(ctx).WithField("req", req.String()).Debug("assignAddresses")
 
 	for _, addr := range req.UtilizedAddresses {
 		canonicalAddress := net.ParseIP(addr.Address.Address)
