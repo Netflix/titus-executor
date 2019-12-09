@@ -143,7 +143,7 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 			grpc_logrus.StreamServerInterceptor(logrusEntry),
 		),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			MaxConnectionIdle: time.Minute,
+			MaxConnectionIdle: 5 * time.Minute,
 		}))
 	hostname, err := os.Hostname()
 	if err != nil {
