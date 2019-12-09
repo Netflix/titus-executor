@@ -473,7 +473,7 @@ func (vpcService *vpcService) getTrunkENI(instance *ec2.Instance) *ec2.InstanceN
 
 func (vpcService *vpcService) getBranchENI(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, subnetID string) (string, error) {
 	var branchENI string
-	rowContext := tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'unattached' AND subnet_id = $1 FOR UPDATE LIMIT 1", subnetID)
+	rowContext := tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'unattached' AND subnet_id = $1 ORDER BY RANDOM() FOR UPDATE LIMIT 1", subnetID)
 	err := rowContext.Scan(&branchENI)
 	if err == nil {
 		return branchENI, nil
