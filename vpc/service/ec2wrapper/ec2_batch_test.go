@@ -37,7 +37,11 @@ func TestEC2BatchTest(t *testing.T) {
 
 	group, errGroupCtx := errgroup.WithContext(ctx)
 	call := func() error {
-		_, err := bed.DescribeNetworkInterfaces(errGroupCtx, fmt.Sprintf("foo-%d", rand.Int())) // nolint: gosec
+		id := fmt.Sprintf("foo-%d", rand.Int())
+		resp, err := bed.DescribeNetworkInterfaces(errGroupCtx, id) // nolint: gosec
+		if nid := aws.StringValue(resp.NetworkInterfaceId); nid != id {
+			return fmt.Errorf("Returned network interface ID: %s doesn't match passed in id %s", nid, id)
+		}
 		return err
 	}
 

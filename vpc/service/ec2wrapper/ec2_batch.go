@@ -6,15 +6,14 @@ import (
 	"reflect"
 	"time"
 
-	"google.golang.org/grpc/status"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
-	set "github.com/deckarep/golang-set"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
+	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 var (
@@ -24,20 +23,18 @@ var (
 )
 
 type batchENIDescriptionRequestResponse struct {
+	span               *trace.Span
 	networkInterfaceID string
-	// doneCh is expected to be provided by the user. It is closed when
-	// the fields below have been populated
+	// triggeredChannel is closed when we accept / begin executing on this request
+	// it is expected to be set by the user
+	triggeredChannel chan struct{}
+	// timer is a drop-dead timer for when this should start executing
+	timer *time.Timer
+	// It is closed when the fields below have been populated
 	doneCh chan struct{}
 	// Fields populated once the reply is done
 	err               error
 	networkInterfaces []*ec2.NetworkInterface
-
-	triggerChannel <-chan time.Time
-
-	// triggeredChannel is closed when we accept / begin executing on this request
-	triggeredChannel chan struct{}
-
-	span *trace.Span
 }
 
 type BatchENIDescriber struct {
@@ -180,18 +177,18 @@ func runDescribe(ctx context.Context, session *session.Session, items []*batchEN
 	defer span.End()
 
 	start := time.Now()
-	eniSet := set.NewThreadUnsafeSet()
+	eniSet := sets.NewString()
 	enis := make([]*string, 0, len(items))
 	for idx := range items {
 		eni := items[idx]
-		if eniSet.Contains(eni.networkInterfaceID) {
+		if eniSet.Has(eni.networkInterfaceID) {
 			continue
 		}
-		eniSet.Add(eni.networkInterfaceID)
+		eniSet.Insert(eni.networkInterfaceID)
 		enis = append(enis, &eni.networkInterfaceID)
 	}
 
-	span.AddAttributes(trace.StringAttribute("enis", eniSet.String()))
+	span.AddAttributes(trace.StringAttribute("enis", fmt.Sprint(eniSet.List())))
 	ec2client := ec2.New(session)
 	describeNetworkInterfacesOutput, err := describeWithHedge(ctx, ec2client, enis)
 
@@ -218,6 +215,7 @@ func (b *BatchENIDescriber) innerLoop(ctx context.Context, maxItems int) {
 	defer span.End()
 	spanContext := span.SpanContext()
 
+	doneCh := make(chan struct{})
 	items := make([]*batchENIDescriptionRequestResponse, 0, maxItems)
 	cases := make([]reflect.SelectCase, 1, maxItems+1)
 	var start time.Time
@@ -250,26 +248,25 @@ func (b *BatchENIDescriber) innerLoop(ctx context.Context, maxItems int) {
 				"eni": newBatchENIDescriptionRequestResponse.networkInterfaceID,
 			},
 		})
+		newBatchENIDescriptionRequestResponse.doneCh = doneCh
 		cases = append(cases, reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(newBatchENIDescriptionRequestResponse.triggerChannel),
+			Chan: reflect.ValueOf(newBatchENIDescriptionRequestResponse.timer.C),
 		})
 
 	}
 
 	stats.Record(ctx, batchWaitPeriod.M(time.Since(start).Nanoseconds()), batchSize.M(int64(len(items))))
-	go b.finishInnerLoop(ctx, items)
+	go b.finishInnerLoop(ctx, items, doneCh)
 }
 
-func (b *BatchENIDescriber) finishInnerLoop(ctx context.Context, items []*batchENIDescriptionRequestResponse) {
+func (b *BatchENIDescriber) finishInnerLoop(ctx context.Context, items []*batchENIDescriptionRequestResponse, doneCh chan struct{}) {
 	// TODO: Add semaphore for maximum number of inflight describes.
+	defer close(doneCh)
 	for idx := range items {
 		close(items[idx].triggeredChannel)
 	}
 	b.runDescribe(ctx, b.session, items)
-	for idx := range items {
-		close(items[idx].doneCh)
-	}
 }
 
 func (b *BatchENIDescriber) DescribeNetworkInterfaces(ctx context.Context, networkInterfaceID string) (*ec2.NetworkInterface, error) {
@@ -281,14 +278,12 @@ func (b *BatchENIDescriber) DescribeNetworkInterfacesWithTimeout(ctx context.Con
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("deadline", deadline.String()), trace.StringAttribute("eni", networkInterfaceID))
 
-	ch := make(chan struct{})
 	timer := time.NewTimer(deadline)
 	defer timer.Stop()
 
 	request := &batchENIDescriptionRequestResponse{
 		networkInterfaceID: networkInterfaceID,
-		doneCh:             ch,
-		triggerChannel:     timer.C,
+		timer:              timer,
 		triggeredChannel:   make(chan struct{}),
 		span:               span,
 	}
