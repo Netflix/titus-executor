@@ -15,7 +15,6 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -32,10 +31,11 @@ var (
 )
 
 type EC2Session struct {
-	Session           *session.Session
-	instanceCache     *ccache.Cache
-	subnetCache       *ccache.Cache
-	batchENIDescriber *BatchENIDescriber
+	Session                 *session.Session
+	instanceCache           *ccache.Cache
+	subnetCache             *ccache.Cache
+	batchENIDescriber       *BatchENIDescriber
+	batchInstancesDescriber *BatchInstanceDescriber
 }
 
 func (s *EC2Session) Region(ctx context.Context) (string, error) {
@@ -254,35 +254,16 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalid
 		span.AddAttributes(trace.BoolAttribute("cached", false))
 	}
 
-	ec2client := ec2.New(s.Session)
-	describeInstancesOutput, err := ec2client.DescribeInstancesWithContext(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: aws.StringSlice([]string{instanceID}),
-	})
-
+	resv, err := s.batchInstancesDescriber.DescribeInstanceWithTimeout(ctx, instanceID, time.Second)
 	if err != nil {
 		logger.G(ctx).WithError(err).WithField("ec2InstanceId", instanceID).Error("Could not get EC2 Instance")
 		return nil, "", HandleEC2Error(err, span)
 	}
 
-	if describeInstancesOutput.Reservations == nil || len(describeInstancesOutput.Reservations) == 0 {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeNotFound,
-			Message: "Describe Instances returned 0 reservations",
-		})
-		return nil, "", status.Error(codes.NotFound, "Describe Instances returned 0 reservations")
-	}
-	if describeInstancesOutput.Reservations[0].Instances == nil || len(describeInstancesOutput.Reservations[0].Instances) == 0 {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeNotFound,
-			Message: "Describe Instances returned 0 instances",
-		})
-		return nil, "", status.Error(codes.NotFound, "Describe Instances returned 0 instances")
-	}
-
 	stats.Record(ctx, getInstanceMs.M(float64(time.Since(start).Nanoseconds())), getInstanceSuccess.M(1))
 	ret := &EC2InstanceCacheValue{
-		ownerID:  aws.StringValue(describeInstancesOutput.Reservations[0].OwnerId),
-		instance: describeInstancesOutput.Reservations[0].Instances[0],
+		ownerID:  aws.StringValue(resv.OwnerId),
+		instance: resv.Instances[0],
 	}
 
 	instanceExpirationTime := time.Nanosecond * time.Duration(minInstanceExpirationTime.Nanoseconds()+rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))

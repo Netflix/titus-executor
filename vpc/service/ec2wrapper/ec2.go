@@ -192,6 +192,7 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 	}()
 	newCtx := logger.WithLogger(context.Background(), logger.G(ctx))
 	instanceSession.batchENIDescriber = NewBatchENIDescriber(newCtx, time.Second, 50, instanceSession.Session)
+	instanceSession.batchInstancesDescriber = NewBatchInstanceDescriber(newCtx, time.Second, 50, instanceSession.Session)
 
 	sessionManager.sessionsLock.Lock()
 	defer sessionManager.sessionsLock.Unlock()
