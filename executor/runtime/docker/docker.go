@@ -55,6 +55,8 @@ const (
 
 const (
 	fuseDev = "/dev/fuse"
+	kvmDev  = "/dev/kvm"
+	tunDev  = "/dev/net/tun"
 	// See: TITUS-1231, this is added as extra padding for container initialization
 	builtInDiskBuffer       = 1100 // In megabytes, includes extra space for /logs.
 	defaultNetworkBandwidth = 128 * MB

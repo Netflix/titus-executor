@@ -26,6 +26,7 @@ const (
 	hostnameStyleParam = "titusParameter.agent.hostnameStyle"
 	// FuseEnabledParam is a container atttribute set to enable FUSE
 	FuseEnabledParam             = "titusParameter.agent.fuseEnabled"
+	KvmEnabledParam              = "titusParameter.agent.kvmEnabled"
 	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
@@ -295,11 +296,21 @@ func (c *Container) ComputeHostname() (string, error) {
 
 // GetFuseEnabled determines whether the container has FUSE devices exposed to it
 func (c *Container) GetFuseEnabled() (bool, error) {
-	fuseEnabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[FuseEnabledParam]
+	return c.GetPassthroughEnabled(FuseEnabledParam)
+}
+
+// GetKvmEnabled determines whether the container has KVM exposed to it
+func (c *Container) GetKvmEnabled() (bool, error) {
+	return c.GetPassthroughEnabled(KvmEnabledParam)
+}
+
+func (c *Container) GetPassthroughEnabled(key string) (bool, error) {
+	value, ok := c.TitusInfo.GetPassthroughAttributes()[key]
+
 	if !ok {
 		return false, nil
 	}
-	val, err := strconv.ParseBool(fuseEnabledStr)
+	val, err := strconv.ParseBool(value)
 	if err != nil {
 		return false, err
 	}
