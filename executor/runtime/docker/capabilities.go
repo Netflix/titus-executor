@@ -11,7 +11,11 @@ import (
 
 const (
 	SYS_ADMIN = "SYS_ADMIN" // nolint: golint
-	NET_ADMIN = "NET_ADMIN"
+	NET_ADMIN = "NET_ADMIN" // nolint: golint
+)
+
+var (
+	errNestedContainers = errors.New("nested containers no longer supported")
 )
 
 func addAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) map[string]struct{} {
@@ -32,7 +36,7 @@ func addAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.Hos
 
 func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) error {
 	if c.TitusInfo.GetAllowNestedContainers() {
-		return errors.New("nested containers no longer supported")
+		return errNestedContainers
 	}
 
 	fuseEnabled, err := c.GetFuseEnabled()
@@ -78,6 +82,10 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 			PathInContainer:   tunDev,
 			CgroupPermissions: "rmw",
 		})
+
+		hostCfg.Sysctls["net.ipv4.conf.all.accept_local"] = "1"
+		hostCfg.Sysctls["net.ipv4.conf.all.route_localnet"] = "1"
+		hostCfg.Sysctls["net.ipv4.conf.all.arp_ignore"] = "1"
 	}
 
 	if c.IsSystemD {
