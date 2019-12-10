@@ -30,6 +30,7 @@ func getSharedValues(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker
 
 	keepaliveParams := keepalive.ClientParameters{
 		Time:                2 * time.Minute,
+		Timeout:             5 * time.Minute,
 		PermitWithoutStream: true,
 	}
 	entry := logger.G(ctx).(*logrus.Logger).WithField("origin", "grpc")
