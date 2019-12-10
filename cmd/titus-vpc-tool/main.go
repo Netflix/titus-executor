@@ -10,6 +10,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	openzipkin "github.com/openzipkin/zipkin-go"
+	"github.com/openzipkin/zipkin-go/reporter"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -63,7 +64,7 @@ func main() {
 	environmentIdentityProviderFlagSet, environmentIdentityProvider := identity.GetEnvironmentProvider(v)
 	ec2IdentityProvider := identity.GetEC2Provider()
 	var dd *datadog.Exporter
-
+	var reporter reporter.Reporter
 	rootCmd := &cobra.Command{
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if statsdAddr := v.GetString("statsd-address"); statsdAddr != "" {
@@ -131,6 +132,9 @@ func main() {
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
 				dd.Stop()
+			}
+			if reporter != nil {
+				_ = reporter.Close()
 			}
 		},
 	}

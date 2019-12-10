@@ -311,7 +311,7 @@ func NewBatchInstanceDescriber(ctx context.Context, maxDeadline time.Duration, m
 	return describer
 }
 
-func (b *BatchInstanceDescriber) DescribeInstanceWithTimeout(ctx context.Context, instanceID string, deadline time.Duration) (*ec2.Reservation, error) {
+func (b *BatchInstanceDescriber) DescribeInstanceWithTimeout(ctx context.Context, instanceID string, deadline time.Duration) (*ec2.Instance, string, error) {
 	ctx, span := trace.StartSpan(ctx, "describeInstanceWithTimeout")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("deadline", deadline.String()), trace.StringAttribute("instanceID", instanceID))
@@ -331,16 +331,16 @@ func (b *BatchInstanceDescriber) DescribeInstanceWithTimeout(ctx context.Context
 	case b.requests <- request:
 	case <-ctx.Done():
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, errors.Wrap(ctx.Err(), "Could not write request before deadline exceeded. This seems very wrong")
+			return nil, "", errors.Wrap(ctx.Err(), "Could not write request before deadline exceeded. This seems very wrong")
 		}
-		return nil, ctx.Err()
+		return nil, "", ctx.Err()
 	}
 
 	// Once the request has been written, we wait for the executing channel to close, indicating that the request has begun processing
 	// otherwise, we don't really start this span
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, "", ctx.Err()
 	case <-request.triggeredChannel:
 	}
 
@@ -349,26 +349,23 @@ func (b *BatchInstanceDescriber) DescribeInstanceWithTimeout(ctx context.Context
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, "", ctx.Err()
 	case <-request.doneCh:
 	}
 
 	if request.err != nil {
 		err := HandleEC2Error(request.err, span)
-		return nil, err
+		return nil, "", err
 	}
 
 	for _, resv := range request.response.(*ec2.DescribeInstancesOutput).Reservations {
-		if len(resv.Instances) != 1 {
-			return nil, fmt.Errorf("Reservation contains weird number of instances (%d)", len(resv.Instances))
-		}
 		for _, instance := range resv.Instances {
 			if aws.StringValue(instance.InstanceId) == instanceID {
-				ret := resv
-				return ret, nil
+				ret := instance
+				return ret, aws.StringValue(resv.OwnerId), nil
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("Fatal, unknown error, interface id %s not found in response", instanceID)
+	return nil, "", fmt.Errorf("Fatal, unknown error, instance id %s not found in response", instanceID)
 }
