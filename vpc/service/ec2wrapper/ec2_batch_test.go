@@ -21,23 +21,30 @@ func TestEC2BatchTest(t *testing.T) {
 	defer cancel()
 	var describes int64
 	bed := NewBatchENIDescriber(ctx, 100*time.Millisecond, 3, nil)
-	bed.runDescribe = func(ctx context.Context, session *session.Session, items []*batchENIDescriptionRequestResponse) {
+	bed.runDescribe = func(ctx context.Context, session *session.Session, items []*batchRequestResponse) {
 		atomic.AddInt64(&describes, 1)
 		t.Log("Described: ", items)
 		result := make([]*ec2.NetworkInterface, len(items))
 		for itemIdx := range items {
 			result[itemIdx] = &ec2.NetworkInterface{
-				NetworkInterfaceId: aws.String(items[itemIdx].networkInterfaceID),
+				NetworkInterfaceId: aws.String(items[itemIdx].name),
 			}
 		}
 		for itemIdx := range items {
-			items[itemIdx].networkInterfaces = result
+			items[itemIdx].response = &ec2.DescribeNetworkInterfacesOutput{
+				NetworkInterfaces: result,
+				NextToken:         nil,
+			}
 		}
 	}
 
 	group, errGroupCtx := errgroup.WithContext(ctx)
 	call := func() error {
-		_, err := bed.DescribeNetworkInterfaces(errGroupCtx, fmt.Sprintf("foo-%d", rand.Int())) // nolint: gosec
+		id := fmt.Sprintf("foo-%d", rand.Int()) // nolint: gosec
+		resp, err := bed.DescribeNetworkInterfaces(errGroupCtx, id)
+		if nid := aws.StringValue(resp.NetworkInterfaceId); nid != id {
+			return fmt.Errorf("Returned network interface ID: %s doesn't match passed in id %s", nid, id)
+		}
 		return err
 	}
 

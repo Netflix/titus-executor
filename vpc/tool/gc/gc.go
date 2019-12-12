@@ -10,7 +10,6 @@ import (
 
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -26,30 +25,40 @@ import (
 func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "gc")
+	defer span.End()
 
 	optimisticTimeout := time.Duration(0)
 	exclusiveLock, err := locker.ExclusiveLock(ctx, utilities.GetGlobalConfigurationLock(), &optimisticTimeout)
 	if err != nil {
-		return errors.Wrap(err, "Cannot get global configuration lock")
+		err = errors.Wrap(err, "Cannot get global configuration lock")
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 	defer exclusiveLock.Unlock()
 
 	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Unable to get instance identity")
+		err = errors.Wrap(err, "Unable to get instance identity")
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	maxInterfaces, err := vpc.GetMaxInterfaces(instanceIdentity.InstanceType)
+	gcSetupResponse, err := client.GCSetupLegacy(ctx, &vpcapi.GCLegacySetupRequest{
+		InstanceIdentity: instanceIdentity,
+	})
 	if err != nil {
+		err = errors.Wrap(err, "Unable to do legacy GC setup")
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	var result *multierror.Error
 
-	for i := 1; i < maxInterfaces; i++ {
-		err = doGcInterface(ctx, i, locker, client, instanceIdentity)
+	for _, attachment := range gcSetupResponse.NetworkInterfaceAttachment {
+		err = doGcInterface(ctx, attachment, locker, client, instanceIdentity)
 		if err != nil {
 			result = multierror.Append(result, err)
 		}
@@ -66,17 +75,22 @@ func formatUtilizedAddresses(messages []*vpcapi.UtilizedAddress) string {
 	return fmt.Sprintf("%+v", result)
 }
 
-func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
+func doGcInterface(ctx context.Context, attachment *vpcapi.NetworkInterfaceAttachment, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, instanceIdentity *vpcapi.InstanceIdentity) error {
 	ctx, span := trace.StartSpan(ctx, "doGcInterface")
 	defer span.End()
-	span.AddAttributes(trace.Int64Attribute("deviceIdx", int64(deviceIdx)))
+	span.AddAttributes(
+		trace.Int64Attribute("deviceIdx", int64(attachment.DeviceIndex)),
+		trace.StringAttribute("eni", attachment.Id),
+	)
 
-	ctx = logger.WithField(ctx, "deviceIdx", deviceIdx)
+	ctx = logger.WithField(ctx, "deviceIdx", attachment.DeviceIndex)
+	ctx = logger.WithField(ctx, "eni", attachment.Id)
+
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 10 * time.Second
 
-	configurationLockPath := utilities.GetConfigurationLockPath(deviceIdx)
-	addressesLockPath := utilities.GetAddressesLockPath(deviceIdx)
+	configurationLockPath := utilities.GetConfigurationLockPath(int(attachment.DeviceIndex))
+	addressesLockPath := utilities.GetAddressesLockPath(int(attachment.DeviceIndex))
 
 	configurationLock, err := locker.ExclusiveLock(ctx, configurationLockPath, &reconfigurationTimeout)
 	if err != nil {
@@ -134,13 +148,11 @@ func doGcInterface(ctx context.Context, deviceIdx int, locker *fslocker.FSLocker
 		"unallocatedAddresses": unallocatedAddresses,
 	}).Info()
 	gcRequest := &vpcapi.GCRequest{
-		NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
-			DeviceIndex: uint32(deviceIdx),
-		},
-		InstanceIdentity:     instanceIdentity,
-		AllocatedAddresses:   recordsToUtilizedAddresses(allocatedAddresses),
-		NonviableAddresses:   recordsToUtilizedAddresses(nonviableAddresses),
-		UnallocatedAddresses: recordsToUtilizedAddresses(unallocatedAddresses),
+		NetworkInterfaceAttachment: attachment,
+		InstanceIdentity:           instanceIdentity,
+		AllocatedAddresses:         recordsToUtilizedAddresses(allocatedAddresses),
+		NonviableAddresses:         recordsToUtilizedAddresses(nonviableAddresses),
+		UnallocatedAddresses:       recordsToUtilizedAddresses(unallocatedAddresses),
 	}
 
 	span.AddAttributes(

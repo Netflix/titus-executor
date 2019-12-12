@@ -1,4 +1,4 @@
-package vpc // nolint:dupl
+package limitsold
 
 import (
 	"fmt"
@@ -116,7 +116,7 @@ var interfaceLimits = map[string]map[string]limits{
 			networkThroughput:       23000,
 		},
 		"metal": limits{
-			interfaces:              12,
+			interfaces:              15,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       23000,
 		},
@@ -185,7 +185,7 @@ var interfaceLimits = map[string]map[string]limits{
 			networkThroughput:       23000,
 		},
 		"metal": limits{
-			interfaces:              12,
+			interfaces:              15,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       23000,
 		},

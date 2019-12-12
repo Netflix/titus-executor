@@ -1404,6 +1404,10 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 	if c.Allocation.IPV4Address == nil {
 		log.Fatal("IP allocation unset")
 	}
+	eniID := c.Allocation.BranchENIID
+	if eniID == "" {
+		eniID = c.Allocation.ENI
+	}
 	details = &runtimeTypes.Details{
 		IPAddresses: map[string]string{
 			"nfvpc": c.Allocation.IPV4Address.Address.Address,
@@ -1412,8 +1416,8 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 			IsRoutableIP: true,
 			IPAddress:    c.Allocation.IPV4Address.Address.Address,
 			EniIPAddress: c.Allocation.IPV4Address.Address.Address,
-			EniID:        c.Allocation.BranchENIID,
 			ResourceID:   fmt.Sprintf("resource-eni-%d", c.Allocation.DeviceIndex-1),
+			EniID:        eniID,
 		},
 	}
 

@@ -15,12 +15,12 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 const (
-	subnetExpirationTime      = 2 * time.Hour
+	minSubnetExpirationTime   = 90 * time.Minute
+	maxSubnetExpirationTime   = 180 * time.Minute
 	minInstanceExpirationTime = 45 * time.Minute
 	maxInstanceExpirationTime = 75 * time.Minute
 )
@@ -32,10 +32,11 @@ var (
 )
 
 type EC2Session struct {
-	Session           *session.Session
-	instanceCache     *ccache.Cache
-	subnetCache       *ccache.Cache
-	batchENIDescriber *BatchENIDescriber
+	Session                 *session.Session
+	instanceCache           *ccache.Cache
+	subnetCache             *ccache.Cache
+	batchENIDescriber       *BatchENIDescriber
+	batchInstancesDescriber *BatchInstanceDescriber
 }
 
 func (s *EC2Session) Region(ctx context.Context) (string, error) {
@@ -49,24 +50,38 @@ func (s *EC2Session) GetSubnetByID(ctx context.Context, subnetID string) (*ec2.S
 	ctx, span := trace.StartSpan(ctx, "getSubnetbyID")
 	defer span.End()
 
-	item, err := s.subnetCache.Fetch(subnetID, subnetExpirationTime, func() (interface{}, error) {
-		ec2client := ec2.New(s.Session)
-		describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
-			SubnetIds: []*string{&subnetID},
-		})
-		if err != nil {
-			logger.G(ctx).WithField("subnetID", subnetID).Error("Could not get Subnet")
-			return nil, err
-		}
+	item := s.subnetCache.Get(subnetID)
+	if item != nil {
+		span.AddAttributes(trace.BoolAttribute("cached", true))
+		if !item.Expired() {
+			span.AddAttributes(trace.BoolAttribute("expired", false))
 
-		subnet := describeSubnetsOutput.Subnets[0]
-		return subnet, nil
-	})
-	if err != nil {
-		return nil, HandleEC2Error(err, span)
+			val := item.Value().(*ec2.Subnet)
+			return val, nil
+		}
+		span.AddAttributes(trace.BoolAttribute("expired", true))
+	} else {
+		span.AddAttributes(trace.BoolAttribute("cached", false))
 	}
 
-	return item.Value().(*ec2.Subnet), nil
+	ec2client := ec2.New(s.Session)
+	describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
+		SubnetIds: []*string{&subnetID},
+	})
+	if err != nil {
+		logger.G(ctx).WithField("subnetID", subnetID).Error("Could not get Subnet")
+		if item != nil {
+			span.AddAttributes(trace.BoolAttribute("stale", true))
+			return item.Value().(*ec2.Subnet), nil
+		}
+		return nil, HandleEC2Error(err, span)
+	}
+	span.AddAttributes(trace.BoolAttribute("stale", false))
+
+	subnet := describeSubnetsOutput.Subnets[0]
+	subnetExpirationTime := time.Nanosecond * time.Duration(minSubnetExpirationTime.Nanoseconds()+rand.Int63n(maxSubnetExpirationTime.Nanoseconds()-minSubnetExpirationTime.Nanoseconds()))
+	s.subnetCache.Set(subnetID, subnet, subnetExpirationTime)
+	return subnet, nil
 }
 
 func (s *EC2Session) GetNetworkInterfaceByID(ctx context.Context, networkInterfaceID string, deadline time.Duration) (*ec2.NetworkInterface, error) {
@@ -254,35 +269,16 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalid
 		span.AddAttributes(trace.BoolAttribute("cached", false))
 	}
 
-	ec2client := ec2.New(s.Session)
-	describeInstancesOutput, err := ec2client.DescribeInstancesWithContext(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: aws.StringSlice([]string{instanceID}),
-	})
-
+	instance, ownerID, err := s.batchInstancesDescriber.DescribeInstanceWithTimeout(ctx, instanceID, 1500*time.Millisecond)
 	if err != nil {
 		logger.G(ctx).WithError(err).WithField("ec2InstanceId", instanceID).Error("Could not get EC2 Instance")
 		return nil, "", HandleEC2Error(err, span)
 	}
 
-	if describeInstancesOutput.Reservations == nil || len(describeInstancesOutput.Reservations) == 0 {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeNotFound,
-			Message: "Describe Instances returned 0 reservations",
-		})
-		return nil, "", status.Error(codes.NotFound, "Describe Instances returned 0 reservations")
-	}
-	if describeInstancesOutput.Reservations[0].Instances == nil || len(describeInstancesOutput.Reservations[0].Instances) == 0 {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeNotFound,
-			Message: "Describe Instances returned 0 instances",
-		})
-		return nil, "", status.Error(codes.NotFound, "Describe Instances returned 0 instances")
-	}
-
 	stats.Record(ctx, getInstanceMs.M(float64(time.Since(start).Nanoseconds())), getInstanceSuccess.M(1))
 	ret := &EC2InstanceCacheValue{
-		ownerID:  aws.StringValue(describeInstancesOutput.Reservations[0].OwnerId),
-		instance: describeInstancesOutput.Reservations[0].Instances[0],
+		ownerID:  ownerID,
+		instance: instance,
 	}
 
 	instanceExpirationTime := time.Nanosecond * time.Duration(minInstanceExpirationTime.Nanoseconds()+rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))

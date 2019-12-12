@@ -15,3 +15,4 @@ run:
     - aws
     - vpc/bpf/filter
     - vpc/bpf2
+    - vpc/limitsold
