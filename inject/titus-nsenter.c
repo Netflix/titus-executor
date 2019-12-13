@@ -218,7 +218,7 @@ int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
 				goto skip_setns;
 		}
 		if (setns(namespace_fds[i], namespaces[i].nstype)) {
-			fprintf(stderr, "Cannot join namespace tyoe %s, because: %s\n", namespaces[i].name, strerror(errno));
+			fprintf(stderr, "Cannot join namespace type %s, because: %s\n", namespaces[i].name, strerror(errno));
 			goto fail;
 		}
 skip_setns:
