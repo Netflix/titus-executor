@@ -28,7 +28,7 @@ const (
 
 const (
 	// AwsGpuInstanceRegex is a regex that should match AWS GPU instance type strings
-	AwsGpuInstanceRegex = "^([g2]|[p2]).[\\S]+"
+	AwsGpuInstanceRegex = "^([g2]|[p2]|[p3]|[g4dn]).[\\S]+"
 )
 
 var (
