@@ -3,6 +3,7 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/Netflix/titus-executor/executor/runtime/docker/seccomp"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -82,6 +83,16 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 			PathInContainer:   tunDev,
 			CgroupPermissions: "rmw",
 		})
+
+		value, exists := os.LookupEnv("ROOT_DEVICE_PATH")
+		if exists {
+			hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
+				PathOnHost:        value,
+				PathInContainer:   value,
+				CgroupPermissions: "rmw",
+			})
+			c.Env["ROOT_DEVICE_PATH"] = value
+		}
 
 		hostCfg.Sysctls["net.ipv4.conf.all.accept_local"] = "1"
 		hostCfg.Sysctls["net.ipv4.conf.all.route_localnet"] = "1"
