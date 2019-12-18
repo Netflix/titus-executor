@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,8 +29,9 @@ import (
 var errStatusChannelClosed = errors.New("Status channel closed")
 
 const (
+	logUploadDir       = "/var/tmp/titus-executor/tests"
 	logViewerTestImage = "titusoss/titus-logviewer@sha256:750a908c244c3f44b2b7abf1d9297aca859592e02736b3bd48aaebac022a87e5"
-	metatronTestImage  = "titusoss/metatron:20190716-1563251672"
+	metatronTestImage  = "titusoss/metatron:20191218-1576708232"
 )
 
 // Process describes what runs inside the container
@@ -92,7 +95,12 @@ func (jobRunResponse *JobRunResponse) WaitForSuccess() bool {
 	if err != nil {
 		return false
 	}
-	return status == "TASK_FINISHED"
+	res := status == "TASK_FINISHED"
+	if !res {
+		jobRunResponse.logContainerStdErrOut()
+	}
+
+	return res
 }
 
 // WaitForFailure blocks on the jobs completion and returns true
@@ -102,7 +110,12 @@ func (jobRunResponse *JobRunResponse) WaitForFailure() bool {
 	if err != nil {
 		return false
 	}
-	return status == "TASK_FAILED"
+	res := status == "TASK_FAILED"
+	if !res {
+		jobRunResponse.logContainerStdErrOut()
+	}
+
+	return res
 }
 
 // WaitForFailureWithStatus blocks until the job is finished, or ctx expires, and returns no error if the exit status
@@ -180,6 +193,32 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 	return notify
 }
 
+// logContainerStdErrOut logs the contents of the container's stderr / stdout
+func (jobRunResponse *JobRunResponse) logContainerStdErrOut() {
+	logNames := []string{
+		"stderr",
+		"stdout",
+	}
+
+	for _, l := range logNames {
+		lp := fmt.Sprintf("%s/titan/mainvpc/logs/%s/%s", logUploadDir, jobRunResponse.TaskID, l)
+		_, err := os.Stat(lp)
+		if os.IsNotExist(err) {
+			log.Infof("logContainerStdErrOut: file does not exist: %s", lp)
+			continue
+		}
+
+		contents, err := ioutil.ReadFile(lp)
+		if err != nil {
+			log.WithError(err).Errorf("Error reading file '%s': %+v", lp, err)
+			continue
+		}
+
+		log.Infof("logContainerStdErrOut: %s: '%s'", l, contents)
+	}
+
+}
+
 // JobRunner is the entrypoint struct to create an executor and run test jobs on it
 type JobRunner struct {
 	runner          *runner.Runner
@@ -190,7 +229,7 @@ type JobRunner struct {
 
 // GenerateConfigs generates test configs
 func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
-	configArgs := []string{"--copy-uploader", "/var/tmp/titus-executor/tests"}
+	configArgs := []string{"--copy-uploader", logUploadDir}
 
 	logViewerEnabled := false
 	metatronEnabled := false
