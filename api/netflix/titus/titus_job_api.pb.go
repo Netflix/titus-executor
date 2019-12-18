@@ -6,13 +6,12 @@ package titus
 import (
 	context "context"
 	fmt "fmt"
-	math "math"
-
 	proto "github.com/golang/protobuf/proto"
 	any "github.com/golang/protobuf/ptypes/any"
 	empty "github.com/golang/protobuf/ptypes/empty"
 	wrappers "github.com/golang/protobuf/ptypes/wrappers"
 	grpc "google.golang.org/grpc"
+	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -3015,7 +3014,14 @@ type ObserveJobsQuery struct {
 	// jobGroupDetail - job group details
 	// jobGroupSequence - job group sequence
 	// jobType - job type (batch or service)
-	// attributes - comma separated job attribute key/value pairs (for example "key1,key2:value2;k3:value3")
+	// attributes - comma separated job attribute key/value pairs. The same key may occur multiple times, with different
+	//              values (any value matches the filter). A value may be omitted, in which case if the key
+	//              occurs only once, only presence of the key is checked, without value comparison (otherwise the value
+	//              is an empty string). Example filters:
+	//              * 'key1' - matches, if the key is present
+	//              * 'key2:value2' - matches if the attributes contain key 'key2' with value 'value2'
+	//              * 'key3,key3:value3a,key3:value3b' - matches if the attributes contain key 'key3' with value '' or 'value3a' or 'value3b'
+	//              All the above can be passed together as 'key1,key2:value2,key3,key3:value3a,key3:value3b'
 	// attributes.op - logical 'and' or 'or' operators, which should be applied to multiple attributes specified in the query
 	// jobState - job state (one)
 	// taskStates - task states (multiple, comma separated). Empty value is the same as no value set.
@@ -3486,12 +3492,23 @@ type TaskQuery struct {
 	// jobGroupDetail - job group details
 	// jobGroupSequence - job group sequence
 	// jobType - job type (batch or service)
-	// attributes - comma separated job attribute key/value pairs (for example "key1,key2:value2;k3:value3")
+	// attributes - comma separated job attribute key/value pairs. The same key may occur multiple times, with different
+	//              values (any value matches the filter). A value may be omitted, in which case if the key
+	//              occurs only once, only presence of the key is checked, without value comparison (otherwise the value
+	//              is an empty string). Example filters:
+	//              * 'key1' - matches, if the key is present
+	//              * 'key2:value2' - matches if the attributes contain key 'key2' with value 'value2'
+	//              * 'key3,key3:value3a,key3:value3b' - matches if the attributes contain key 'key3' with value '' or 'value3a' or 'value3b'
+	//              All the above can be passed together as 'key1,key2:value2,key3,key3:value3a,key3:value3b'
 	// attributes.op - logical 'and' or 'or' operators, which should be applied to multiple attributes specified in the query
 	// jobState - job state (one)
 	// taskStates - task states (multiple, comma separated). Empty value is the same as no value set.
 	// taskStateReasons - reasons associated with task states (multiple, comma separated)
 	// needsMigration - if set to true, return only tasks that require migration
+	// skipSystemFailures - a filter for finished tasks only (does not affect non-finished tasks). If set to true,
+	//                      a finished task that failed due to a system error is filtered out. System error codes
+	//                      are specified in the TaskStatus type definition. These are container failures due to Titus
+	//                      internal issues.
 	FilteringCriteria map[string]string `protobuf:"bytes,2,rep,name=filteringCriteria,proto3" json:"filteringCriteria,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	/// (Optional) If set, only field values explicitly given in this parameter will be returned
 	Fields               []string `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty"`

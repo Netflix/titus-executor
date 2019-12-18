@@ -968,7 +968,7 @@ func testMetatron(t *testing.T, jobID string) {
 		Version:         userSet.tag,
 		MetatronEnabled: true,
 		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
-		EntrypointOld: "grep " + jobID + " /task-identity",
+		EntrypointOld: fmt.Sprintf("/bin/bash -c \"grep %s /task-identity && grep jobAcceptedTimestampMs /task-identity | grep -E '[\\d+]'\"", jobID),
 		JobID:         jobID,
 	}
 	if !mock.RunJobExpectingSuccess(t, ji) {

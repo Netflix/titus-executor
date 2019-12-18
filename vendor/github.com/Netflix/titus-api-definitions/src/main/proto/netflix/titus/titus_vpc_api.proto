@@ -1,7 +1,6 @@
 syntax = "proto3";
 package com.netflix.titus;
 
-import "google/protobuf/timestamp.proto";
 import "netflix/titus/titus_base.proto";
 
 option go_package = "titus";
