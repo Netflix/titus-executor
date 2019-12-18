@@ -18,10 +18,8 @@ import (
 func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
 	now := uint64(time.Now().Unix())
 	taskStatus := titus.TaskInfo_RUNNING
-	ipv4Address := ms.ipv4Address.String()
-	return &titus.TaskIdentity{
-		Container:   ms.container,
-		Ipv4Address: &ipv4Address,
+	ti := &titus.TaskIdentity{
+		Container: ms.container,
 		Task: &titus.TaskInfo{
 			ContainerId: ms.container.RunState.TaskId,
 			TaskId:      ms.container.RunState.TaskId,
@@ -30,6 +28,17 @@ func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
 		},
 		UnixTimestampSec: &now,
 	}
+
+	if ms.ipv4Address != nil {
+		ipv4Address := ms.ipv4Address.String()
+		ti.Ipv4Address = &ipv4Address
+	}
+	if ms.ipv6Address != nil {
+		ipv6Address := ms.ipv6Address.String()
+		ti.Ipv6Address = &ipv6Address
+	}
+
+	return ti
 }
 
 // SetSigner updates the identity server's signer
