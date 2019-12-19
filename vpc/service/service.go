@@ -2,12 +2,20 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"net"
 	"net/http"
 	"os"
 	"sync"
 	"time"
+
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
+	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	"google.golang.org/grpc/keepalive"
+
+	"google.golang.org/grpc/credentials"
 
 	"golang.org/x/sync/semaphore"
 
@@ -16,9 +24,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
-	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -30,7 +36,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 )
@@ -116,7 +121,7 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 	return result, err
 }
 
-func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, maxConcurrentRefresh int64, gcTimeout, reconcileInterval, refreshInterval time.Duration) error {
+func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, maxConcurrentRefresh int64, gcTimeout, reconcileInterval, refreshInterval time.Duration, tlsConfig *tls.Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
@@ -131,23 +136,21 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 		return err
 	}
 
-	grpcServer := grpc.NewServer(
-		grpc.StatsHandler(&ocgrpc.ServerHandler{}),
-		grpc_middleware.WithUnaryServerChain(
-			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
-			grpc_logrus.UnaryServerInterceptor(logrusEntry),
-			unaryMetricsHandler,
-		),
-		grpc_middleware.WithStreamServerChain(
-			grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
-			grpc_logrus.StreamServerInterceptor(logrusEntry),
-		),
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			MaxConnectionIdle: 5 * time.Minute,
-		}))
 	hostname, err := os.Hostname()
 	if err != nil {
 		return errors.Wrap(err, "Cannot get hostname")
+	}
+
+	vpc := &vpcService{
+		hostname:        hostname,
+		ec2:             ec2wrapper.NewEC2SessionManager(),
+		dummyInterfaces: make(map[string]*ec2.NetworkInterface),
+		db:              db,
+
+		gcTimeout:       gcTimeout,
+		refreshInterval: refreshInterval,
+
+		refreshLock: semaphore.NewWeighted(maxConcurrentRefresh),
 	}
 
 	// TODO: actually validate this
@@ -180,49 +183,66 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 	}
 	hostPublicKeySignature := ed25519.Sign(ed25519key, publicKey)
 
-	vpc := &vpcService{
-		hostname:        hostname,
-		ec2:             ec2wrapper.NewEC2SessionManager(),
-		dummyInterfaces: make(map[string]*ec2.NetworkInterface),
-		db:              db,
-
-		authoritativePublicKey: ed25519key.Public().(ed25519.PublicKey),
-		hostPrivateKey:         privateKey,
-		hostPublicKey:          publicKey,
-		hostPublicKeySignature: hostPublicKeySignature,
-
-		gcTimeout:       gcTimeout,
-		refreshInterval: refreshInterval,
-
-		refreshLock: semaphore.NewWeighted(maxConcurrentRefresh),
-	}
+	vpc.authoritativePublicKey = ed25519key.Public().(ed25519.PublicKey)
+	vpc.hostPrivateKey = privateKey
+	vpc.hostPublicKey = publicKey
+	vpc.hostPublicKeySignature = hostPublicKeySignature
 
 	hc := &healthcheck{}
-	grpc_health_v1.RegisterHealthServer(grpcServer, hc)
-	vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
-	titus.RegisterUserIPServiceServer(grpcServer, vpc)
-	titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
-
-	reflection.Register(grpcServer)
 
 	m := cmux.New(listener)
 
-	go func() {
-		<-ctx.Done()
-		logger.G(ctx).Info("GRPC Server shutting down")
-		time.AfterFunc(30*time.Second, func() {
-			logger.G(ctx).Warning("GRPC Server force shutting down")
-			grpcServer.Stop()
+	serve := func(listener net.Listener, options ...grpc.ServerOption) error {
+		grpcServerOptions := []grpc.ServerOption{
+			grpc.StatsHandler(&ocgrpc.ServerHandler{}),
+			grpc_middleware.WithUnaryServerChain(
+				grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
+				grpc_logrus.UnaryServerInterceptor(logrusEntry),
+				grpc_auth.UnaryServerInterceptor(vpc.authFunc),
+				unaryMetricsHandler,
+			),
+			grpc_middleware.WithStreamServerChain(
+				grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
+				grpc_logrus.StreamServerInterceptor(logrusEntry),
+			),
+			grpc.KeepaliveParams(keepalive.ServerParameters{
+				MaxConnectionIdle: 5 * time.Minute,
+			}),
+		}
+		grpcServer := grpc.NewServer(append(grpcServerOptions, options...)...)
+
+		grpc_health_v1.RegisterHealthServer(grpcServer, hc)
+		vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
+		titus.RegisterUserIPServiceServer(grpcServer, vpc)
+		titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
+		reflection.Register(grpcServer)
+		group.Go(func() error {
+			<-ctx.Done()
+			logger.G(ctx).Info("GRPC Server shutting down gracefully")
+			time.AfterFunc(30*time.Second, func() {
+				logger.G(ctx).Warning("GRPC Server force shutting down")
+				grpcServer.Stop()
+			})
+			cancel()
+			grpcServer.GracefulStop()
+			return nil
 		})
-		cancel()
-		grpcServer.GracefulStop()
-	}()
+
+		return grpcServer.Serve(listener)
+	}
+
 	logger.G(ctx).Info("GRPC Server starting up")
 
+	sslListener := m.Match(cmux.TLS())
 	http1Listener := m.Match(cmux.HTTP1Fast())
 	anyListener := m.Match(cmux.Any())
 
-	group.Go(func() error { return grpcServer.Serve(anyListener) })
+	if tlsConfig != nil {
+		c := credentials.NewTLS(tlsConfig)
+		group.Go(func() error { return serve(sslListener, grpc.Creds(c)) })
+	}
+
+	group.Go(func() error { return serve(anyListener) })
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
 	group.Go(func() error {

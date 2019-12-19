@@ -40,7 +40,7 @@ func TestService(t *testing.T) {
 
 	go func() {
 		defer close(serverErrCh)
-		serverErr := Run(ctx, listener, nil, key, 10, 2*time.Minute, 5*time.Minute, 30*time.Second)
+		serverErr := Run(ctx, listener, nil, key, 10, 2*time.Minute, 5*time.Minute, 30*time.Second, nil)
 		if serverErr != nil && serverErr != context.Canceled {
 			serverErrCh <- serverErr
 		}
