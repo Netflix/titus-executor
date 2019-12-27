@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"expvar"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -45,9 +46,10 @@ const (
 	maxOpenConnectionsFlagName   = "max-open-connections"
 	maxConcurrentRefreshFlagName = "max-concurrent-refresh"
 
-	sslCertFlagName       = "ssl-cert"
-	sslPrivateKeyFlagName = "ssl-private-key"
-	sslCAFlagName         = "ssl-ca"
+	sslCertFlagName         = "ssl-cert"
+	sslPrivateKeyFlagName   = "ssl-private-key"
+	sslCAFlagName           = "ssl-ca"
+	sslTitusAgentCAFlagName = "ssl-titusagent-ca"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -228,12 +230,31 @@ func main() {
 			}
 			signingKeyFile.Close()
 
-			tlsConfig, err := getTLSConfig(ctx, v.GetString(sslCAFlagName), v.GetString(sslCertFlagName), v.GetString(sslPrivateKeyFlagName))
+			tlsConfig, err := getTLSConfig(ctx, v.GetString(sslCertFlagName), v.GetString(sslPrivateKeyFlagName), v.GetString(sslCAFlagName), v.GetString(sslTitusAgentCAFlagName))
 			if err != nil {
 				return errors.Wrap(err, "Could not generate TLS Config")
 			}
 
-			return service.Run(ctx, listener, conn, signingKey, v.GetInt64(maxConcurrentRefreshFlagName), v.GetDuration(gcTimeoutFlagName), v.GetDuration("reconcile-interval"), v.GetDuration(refreshIntervalFlagName), tlsConfig)
+			titusAgentCACertPool := x509.NewCertPool()
+			if s := v.GetString(sslTitusAgentCAFlagName); s != "" {
+				data, err := ioutil.ReadFile(s)
+				if err != nil {
+					return errors.Wrap(err, "Could not read file")
+				}
+				titusAgentCACertPool.AppendCertsFromPEM(data)
+			}
+
+			return service.Run(ctx, &service.Config{
+				Listener:             listener,
+				DB:                   conn,
+				Key:                  signingKey,
+				MaxConcurrentRefresh: v.GetInt64(maxConcurrentRefreshFlagName),
+				GCTimeout:            v.GetDuration(gcTimeoutFlagName),
+				ReconcileInterval:    v.GetDuration("reconcile-interval"),
+				RefreshInterval:      v.GetDuration(refreshIntervalFlagName),
+				TLSConfig:            tlsConfig,
+				TitusAgentCACertPool: titusAgentCACertPool,
+			})
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if dd != nil {
@@ -246,6 +267,8 @@ func main() {
 	rootCmd.Flags().String("signingkey", "", "The (file) location of the root signing key")
 	rootCmd.Flags().String(sslPrivateKeyFlagName, "", "The SSL Private Key")
 	rootCmd.Flags().String(sslCertFlagName, "", "The SSL Certificate")
+	rootCmd.Flags().String(sslCAFlagName, "", "General SSL CA")
+	rootCmd.Flags().String(sslTitusAgentCAFlagName, "", "Titus Agent CA")
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
 	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
@@ -321,6 +344,10 @@ func bindVariables(v *pkgviper.Viper) {
 		panic(err)
 	}
 
+	if err := v.BindEnv(sslTitusAgentCAFlagName, "SSL_TITUSAGENT_CA"); err != nil {
+		panic(err)
+	}
+
 	v.AutomaticEnv()
 
 	if err := v.BindEnv(maxOpenConnectionsFlagName, "MAX_OPEN_CONNECTIONS"); err != nil {
@@ -332,21 +359,22 @@ func bindVariables(v *pkgviper.Viper) {
 	}
 }
 
-func getTLSConfig(ctx context.Context, caCertFile, certificateFile, privateKey string) (*tls.Config, error) {
+func getTLSConfig(ctx context.Context, certificateFile, privateKey string, trustedCerts ...string) (*tls.Config, error) {
 	if certificateFile == "" && privateKey == "" {
 		return nil, nil
 	}
 
-	certPool, err := x509.SystemCertPool()
-	if err != nil {
-		return nil, err
-	}
-	if caCertFile != "" {
-		data, err := ioutil.ReadFile(caCertFile)
+	certPool := x509.NewCertPool()
+	for _, cert := range trustedCerts {
+		logger.G(ctx).WithField("cert", cert).Debug("Loading certificate")
+		data, err := ioutil.ReadFile(cert)
 		if err != nil {
 			return nil, err
 		}
-		certPool.AppendCertsFromPEM(data)
+		ok := certPool.AppendCertsFromPEM(data)
+		if !ok {
+			return nil, fmt.Errorf("Cannot load TLS Certificate from %s", cert)
+		}
 	}
 
 	return &tls.Config{

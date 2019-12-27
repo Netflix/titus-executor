@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"net"
 	"net/http"
@@ -89,6 +90,8 @@ type vpcService struct {
 	refreshInterval time.Duration
 
 	refreshLock *semaphore.Weighted
+
+	TitusAgentCACertPool *x509.CertPool
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -121,12 +124,24 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 	return result, err
 }
 
-func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.PrivateKey, maxConcurrentRefresh int64, gcTimeout, reconcileInterval, refreshInterval time.Duration, tlsConfig *tls.Config) error {
+type Config struct {
+	Listener             net.Listener
+	DB                   *sql.DB
+	Key                  vpcapi.PrivateKey
+	MaxConcurrentRefresh int64
+	GCTimeout            time.Duration
+	ReconcileInterval    time.Duration
+	RefreshInterval      time.Duration
+	TLSConfig            *tls.Config
+	TitusAgentCACertPool *x509.CertPool
+}
+
+func Run(ctx context.Context, config *Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
 
-	if refreshInterval == 0 {
+	if config.RefreshInterval == 0 {
 		panic("Refresh interval is 0")
 	}
 	logrusEntry := logger.G(ctx).WithField("origin", "grpc")
@@ -145,20 +160,22 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 		hostname:        hostname,
 		ec2:             ec2wrapper.NewEC2SessionManager(),
 		dummyInterfaces: make(map[string]*ec2.NetworkInterface),
-		db:              db,
+		db:              config.DB,
 
-		gcTimeout:       gcTimeout,
-		refreshInterval: refreshInterval,
+		gcTimeout:       config.GCTimeout,
+		refreshInterval: config.RefreshInterval,
 
-		refreshLock: semaphore.NewWeighted(maxConcurrentRefresh),
+		refreshLock: semaphore.NewWeighted(config.MaxConcurrentRefresh),
+
+		TitusAgentCACertPool: config.TitusAgentCACertPool,
 	}
 
 	// TODO: actually validate this
-	ed25519key := ed25519.NewKeyFromSeed(key.GetEd25519Key().Rfc8032Key)
-	if db != nil {
+	ed25519key := ed25519.NewKeyFromSeed(config.Key.GetEd25519Key().Rfc8032Key)
+	if config.DB != nil {
 		longLivedPublicKey := ed25519key.Public().(ed25519.PublicKey)
 
-		rows, err := db.QueryContext(ctx, "SELECT hostname, created_at FROM trusted_public_keys WHERE keytype='ed25519' AND key = $1", longLivedPublicKey)
+		rows, err := config.DB.QueryContext(ctx, "SELECT hostname, created_at FROM trusted_public_keys WHERE keytype='ed25519' AND key = $1", longLivedPublicKey)
 		if err != nil {
 			return errors.Wrap(err, "Could not fetch trusted public keys")
 		}
@@ -190,9 +207,9 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 
 	hc := &healthcheck{}
 
-	m := cmux.New(listener)
+	m := cmux.New(config.Listener)
 
-	serve := func(listener net.Listener, options ...grpc.ServerOption) error {
+	serve := func(listener net.Listener, wrapwithAuth bool, options ...grpc.ServerOption) error {
 		grpcServerOptions := []grpc.ServerOption{
 			grpc.StatsHandler(&ocgrpc.ServerHandler{}),
 			grpc_middleware.WithUnaryServerChain(
@@ -212,7 +229,11 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 		grpcServer := grpc.NewServer(append(grpcServerOptions, options...)...)
 
 		grpc_health_v1.RegisterHealthServer(grpcServer, hc)
-		vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
+		if wrapwithAuth {
+			vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, &titusVPCAgentServiceAuthFuncOverride{vpc})
+		} else {
+			vpcapi.RegisterTitusAgentVPCServiceServer(grpcServer, vpc)
+		}
 		titus.RegisterUserIPServiceServer(grpcServer, vpc)
 		titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
 		reflection.Register(grpcServer)
@@ -237,19 +258,19 @@ func Run(ctx context.Context, listener net.Listener, db *sql.DB, key vpcapi.Priv
 	http1Listener := m.Match(cmux.HTTP1Fast())
 	anyListener := m.Match(cmux.Any())
 
-	if tlsConfig != nil {
-		c := credentials.NewTLS(tlsConfig)
-		group.Go(func() error { return serve(sslListener, grpc.Creds(c)) })
+	if config.TLSConfig != nil {
+		c := credentials.NewTLS(config.TLSConfig)
+		group.Go(func() error { return serve(sslListener, true, grpc.Creds(c)) })
 	}
 
-	group.Go(func() error { return serve(anyListener) })
+	group.Go(func() error { return serve(anyListener, false) })
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
 	group.Go(func() error {
-		return vpc.taskLoop(ctx, reconcileInterval, "reconcile_branch_enis", vpc.reconcileBranchENIsForRegionAccount)
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_enis", vpc.reconcileBranchENIsForRegionAccount)
 	})
 	group.Go(func() error {
-		return vpc.taskLoop(ctx, reconcileInterval, "delete_dangling_trunks", vpc.deleteDanglingTrunksForRegionAccount)
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "delete_dangling_trunks", vpc.deleteDanglingTrunksForRegionAccount)
 	})
 	err = group.Wait()
 	if ctx.Err() != nil {

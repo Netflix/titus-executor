@@ -34,6 +34,9 @@ const (
 	generationDefaultValue = "v0"
 	interaceSubnet         = "interface-subnet"
 	interfaceAccount       = "interface-account"
+	sslCAFlagName          = "ssl-ca"
+	sslKeyFlagName         = "ssl-key"
+	sslCertFlagName        = "ssl-cert"
 )
 
 type instanceProviderResolver struct {
@@ -168,6 +171,16 @@ func main() {
 	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
 		panic(err)
 	}
+	if err := v.BindEnv(sslCAFlagName, "VPC_SSL_CA"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(sslKeyFlagName, "VPC_SSL_KEY"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(sslCertFlagName, "VPC_SSL_CERT"); err != nil {
+		panic(err)
+	}
+
 	rootCmd.AddCommand(assignNetworkCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(genConfCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(setupInstanceCommand(ctx, v, ipr.getProvider))
