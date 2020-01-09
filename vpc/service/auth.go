@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	x509 "crypto/x509"
+	"fmt"
 
-	"github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
+
 	"google.golang.org/grpc/credentials"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -13,35 +15,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func populateAuthInfo(l logrus.FieldLogger, info credentials.AuthInfo) logrus.FieldLogger {
-	authType := info.AuthType()
-
-	l = l.WithField("authtype", authType)
-	switch t := info.(type) {
-	case credentials.TLSInfo:
-		sv := t.GetSecurityValue().(*credentials.TLSChannelzSecurityValue)
-		l = l.WithField("standardName", sv.StandardName)
-		if sv.RemoteCertificate != nil {
-			cert, err := x509.ParseCertificate(sv.RemoteCertificate)
-			if err != nil {
-				panic(err)
-			}
-			l = l.WithField("DNSNames", cert.DNSNames)
-			l = l.WithField("IPAddresses", cert.IPAddresses)
-			l = l.WithField("EmailAddresses", cert.EmailAddresses)
-			l = l.WithField("IPAddresses", cert.IPAddresses)
-			l = l.WithField("URIs", cert.URIs)
-			for _, ext := range cert.Extensions {
-				l = l.WithField("extension."+ext.Id.String(), string(ext.Value))
-			}
-			for _, ext := range cert.ExtraExtensions {
-				l = l.WithField("extraExtension."+ext.Id.String(), string(ext.Value))
-			}
-		}
-		l = l.WithField("peerCertificates", t.State.PeerCertificates)
-	}
-	return l
-}
+var (
+	errNoAuth = errors.New("No authentication")
+)
 
 func (*vpcService) authFunc(ctx context.Context) (context.Context, error) {
 	peer, ok := peer.FromContext(ctx)
@@ -50,10 +26,43 @@ func (*vpcService) authFunc(ctx context.Context) (context.Context, error) {
 	}
 	l := logger.G(ctx)
 	if peer.AuthInfo != nil {
-		populateAuthInfo(l, peer.AuthInfo).Debug("Authenticating peers via authFunc")
+		l.Debug("Authenticating peers via authFunc")
 	} else {
 		l.Debug("not authenticating peers via AuthFuncOverride")
 
+	}
+	return ctx, nil
+}
+
+type titusVPCAgentServiceAuthFuncOverride struct {
+	*vpcService
+}
+
+func (vpcService *titusVPCAgentServiceAuthFuncOverride) AuthFuncOverride(ctx context.Context, fullMethodName string) (context.Context, error) {
+	peer, ok := peer.FromContext(ctx)
+	if !ok {
+		return ctx, status.Error(codes.Internal, "Could not retrieve peer from context")
+	}
+	if peer.AuthInfo == nil {
+		// TODO: Log this
+		return ctx, errNoAuth
+	}
+
+	tlsInfo, ok := peer.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return ctx, fmt.Errorf("Received unexpected authentication type: %s", peer.AuthInfo.AuthType())
+	}
+	sv := tlsInfo.GetSecurityValue().(*credentials.TLSChannelzSecurityValue)
+	cert, err := x509.ParseCertificate(sv.RemoteCertificate)
+	if err != nil {
+		return ctx, errors.Wrap(err, "Cannot parse remote certificate")
+	}
+	_, err = cert.Verify(x509.VerifyOptions{
+		Roots:     vpcService.TitusAgentCACertPool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Unable to verify client cert")
 	}
 	return ctx, nil
 }
