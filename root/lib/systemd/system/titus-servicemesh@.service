@@ -2,6 +2,10 @@
 Description=Titus service mesh sidecar for container %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
+# If the service restarts more than 10 times in 30 seconds, let it die
+StartLimitIntervalSec=30
+StartLimitBurst=10
+
 [Service]
 EnvironmentFile=/var/lib/titus-environments/%i.env
 # Run as root (UID 0, GID 0) and with CAP_DAC_OVERRIDE so that containers with a `USER` instruction work
