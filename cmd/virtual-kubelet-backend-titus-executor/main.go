@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"io/ioutil"
+
+	"github.com/Netflix/titus-executor/logsutil"
 
 	"github.com/Netflix/titus-executor/tag"
 
@@ -23,6 +26,11 @@ import (
 
 	"os"
 )
+
+func init() {
+	logrus.SetOutput(ioutil.Discard)
+	logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
+}
 
 func main() {
 	var podFileName string
