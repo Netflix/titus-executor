@@ -523,7 +523,7 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 	candidates := assignedRemovableAddresses.Difference(allocatedAddresses)
 	span.AddAttributes(trace.StringAttribute("candidates", strings.Join(candidates.UnsortedList(), ",")))
 
-	rows, err := tx.QueryContext(ctx, "SELECT ip_address, home_eni FROM ip_addresses WHERE host(ip_address) = any($1)", pq.Array(assignedRemovableAddresses.List()))
+	rows, err := tx.QueryContext(ctx, "SELECT ip_address, home_eni FROM ip_addresses WHERE host(ip_address) = any($1)", pq.Array(candidates.List()))
 	if err != nil {
 		err = errors.Wrap(err, "Could not query database for statically assigned addresses")
 		span.SetStatus(traceStatusFromError(err))
