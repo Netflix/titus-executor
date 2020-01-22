@@ -59,7 +59,7 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 		logger.G(ctx).WithField("t", t).Info("Aborting task ran too recently")
 		return nil
 	}
-
+	logger.G(ctx).Info("Finished task")
 	_, err = tx.ExecContext(ctx, "UPDATE scheduled_tasks SET last_run = now() WHERE name = $1", taskName)
 	if err != nil {
 		return errors.Wrap(err, "Cannot update scheduled_tasks last_run")

@@ -65,6 +65,7 @@ const (
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
 	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
+	vpcAccountIDParam       = "titusParameter.agent.vpcAccountId"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
@@ -1805,6 +1806,9 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 		} else if val {
 			args = append(args, "--jumbo=true")
 		}
+	}
+	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[vpcAccountIDParam]; ok {
+		args = append(args, "--interface-account", vpcAccountID)
 	}
 	return args
 }

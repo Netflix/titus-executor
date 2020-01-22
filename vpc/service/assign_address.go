@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -597,50 +596,16 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, ec2cl
 		VlanId:            aws.Int64(int64(idx)),
 	}
 
+	l := logger.G(ctx).WithFields(map[string]interface{}{
+		"vlanId":            idx,
+		"trunkInterfaceId":  aws.StringValue(trunkInterface.NetworkInterfaceId),
+		"branchInterfaceId": branchENI,
+	})
+	l.Info("Attempting to associate branch ENI with trunk ENI")
 	associateTrunkInterfaceOutput, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, associateTrunkInterfaceInput)
 	if err != nil {
-		if awsErr, ok := err.(awserr.Error); ok {
-			if awsErr.Code() == "Client.InvalidVlanId.Duplicate" {
-				// We tried to associate an interface to something that already had an interface. We need to now do error-recovery!
-				describeTrunkInterfaceAssociationsInput := ec2.DescribeTrunkInterfaceAssociationsInput{
-					MaxResults: aws.Int64(1),
-					Filters: []*ec2.Filter{
-						{
-							Name:   aws.String("trunk-interface-association.trunk-interface-id"),
-							Values: []*string{trunkInterface.NetworkInterfaceId},
-						},
-					},
-				}
-				for {
-					output, err := ec2client.DescribeTrunkInterfaceAssociationsWithContext(ctx, &describeTrunkInterfaceAssociationsInput)
-					if err != nil {
-						logger.G(ctx).WithError(err).Error()
-					}
-					for _, assoc := range output.InterfaceAssociations {
-						// Don't touch other associations
-						if aws.Int64Value(assoc.VlanId) == int64(idx) {
-							_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, state, idx, association_id) VALUES ($1, $2, 'attached', $3, $4) ON CONFLICT DO NOTHING",
-								aws.StringValue(assoc.BranchInterfaceId),
-								aws.StringValue(assoc.TrunkInterfaceId),
-								aws.Int64Value(assoc.VlanId),
-								aws.StringValue(assoc.AssociationId),
-							)
-							if err != nil {
-								err = errors.Wrap(err, "Could not update known_branch_enis")
-								span.SetStatus(traceStatusFromError(err))
-								return "", err
-							}
-							return aws.StringValue(assoc.BranchInterfaceId), nil
-						}
-					}
-					if output.NextToken == nil {
-						break
-					}
-					describeTrunkInterfaceAssociationsInput.NextToken = output.NextToken
-				}
-			}
-		}
-
+		/* The reconcilation loop will fix this (probably) */
+		l.WithError(err).Error("Failed to associate branch ENI with trunk ENI")
 		return "", ec2wrapper.HandleEC2Error(err, span)
 	}
 	logger.G(ctx).Debug(associateTrunkInterfaceOutput)

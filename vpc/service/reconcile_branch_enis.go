@@ -110,7 +110,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		}
 		describeTrunkInterfaceAssociationsInput.NextToken = output.NextToken
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET state = 'unknown' WHERE branch_eni NOT IN (SELECT branch_eni FROM known_branch_enis)")
+	_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET state = 'unknown' WHERE branch_eni NOT IN (SELECT branch_eni FROM known_branch_enis) AND branch_eni IN (SELECT branch_eni FROM branch_enis WHERE account_id = $1 AND SUBSTR(az, 0, LENGTH($2) + 1) = $2)", account.accountID, account.region)
 	if err != nil {
 		return errors.Wrap(err, "Could not update unknown branch eni status")
 	}

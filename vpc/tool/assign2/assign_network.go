@@ -33,12 +33,13 @@ const (
 	maxAllocationIndex = 10240
 )
 
-func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, securityGroups []string, deviceIdx int, allocateIPv6Address bool, allocationUUID string) error {
+func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, securityGroups []string, deviceIdx int, allocateIPv6Address bool, allocationUUID, account string) error {
 	ctx = logger.WithFields(ctx, map[string]interface{}{
 		"deviceIdx":           deviceIdx,
 		"security-groups":     securityGroups,
 		"allocateIPv6Address": allocateIPv6Address,
 		"allocationUUID":      allocationUUID,
+		"account":             account,
 	})
 	logger.G(ctx).Info()
 
@@ -54,7 +55,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 	}
 	defer indexLock.Unlock()
 
-	allocation, err := doAllocateNetwork(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, allocationUUID)
+	allocation, err := doAllocateNetwork(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, allocationUUID, account)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to perform network allocation")
 		writeError := json.NewEncoder(os.Stdout).Encode(types.Allocation{Success: false, Error: err.Error()})
@@ -189,7 +190,7 @@ func (a *allocation) String() string {
 	return fmt.Sprintf("%#v", *a)
 }
 
-func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address bool, allocationUUID string) (*allocation, error) { // nolint:dupl
+func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address bool, allocationUUID, account string) (*allocation, error) { // nolint:dupl
 	// TODO: Make timeout adjustable
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -201,6 +202,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		trace.Int64Attribute("deviceIdx", int64(deviceIdx)),
 		trace.StringAttribute("security-groups", fmt.Sprintf("%v", securityGroups)),
 		trace.BoolAttribute("allocateIPv6Address", allocateIPv6Address),
+		trace.StringAttribute("account", account),
 	)
 	optimisticLockTimeout := time.Duration(0)
 	reconfigurationTimeout := 100 * time.Second
@@ -209,7 +211,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	exclusiveSGLock, lockErr := locker.ExclusiveLock(ctx, securityGroupLockPath, &optimisticLockTimeout)
 
 	if lockErr == nil {
-		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, true, allocationUUID)
+		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, true, allocationUUID, account)
 		if err != nil {
 			exclusiveSGLock.Unlock()
 			err = errors.Wrap(err, "Cannot allocate address under exclusive SG lock")
@@ -229,7 +231,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
-		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, false, allocationUUID)
+		alloc, err := doAllocateNetworkAddress(ctx, instanceIdentityProvider, locker, client, securityGroups, deviceIdx, allocateIPv6Address, false, allocationUUID, account)
 		if err != nil {
 			sharedSGLock.Unlock()
 			tracehelpers.SetStatus(err, span)
@@ -244,7 +246,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	return nil, errors.Wrap(lockErr, "Cannot get exclusive SG Lock")
 }
 
-func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address, allowSecurityGroupChange bool, allocationUUID string) (*allocation, error) {
+func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, client vpcapi.TitusAgentVPCServiceClient, securityGroups []string, deviceIdx int, allocateIPv6Address, allowSecurityGroupChange bool, allocationUUID, account string) (*allocation, error) {
 	ctx, span := trace.StartSpan(ctx, "doAllocateNetworkAddress")
 	defer span.End()
 
@@ -309,6 +311,10 @@ func doAllocateNetworkAddress(ctx context.Context, instanceIdentityProvider iden
 		Ipv6: &vpcapi.AssignIPRequestV2_Ipv6AddressRequested{
 			Ipv6AddressRequested: allocateIPv6Address,
 		},
+	}
+
+	if account != "" {
+		assignIPRequest.AccountID = account
 	}
 
 	if allocationUUID != "" {

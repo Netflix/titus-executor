@@ -42,6 +42,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					v.GetInt("device-idx"),
 					v.GetBool("assign-ipv6-address"),
 					v.GetString("ipv4-allocation-uuid"),
+					v.GetString(interfaceAccount),
 				)
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
@@ -53,6 +54,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().StringSlice("security-groups", []string{}, "Comma separated list of security groups")
 	cmd.Flags().Bool("assign-ipv6-address", false, "Assign IPv6 Address for container")
 	cmd.Flags().String("ipv4-allocation-uuid", "", "The UUID of the allocation")
+	cmd.Flags().String(interfaceAccount, "", "The account that the interface should live in")
 	addSharedFlags(cmd.Flags())
 
 	return cmd
