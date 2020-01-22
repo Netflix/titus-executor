@@ -145,7 +145,7 @@ func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]regionAc
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	rows, err := tx.QueryContext(ctx, "SELECT SUBSTR(availability_zone, 0, length(availability_zone)) AS region, account FROM account_mapping GROUP BY region, account")
+	rows, err := tx.QueryContext(ctx, "SELECT (regexp_match(availability_zone, '[a-z]+-[a-z]+-[0-9]+'))[1]	 AS region, account FROM account_mapping GROUP BY region, account")
 	if err != nil {
 		return nil, err
 	}
