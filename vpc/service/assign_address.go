@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
+)
+
+var (
+	azToRegionRegexp = regexp.MustCompile("[a-z]+-[a-z]+-[0-9]+")
 )
 
 func isAssignIPRequestValid(req *vpcapi.AssignIPRequest) error {
@@ -470,6 +475,33 @@ func (vpcService *vpcService) getTrunkENI(instance *ec2.Instance) *ec2.InstanceN
 	return nil
 }
 
+// TODO (Sargun): Stash this information in the database so we don't call it every time
+func (vpcService *vpcService) ensureBranchENIPermission(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, branchENI, ownerID string) error {
+	if key.AccountID == ownerID {
+		return nil
+	}
+
+	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", ownerID, key.AccountID)
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	ec2client := ec2.New(session.Session)
+
+	_, err = ec2client.CreateNetworkInterfacePermissionWithContext(ctx, &ec2.CreateNetworkInterfacePermissionInput{
+		AwsAccountId:       aws.String(ownerID),
+		NetworkInterfaceId: aws.String(branchENI),
+		Permission:         aws.String("INSTANCE-ATTACH"),
+	})
+
+	if err != nil {
+		return errors.Wrap(err, "Cannot create network interface permission")
+	}
+
+	return nil
+}
+
 func (vpcService *vpcService) getBranchENI(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, subnetID string) (string, error) {
 	var branchENI string
 	rowContext := tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'unattached' AND subnet_id = $1 ORDER BY RANDOM() FOR UPDATE LIMIT 1", subnetID)
@@ -488,6 +520,7 @@ func (vpcService *vpcService) getBranchENI(ctx context.Context, tx *sql.Tx, key 
 		return "", err
 	}
 
+	logger.G(ctx).WithField("createNetworkInterfaceInput", createNetworkInterfaceInput).Debug("Creating Branch ENI")
 	ec2client := ec2.New(session.Session)
 	createNetworkInterfaceOutput, err := ec2client.CreateNetworkInterface(createNetworkInterfaceInput)
 	if err != nil {
@@ -509,7 +542,7 @@ func (vpcService *vpcService) getBranchENI(ctx context.Context, tx *sql.Tx, key 
 }
 
 // ctx, tx, ec2client, trunkENI, accountID,  int(req.NetworkInterfaceAttachment.DeviceIndex)
-func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, ec2client *ec2.EC2, trunkInterface *ec2.InstanceNetworkInterface, accountID, availabilityZone string, idx int) (eniID string, retErr error) {
+func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, instanceEC2Client *ec2.EC2, trunkInterface *ec2.InstanceNetworkInterface, accountID, availabilityZone string, idx int) (eniID string, retErr error) {
 	//	row := tx.QueryRowContext(ctx, "SELECT branch_eni FROM branch_eni_attachments WHERE idx = $1 AND trunk_eni = $2", idx, aws.StringValue(trunkInterface))
 	// TODO: Handle detaching
 	ctx, span := trace.StartSpan(ctx, "ensureBranchENIAttached")
@@ -551,17 +584,12 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, ec2cl
 		return "", err
 	}
 
-	if accountID != aws.StringValue(trunkInterface.OwnerId) {
-		err = fmt.Errorf("Branch ENI in account ID %q whereas trunk ENI interface owner ID %q not supported", accountID, aws.StringValue(trunkInterface.NetworkInterfaceId))
-		span.SetStatus(traceStatusFromError(err))
-		return "", err
-	}
-
 	// Do we already have a branch ENI attached here?
 	rowContext = tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni, account_id, subnet_id FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'attached' AND idx = $1 AND trunk_eni = $2", idx, aws.StringValue(trunkInterface.NetworkInterfaceId))
 	var branchENI, branchENIAccountID, branchENISubnetID string
 	err = rowContext.Scan(&branchENI, &branchENIAccountID, &branchENISubnetID)
 	if err == nil {
+		logger.G(ctx).Debugf("Found branch ENI %s attached to trunk ENI %s", branchENI, aws.StringValue(trunkInterface.NetworkInterfaceId))
 		if branchENIAccountID != accountID {
 			err = fmt.Errorf("Branch ENI in account ID %q, whereas want account ID %q", branchENIAccountID, accountID)
 			span.SetStatus(traceStatusFromError(err))
@@ -583,8 +611,14 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, ec2cl
 	}
 
 	// TODO: Pass the ec2client for the "destination" account ID
-	region := availabilityZone[:len(availabilityZone)-1]
+	region := azToRegionRegexp.FindString(availabilityZone)
 	branchENI, err = vpcService.getBranchENI(ctx, tx, ec2wrapper.Key{AccountID: accountID, Region: region}, subnetID)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return "", err
+	}
+
+	err = vpcService.ensureBranchENIPermission(ctx, tx, ec2wrapper.Key{AccountID: accountID, Region: region}, branchENI, aws.StringValue(trunkInterface.OwnerId))
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return "", err
@@ -602,7 +636,7 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, ec2cl
 		"branchInterfaceId": branchENI,
 	})
 	l.Info("Attempting to associate branch ENI with trunk ENI")
-	associateTrunkInterfaceOutput, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, associateTrunkInterfaceInput)
+	associateTrunkInterfaceOutput, err := instanceEC2Client.AssociateTrunkInterfaceWithContext(ctx, associateTrunkInterfaceInput)
 	if err != nil {
 		/* The reconcilation loop will fix this (probably) */
 		l.WithError(err).Error("Failed to associate branch ENI with trunk ENI")
@@ -935,13 +969,13 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 		}
 	}
 
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: req.InstanceIdentity.Region, AccountID: req.InstanceIdentity.AccountID})
+	instanceSession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: req.InstanceIdentity.Region, AccountID: req.InstanceIdentity.AccountID})
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
+	instance, _, err := instanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -949,7 +983,7 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 
 	trunkENI := vpcService.getTrunkENI(instance)
 	if trunkENI == nil {
-		instance, _, err = session.GetInstance(ctx, req.InstanceIdentity.InstanceID, true)
+		instance, _, err = instanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, true)
 		if err != nil {
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
@@ -968,13 +1002,23 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 		accountID = aws.StringValue(trunkENI.OwnerId)
 	}
 	az := aws.StringValue(instance.Placement.AvailabilityZone)
-	ec2client := ec2.New(session.Session)
+	instanceEC2Client := ec2.New(instanceSession.Session)
 	// TODO: Sargun, break out into its own transaction
-	branchENI, err := vpcService.ensureBranchENIAttached(ctx, ec2client, trunkENI, accountID, az, int(req.NetworkInterfaceAttachment.DeviceIndex))
+	branchENI, err := vpcService.ensureBranchENIAttached(ctx, instanceEC2Client, trunkENI, accountID, az, int(req.NetworkInterfaceAttachment.DeviceIndex))
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+
+	branchENISession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: azToRegionRegexp.FindString(az), AccountID: accountID})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get session for branch ENI")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	branchENIEC2Client := ec2.New(branchENISession.Session)
+
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
@@ -995,19 +1039,19 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
-	ec2BranchENI, err := session.GetNetworkInterfaceByID(ctx, branchENI, 100*time.Millisecond)
+	ec2BranchENI, err := branchENISession.GetNetworkInterfaceByID(ctx, branchENI, 100*time.Millisecond)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	err = vpcService.ensureSecurityGroups(ctx, ec2client, ec2BranchENI, req.SecurityGroupIds, req.AllowSecurityGroupChange)
+	err = vpcService.ensureSecurityGroups(ctx, branchENIEC2Client, ec2BranchENI, req.SecurityGroupIds, req.AllowSecurityGroupChange)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	subnet, err := session.GetSubnetByID(ctx, aws.StringValue(ec2BranchENI.SubnetId))
+	subnet, err := branchENISession.GetSubnetByID(ctx, aws.StringValue(ec2BranchENI.SubnetId))
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -1021,14 +1065,14 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 	resp := vpcapi.AssignIPResponseV2{}
 	switch ipv4req := (req.Ipv4).(type) {
 	case *vpcapi.AssignIPRequestV2_Ipv4SignedAddressAllocation:
-		resp.Ipv4Address, err = assignSpecificIPv4Address(ctx, tx, ec2client, ec2BranchENI, ipnet, ipv4req)
+		resp.Ipv4Address, err = assignSpecificIPv4Address(ctx, tx, branchENIEC2Client, ec2BranchENI, ipnet, ipv4req)
 		if err != nil {
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
 		}
 	case *vpcapi.AssignIPRequestV2_Ipv4AddressRequested:
 		if ipv4req.Ipv4AddressRequested {
-			resp.Ipv4Address, err = assignArbitraryIPv4Address(ctx, tx, ec2client, ec2BranchENI, ipnet, instance, req.UtilizedAddresses)
+			resp.Ipv4Address, err = assignArbitraryIPv4Address(ctx, tx, branchENIEC2Client, ec2BranchENI, ipnet, instance, req.UtilizedAddresses)
 
 			if err != nil {
 				span.SetStatus(traceStatusFromError(err))
@@ -1044,7 +1088,7 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 	switch ipv6req := (req.Ipv6).(type) {
 	case *vpcapi.AssignIPRequestV2_Ipv6AddressRequested:
 		if ipv6req.Ipv6AddressRequested {
-			resp.Ipv6Address, err = assignArbitraryIPv6Address(ctx, tx, ec2client, ec2BranchENI, instance, req.UtilizedAddresses)
+			resp.Ipv6Address, err = assignArbitraryIPv6Address(ctx, tx, branchENIEC2Client, ec2BranchENI, instance, req.UtilizedAddresses)
 
 			if err != nil {
 				span.SetStatus(traceStatusFromError(err))
