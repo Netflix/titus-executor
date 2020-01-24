@@ -504,7 +504,8 @@ func (vpcService *vpcService) ensureBranchENIPermission(ctx context.Context, tx 
 
 func (vpcService *vpcService) getBranchENI(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, subnetID string) (string, error) {
 	var branchENI string
-	rowContext := tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'unattached' AND subnet_id = $1 ORDER BY RANDOM() FOR UPDATE LIMIT 1", subnetID)
+	// TODO: Get rid of state = attached
+	rowContext := tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni FROM branch_enis LEFT JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state != 'attached' AND subnet_id = $1 ORDER BY RANDOM() FOR UPDATE LIMIT 1", subnetID)
 	err := rowContext.Scan(&branchENI)
 	if err == nil {
 		return branchENI, nil
@@ -585,27 +586,47 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, insta
 	}
 
 	// Do we already have a branch ENI attached here?
-	rowContext = tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni, account_id, subnet_id FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'attached' AND idx = $1 AND trunk_eni = $2", idx, aws.StringValue(trunkInterface.NetworkInterfaceId))
-	var branchENI, branchENIAccountID, branchENISubnetID string
-	err = rowContext.Scan(&branchENI, &branchENIAccountID, &branchENISubnetID)
+	rowContext = tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni, account_id, subnet_id, association_id FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'attached' AND idx = $1 AND trunk_eni = $2", idx, aws.StringValue(trunkInterface.NetworkInterfaceId))
+	var branchENI, branchENIAccountID, branchENISubnetID, associationID string
+	err = rowContext.Scan(&branchENI, &branchENIAccountID, &branchENISubnetID, &associationID)
 	if err == nil {
 		logger.G(ctx).Debugf("Found branch ENI %s attached to trunk ENI %s", branchENI, aws.StringValue(trunkInterface.NetworkInterfaceId))
-		if branchENIAccountID != accountID {
-			err = fmt.Errorf("Branch ENI in account ID %q, whereas want account ID %q", branchENIAccountID, accountID)
-			span.SetStatus(traceStatusFromError(err))
-			return "", err
+		if branchENISubnetID == subnetID {
+			return branchENI, nil
 		}
-		if branchENISubnetID != subnetID {
-			err = fmt.Errorf("Branch ENI in subnet ID %q, whereas want subnet ID %q", branchENISubnetID, subnetID)
-			span.SetStatus(traceStatusFromError(err))
-			return "", err
-		}
-		span.SetStatus(trace.Status{
-			Message: fmt.Sprintf("Retrieved existing ENI %q from database", branchENI),
+		logger.G(ctx).Debug("Disassociating existing branch ENI")
+		// 1. Detach the existing branch ENI
+		// 2. Commit the txn in progress
+		// 3. continue
+		_, err = instanceEC2Client.DisassociateTrunkInterfaceWithContext(ctx, &ec2.DisassociateTrunkInterfaceInput{
+			AssociationId: aws.String(associationID),
 		})
-		return branchENI, nil
-	}
-	if err != sql.ErrNoRows {
+		// TODO: Make idempotent, so check if the error can be ignored
+		if err != nil {
+			err = errors.Wrap(err, "Unable to disassociate existing branch ENI")
+			span.SetStatus(traceStatusFromError(err))
+			return "", err
+		}
+		_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE association_id = $1", associationID)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot mark existing ENI as disassociated")
+			span.SetStatus(traceStatusFromError(err))
+			return "", err
+		}
+		err = tx.Commit()
+		if err != nil {
+			err = errors.Wrap(err, "Cannot commit transaction indicating ENI is detached")
+			span.SetStatus(traceStatusFromError(err))
+			return "", err
+		}
+		tx, err = vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not restart database transaction after detaching ENI").Error())
+			span.SetStatus(traceStatusFromError(err))
+			return "", err
+		}
+
+	} else if err != sql.ErrNoRows {
 		span.SetStatus(traceStatusFromError(err))
 		return "", err
 	}
@@ -643,10 +664,11 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, insta
 		return "", ec2wrapper.HandleEC2Error(err, span)
 	}
 	logger.G(ctx).Debug(associateTrunkInterfaceOutput)
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, state, trunk_eni, idx) VALUES ($1, 'attached', $2, $3) ON CONFLICT (branch_eni) DO UPDATE SET state = 'attached', trunk_eni = $2, idx = $3",
+	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, state, trunk_eni, idx, association_id) VALUES ($1, 'attached', $2, $3, $4) ON CONFLICT (branch_eni) DO UPDATE SET state = 'attached', trunk_eni = $2, idx = $3, association_id = $4",
 		branchENI,
 		aws.StringValue(trunkInterface.NetworkInterfaceId),
-		idx)
+		idx,
+		aws.StringValue(associateTrunkInterfaceOutput.InterfaceAssociation.AssociationId))
 	if err != nil {
 		err = errors.Wrap(err, "Unable to update branch_eni attachments")
 		span.SetStatus(traceStatusFromError(err))

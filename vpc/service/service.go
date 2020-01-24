@@ -267,10 +267,13 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
 	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_enis", vpc.reconcileBranchENIsForRegionAccount)
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_enis", vpc.getBranchENIRegionAccounts, vpc.reconcileBranchENIsForRegionAccount)
 	})
 	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "delete_dangling_trunks", vpc.deleteDanglingTrunksForRegionAccount)
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "delete_dangling_trunks", vpc.getTrunkENIRegionAccounts, vpc.deleteDanglingTrunksForRegionAccount)
+	})
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_eni_attachments", vpc.getTrunkENIRegionAccounts, vpc.reconcileBranchENIAttachmentsForRegionAccount)
 	})
 	err = group.Wait()
 	if ctx.Err() != nil {

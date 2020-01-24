@@ -240,6 +240,11 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	// TODO: Verify the second network interface is a trunk
 	eni := vpcService.getTrunkENI(instance)
 	if eni != nil {
+		region := azToRegionRegexp.FindString(aws.StringValue(instance.Placement.AvailabilityZone))
+		_, err = tx.ExecContext(ctx, "INSERT INTO trunk_eni_accounts(account_id, region) VALUES ($1, $2) ON CONFLICT (account_id, region) DO NOTHING", aws.StringValue(eni.OwnerId), region)
+		if err != nil {
+			return nil, errors.Wrap(err, "Cannot update trunk eni accounts")
+		}
 		return &vpcapi.ProvisionInstanceResponseV2{
 			TrunkNetworkInterface: instanceNetworkInterface(*instance, *eni),
 		}, nil
@@ -259,6 +264,12 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not create interface")
 		return nil, ec2wrapper.HandleEC2Error(err, span)
+	}
+
+	region := azToRegionRegexp.FindString(aws.StringValue(createNetworkInterfaceResult.NetworkInterface.AvailabilityZone))
+	_, err = tx.ExecContext(ctx, "INSERT INTO trunk_eni_accounts(account_id, region) VALUES ($1, $2) ON CONFLICT (account_id, region) DO NOTHING", aws.StringValue(createNetworkInterfaceResult.NetworkInterface.OwnerId), region)
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot update trunk eni accounts")
 	}
 
 	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
