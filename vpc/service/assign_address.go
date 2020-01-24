@@ -502,7 +502,7 @@ func (vpcService *vpcService) ensureBranchENIPermission(ctx context.Context, tx 
 	return nil
 }
 
-func (vpcService *vpcService) getBranchENI(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, subnetID string) (string, error) {
+func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, subnetID string) (string, error) {
 	var branchENI string
 	// TODO: Get rid of state = attached
 	rowContext := tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni FROM branch_enis LEFT JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state != 'attached' AND subnet_id = $1 ORDER BY RANDOM() FOR UPDATE LIMIT 1", subnetID)
@@ -633,7 +633,7 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, insta
 
 	// TODO: Pass the ec2client for the "destination" account ID
 	region := azToRegionRegexp.FindString(availabilityZone)
-	branchENI, err = vpcService.getBranchENI(ctx, tx, ec2wrapper.Key{AccountID: accountID, Region: region}, subnetID)
+	branchENI, err = vpcService.getUnattachedBranchENI(ctx, tx, ec2wrapper.Key{AccountID: accountID, Region: region}, subnetID)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return "", err
