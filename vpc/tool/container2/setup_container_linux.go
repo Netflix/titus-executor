@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
 	"net"
 	"runtime"
@@ -225,7 +226,12 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 	if err != nil {
 		return err
 	}
-	err = setupHTBClasses(ctx, bandwidth, ceil, allocation.AllocationIndex, allocation.TrunkENIMAC)
+
+	linkMTUOrSmaller := link.Attrs().MTU
+	if mtu != nil {
+		linkMTUOrSmaller = *mtu
+	}
+	err = setupHTBClasses(ctx, bandwidth, ceil, uint64(linkMTUOrSmaller), allocation.AllocationIndex, allocation.TrunkENIMAC)
 	if err != nil {
 		return err
 	}
@@ -353,7 +359,7 @@ func updateBPFMaps(ctx context.Context, allocation types.Allocation) error {
 	return nil
 }
 
-func setupHTBClasses(ctx context.Context, bandwidth, ceil uint64, allocationIndex uint16, trunkENIMac string) error {
+func setupHTBClasses(ctx context.Context, bandwidth, ceil, mtu uint64, allocationIndex uint16, trunkENIMac string) error {
 	trunkENI, err := shared.GetLinkByMac(trunkENIMac)
 	if err != nil {
 		return err
@@ -364,23 +370,23 @@ func setupHTBClasses(ctx context.Context, bandwidth, ceil uint64, allocationInde
 		return err
 	}
 
-	err = setupClass(ctx, bandwidth, ceil, allocationIndex, trunkENI)
+	err = setupClass(ctx, bandwidth, ceil, mtu, allocationIndex, trunkENI)
 	if err != nil {
 		return err
 	}
-	err = setupSubqdisc(ctx, allocationIndex, trunkENI)
+	err = setupSubqdisc(ctx, allocationIndex, trunkENI, uint32(mtu))
 	if err != nil {
 		return err
 	}
 
-	err = setupClass(ctx, bandwidth, ceil, allocationIndex, ifbIngress)
+	err = setupClass(ctx, bandwidth, ceil, mtu, allocationIndex, ifbIngress)
 	if err != nil {
 		return err
 	}
-	return setupSubqdisc(ctx, allocationIndex, ifbIngress)
+	return setupSubqdisc(ctx, allocationIndex, ifbIngress, uint32(mtu))
 }
 
-func setupClass(ctx context.Context, bandwidth, ceil uint64, allocationIndex uint16, link netlink.Link) error {
+func setupClass(ctx context.Context, bandwidth, ceil, mtu uint64, allocationIndex uint16, link netlink.Link) error {
 	classattrs := netlink.ClassAttrs{
 		LinkIndex: link.Attrs().Index,
 		Parent:    netlink.MakeHandle(1, 1),
@@ -388,11 +394,13 @@ func setupClass(ctx context.Context, bandwidth, ceil uint64, allocationIndex uin
 		Handle: netlink.MakeHandle(1, allocationIndex),
 	}
 
+	bytespersecond := float64(bandwidth) / 8.0
+	ceilbytespersecond := float64(ceil) / 8.0
 	htbclassattrs := netlink.HtbClassAttrs{
 		Rate:    bandwidth,
 		Ceil:    ceil,
-		Buffer:  9001,
-		Cbuffer: 9001,
+		Buffer:  uint32(math.Ceil(bytespersecond/netlink.Hz()+float64(mtu)) + 1),
+		Cbuffer: uint32(math.Ceil(ceilbytespersecond/netlink.Hz()+10*float64(mtu)) + 1),
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	logger.G(ctx).Debug("Setting up HTB class: ", class)
@@ -405,7 +413,7 @@ func setupClass(ctx context.Context, bandwidth, ceil uint64, allocationIndex uin
 	return nil
 }
 
-func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Link) error {
+func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Link, mtu uint32) error {
 
 	// The qdisc wasn't found, add it
 	attrs := netlink.QdiscAttrs{
@@ -414,7 +422,7 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 		Parent:    netlink.MakeHandle(1, allocationIndex),
 	}
 	qdisc := netlink.NewFqCodel(attrs)
-	qdisc.Quantum = 9001
+	qdisc.Quantum = mtu
 
 	err := netlink.QdiscAdd(qdisc)
 	if err != nil && err != unix.EEXIST {
