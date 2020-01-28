@@ -720,6 +720,10 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		args = append(args, "--ipv4-allocation-uuid", c.AllocationUUID)
 	}
 
+	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
+		args = append(args, "--interface-account", vpcAccountID)
+	}
+
 	assignIPv6Address, err := c.AssignIPv6Address()
 	if err != nil {
 		return err
@@ -1811,9 +1815,6 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 		} else if val {
 			args = append(args, "--jumbo=true")
 		}
-	}
-	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
-		args = append(args, "--interface-account", vpcAccountID)
 	}
 	return args
 }
