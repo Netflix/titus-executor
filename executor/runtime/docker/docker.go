@@ -65,7 +65,7 @@ const (
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
 	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
-	vpcAccountIDParam       = "titusParameter.agent.vpcAccountId"
+	accountID               = "titusParameter.agent.accountId"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
@@ -554,6 +554,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	}
 	c.Env["EC2_VPC_ID"] = c.Allocation.BranchENIVPC
 	c.Env["EC2_INTERFACE_ID"] = c.Allocation.BranchENIID
+	c.Env["EC2_SUBNET_ID"] = c.Allocation.BranchENISubnet
 
 	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")
@@ -561,6 +562,10 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	if batch := c.GetBatch(); batch != nil {
 		c.Env["TITUS_BATCH"] = *batch
+	}
+
+	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
+		c.Env["EC2_OWNER_ID"] = vpcAccountID
 	}
 
 	// This must got after all setup
@@ -1807,7 +1812,7 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 			args = append(args, "--jumbo=true")
 		}
 	}
-	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[vpcAccountIDParam]; ok {
+	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
 		args = append(args, "--interface-account", vpcAccountID)
 	}
 	return args

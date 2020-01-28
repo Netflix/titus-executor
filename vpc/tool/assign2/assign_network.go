@@ -85,6 +85,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 				BranchENIID:     allocation.branchNetworkInterface.NetworkInterfaceId,
 				BranchENIMAC:    allocation.branchNetworkInterface.MacAddress,
 				BranchENIVPC:    allocation.branchNetworkInterface.VpcId,
+				BranchENISubnet: allocation.branchNetworkInterface.SubnetId,
 				VlanID:          allocation.vlanID,
 				TrunkENIID:      allocation.trunkNetworkInterface.NetworkInterfaceId,
 				TrunkENIMAC:     allocation.trunkNetworkInterface.MacAddress,
