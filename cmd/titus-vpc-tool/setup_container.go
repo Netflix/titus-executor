@@ -36,5 +36,6 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 	cmd.Flags().Int64("bandwidth", 128*1024*1024, "Bandwidth to allocate to the device, in bps")
 	cmd.Flags().Bool("burst", false, "Allow this container to burst its network allocation")
 	cmd.Flags().Bool("jumbo", false, "Allow this container to use jumbo frames")
+	cmd.Flags().String(generationFlagName, generationDefaultValue, "Generation of VPC Tool to use, specify v1, or v2")
 	return cmd
 }
