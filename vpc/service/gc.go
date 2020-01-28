@@ -432,12 +432,6 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
-	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	span.AddAttributes(trace.StringAttribute("instanceId", req.InstanceIdentity.InstanceID))
 	span.AddAttributes(trace.StringAttribute("interfaceId", req.NetworkInterfaceAttachment.Id))
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
@@ -457,6 +451,22 @@ func (vpcService *vpcService) GCV2(ctx context.Context, req *vpcapi.GCRequestV2)
 
 	_, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(oid::int, branch_enis.id) FROM branch_enis, (SELECT oid FROM pg_class WHERE relname = 'branch_enis') o WHERE branch_eni = $1",
 		req.NetworkInterfaceAttachment.Id)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	row := tx.QueryRowContext(ctx, "SELECT account_id, az FROM branch_enis WHERE branch_eni = $1 FOR UPDATE LIMIT 1", req.NetworkInterfaceAttachment.Id)
+
+	var accountID, az string
+	err = row.Scan(&accountID, &az)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	region := azToRegionRegexp.FindString(az)
+
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: region})
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err

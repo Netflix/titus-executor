@@ -85,23 +85,14 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	}
 
 	// Populate branch eni attachments with ENIs that are not in use
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, state) SELECT branch_eni, 'unattached' FROM known_branch_enis WHERE  state = 'available' ON CONFLICT (branch_eni) DO UPDATE SET state = 'unattached'")
+	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE branch_eni IN (SELECT branch_eni FROM known_branch_enis WHERE state = 'available')")
 	if err != nil {
-		return errors.Wrap(err, "Could not update unattached branch eni status")
+		return errors.Wrap(err, "Could not delete unattached branch eni attachments")
 	}
 
-	cursor, err := tx.QueryContext(ctx, "SELECT branch_eni FROM branch_enis WHERE account_id = $1 AND (regexp_match(az, '[a-z]+-[a-z]+-[0-9]+'))[1] = $2 AND branch_eni NOT IN (SELECT branch_eni FROM known_branch_enis)", account.accountID, account.region)
+	_, err = tx.ExecContext(ctx, "DELETE FROM branch_enis WHERE account_id = $1 AND (regexp_match(az, '[a-z]+-[a-z]+-[0-9]+'))[1] = $2 AND branch_eni NOT IN (SELECT branch_eni FROM known_branch_enis)", account.accountID, account.region)
 	if err != nil {
-		return errors.Wrap(err, "Cannot query which branch ENIs we should delete")
-	}
-
-	for cursor.Next() {
-		var branchENI string
-		err = cursor.Scan(&branchENI)
-		if err != nil {
-			return errors.Wrap(err, "Cannot scan branch ENIs")
-		}
-		logger.G(ctx).WithField("branchENI", branchENI).Debug("Would delete branch ENI")
+		return errors.Wrap(err, "Cannot delete removed branch ENIs")
 	}
 
 	return nil
