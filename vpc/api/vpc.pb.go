@@ -6,12 +6,13 @@ package vpcapi
 import (
 	context "context"
 	fmt "fmt"
+	math "math"
+
 	titus "github.com/Netflix/titus-executor/api/netflix/titus"
 	proto "github.com/golang/protobuf/proto"
 	duration "github.com/golang/protobuf/ptypes/duration"
 	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	grpc "google.golang.org/grpc"
-	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

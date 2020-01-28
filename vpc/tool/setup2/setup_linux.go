@@ -5,6 +5,7 @@ package setup2
 import (
 	"context"
 	"io/ioutil"
+	"math"
 	"os"
 	"os/exec"
 
@@ -201,10 +202,11 @@ func setupIFBHTBRootClass(ctx context.Context, instanceType string, link netlink
 	}
 
 	rate := vpc.MustGetMaxNetworkbps(instanceType)
+	bytespersecond := math.Ceil(float64(rate) / 8.0)
 	htbclassattrs := netlink.HtbClassAttrs{
 		Rate:    rate,
-		Buffer:  9001,
-		Cbuffer: 9001,
+		Buffer:  uint32(bytespersecond/netlink.Hz() + float64(link.Attrs().MTU) + 1),
+		Cbuffer: uint32(bytespersecond/netlink.Hz() + 10*float64(link.Attrs().MTU) + 1),
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	return netlink.ClassReplace(class)

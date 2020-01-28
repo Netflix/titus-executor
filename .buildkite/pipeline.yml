@@ -7,7 +7,7 @@ steps:
     async: false
     branches:
       - master
-      - branch-enis
+      - multi-account
     build:
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"

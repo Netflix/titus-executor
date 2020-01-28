@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -14,6 +15,12 @@ import (
 func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName string, interval time.Duration, cb func(context.Context, *sql.Tx) error) (retErr error) {
 	ctx = logger.WithField(ctx, "taskName", taskName)
 	logger.G(ctx).Info("Planning to start task")
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return errors.Wrap(err, "Cannot fetch hostname")
+	}
+
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not start database transaction")
@@ -59,8 +66,8 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 		logger.G(ctx).WithField("t", t).Info("Aborting task ran too recently")
 		return nil
 	}
-
-	_, err = tx.ExecContext(ctx, "UPDATE scheduled_tasks SET last_run = now() WHERE name = $1", taskName)
+	logger.G(ctx).Info("Finished task")
+	_, err = tx.ExecContext(ctx, "UPDATE scheduled_tasks SET last_run = now(), hostname = $2 WHERE name = $1", taskName, hostname)
 	if err != nil {
 		return errors.Wrap(err, "Cannot update scheduled_tasks last_run")
 	}
@@ -68,25 +75,26 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 	return cb(ctx, tx)
 }
 
-func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, cb func(context.Context, regionAccount, *sql.Tx) error) error {
+func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]regionAccount, error), cb func(context.Context, regionAccount, *sql.Tx) error) error {
 	t := time.NewTimer(interval / 10)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
-			_ = vpcService.runTask(ctx, interval, taskPrefix, cb)
+			_ = vpcService.runTask(ctx, interval, taskPrefix, itemLister, cb)
 			t.Reset(interval / 10)
 		}
 	}
 }
-func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duration, taskPrefix string, cb func(context.Context, regionAccount, *sql.Tx) error) error {
+
+func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]regionAccount, error), cb func(context.Context, regionAccount, *sql.Tx) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, taskPrefix)
 	defer span.End()
 	logger.G(ctx).WithField("taskPrefix", taskPrefix).Info("Starting task")
-	regionAccounts, err := vpcService.getRegionAccounts(ctx)
+	regionAccounts, err := itemLister(ctx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get region / accounts")
 		return err

@@ -16,6 +16,7 @@ type Allocation struct {
 	BranchENIID     string                `json:"branchENIID"`
 	BranchENIVPC    string                `json:"branchVPCID"`
 	BranchENIMAC    string                `json:"branchMAC"`
+	BranchENISubnet string                `json:"branchENISubnetID"`
 	VlanID          int                   `json:"vlanID"`
 	TrunkENIID      string                `json:"trunkENIID"`
 	TrunkENIVPC     string                `json:"trunkVPCID"`
@@ -53,6 +54,7 @@ type HybridAllocation struct {
 	BranchENIID     string                `json:"branchENIID"`
 	BranchENIVPC    string                `json:"branchVPCID"`
 	BranchENIMAC    string                `json:"branchMAC"`
+	BranchENISubnet string                `json:"branchENISubnetID"`
 	VlanID          int                   `json:"vlanID"`
 	TrunkENIID      string                `json:"trunkENIID"`
 	TrunkENIVPC     string                `json:"trunkVPCID"`

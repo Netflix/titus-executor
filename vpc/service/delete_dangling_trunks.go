@@ -68,3 +68,33 @@ func (vpcService *vpcService) deleteDanglingTrunksForRegionAccount(ctx context.C
 	}
 	return nil
 }
+
+func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]regionAccount, error) {
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not start database transaction")
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	rows, err := tx.QueryContext(ctx, "SELECT region, account_id FROM trunk_eni_accounts")
+	if err != nil {
+		return nil, err
+	}
+
+	ret := []regionAccount{}
+	for rows.Next() {
+		var ra regionAccount
+		err = rows.Scan(&ra.region, &ra.accountID)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, ra)
+	}
+
+	_ = tx.Commit()
+	return ret, nil
+}
