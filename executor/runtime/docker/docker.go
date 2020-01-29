@@ -451,6 +451,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		Privileged: false,
 		Binds:      binds,
 		ExtraHosts: []string{},
+		DNS:        []string{"169.254.169.253"},
 		Sysctls: map[string]string{
 			"net.ipv4.tcp_ecn":                    "1",
 			"net.ipv6.conf.all.disable_ipv6":      "0",
