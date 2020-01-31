@@ -34514,7 +34514,7 @@ type AssociateTrunkInterfaceInput struct {
 	// BranchInterfaceId is a required field
 	BranchInterfaceId *string `type:"string" required:"true"`
 
-	ClientToken *string `type:"string" idempotencyToken:"true"`
+	ClientToken *string `type:"string"`
 
 	DryRun *bool `type:"boolean"`
 
@@ -62136,7 +62136,7 @@ type DisassociateTrunkInterfaceInput struct {
 	// AssociationId is a required field
 	AssociationId *string `type:"string" required:"true"`
 
-	ClientToken *string `type:"string" idempotencyToken:"true"`
+	ClientToken *string `type:"string"`
 
 	DryRun *bool `type:"boolean"`
 }
