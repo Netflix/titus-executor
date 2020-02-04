@@ -690,18 +690,21 @@ func (vpcService *vpcService) ensureSecurityGroups(ctx context.Context, ec2clien
 
 	span.AddAttributes(trace.StringAttribute("currentSecurityGroups", fmt.Sprint(hasSecurityGroupsSet.List())))
 	span.AddAttributes(trace.StringAttribute("newSecurityGroups", fmt.Sprint(wantedSecurityGroupsSet.List())))
+	if wantedSecurityGroupsSet.Equal(hasSecurityGroupsSet) {
+		return nil
+	}
+
 	logger.G(ctx).
 		WithField("currentSecurityGroups", hasSecurityGroupsSet.List()).
 		WithField("newSecurityGroups", wantedSecurityGroupsSet.List()).
 		Info("Changing security groups")
 
-	if !wantedSecurityGroupsSet.Equal(hasSecurityGroupsSet) {
-		if !allowSecurityGroupChange {
-			err := status.Error(codes.FailedPrecondition, "Security group change required, but not allowed")
-			span.SetStatus(traceStatusFromError(err))
-			return err
-		}
+	if !allowSecurityGroupChange {
+		err := status.Error(codes.FailedPrecondition, "Security group change required, but not allowed")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
+
 	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
 		Groups:             aws.StringSlice(wantedSecurityGroupsSet.List()),
 		NetworkInterfaceId: eni.NetworkInterfaceId,
