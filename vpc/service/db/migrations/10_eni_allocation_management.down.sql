@@ -1,0 +1,1 @@
+DROP TABLE trunk_enis;

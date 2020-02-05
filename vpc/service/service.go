@@ -275,6 +275,9 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error {
 		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_eni_attachments", vpc.getTrunkENIRegionAccounts, vpc.reconcileBranchENIAttachmentsForRegionAccount)
 	})
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
+	})
 	err = group.Wait()
 	if ctx.Err() != nil {
 		return nil

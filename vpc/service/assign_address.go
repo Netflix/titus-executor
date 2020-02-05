@@ -502,10 +502,23 @@ func (vpcService *vpcService) ensureBranchENIPermission(ctx context.Context, tx 
 	return nil
 }
 
-func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, subnetID string) (string, error) {
+func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sql.Tx, key ec2wrapper.Key, subnetID string, securityGroups []string) (string, error) {
 	var branchENI string
 	// TODO: Get rid of state = attached
-	rowContext := tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni FROM branch_enis LEFT JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state != 'attached' AND subnet_id = $1 ORDER BY RANDOM() FOR UPDATE LIMIT 1", subnetID)
+	rowContext := tx.QueryRowContext(ctx, `
+	SELECT branch_eni
+	FROM
+	  (SELECT branch_enis.branch_eni
+	   FROM branch_enis
+	   WHERE branch_eni NOT IN
+		   (SELECT branch_eni
+			FROM branch_eni_attachments)
+		 AND subnet_id = $1
+	   ORDER BY RANDOM()
+	   LIMIT 1) unattached_branch_eni 
+	FOR
+	UPDATE
+	`, subnetID)
 	err := rowContext.Scan(&branchENI)
 	if err == nil {
 		return branchENI, nil
@@ -515,6 +528,7 @@ func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sq
 		Ipv6AddressCount: aws.Int64(0),
 		SubnetId:         aws.String(subnetID),
 		Description:      aws.String(vpc.BranchNetworkInterfaceDescription),
+		Groups:           aws.StringSlice(securityGroups),
 	}
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, key)
 	if err != nil {
@@ -528,12 +542,19 @@ func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sq
 		return "", err
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id) VALUES ($1, $2, $3, $4, $5)",
+	securityGroupIds := make([]string, len(createNetworkInterfaceOutput.NetworkInterface.Groups))
+	for idx := range createNetworkInterfaceOutput.NetworkInterface.Groups {
+		securityGroupIds[idx] = aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.Groups[idx].GroupId)
+	}
+	sort.Strings(securityGroupIds)
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp())",
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.SubnetId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.VpcId),
+		pq.Array(securityGroupIds),
 	)
 	if err != nil {
 		return "", err
@@ -543,7 +564,7 @@ func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sq
 }
 
 // ctx, tx, ec2client, trunkENI, accountID,  int(req.NetworkInterfaceAttachment.DeviceIndex)
-func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, instanceEC2Client *ec2.EC2, trunkInterface *ec2.InstanceNetworkInterface, accountID, availabilityZone string, idx int) (eniID string, retErr error) {
+func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, instanceEC2Client *ec2.EC2, trunkInterface *ec2.InstanceNetworkInterface, accountID, availabilityZone string, idx int, securityGroupIds []string) (eniID string, retErr error) {
 	//	row := tx.QueryRowContext(ctx, "SELECT branch_eni FROM branch_eni_attachments WHERE idx = $1 AND trunk_eni = $2", idx, aws.StringValue(trunkInterface))
 	// TODO: Handle detaching
 	ctx, span := trace.StartSpan(ctx, "ensureBranchENIAttached")
@@ -633,7 +654,7 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, insta
 
 	// TODO: Pass the ec2client for the "destination" account ID
 	region := azToRegionRegexp.FindString(availabilityZone)
-	branchENI, err = vpcService.getUnattachedBranchENI(ctx, tx, ec2wrapper.Key{AccountID: accountID, Region: region}, subnetID)
+	branchENI, err = vpcService.getUnattachedBranchENI(ctx, tx, ec2wrapper.Key{AccountID: accountID, Region: region}, subnetID, securityGroupIds)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return "", err
@@ -678,7 +699,7 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, insta
 	return branchENI, nil
 }
 
-func (vpcService *vpcService) ensureSecurityGroups(ctx context.Context, ec2client *ec2.EC2, eni *ec2.NetworkInterface, securityGroupIDs []string, allowSecurityGroupChange bool) error {
+func (vpcService *vpcService) ensureSecurityGroups(ctx context.Context, tx *sql.Tx, ec2client *ec2.EC2, eni *ec2.NetworkInterface, securityGroupIDs []string, allowSecurityGroupChange bool) error {
 	ctx, span := trace.StartSpan(ctx, "ensureSecurityGroups")
 	defer span.End()
 
@@ -709,8 +730,20 @@ func (vpcService *vpcService) ensureSecurityGroups(ctx context.Context, ec2clien
 		Groups:             aws.StringSlice(wantedSecurityGroupsSet.List()),
 		NetworkInterfaceId: eni.NetworkInterfaceId,
 	}
+
+	newSecurityGroupIDs := wantedSecurityGroupsSet.List()
+	sort.Strings(newSecurityGroupIDs)
 	_, err := ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
-	return ec2wrapper.HandleEC2Error(err, span)
+	if err != nil {
+		return ec2wrapper.HandleEC2Error(err, span)
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1, modified_at = transaction_timestamp() WHERE branch_eni = $2", pq.Array(newSecurityGroupIDs), aws.StringValue(eni.NetworkInterfaceId))
+	if err != nil {
+		err = errors.Wrap(err, "Could not update branch ENI security groups in database")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+	return nil
 }
 
 func assignSpecificIPv4Address(ctx context.Context, tx *sql.Tx, ec2client *ec2.EC2, branchENI *ec2.NetworkInterface, ipnet *net.IPNet, alloc *vpcapi.AssignIPRequestV2_Ipv4SignedAddressAllocation) (*vpcapi.UsableAddress, error) {
@@ -1029,7 +1062,7 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 	az := aws.StringValue(instance.Placement.AvailabilityZone)
 	instanceEC2Client := ec2.New(instanceSession.Session)
 	// TODO: Sargun, break out into its own transaction
-	branchENI, err := vpcService.ensureBranchENIAttached(ctx, instanceEC2Client, trunkENI, accountID, az, int(req.NetworkInterfaceAttachment.DeviceIndex))
+	branchENI, err := vpcService.ensureBranchENIAttached(ctx, instanceEC2Client, trunkENI, accountID, az, int(req.NetworkInterfaceAttachment.DeviceIndex), req.SecurityGroupIds)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -1070,7 +1103,7 @@ func (vpcService *vpcService) AssignIPV2(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
-	err = vpcService.ensureSecurityGroups(ctx, branchENIEC2Client, ec2BranchENI, req.SecurityGroupIds, req.AllowSecurityGroupChange)
+	err = vpcService.ensureSecurityGroups(ctx, tx, branchENIEC2Client, ec2BranchENI, req.SecurityGroupIds, req.AllowSecurityGroupChange)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err

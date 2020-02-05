@@ -269,7 +269,9 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	region := azToRegionRegexp.FindString(aws.StringValue(createNetworkInterfaceResult.NetworkInterface.AvailabilityZone))
 	_, err = tx.ExecContext(ctx, "INSERT INTO trunk_eni_accounts(account_id, region) VALUES ($1, $2) ON CONFLICT (account_id, region) DO NOTHING", aws.StringValue(createNetworkInterfaceResult.NetworkInterface.OwnerId), region)
 	if err != nil {
-		return nil, errors.Wrap(err, "Cannot update trunk eni accounts")
+		err = errors.Wrap(err, "Cannot update trunk eni accounts")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
 	}
 
 	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
@@ -297,6 +299,20 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	_, err = ec2client.CreateTagsWithContext(ctx, createTagsInput)
 	if err != nil {
 		logger.G(ctx).WithError(err).Warn("Could not tag network interface")
+	}
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO trunk_enis(trunk_eni, account_id, az, subnet_id, vpc_id, region) VALUES ($1, $2, $3, $4, $5, $6)",
+		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId),
+		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.OwnerId),
+		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.AvailabilityZone),
+		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.SubnetId),
+		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.VpcId),
+		region,
+	)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot update trunk enis")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
 	}
 
 	attachNetworkInterfaceInput := &ec2.AttachNetworkInterfaceInput{
