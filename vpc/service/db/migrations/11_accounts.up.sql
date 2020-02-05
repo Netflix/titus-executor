@@ -38,8 +38,8 @@ alter table branch_enis
 
 UPDATE branch_enis SET modified_at = created_at WHERE modified_at IS NULL;
 
-create index known_branch_eni_attachments_trunk_eni_index
-    on known_branch_eni_attachments (trunk_eni);
+create index branch_eni_attachments_trunk_eni_index
+    on branch_eni_attachments (trunk_eni);
 
 alter table branch_eni_attachments
     add created_at timestamp default CURRENT_TIMESTAMP;
