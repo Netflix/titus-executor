@@ -89,7 +89,21 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		}
 		describeNetworkInterfacesInput.NextToken = output.NextToken
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, security_groups) SELECT branch_eni, account_id, subnet_id, az, vpc_id, security_groups FROM known_branch_enis ON CONFLICT (branch_eni) DO UPDATE SET security_groups = excluded.security_groups, modified_at = transaction_timestamp() WHERE branch_enis.modified_at < transaction_timestamp()")
+	_, err = tx.ExecContext(ctx, `
+	INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, security_groups)
+	SELECT branch_eni,
+		   account_id,
+		   subnet_id,
+		   az,
+		   vpc_id,
+		   security_groups
+	FROM known_branch_enis ON CONFLICT (branch_eni) DO
+	UPDATE
+	SET security_groups = excluded.security_groups,
+		modified_at = transaction_timestamp()
+	WHERE branch_enis.modified_at < transaction_timestamp()
+	  AND branch_enis.security_groups != excluded.security_groups
+	  `)
 	if err != nil {
 		return errors.Wrap(err, "Could not insert new branch ENIs")
 	}
