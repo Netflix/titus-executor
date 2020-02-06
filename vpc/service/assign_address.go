@@ -507,17 +507,15 @@ func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sq
 	// TODO: Get rid of state = attached
 	rowContext := tx.QueryRowContext(ctx, `
 	SELECT branch_eni
-	FROM
-	  (SELECT branch_enis.branch_eni
-	   FROM branch_enis
-	   WHERE branch_eni NOT IN
-		   (SELECT branch_eni
-			FROM branch_eni_attachments)
-		 AND subnet_id = $1
-	   ORDER BY RANDOM()
-	   LIMIT 1) unattached_branch_eni 
+	FROM branch_enis
+	WHERE branch_eni NOT IN
+		(SELECT branch_eni
+		 FROM branch_eni_attachments)
+	  AND subnet_id = $1
+	ORDER BY RANDOM()
 	FOR
-	UPDATE
+	UPDATE SKIP LOCKED
+	LIMIT 1
 	`, subnetID)
 	err := rowContext.Scan(&branchENI)
 	if err == nil {
@@ -685,7 +683,14 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, insta
 		return "", ec2wrapper.HandleEC2Error(err, span)
 	}
 	logger.G(ctx).Debug(associateTrunkInterfaceOutput)
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, state, trunk_eni, idx, association_id) VALUES ($1, 'attached', $2, $3, $4) ON CONFLICT (branch_eni) DO UPDATE SET state = 'attached', trunk_eni = $2, idx = $3, association_id = $4",
+	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE branch_eni = $1", branchENI)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to delete existing branch eni attachments")
+		span.SetStatus(traceStatusFromError(err))
+		return "", err
+	}
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, state, trunk_eni, idx, association_id) VALUES ($1, 'attached', $2, $3, $4)",
 		branchENI,
 		aws.StringValue(trunkInterface.NetworkInterfaceId),
 		idx,

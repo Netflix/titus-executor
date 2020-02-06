@@ -189,7 +189,26 @@ func (vpcService *vpcService) reconcileBranchENIAttachmentsForRegionAccount(ctx 
 		describeTrunkInterfaceAssociationsInput.NextToken = output.NextToken
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, state, created_at) SELECT branch_eni, trunk_eni, idx, association_id, 'attached', transaction_timestamp() FROM known_branch_eni_attachments ON CONFLICT(branch_eni) DO UPDATE SET trunk_eni = excluded.trunk_eni, state = 'attached', idx = excluded.idx, association_id = excluded.association_id, created_at = transaction_timestamp() WHERE branch_eni_attachments.association_id != excluded.association_id")
+	_, err = tx.ExecContext(ctx, `
+	DELETE
+	FROM branch_eni_attachments
+	WHERE branch_eni IN
+		(SELECT branch_eni_attachments.branch_eni
+		 FROM branch_eni_attachments
+		 JOIN known_branch_eni_attachments ON branch_eni_attachments.branch_eni = known_branch_eni_attachments.branch_eni
+		 WHERE branch_eni_attachments.association_id != known_branch_eni_attachments.association_id
+		   AND created_at < transaction_timestamp())
+	`)
+	_, err = tx.ExecContext(ctx, `
+	INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, state, created_at)
+	SELECT branch_eni,
+		   trunk_eni,
+		   idx,
+		   association_id,
+		   'attached',
+		   transaction_timestamp()
+	FROM known_branch_eni_attachments WHERE branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments)
+`)
 	if err != nil {
 		return errors.Wrap(err, "Could not insert new branch eni attachments")
 	}
