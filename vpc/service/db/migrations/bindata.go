@@ -263,31 +263,32 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() ([]byte, error){
-	"10_eni_allocation_management.down.sql": _10_eni_allocation_management_down_sql,
-	"10_eni_allocation_management.up.sql": _10_eni_allocation_management_up_sql,
-	"11_accounts.down.sql": _11_accounts_down_sql,
-	"11_accounts.up.sql": _11_accounts_up_sql,
-	"1_init.down.sql": _1_init_down_sql,
-	"1_init.up.sql": _1_init_up_sql,
-	"2_branch_enis.down.sql": _2_branch_enis_down_sql,
-	"2_branch_enis.up.sql": _2_branch_enis_up_sql,
-	"3_branch_enis2.down.sql": _3_branch_enis2_down_sql,
-	"3_branch_enis2.up.sql": _3_branch_enis2_up_sql,
-	"4_branch_eni_last_used.down.sql": _4_branch_eni_last_used_down_sql,
-	"4_branch_eni_last_used.up.sql": _4_branch_eni_last_used_up_sql,
+	"10_eni_allocation_management.down.sql":   _10_eni_allocation_management_down_sql,
+	"10_eni_allocation_management.up.sql":     _10_eni_allocation_management_up_sql,
+	"11_accounts.down.sql":                    _11_accounts_down_sql,
+	"11_accounts.up.sql":                      _11_accounts_up_sql,
+	"1_init.down.sql":                         _1_init_down_sql,
+	"1_init.up.sql":                           _1_init_up_sql,
+	"2_branch_enis.down.sql":                  _2_branch_enis_down_sql,
+	"2_branch_enis.up.sql":                    _2_branch_enis_up_sql,
+	"3_branch_enis2.down.sql":                 _3_branch_enis2_down_sql,
+	"3_branch_enis2.up.sql":                   _3_branch_enis2_up_sql,
+	"4_branch_eni_last_used.down.sql":         _4_branch_eni_last_used_down_sql,
+	"4_branch_eni_last_used.up.sql":           _4_branch_eni_last_used_up_sql,
 	"5_branch_eni_attachments_index.down.sql": _5_branch_eni_attachments_index_down_sql,
-	"5_branch_eni_attachments_index.up.sql": _5_branch_eni_attachments_index_up_sql,
-	"6_set_unlogged.down.sql": _6_set_unlogged_down_sql,
-	"6_set_unlogged.up.sql": _6_set_unlogged_up_sql,
-	"7_add_association_info.down.sql": _7_add_association_info_down_sql,
-	"7_add_association_info.up.sql": _7_add_association_info_up_sql,
-	"8_add_multiaccount.down.sql": _8_add_multiaccount_down_sql,
-	"8_add_multiaccount.up.sql": _8_add_multiaccount_up_sql,
-	"9_last_run_by_who.down.sql": _9_last_run_by_who_down_sql,
-	"9_last_run_by_who.up.sql": _9_last_run_by_who_up_sql,
-	"bindata.go": bindata_go,
-	"generate.go": generate_go,
+	"5_branch_eni_attachments_index.up.sql":   _5_branch_eni_attachments_index_up_sql,
+	"6_set_unlogged.down.sql":                 _6_set_unlogged_down_sql,
+	"6_set_unlogged.up.sql":                   _6_set_unlogged_up_sql,
+	"7_add_association_info.down.sql":         _7_add_association_info_down_sql,
+	"7_add_association_info.up.sql":           _7_add_association_info_up_sql,
+	"8_add_multiaccount.down.sql":             _8_add_multiaccount_down_sql,
+	"8_add_multiaccount.up.sql":               _8_add_multiaccount_up_sql,
+	"9_last_run_by_who.down.sql":              _9_last_run_by_who_down_sql,
+	"9_last_run_by_who.up.sql":                _9_last_run_by_who_up_sql,
+	"bindata.go":                              bindata_go,
+	"generate.go":                             generate_go,
 }
+
 // AssetDir returns the file names below a certain
 // directory embedded in the file by go-bindata.
 // For example if you run go-bindata on data/... and data contains the
@@ -324,56 +325,33 @@ func AssetDir(name string) ([]string, error) {
 }
 
 type _bintree_t struct {
-	Func func() ([]byte, error)
+	Func     func() ([]byte, error)
 	Children map[string]*_bintree_t
 }
+
 var _bintree = &_bintree_t{nil, map[string]*_bintree_t{
-	"10_eni_allocation_management.down.sql": &_bintree_t{_10_eni_allocation_management_down_sql, map[string]*_bintree_t{
-	}},
-	"10_eni_allocation_management.up.sql": &_bintree_t{_10_eni_allocation_management_up_sql, map[string]*_bintree_t{
-	}},
-	"11_accounts.down.sql": &_bintree_t{_11_accounts_down_sql, map[string]*_bintree_t{
-	}},
-	"11_accounts.up.sql": &_bintree_t{_11_accounts_up_sql, map[string]*_bintree_t{
-	}},
-	"1_init.down.sql": &_bintree_t{_1_init_down_sql, map[string]*_bintree_t{
-	}},
-	"1_init.up.sql": &_bintree_t{_1_init_up_sql, map[string]*_bintree_t{
-	}},
-	"2_branch_enis.down.sql": &_bintree_t{_2_branch_enis_down_sql, map[string]*_bintree_t{
-	}},
-	"2_branch_enis.up.sql": &_bintree_t{_2_branch_enis_up_sql, map[string]*_bintree_t{
-	}},
-	"3_branch_enis2.down.sql": &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{
-	}},
-	"3_branch_enis2.up.sql": &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{
-	}},
-	"4_branch_eni_last_used.down.sql": &_bintree_t{_4_branch_eni_last_used_down_sql, map[string]*_bintree_t{
-	}},
-	"4_branch_eni_last_used.up.sql": &_bintree_t{_4_branch_eni_last_used_up_sql, map[string]*_bintree_t{
-	}},
-	"5_branch_eni_attachments_index.down.sql": &_bintree_t{_5_branch_eni_attachments_index_down_sql, map[string]*_bintree_t{
-	}},
-	"5_branch_eni_attachments_index.up.sql": &_bintree_t{_5_branch_eni_attachments_index_up_sql, map[string]*_bintree_t{
-	}},
-	"6_set_unlogged.down.sql": &_bintree_t{_6_set_unlogged_down_sql, map[string]*_bintree_t{
-	}},
-	"6_set_unlogged.up.sql": &_bintree_t{_6_set_unlogged_up_sql, map[string]*_bintree_t{
-	}},
-	"7_add_association_info.down.sql": &_bintree_t{_7_add_association_info_down_sql, map[string]*_bintree_t{
-	}},
-	"7_add_association_info.up.sql": &_bintree_t{_7_add_association_info_up_sql, map[string]*_bintree_t{
-	}},
-	"8_add_multiaccount.down.sql": &_bintree_t{_8_add_multiaccount_down_sql, map[string]*_bintree_t{
-	}},
-	"8_add_multiaccount.up.sql": &_bintree_t{_8_add_multiaccount_up_sql, map[string]*_bintree_t{
-	}},
-	"9_last_run_by_who.down.sql": &_bintree_t{_9_last_run_by_who_down_sql, map[string]*_bintree_t{
-	}},
-	"9_last_run_by_who.up.sql": &_bintree_t{_9_last_run_by_who_up_sql, map[string]*_bintree_t{
-	}},
-	"bindata.go": &_bintree_t{bindata_go, map[string]*_bintree_t{
-	}},
-	"generate.go": &_bintree_t{generate_go, map[string]*_bintree_t{
-	}},
+	"10_eni_allocation_management.down.sql":   &_bintree_t{_10_eni_allocation_management_down_sql, map[string]*_bintree_t{}},
+	"10_eni_allocation_management.up.sql":     &_bintree_t{_10_eni_allocation_management_up_sql, map[string]*_bintree_t{}},
+	"11_accounts.down.sql":                    &_bintree_t{_11_accounts_down_sql, map[string]*_bintree_t{}},
+	"11_accounts.up.sql":                      &_bintree_t{_11_accounts_up_sql, map[string]*_bintree_t{}},
+	"1_init.down.sql":                         &_bintree_t{_1_init_down_sql, map[string]*_bintree_t{}},
+	"1_init.up.sql":                           &_bintree_t{_1_init_up_sql, map[string]*_bintree_t{}},
+	"2_branch_enis.down.sql":                  &_bintree_t{_2_branch_enis_down_sql, map[string]*_bintree_t{}},
+	"2_branch_enis.up.sql":                    &_bintree_t{_2_branch_enis_up_sql, map[string]*_bintree_t{}},
+	"3_branch_enis2.down.sql":                 &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{}},
+	"3_branch_enis2.up.sql":                   &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{}},
+	"4_branch_eni_last_used.down.sql":         &_bintree_t{_4_branch_eni_last_used_down_sql, map[string]*_bintree_t{}},
+	"4_branch_eni_last_used.up.sql":           &_bintree_t{_4_branch_eni_last_used_up_sql, map[string]*_bintree_t{}},
+	"5_branch_eni_attachments_index.down.sql": &_bintree_t{_5_branch_eni_attachments_index_down_sql, map[string]*_bintree_t{}},
+	"5_branch_eni_attachments_index.up.sql":   &_bintree_t{_5_branch_eni_attachments_index_up_sql, map[string]*_bintree_t{}},
+	"6_set_unlogged.down.sql":                 &_bintree_t{_6_set_unlogged_down_sql, map[string]*_bintree_t{}},
+	"6_set_unlogged.up.sql":                   &_bintree_t{_6_set_unlogged_up_sql, map[string]*_bintree_t{}},
+	"7_add_association_info.down.sql":         &_bintree_t{_7_add_association_info_down_sql, map[string]*_bintree_t{}},
+	"7_add_association_info.up.sql":           &_bintree_t{_7_add_association_info_up_sql, map[string]*_bintree_t{}},
+	"8_add_multiaccount.down.sql":             &_bintree_t{_8_add_multiaccount_down_sql, map[string]*_bintree_t{}},
+	"8_add_multiaccount.up.sql":               &_bintree_t{_8_add_multiaccount_up_sql, map[string]*_bintree_t{}},
+	"9_last_run_by_who.down.sql":              &_bintree_t{_9_last_run_by_who_down_sql, map[string]*_bintree_t{}},
+	"9_last_run_by_who.up.sql":                &_bintree_t{_9_last_run_by_who_up_sql, map[string]*_bintree_t{}},
+	"bindata.go":                              &_bintree_t{bindata_go, map[string]*_bintree_t{}},
+	"generate.go":                             &_bintree_t{generate_go, map[string]*_bintree_t{}},
 }}
