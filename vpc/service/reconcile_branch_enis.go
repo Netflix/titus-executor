@@ -199,13 +199,15 @@ func (vpcService *vpcService) reconcileBranchENIAttachmentsForRegionAccount(ctx 
 		 WHERE branch_eni_attachments.association_id != known_branch_eni_attachments.association_id
 		   AND created_at < transaction_timestamp())
 	`)
+	if err != nil {
+		return errors.Wrap(err, "Cannot delete old (bad) branch ENI attachments")
+	}
 	_, err = tx.ExecContext(ctx, `
-	INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, state, created_at)
+	INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, created_at)
 	SELECT branch_eni,
 		   trunk_eni,
 		   idx,
 		   association_id,
-		   'attached',
 		   transaction_timestamp()
 	FROM known_branch_eni_attachments WHERE branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments)
 `)

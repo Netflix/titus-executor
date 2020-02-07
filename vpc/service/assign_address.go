@@ -605,7 +605,7 @@ func (vpcService *vpcService) ensureBranchENIAttached(ctx context.Context, insta
 	}
 
 	// Do we already have a branch ENI attached here?
-	rowContext = tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni, account_id, subnet_id, association_id FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE state = 'attached' AND idx = $1 AND trunk_eni = $2", idx, aws.StringValue(trunkInterface.NetworkInterfaceId))
+	rowContext = tx.QueryRowContext(ctx, "SELECT branch_enis.branch_eni, account_id, subnet_id, association_id FROM branch_enis JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni WHERE idx = $1 AND trunk_eni = $2", idx, aws.StringValue(trunkInterface.NetworkInterfaceId))
 	var branchENI, branchENIAccountID, branchENISubnetID, associationID string
 	err = rowContext.Scan(&branchENI, &branchENIAccountID, &branchENISubnetID, &associationID)
 	if err == nil {
