@@ -122,6 +122,39 @@ message AssignIPResponseV2 {
     uint32 vlanId = 5;
 };
 
+message AssignIPRequestV3 {
+    string taskId = 1;
+    repeated string securityGroupIds = 2;
+    oneof ipv6 {
+        bool ipv6AddressRequested = 3;
+    }
+    oneof ipv4 {
+        bool ipv4AddressRequested = 4;
+        com.netflix.titus.SignedAddressAllocation ipv4SignedAddressAllocation = 5;
+    }
+    repeated string subnets = 7;
+    // This identifies the trunk ENI
+    oneof identity {
+        InstanceIdentity instanceIdentity = 8;
+    }
+    string accountID = 9;
+};
+
+message AssignIPResponseV3 {
+    UsableAddress ipv4address = 1;
+    UsableAddress ipv6address = 2;
+    NetworkInterface branchNetworkInterface = 3;
+    NetworkInterface trunkNetworkInterface = 4;
+    uint32 vlanId = 5;
+};
+
+message UnassignIPRequestV3 {
+    string taskId = 1;
+};
+
+message UnassignIPResponseV3 {
+    string taskId = 1;
+};
 
 message UsableAddress {
     Address address = 1;
@@ -194,6 +227,8 @@ service TitusAgentVPCService {
 
     rpc AssignIP (AssignIPRequest) returns (AssignIPResponse);
     rpc AssignIPV2   (AssignIPRequestV2) returns (AssignIPResponseV2);
+    rpc AssignIPV3 (AssignIPRequestV3) returns (AssignIPResponseV3);
+    rpc UnassignIPV3 (UnassignIPRequestV3) returns (UnassignIPResponseV3);
     rpc RefreshIP (RefreshIPRequest) returns (RefreshIPResponse);
     // GC extra IPs
     rpc GCSetupLegacy (GCLegacySetupRequest) returns (GCLegacySetupResponse);

@@ -37,7 +37,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		"accountID": account.accountID,
 	}).Info("Beginning reconcilation of branch ENIs")
 
-	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_enis (branch_eni TEXT PRIMARY KEY, account_id text, subnet_id text, az text, vpc_id text, state text, security_groups text array) ON COMMIT DROP ")
+	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_enis (branch_eni TEXT PRIMARY KEY, account_id text, subnet_id text, az text, vpc_id text, state text, security_groups text array, mac macaddr) ON COMMIT DROP ")
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return errors.Wrap(err, "Could not create temporary table for known branch enis")
@@ -71,7 +71,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 				securityGroups[idx] = aws.StringValue(group.GroupId)
 			}
 			sort.Strings(securityGroups)
-			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, state, security_groups) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, state, security_groups, mac) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
 				aws.StringValue(branchENI.NetworkInterfaceId),
 				aws.StringValue(branchENI.OwnerId),
 				aws.StringValue(branchENI.SubnetId),
@@ -79,6 +79,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 				aws.StringValue(branchENI.VpcId),
 				aws.StringValue(branchENI.Status),
 				pq.Array(securityGroups),
+				aws.StringValue(branchENI.MacAddress),
 			)
 			if err != nil {
 				return errors.Wrap(err, "Could not update known_branch_enis")
@@ -90,19 +91,22 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		describeNetworkInterfacesInput.NextToken = output.NextToken
 	}
 	_, err = tx.ExecContext(ctx, `
-	INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, security_groups)
+	INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, security_groups, mac, modified_at)
 	SELECT branch_eni,
 		   account_id,
 		   subnet_id,
 		   az,
 		   vpc_id,
-		   security_groups
+		   security_groups,
+	       mac,
+	       transaction_timestamp()
 	FROM known_branch_enis ON CONFLICT (branch_eni) DO
 	UPDATE
 	SET security_groups = excluded.security_groups,
+	    mac = excluded.mac,
 		modified_at = transaction_timestamp()
 	WHERE branch_enis.modified_at < transaction_timestamp()
-	  AND branch_enis.security_groups != excluded.security_groups
+	  AND (branch_enis.security_groups != excluded.security_groups OR branch_enis.mac IS NULL)
 	  `)
 	if err != nil {
 		return errors.Wrap(err, "Could not insert new branch ENIs")

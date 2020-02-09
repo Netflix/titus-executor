@@ -38,6 +38,8 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 					locker,
 					conn,
 				)
+			case "v3":
+				return nil
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}

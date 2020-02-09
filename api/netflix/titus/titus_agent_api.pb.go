@@ -11,6 +11,8 @@ import (
 	proto "github.com/golang/protobuf/proto"
 	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1677,6 +1679,44 @@ type AgentManagementServiceServer interface {
 	DeleteAgentInstanceAttributes(context.Context, *DeleteAgentInstanceAttributesRequest) (*empty.Empty, error)
 	/// Sends first current snapshot of the agent topology, and next an event for each topology change.
 	ObserveAgents(*empty.Empty, AgentManagementService_ObserveAgentsServer) error
+}
+
+// UnimplementedAgentManagementServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedAgentManagementServiceServer struct {
+}
+
+func (*UnimplementedAgentManagementServiceServer) GetInstanceGroups(ctx context.Context, req *empty.Empty) (*AgentInstanceGroups, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInstanceGroups not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) GetInstanceGroup(ctx context.Context, req *Id) (*AgentInstanceGroup, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInstanceGroup not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) GetAgentInstance(ctx context.Context, req *Id) (*AgentInstance, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAgentInstance not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) FindAgentInstances(ctx context.Context, req *AgentQuery) (*AgentInstances, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FindAgentInstances not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupTier(ctx context.Context, req *TierUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateInstanceGroupTier not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupLifecycleState(ctx context.Context, req *InstanceGroupLifecycleStateUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateInstanceGroupLifecycleState not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupAttributes(ctx context.Context, req *InstanceGroupAttributesUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateInstanceGroupAttributes not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) DeleteInstanceGroupAttributes(ctx context.Context, req *DeleteInstanceGroupAttributesRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteInstanceGroupAttributes not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) UpdateAgentInstanceAttributes(ctx context.Context, req *AgentInstanceAttributesUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateAgentInstanceAttributes not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) DeleteAgentInstanceAttributes(ctx context.Context, req *DeleteAgentInstanceAttributesRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteAgentInstanceAttributes not implemented")
+}
+func (*UnimplementedAgentManagementServiceServer) ObserveAgents(req *empty.Empty, srv AgentManagementService_ObserveAgentsServer) error {
+	return status.Errorf(codes.Unimplemented, "method ObserveAgents not implemented")
 }
 
 func RegisterAgentManagementServiceServer(s *grpc.Server, srv AgentManagementServiceServer) {

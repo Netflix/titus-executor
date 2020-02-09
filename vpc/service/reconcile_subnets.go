@@ -4,11 +4,12 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/pkg/errors"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
 
@@ -81,17 +82,18 @@ func (vpcService *vpcService) reconcileSubnetsForRegionAccount(ctx context.Conte
 			return ec2wrapper.HandleEC2Error(err, span)
 		}
 		for _, subnet := range output.Subnets {
-			_, err = tx.ExecContext(ctx, "INSERT INTO subnets(az, az_id, vpc_id, account_id, subnet_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (subnet_id) DO NOTHING",
+			_, err = tx.ExecContext(ctx, "INSERT INTO subnets(az, az_id, vpc_id, account_id, subnet_id, cidr) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (subnet_id) DO NOTHING",
 				aws.StringValue(subnet.AvailabilityZone),
 				aws.StringValue(subnet.AvailabilityZoneId),
 				aws.StringValue(subnet.VpcId),
 				aws.StringValue(subnet.OwnerId),
-				aws.StringValue(subnet.SubnetId))
-		}
-		if err != nil {
-			err = ec2wrapper.HandleEC2Error(err, span)
-			err = errors.Wrap(err, "Cannot describe subnets")
-			return err
+				aws.StringValue(subnet.SubnetId),
+				aws.StringValue(subnet.CidrBlock))
+			if err != nil {
+				err = ec2wrapper.HandleEC2Error(err, span)
+				err = errors.Wrap(err, "Cannot insert subnets")
+				return err
+			}
 		}
 
 		if output.NextToken == nil {

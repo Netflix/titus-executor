@@ -332,6 +332,17 @@ func GetMaxNetworkbps(instanceType string) (uint64, error) {
 	return uint64(maxNetworkMbps) * 1000 * 1000, err
 }
 
+func GetMaxBranchENIs(instanceType string) (int, error) {
+	l, err := getLimits(instanceType)
+	if err != nil {
+		return 0, err
+	}
+	if l.branchENIs == 0 {
+		return 0, fmt.Errorf("Instance type %s does not support branch ENIs", instanceType)
+	}
+	return l.branchENIs, nil
+}
+
 // MustGetMaxInterfaces returns the maximum number of interfaces that this instance type can handle
 // includes the primary ENI
 func MustGetMaxInterfaces(instanceType string) int {
