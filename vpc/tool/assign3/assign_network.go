@@ -37,6 +37,7 @@ type Arguments struct {
 	IPv4AllocationUUID string
 	InterfaceAccount   string
 	TaskID             string
+	Oneshot bool
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, args Arguments) error {
@@ -100,6 +101,10 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 			})
 	if err != nil {
 		return errors.Wrap(err, "Unable to write allocation record")
+	}
+
+	if args.Oneshot {
+		return nil
 	}
 
 	c := make(chan os.Signal, 1)

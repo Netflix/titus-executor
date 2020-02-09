@@ -58,6 +58,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						IPv4AllocationUUID: v.GetString("ipv4-allocation-uuid"),
 						InterfaceAccount:   v.GetString(interfaceAccount),
 						TaskID:             v.GetString("task-id"),
+						Oneshot: v.GetBool("oneshot"),
 					},
 				)
 			default:
@@ -73,6 +74,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().String(interfaceAccount, "", "The account that the interface should live in")
 	cmd.Flags().String("task-id", "", "The task ID for the allocation")
 	cmd.Flags().StringSlice("subnet-ids", []string{}, "The subnet IDs for the allocation")
+	cmd.Flags().Bool("oneshot", false, "Whether or not to assign the address, and then exit")
 	addSharedFlags(cmd.Flags())
 
 	return cmd

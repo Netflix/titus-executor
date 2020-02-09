@@ -131,8 +131,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	// 2. Choose the subnet we're "scheduling" into
 	// 3. Check if there are any branch ENIs already attached to the trunk ENI with the subnet + security groups wanted, and have fewer than 50 assignments (for share)
 	// 4. Check if there are any branch ENIs with the subnet with 0 allocations (FOR UPDATE), set the security groups, and then lock the ENI, and so on.
-	// 5. Check if there are any slots to attach a branch ENI
-	// 6. Check if there are any branch ENIs not in use, and unattach them. Return to 5.
+	// 5. Attach an ENI that fulfills the requirements
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "AssignIPv3")
@@ -192,12 +191,91 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	if err == nil {
 		return resp, err
 	}
-	if err != methodNotPossible {
+
+	return nil, status.Errorf(codes.Unknown, "Could not complete request: %s", err.Error())
+}
+
+
+func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, subnetID string, wantedSecurityGroupsIDs []string) (*branchENI, error) {
+	ctx, span := trace.StartSpan(ctx, "getUnattachedBranchENIWithSecurityGroups")
+	defer span.End()
+
+	ec2client := ec2.New(session.Session)
+
+	var eni branchENI
+	var hasSecurityGroupIDs []string
+	rowContext := tx.QueryRowContext(ctx, `
+	SELECT branch_eni, az, account_id, mac::text, security_groups
+	FROM branch_enis
+	WHERE branch_eni NOT IN
+		(SELECT branch_eni
+		 FROM branch_eni_attachments)
+	  AND subnet_id = $1
+	ORDER BY RANDOM()
+	FOR
+	UPDATE SKIP LOCKED
+	LIMIT 1
+	`, subnetID)
+	err := rowContext.Scan(&eni.id, &eni.az, &eni.accountID, &eni.mac, &hasSecurityGroupIDs)
+	if err == nil {
+		if sets.NewString(wantedSecurityGroupsIDs...).Equal(sets.NewString(hasSecurityGroupIDs...)) {
+			return &eni, nil
+		}
+		_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, &ec2.ModifyNetworkInterfaceAttributeInput{
+			Groups:             aws.StringSlice(wantedSecurityGroupsIDs),
+			NetworkInterfaceId: aws.String(eni.id),
+		})
+		if err != nil {
+			err = errors.Wrap(err, "Cannot modify security groups on interface")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		return &eni, nil
+	} else if err != sql.ErrNoRows {
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	return nil, status.Error(codes.Unimplemented, "Not yet implemented")
+	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
+		Ipv6AddressCount: aws.Int64(0),
+		SubnetId:         aws.String(subnetID),
+		Description:      aws.String(vpc.BranchNetworkInterfaceDescription),
+		Groups:           aws.StringSlice(wantedSecurityGroupsIDs),
+	}
+
+	logger.G(ctx).WithField("createNetworkInterfaceInput", createNetworkInterfaceInput).Debug("Creating Branch ENI")
+	createNetworkInterfaceOutput, err := ec2client.CreateNetworkInterface(createNetworkInterfaceInput)
+	if err != nil {
+		return nil, err
+	}
+
+	securityGroupIds := make([]string, len(createNetworkInterfaceOutput.NetworkInterface.Groups))
+	for idx := range createNetworkInterfaceOutput.NetworkInterface.Groups {
+		securityGroupIds[idx] = aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.Groups[idx].GroupId)
+	}
+	sort.Strings(securityGroupIds)
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at, mac) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp(), $7)",
+		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId),
+		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.SubnetId),
+		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
+		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
+		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.VpcId),
+		pq.Array(securityGroupIds),
+		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.MacAddress),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &branchENI{
+		id:           aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId) ,
+		az:            aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
+		accountID:     aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
+		mac:           aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.MacAddress),
+	}, nil
 }
+
 
 func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, instanceSession *ec2wrapper.EC2Session, s *subnet, trunkENI *ec2.InstanceNetworkInterface, instance *ec2.Instance, maxIPAddresses int) (resp *vpcapi.AssignIPResponseV3, retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -222,11 +300,16 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 		}
 	}()
 
-	row := tx.QueryRowContext(ctx, `SELECT idx FROM branch_eni_attachments WHERE trunk_eni = $1`, aws.StringValue(trunkENI.NetworkInterfaceId))
+	rows, err := tx.QueryContext(ctx, `SELECT idx FROM branch_eni_attachments WHERE trunk_eni = $1`, aws.StringValue(trunkENI.NetworkInterfaceId))
+	if err != nil {
+		err = errors.Wrap(err, "Could query database for branch ENI attachments")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
 	usedIndexes := sets.NewInt()
-	for {
+	for rows.Next() {
 		var idx int
-		err = row.Scan(&idx)
+		err = rows.Scan(&idx)
 		if err != nil {
 			err = errors.Wrap(err, "Could scan database for attached ENIs on trunk ENI")
 			span.SetStatus(traceStatusFromError(err))
@@ -248,15 +331,108 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 	}
 	unusedIndexes := allIndexes.Difference(usedIndexes)
 	var attachmentIdx int
-	if unusedIndexes.Len() == 0 {
+	if unusedIndexes.Len() == 0 || unusedIndexes.Len() == maxBranchENIs {
 		return nil, status.Error(codes.Unknown, "Attachment with full ENI list unimplemented")
 	} else {
 		s1 := rand.NewSource(time.Now().UnixNano())
 		r1 := rand.New(s1)
 		unusedIndexesList := unusedIndexes.UnsortedList()
 		attachmentIdx = unusedIndexesList[r1.Intn(len(unusedIndexesList))]
+
+		branchENISession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region:azToRegionRegexp.FindString(s.az), AccountID:s.accountID})
+		if err != nil {
+			err = errors.Wrap(err, "Cannot get session for account / region")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		// This creates a lock on that index. Although there is no way to "fix" the locking problem, this will result in the other txn aborting
+		eni, err := vpcService.getUnattachedBranchENIWithSecurityGroups(ctx, tx, branchENISession, s.subnetID, req.SecurityGroupIds)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot get branch ENI to attach")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		row := tx.QueryRowContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx) VALUES ($1, $2, $3) RETURNING id", eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
+		var branchENIAttachmentID int
+		err = row.Scan(&branchENIAttachmentID)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot create row in branch ENI attachments")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		err = vpcService.ensureBranchENIPermissionV3(ctx, tx, trunkENI, branchENISession, eni)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		ec2client := ec2.New(instanceSession.Session)
+		association, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &ec2.AssociateTrunkInterfaceInput{
+			BranchInterfaceId: aws.String(eni.id),
+			TrunkInterfaceId:  trunkENI.NetworkInterfaceId,
+			VlanId:            aws.Int64(int64(attachmentIdx)),
+		})
+		if err != nil {
+			err = errors.Wrap(err, "Cannot associate trunk interface with branch ENI")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+
+		_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET association_id = $1 WHERE id = $2", aws.StringValue(association.InterfaceAssociation.AssociationId), branchENIAttachmentID)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot update branch ENI attachments table")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		eni.idx = int(aws.Int64Value(association.InterfaceAssociation.VlanId))
+		eni.associationID = aws.StringValue(association.InterfaceAssociation.AssociationId)
+
+		return vpcService.assignIPsToENI(ctx, req, tx, branchENISession, s, eni, instance, trunkENI, maxIPAddresses)
 	}
 
+
+}
+
+func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, tx *sql.Tx, trunkENI *ec2.InstanceNetworkInterface, branchENISession *ec2wrapper.EC2Session, eni *branchENI) error {
+	ctx, span := trace.StartSpan(ctx, "ensureBranchENIPermissionV3")
+	defer span.End()
+
+	if eni.accountID == aws.StringValue(trunkENI.OwnerId) {
+		return nil
+	}
+
+	// This could be collapsed into a join on the above query, but for now, we wont do that
+	row := tx.QueryRowContext(ctx, "SELECT COALESCE(count(*), 0) FROM eni_permissions WHERE branch_eni = $1 AND account_id = $2", eni.id, eni.accountID)
+	var permissions int
+	err := row.Scan(&permissions)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot retrieve from branch ENI permissions")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+	if permissions > 0 {
+		return nil
+	}
+
+	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", aws.StringValue(trunkENI.OwnerId), eni.accountID)
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID:eni.accountID, Region:azToRegionRegexp.FindString(eni.az)})
+	if err != nil {
+		return err
+	}
+
+	ec2client := ec2.New(session.Session)
+	_, err = ec2client.CreateNetworkInterfacePermissionWithContext(ctx, &ec2.CreateNetworkInterfacePermissionInput{
+		AwsAccountId:       trunkENI.OwnerId,
+		NetworkInterfaceId: aws.String(eni.id),
+		Permission:         aws.String("INSTANCE-ATTACH"),
+	})
+
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create network interface permission")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	return nil
 }
 
 func (vpcService *vpcService) assignIPWithChangeSGOnENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, s *subnet, trunkENI *ec2.InstanceNetworkInterface, instance *ec2.Instance, maxIPAddresses int) (resp *vpcapi.AssignIPResponseV3, retErr error) {
