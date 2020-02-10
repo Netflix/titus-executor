@@ -1,5 +1,6 @@
-DROP INDEX branch_eni_attachments_association_id_uindex;
 DROP TABLE assignments;
+
+DROP INDEX branch_eni_attachments_association_id_uindex;
 
 alter table subnets
     drop cidr;
