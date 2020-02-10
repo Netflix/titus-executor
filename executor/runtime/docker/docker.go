@@ -716,6 +716,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		"assign",
 		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
+		"--task-id", c.TaskID,
 	}
 
 	if c.AllocationUUID != "" {
