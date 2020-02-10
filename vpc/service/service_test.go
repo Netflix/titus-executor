@@ -41,15 +41,16 @@ func TestService(t *testing.T) {
 	go func() {
 		defer close(serverErrCh)
 		serverErr := Run(ctx, &Config{
-			Listener:             listener,
-			DB:                   nil,
-			Key:                  key,
-			MaxConcurrentRefresh: 10,
-			GCTimeout:            2 * time.Minute,
-			ReconcileInterval:    5 * time.Minute,
-			RefreshInterval:      30 * time.Second,
-			TLSConfig:            nil,
-			TitusAgentCACertPool: nil,
+			Listener:              listener,
+			DB:                    nil,
+			Key:                   key,
+			MaxConcurrentRefresh:  10,
+			GCTimeout:             2 * time.Minute,
+			ReconcileInterval:     5 * time.Minute,
+			RefreshInterval:       30 * time.Second,
+			TLSConfig:             nil,
+			TitusAgentCACertPool:  nil,
+			DisableLongLivedTasks: true,
 		})
 		if serverErr != nil && serverErr != context.Canceled {
 			serverErrCh <- serverErr
