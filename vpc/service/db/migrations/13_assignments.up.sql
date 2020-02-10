@@ -44,3 +44,23 @@ create unlogged table ip_last_used_v3
 create unique index ip_last_used_v3_ip_address_uindex
     on ip_last_used_v3 (ip_address, vpc_id);
 
+alter table branch_eni_attachments
+    add attachment_generation int;
+
+alter table branch_enis
+    add last_assigned_to timestamp;
+
+create table long_lived_locks
+(
+    id bigserial
+        constraint long_lived_locks_pk
+            primary key,
+    lock_name text,
+    held_by text,
+    held_until timestamp
+);
+
+create unique index long_lived_locks_lock_name_uindex
+    on long_lived_locks (lock_name);
+
+

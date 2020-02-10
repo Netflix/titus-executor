@@ -7,7 +7,10 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -22,6 +25,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
+)
+
+const (
+	invalidParameterValue = "InvalidParameterValue"
 )
 
 var (
@@ -408,7 +415,7 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	row := tx.QueryRowContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx) VALUES ($1, $2, $3) RETURNING id", eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
+	row := tx.QueryRowContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, attachment_generation) VALUES ($1, $2, $3, 3) RETURNING id", eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
 	var branchENIAttachmentID int
 	err = row.Scan(&branchENIAttachmentID)
 	if err != nil {
@@ -792,6 +799,13 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		}
 	}
 
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_assigned_to = now() WHERE branch_eni = $1", aws.StringValue(iface.NetworkInterfaceId))
+	if err != nil {
+		err = errors.Wrap(err, "Cannot update last_assigned_to")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	resp.BranchNetworkInterface = &vpcapi.NetworkInterface{
 		SubnetId:           subnet.subnetID,
 		AvailabilityZone:   eni.az,
@@ -954,40 +968,6 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 	logger.G(ctx).WithField("usedIPAddresses", usedIPAddresses.List()).WithField("allInterfaceIPAddresses", allInterfaceIPAddresses.List()).Debug("Trying to assign IP Address")
 	unusedIPAddresses := allInterfaceIPAddresses.Difference(usedIPAddresses)
 
-	rows, err = tx.QueryContext(ctx, "SELECT ip_address, home_eni FROM ip_addresses WHERE subnet_id = $1 AND ip_address = ANY($2)", aws.StringValue(branchENI.SubnetId), pq.Array(unusedIPAddresses.UnsortedList()))
-	if err != nil {
-		err = errors.Wrap(err, "Cannot query statically allocated addresses")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	// We have to do it one at a time, versus aggregating on branch ENI, because aggregation functions are not supported
-	// when selecting for update
-	for rows.Next() {
-		var ipAddress string
-		var homeENI string
-		err = rows.Scan(&ipAddress, &homeENI)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot scan row of statically configured ip addresses")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-
-		assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
-			AllowReassignment:  aws.Bool(true),
-			NetworkInterfaceId: aws.String(homeENI),
-			PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
-		}
-
-		_, err := session.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput)
-		if err != nil {
-			err = errors.Wrap(err, "Unable to relocate unused static IP addresses")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		allInterfaceIPAddresses.Delete(ipAddress)
-	}
-
 	if unusedIPAddresses.Len() > 0 {
 		unusedIPv4AddressesList := unusedIPAddresses.List()
 
@@ -1048,6 +1028,18 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 		err = ec2wrapper.HandleEC2Error(err, span)
 		return nil, err
 	}
+
+	newPrivateAddresses := make([]string, len(output.AssignedPrivateIpAddresses))
+	for idx := range output.AssignedPrivateIpAddresses {
+		newPrivateAddresses[idx] = aws.StringValue(output.AssignedPrivateIpAddresses[idx].PrivateIpAddress)
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, last_seen, vpc_id) (SELECT unnest(($1)):: inet AS ip, now(), $2) ON CONFLICT (vpc_id, ip_address) DO UPDATE SET last_seen = now()", pq.Array(newPrivateAddresses), aws.StringValue(branchENI.VpcId))
+	if ipsToAssign <= 0 {
+		err = errors.Wrap(err, "Cannot update ip_last_used_v3 table")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	return &vpcapi.UsableAddress{
 		Address: &vpcapi.Address{
 			Address: aws.StringValue(output.AssignedPrivateIpAddresses[0].PrivateIpAddress),
@@ -1075,7 +1067,59 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1 RETURNING assignments.ipv4addr, assignments.ipv6addr, assignments.branch_eni_association", req.TaskId)
+	row := tx.QueryRowContext(ctx, `
+SELECT ip_addresses.ip_address,
+       ip_addresses.home_eni,
+       branch_enis.branch_eni,
+       branch_enis.account_id,
+       branch_enis.az 
+FROM assignments
+JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
+JOIN ip_addresses ON assignments.ipv4addr = ip_addresses.ip_address AND branch_enis.subnet_id = ip_addresses.subnet_id
+WHERE assignment_id = $1
+`, req.TaskId)
+	var ipAddress, homeENI, branchENI, accountID, az string
+	err = row.Scan(&ipAddress, &homeENI, &branchENI, &accountID, &az)
+	if err == nil {
+		session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: azToRegionRegexp.FindString(az)})
+		if err != nil {
+			err = errors.Wrap(err, "Cannot get AWS session")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+
+		_, err = session.UnassignPrivateIPAddresses(ctx, ec2.UnassignPrivateIpAddressesInput{
+			NetworkInterfaceId: aws.String(branchENI),
+			PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+		})
+		// TODO: If the IP address has already been assigned, it's actually "okay"
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() != invalidParameterValue && strings.HasSuffix(awsErr.Message(), "Some of the specified addresses are not assigned to interface") {
+				return nil, ec2wrapper.HandleEC2Error(err, span)
+			}
+		} else if err != nil {
+			return nil, ec2wrapper.HandleEC2Error(err, span)
+		}
+
+		_, err = session.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
+			NetworkInterfaceId: aws.String(homeENI),
+			PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+		})
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() != invalidParameterValue {
+				return nil, ec2wrapper.HandleEC2Error(err, span)
+			}
+		} else if err != nil {
+			logger.G(ctx).WithError(err).Error("Unable to relocate IP address back to home ENI")
+		}
+	} else if err != sql.ErrNoRows {
+		err = errors.Wrap(err, "Cannot query assignment if static address from database")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	row = tx.QueryRowContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1 RETURNING assignments.ipv4addr, assignments.ipv6addr, assignments.branch_eni_association", req.TaskId)
 	var ipv4, ipv6 sql.NullString
 	var association string
 	err = row.Scan(&ipv4, &ipv6, &association)
@@ -1140,7 +1184,7 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wr
 	}
 	prefixlength, _ := ipnet.Mask.Size()
 
-	row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_addresses WHERE id = $1", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
+	row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_addresses WHERE id = $1 FOR UPDATE", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
 	var ip string
 	err = row.Scan(&ip)
 	if err == sql.ErrNoRows {
