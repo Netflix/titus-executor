@@ -4,10 +4,6 @@ DROP TABLE assignments;
 alter table subnets
     drop cidr;
 
-alter table branch_enis
-    drop mac;
-
-alter table trunk_enis
-    drop mac;
+DROP TABLE ip_last_used_v3;
 
 -- This isn't going to "fix" the branch_enis table.

@@ -19,6 +19,10 @@ const (
 	exclusive          = unix.LOCK_EX
 )
 
+// TODO(Sargun): Get rid of pending work.
+// We can lock the file when it's created by using O_TMPFILE, and creating a lock on the file
+// and then hard-linking it into place.
+
 // FSLocker is a configuration holder struct, use NewFSLocker to instantiate
 type FSLocker struct {
 	pendingWorkPath string

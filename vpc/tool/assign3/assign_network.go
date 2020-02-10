@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/utilities"
+
 	"github.com/pborman/uuid"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -37,7 +39,7 @@ type Arguments struct {
 	IPv4AllocationUUID string
 	InterfaceAccount   string
 	TaskID             string
-	Oneshot bool
+	Oneshot            bool
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, args Arguments) error {
@@ -48,6 +50,8 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 		"account":             args.InterfaceAccount,
 	})
 	logger.G(ctx).Info()
+
+	optimisticLockTimeout := time.Duration(0)
 
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 	indexLock, allocationIndex, err := doAllocateIndex(ctx, locker)
@@ -65,6 +69,10 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 		args.TaskID = uuid.New()
 		logger.G(ctx).WithField("taskId", args.TaskID).Info("Setting task ID")
 	}
+	lock, err := locker.ExclusiveLock(ctx, filepath.Join(utilities.GetTasksLockPath(), args.TaskID), &optimisticLockTimeout)
+	if err != nil {
+		return errors.Wrap(err, "Cannot lock assignv3 task lock file")
+	}
 
 	allocation, err := doAllocateNetwork(ctx, instanceIdentityProvider, locker, client, args)
 	if err != nil {
@@ -75,6 +83,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 		}
 		return err
 	}
+	allocation.taskLock = lock
 	ctx = logger.WithField(ctx, "ip4", allocation.ip4Address)
 	if args.AssignIPv6Address {
 		ctx = logger.WithField(ctx, "ip6", allocation.ip6Address)
@@ -139,6 +148,7 @@ type allocation struct { // nolint:dupl
 	trunkNetworkInterface  *vpcapi.NetworkInterface
 	vlanID                 int
 	taskID                 string
+	taskLock               *fslocker.ExclusiveLock
 }
 
 func (a *allocation) deallocate(ctx context.Context, client vpcapi.TitusAgentVPCServiceClient) {
@@ -148,6 +158,7 @@ func (a *allocation) deallocate(ctx context.Context, client vpcapi.TitusAgentVPC
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not deallocate allocation")
 	}
+	a.taskLock.Unlock()
 }
 
 func (a *allocation) String() string {
@@ -180,9 +191,9 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		Ipv6: &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{
 			Ipv6AddressRequested: args.AssignIPv6Address,
 		},
-		Subnets:   args.SubnetIds,
-		Identity:  &vpcapi.AssignIPRequestV3_InstanceIdentity{InstanceIdentity: instanceIdentity},
-		AccountID: args.InterfaceAccount,
+		Subnets:          args.SubnetIds,
+		InstanceIdentity: instanceIdentity,
+		AccountID:        args.InterfaceAccount,
 	}
 
 	if args.IPv4AllocationUUID != "" {

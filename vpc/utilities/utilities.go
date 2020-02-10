@@ -22,6 +22,10 @@ func GetAddressesLockPath(idx int) string {
 	return filepath.Join(GetLockPath(idx), "addresses")
 }
 
+func GetTasksLockPath() string {
+	return "tasks"
+}
+
 // Global configuration lock is taken out exclusively during setup, and GC
 func GetGlobalConfigurationLock() string {
 	return "global"

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tool/gc3"
+
 	"github.com/Netflix/titus-executor/vpc/tool/gc"
 
 	"github.com/Netflix/titus-executor/vpc/tool/gc2"
@@ -39,7 +41,12 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 					conn,
 				)
 			case "v3":
-				return nil
+				return gc3.GC(ctx,
+					v.GetDuration("timeout"),
+					iipGetter(),
+					locker,
+					conn,
+				)
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}

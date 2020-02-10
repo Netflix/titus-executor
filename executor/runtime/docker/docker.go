@@ -66,6 +66,7 @@ const (
 	trueString              = "true"
 	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
 	accountID               = "titusParameter.agent.accountId"
+	subnets                 = "titusParameter.agent.subnets"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
@@ -723,6 +724,10 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 
 	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
 		args = append(args, "--interface-account", vpcAccountID)
+	}
+
+	if subnets, ok := c.TitusInfo.GetPassthroughAttributes()[subnets]; ok {
+		args = append(args, "--subnet-ids", subnets)
 	}
 
 	assignIPv6Address, err := c.AssignIPv6Address()

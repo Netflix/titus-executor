@@ -58,7 +58,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						IPv4AllocationUUID: v.GetString("ipv4-allocation-uuid"),
 						InterfaceAccount:   v.GetString(interfaceAccount),
 						TaskID:             v.GetString("task-id"),
-						Oneshot: v.GetBool("oneshot"),
+						Oneshot:            v.GetBool("oneshot"),
 					},
 				)
 			default:

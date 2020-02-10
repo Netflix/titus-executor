@@ -24,46 +24,43 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func (vpcService *vpcService) getSessionAndTrunkInterface(ctx context.Context, req *vpcapi.AssignIPRequestV3) (*ec2wrapper.EC2Session, *ec2.Instance, *ec2.InstanceNetworkInterface, error) {
+var (
+	errAllENIsInUse                = errors.New("All ENIs in use, cannot deallocate any ENIs")
+	errAssignmentMethodNotPossible = errors.New("Assignment method is not possible")
+)
+
+func (vpcService *vpcService) getSessionAndTrunkInterface(ctx context.Context, instanceIdentity *vpcapi.InstanceIdentity) (*ec2wrapper.EC2Session, *ec2.Instance, *ec2.InstanceNetworkInterface, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "getSessionAndTrunkInterface")
 	defer span.End()
 
-	switch identity := (req.Identity).(type) {
-	case *vpcapi.AssignIPRequestV3_InstanceIdentity:
-		instanceSession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: identity.InstanceIdentity.Region, AccountID: identity.InstanceIdentity.AccountID})
-		if err != nil {
-			span.SetStatus(traceStatusFromError(err))
-			return nil, nil, nil, err
-		}
-		instance, _, err := instanceSession.GetInstance(ctx, identity.InstanceIdentity.InstanceID, false)
-		if err != nil {
-			span.SetStatus(traceStatusFromError(err))
-			return nil, nil, nil, err
-		}
-
-		trunkENI := vpcService.getTrunkENI(instance)
-		if trunkENI == nil {
-			instance, _, err = instanceSession.GetInstance(ctx, identity.InstanceIdentity.InstanceID, true)
-			if err != nil {
-				span.SetStatus(traceStatusFromError(err))
-				return nil, nil, nil, err
-			}
-			trunkENI = vpcService.getTrunkENI(instance)
-		}
-		if trunkENI == nil {
-			err = status.Error(codes.FailedPrecondition, "Instance does not have trunk ENI")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, nil, nil, err
-		}
-		return instanceSession, instance, trunkENI, nil
-
-	default:
-		err := fmt.Errorf("identity %T unknown", req.Identity)
+	instanceSession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: instanceIdentity.Region, AccountID: instanceIdentity.AccountID})
+	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, nil, nil, err
 	}
+	instance, _, err := instanceSession.GetInstance(ctx, instanceIdentity.InstanceID, false)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, nil, nil, err
+	}
+
+	trunkENI := vpcService.getTrunkENI(instance)
+	if trunkENI == nil {
+		instance, _, err = instanceSession.GetInstance(ctx, instanceIdentity.InstanceID, true)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, nil, nil, err
+		}
+		trunkENI = vpcService.getTrunkENI(instance)
+	}
+	if trunkENI == nil {
+		err = status.Error(codes.FailedPrecondition, "Instance does not have trunk ENI")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, nil, nil, err
+	}
+	return instanceSession, instance, trunkENI, nil
 }
 
 type subnet struct {
@@ -80,7 +77,6 @@ type branchENI struct {
 	associationID string
 	accountID     string
 	idx           int
-	mac           string
 }
 
 func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
@@ -126,6 +122,42 @@ func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID strin
 	return &ret, nil
 }
 
+type staticAllocation struct {
+	az       string
+	region   string
+	subnetID string
+}
+
+func (vpcService *vpcService) getStaticAllocation(ctx context.Context, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation) (*staticAllocation, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "getStaticAllocation")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	row := tx.QueryRowContext(ctx, "SELECT az, region, subnet_id FROM ip_addresses WHERE id = $1", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
+	var retAlloc staticAllocation
+	err = row.Scan(&retAlloc.az, &retAlloc.region, &retAlloc.subnetID)
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Cannot read static allocation").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	return &retAlloc, nil
+}
+
 func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.AssignIPRequestV3) (*vpcapi.AssignIPResponseV3, error) {
 	// 1. Get the trunk ENI
 	// 2. Choose the subnet we're "scheduling" into
@@ -138,6 +170,11 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	defer span.End()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"instance": req.InstanceIdentity.InstanceID,
+	})
+	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID))
 
 	if req.TaskId == "" {
 		err := status.Error(codes.InvalidArgument, "Task ID is not specified")
@@ -145,10 +182,27 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
-	instanceSession, instance, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req)
+	instanceSession, instance, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
+	}
+
+	if static, ok := req.Ipv4.(*vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation); ok {
+		logger.G(ctx).WithField("static", static).Debug("Received static address allocation, retrieving subnet from allocation")
+		alloc, err := vpcService.getStaticAllocation(ctx, static)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		if len(req.Subnets) > 0 {
+			if !sets.NewString(req.Subnets...).Has(alloc.subnetID) {
+				err = fmt.Errorf("Allocation in subnet %s, but request asked for in subnet ids %q", alloc.subnetID, req.Subnets)
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
+		}
+		req.Subnets = []string{alloc.subnetID}
 	}
 
 	accountID := aws.StringValue(trunkENI.OwnerId)
@@ -175,7 +229,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		return resp, err
 	}
 
-	if err != methodNotPossible {
+	if err != errAssignmentMethodNotPossible {
 		return nil, err
 	}
 
@@ -183,7 +237,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	if err == nil {
 		return resp, err
 	}
-	if err != methodNotPossible {
+	if err != errAssignmentMethodNotPossible {
 		return nil, err
 	}
 
@@ -195,7 +249,6 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	return nil, status.Errorf(codes.Unknown, "Could not complete request: %s", err.Error())
 }
 
-
 func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, subnetID string, wantedSecurityGroupsIDs []string) (*branchENI, error) {
 	ctx, span := trace.StartSpan(ctx, "getUnattachedBranchENIWithSecurityGroups")
 	defer span.End()
@@ -205,7 +258,7 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	var eni branchENI
 	var hasSecurityGroupIDs []string
 	rowContext := tx.QueryRowContext(ctx, `
-	SELECT branch_eni, az, account_id, mac::text, security_groups
+	SELECT branch_eni, az, account_id, security_groups
 	FROM branch_enis
 	WHERE branch_eni NOT IN
 		(SELECT branch_eni
@@ -216,7 +269,7 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	UPDATE SKIP LOCKED
 	LIMIT 1
 	`, subnetID)
-	err := rowContext.Scan(&eni.id, &eni.az, &eni.accountID, &eni.mac, &hasSecurityGroupIDs)
+	err := rowContext.Scan(&eni.id, &eni.az, &eni.accountID, pq.Array(&hasSecurityGroupIDs))
 	if err == nil {
 		if sets.NewString(wantedSecurityGroupsIDs...).Equal(sets.NewString(hasSecurityGroupIDs...)) {
 			return &eni, nil
@@ -255,27 +308,24 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	}
 	sort.Strings(securityGroupIds)
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at, mac) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp(), $7)",
+	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp())",
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.SubnetId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.VpcId),
 		pq.Array(securityGroupIds),
-		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.MacAddress),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &branchENI{
-		id:           aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId) ,
-		az:            aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
-		accountID:     aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
-		mac:           aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.MacAddress),
+		id:        aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId),
+		az:        aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
+		accountID: aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
 	}, nil
 }
-
 
 func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, instanceSession *ec2wrapper.EC2Session, s *subnet, trunkENI *ec2.InstanceNetworkInterface, instance *ec2.Instance, maxIPAddresses int) (resp *vpcapi.AssignIPResponseV3, retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -331,65 +381,112 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 	}
 	unusedIndexes := allIndexes.Difference(usedIndexes)
 	var attachmentIdx int
-	if unusedIndexes.Len() == 0 || unusedIndexes.Len() == maxBranchENIs {
-		return nil, status.Error(codes.Unknown, "Attachment with full ENI list unimplemented")
+	if unusedIndexes.Len() == 0 || allIndexes.Len() == maxBranchENIs {
+		attachmentIdx, err = vpcService.detachBranchENI(ctx, tx, instanceSession, trunkENI)
+		if err != nil {
+			err = errors.Wrap(err, "Could detach existing branch ENI")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
 	} else {
 		s1 := rand.NewSource(time.Now().UnixNano())
 		r1 := rand.New(s1)
 		unusedIndexesList := unusedIndexes.UnsortedList()
 		attachmentIdx = unusedIndexesList[r1.Intn(len(unusedIndexesList))]
-
-		branchENISession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region:azToRegionRegexp.FindString(s.az), AccountID:s.accountID})
-		if err != nil {
-			err = errors.Wrap(err, "Cannot get session for account / region")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		// This creates a lock on that index. Although there is no way to "fix" the locking problem, this will result in the other txn aborting
-		eni, err := vpcService.getUnattachedBranchENIWithSecurityGroups(ctx, tx, branchENISession, s.subnetID, req.SecurityGroupIds)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot get branch ENI to attach")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		row := tx.QueryRowContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx) VALUES ($1, $2, $3) RETURNING id", eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
-		var branchENIAttachmentID int
-		err = row.Scan(&branchENIAttachmentID)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot create row in branch ENI attachments")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		err = vpcService.ensureBranchENIPermissionV3(ctx, tx, trunkENI, branchENISession, eni)
-		if err != nil {
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		ec2client := ec2.New(instanceSession.Session)
-		association, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &ec2.AssociateTrunkInterfaceInput{
-			BranchInterfaceId: aws.String(eni.id),
-			TrunkInterfaceId:  trunkENI.NetworkInterfaceId,
-			VlanId:            aws.Int64(int64(attachmentIdx)),
-		})
-		if err != nil {
-			err = errors.Wrap(err, "Cannot associate trunk interface with branch ENI")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-
-		_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET association_id = $1 WHERE id = $2", aws.StringValue(association.InterfaceAssociation.AssociationId), branchENIAttachmentID)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot update branch ENI attachments table")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		eni.idx = int(aws.Int64Value(association.InterfaceAssociation.VlanId))
-		eni.associationID = aws.StringValue(association.InterfaceAssociation.AssociationId)
-
-		return vpcService.assignIPsToENI(ctx, req, tx, branchENISession, s, eni, instance, trunkENI, maxIPAddresses)
 	}
 
+	branchENISession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: azToRegionRegexp.FindString(s.az), AccountID: s.accountID})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get session for account / region")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	// This creates a lock on that index. Although there is no way to "fix" the locking problem, this will result in the other txn aborting
+	eni, err := vpcService.getUnattachedBranchENIWithSecurityGroups(ctx, tx, branchENISession, s.subnetID, req.SecurityGroupIds)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get branch ENI to attach")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	row := tx.QueryRowContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx) VALUES ($1, $2, $3) RETURNING id", eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
+	var branchENIAttachmentID int
+	err = row.Scan(&branchENIAttachmentID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create row in branch ENI attachments")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	err = vpcService.ensureBranchENIPermissionV3(ctx, tx, trunkENI, branchENISession, eni)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	ec2client := ec2.New(instanceSession.Session)
+	association, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &ec2.AssociateTrunkInterfaceInput{
+		BranchInterfaceId: aws.String(eni.id),
+		TrunkInterfaceId:  trunkENI.NetworkInterfaceId,
+		VlanId:            aws.Int64(int64(attachmentIdx)),
+	})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot associate trunk interface with branch ENI")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
 
+	_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET association_id = $1 WHERE id = $2", aws.StringValue(association.InterfaceAssociation.AssociationId), branchENIAttachmentID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot update branch ENI attachments table")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	eni.idx = int(aws.Int64Value(association.InterfaceAssociation.VlanId))
+	eni.associationID = aws.StringValue(association.InterfaceAssociation.AssociationId)
+
+	return vpcService.assignIPsToENI(ctx, req, tx, branchENISession, s, eni, instance, trunkENI, maxIPAddresses)
+}
+
+func (vpcService *vpcService) detachBranchENI(ctx context.Context, tx *sql.Tx, instanceSession *ec2wrapper.EC2Session, trunkENI *ec2.InstanceNetworkInterface) (int, error) {
+	ctx, span := trace.StartSpan(ctx, "detachBranchENI")
+	defer span.End()
+
+	row := tx.QueryRowContext(ctx, `
+DELETE
+FROM branch_eni_attachments
+WHERE association_id =
+    (SELECT association_id
+     FROM branch_eni_attachments
+     LEFT JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
+     WHERE trunk_eni = $1
+     GROUP BY association_id
+     HAVING count(assignment_id) = 0
+     LIMIT 1) RETURNING idx, branch_eni_attachments.association_id;
+     `, aws.StringValue(trunkENI.NetworkInterfaceId))
+
+	var idx int
+	var associationID string
+
+	err := row.Scan(&idx, &associationID)
+	if err == sql.ErrNoRows {
+		span.SetStatus(traceStatusFromError(errAllENIsInUse))
+		return 0, errAllENIsInUse
+	} else if err != nil {
+		err = errors.Wrap(err, "Cannot get unused branch ENI to detach")
+		span.SetStatus(traceStatusFromError(err))
+		return 0, err
+	}
+
+	ec2client := ec2.New(instanceSession.Session)
+	_, err = ec2client.DisassociateTrunkInterfaceWithContext(ctx, &ec2.DisassociateTrunkInterfaceInput{
+		AssociationId: aws.String(associationID),
+	})
+
+	if err != nil {
+		err = errors.Wrap(err, "Unable to disassociate ENI")
+		span.SetStatus(traceStatusFromError(err))
+		return 0, err
+	}
+
+	return idx, nil
 }
 
 func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, tx *sql.Tx, trunkENI *ec2.InstanceNetworkInterface, branchENISession *ec2wrapper.EC2Session, eni *branchENI) error {
@@ -414,12 +511,7 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 	}
 
 	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", aws.StringValue(trunkENI.OwnerId), eni.accountID)
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID:eni.accountID, Region:azToRegionRegexp.FindString(eni.az)})
-	if err != nil {
-		return err
-	}
-
-	ec2client := ec2.New(session.Session)
+	ec2client := ec2.New(branchENISession.Session)
 	_, err = ec2client.CreateNetworkInterfacePermissionWithContext(ctx, &ec2.CreateNetworkInterfacePermissionInput{
 		AwsAccountId:       trunkENI.OwnerId,
 		NetworkInterfaceId: aws.String(eni.id),
@@ -467,14 +559,12 @@ SELECT valid_branch_enis.branch_eni_id,
        valid_branch_enis.association_id,
        valid_branch_enis.account_id,
        valid_branch_enis.az,
-       valid_branch_enis.idx,
-       valid_branch_enis.mac
+       valid_branch_enis.idx
 FROM
   (SELECT branch_enis.id AS branch_eni_id,
           branch_enis.branch_eni,
           branch_enis.account_id,
           branch_enis.az,
-          branch_enis.mac,
           branch_eni_attachments.association_id,
           branch_eni_attachments.idx,
      (SELECT count(*)
@@ -491,11 +581,11 @@ LIMIT 1
 
 	var branchENIID int
 	var eni branchENI
-	err = row.Scan(&branchENIID, &eni.id, &eni.associationID, &eni.accountID, &eni.az, &eni.idx, &eni.mac)
+	err = row.Scan(&branchENIID, &eni.id, &eni.associationID, &eni.accountID, &eni.az, &eni.idx)
 	if err == sql.ErrNoRows {
 		logger.G(ctx).Debug("Could not find ENI")
-		span.SetStatus(traceStatusFromError(methodNotPossible))
-		return nil, methodNotPossible
+		span.SetStatus(traceStatusFromError(errAssignmentMethodNotPossible))
+		return nil, errAssignmentMethodNotPossible
 	}
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
@@ -569,13 +659,11 @@ SELECT valid_branch_enis.branch_eni,
        valid_branch_enis.association_id,
        valid_branch_enis.account_id,
        valid_branch_enis.az,
-       valid_branch_enis.idx,
-       valid_branch_enis.mac
+       valid_branch_enis.idx
 FROM
   (SELECT branch_enis.branch_eni,
           branch_enis.account_id,
           branch_enis.az,
-          branch_enis.mac,
           branch_eni_attachments.association_id,
           branch_eni_attachments.idx,
      (SELECT count(*)
@@ -593,10 +681,10 @@ LIMIT 1
 `, s.subnetID, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(securityGroupIDs), maxIPAddresses)
 
 	var eni branchENI
-	err = row.Scan(&eni.id, &eni.associationID, &eni.accountID, &eni.az, &eni.idx, &eni.mac)
+	err = row.Scan(&eni.id, &eni.associationID, &eni.accountID, &eni.az, &eni.idx)
 	if err == sql.ErrNoRows {
-		span.SetStatus(traceStatusFromError(methodNotPossible))
-		return nil, methodNotPossible
+		span.SetStatus(traceStatusFromError(errAssignmentMethodNotPossible))
+		return nil, errAssignmentMethodNotPossible
 	}
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
@@ -643,6 +731,12 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		return nil, err
 	}
 
+	if s := aws.StringValue(iface.Status); s != "in-use" {
+		err = fmt.Errorf("Branch ENI not in expected status, instead: %q", s)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	row := tx.QueryRowContext(ctx, "INSERT INTO assignments(assignment_id, branch_eni_association) VALUES ($1, $2) RETURNING id", req.TaskId, eni.associationID)
 	var assignmentID int
 	err = row.Scan(&assignmentID)
@@ -655,7 +749,11 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	resp := vpcapi.AssignIPResponseV3{}
 	switch ipv4req := (req.Ipv4).(type) {
 	case *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation:
-		return nil, status.Error(codes.Unimplemented, "Not yet implemented")
+		resp.Ipv4Address, err = assignSpecificIPv4AddressV3(ctx, tx, session, iface, subnet, eni, maxIPAddresses, ipv4req)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
 	case *vpcapi.AssignIPRequestV3_Ipv4AddressRequested:
 		if ipv4req.Ipv4AddressRequested {
 			resp.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, session, iface, subnet, eni, maxIPAddresses)
@@ -677,7 +775,11 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	switch ipv6req := (req.Ipv6).(type) {
 	case *vpcapi.AssignIPRequestV3_Ipv6AddressRequested:
 		if ipv6req.Ipv6AddressRequested {
-			return nil, status.Error(codes.Unimplemented, "IPv6 Not yet implemented")
+			resp.Ipv6Address, err = assignArbitraryIPv6AddressV3(ctx, tx, session, iface, subnet, eni, maxIPAddresses)
+			if err != nil {
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
 		}
 	}
 
@@ -693,7 +795,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	resp.BranchNetworkInterface = &vpcapi.NetworkInterface{
 		SubnetId:           subnet.subnetID,
 		AvailabilityZone:   eni.az,
-		MacAddress:         eni.mac,
+		MacAddress:         aws.StringValue(iface.MacAddress),
 		NetworkInterfaceId: eni.id,
 		OwnerAccountId:     eni.accountID,
 		VpcId:              subnet.vpcID,
@@ -702,6 +804,111 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	resp.VlanId = uint32(eni.idx)
 
 	return &resp, nil
+}
+
+func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, s *subnet, eni *branchENI, maxIPAddresses int) (*vpcapi.UsableAddress, error) {
+	ctx, span := trace.StartSpan(ctx, "assignArbitraryIPv6AddressV3")
+	defer span.End()
+
+	usedIPAddresses := sets.NewString()
+	rows, err := tx.QueryContext(ctx, "SELECT ipv6addr FROM assignments WHERE ipv6addr IS NOT NULL AND branch_eni_association = $1", eni.associationID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot query ipv4addrs already assigned to interface")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	for rows.Next() {
+		var address string
+		err = rows.Scan(&address)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan rows")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		usedIPAddresses.Insert(address)
+	}
+
+	allInterfaceIPAddresses := sets.NewString()
+	for idx := range branchENI.Ipv6Addresses {
+		allInterfaceIPAddresses.Insert(aws.StringValue(branchENI.Ipv6Addresses[idx].Ipv6Address))
+	}
+
+	if l := usedIPAddresses.Len(); l >= maxIPAddresses {
+		err = status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses already in-use", l)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	logger.G(ctx).WithField("usedIPAddresses", usedIPAddresses.List()).WithField("allInterfaceIPAddresses", allInterfaceIPAddresses.List()).Debug("Trying to assign IPv6 Address")
+	unusedIPAddresses := allInterfaceIPAddresses.Difference(usedIPAddresses)
+
+	if unusedIPAddresses.Len() > 0 {
+		unusedIPv6AddressesList := unusedIPAddresses.List()
+
+		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2", pq.Array(unusedIPv6AddressesList), aws.StringValue(branchENI.VpcId))
+		if err != nil {
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+
+		ipToTimeLastUsed := map[string]time.Time{}
+		epoch := time.Time{}
+		for addr := range unusedIPAddresses {
+			ipToTimeLastUsed[addr] = epoch
+		}
+		for rows.Next() {
+			var ip string
+			var lastUsed time.Time
+			err = rows.Scan(&ip, &lastUsed)
+			if err != nil {
+				err = status.Error(codes.Unknown, errors.Wrap(err, "Could not scan utilized IPv6 addresses from the database").Error())
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
+			ipToTimeLastUsed[net.ParseIP(ip).String()] = lastUsed
+		}
+
+		sort.Slice(unusedIPv6AddressesList, func(i, j int) bool {
+			return ipToTimeLastUsed[unusedIPv6AddressesList[i]].Before(ipToTimeLastUsed[unusedIPv6AddressesList[j]])
+		})
+
+		return &vpcapi.UsableAddress{
+			Address: &vpcapi.Address{
+				Address: unusedIPv6AddressesList[0],
+			},
+			PrefixLength: uint32(128),
+		}, nil
+	}
+
+	ipsToAssign := maxIPAddresses - allInterfaceIPAddresses.Len()
+	if ipsToAssign <= 0 {
+		err = status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses already assigned to interface", allInterfaceIPAddresses.Len())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	if ipsToAssign > batchSize {
+		ipsToAssign = batchSize
+	}
+
+	assignIpv6AddressesInput := &ec2.AssignIpv6AddressesInput{
+		NetworkInterfaceId: branchENI.NetworkInterfaceId,
+		Ipv6AddressCount:   aws.Int64(int64(ipsToAssign)),
+	}
+
+	ec2client := ec2.New(session.Session)
+	output, err := ec2client.AssignIpv6AddressesWithContext(ctx, assignIpv6AddressesInput)
+	if err != nil {
+		err = ec2wrapper.HandleEC2Error(err, span)
+		return nil, err
+	}
+
+	return &vpcapi.UsableAddress{
+		Address: &vpcapi.Address{
+			Address: aws.StringValue(output.AssignedIpv6Addresses[0]),
+		},
+		PrefixLength: uint32(64),
+	}, nil
 }
 
 func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, s *subnet, eni *branchENI, maxIPAddresses int) (*vpcapi.UsableAddress, error) {
@@ -733,23 +940,58 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 		usedIPAddresses.Insert(address)
 	}
 
+	allInterfaceIPAddresses := sets.NewString()
+	for idx := range branchENI.PrivateIpAddresses {
+		allInterfaceIPAddresses.Insert(aws.StringValue(branchENI.PrivateIpAddresses[idx].PrivateIpAddress))
+	}
+
 	if l := usedIPAddresses.Len(); l >= maxIPAddresses {
 		err = status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses already in-use", l)
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	allInterfaceIPAddresses := sets.NewString()
-	for idx := range branchENI.PrivateIpAddresses {
-		allInterfaceIPAddresses.Insert(aws.StringValue(branchENI.PrivateIpAddresses[idx].PrivateIpAddress))
-	}
-
 	logger.G(ctx).WithField("usedIPAddresses", usedIPAddresses.List()).WithField("allInterfaceIPAddresses", allInterfaceIPAddresses.List()).Debug("Trying to assign IP Address")
 	unusedIPAddresses := allInterfaceIPAddresses.Difference(usedIPAddresses)
+
+	rows, err = tx.QueryContext(ctx, "SELECT ip_address, home_eni FROM ip_addresses WHERE subnet_id = $1 AND ip_address = ANY($2)", aws.StringValue(branchENI.SubnetId), pq.Array(unusedIPAddresses.UnsortedList()))
+	if err != nil {
+		err = errors.Wrap(err, "Cannot query statically allocated addresses")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	// We have to do it one at a time, versus aggregating on branch ENI, because aggregation functions are not supported
+	// when selecting for update
+	for rows.Next() {
+		var ipAddress string
+		var homeENI string
+		err = rows.Scan(&ipAddress, &homeENI)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan row of statically configured ip addresses")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+
+		assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
+			AllowReassignment:  aws.Bool(true),
+			NetworkInterfaceId: aws.String(homeENI),
+			PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+		}
+
+		_, err := session.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput)
+		if err != nil {
+			err = errors.Wrap(err, "Unable to relocate unused static IP addresses")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		allInterfaceIPAddresses.Delete(ipAddress)
+	}
+
 	if unusedIPAddresses.Len() > 0 {
 		unusedIPv4AddressesList := unusedIPAddresses.List()
 
-		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_used FROM ip_last_used WHERE host(ip_address) = any($1) AND last_used IS NOT NULL", pq.Array(unusedIPv4AddressesList))
+		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.VpcId))
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
 			span.SetStatus(traceStatusFromError(err))
@@ -843,8 +1085,17 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		return nil, err
 	}
 
+	row = tx.QueryRowContext(ctx, "SELECT vpc_id FROM branch_enis JOIN branch_eni_attachments ON branch_eni_attachments.branch_eni = branch_enis.branch_eni WHERE branch_eni_attachments.association_id = $1", association)
+	var vpcID string
+	err = row.Scan(&vpcID)
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not get VPC ID from database").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	if ipv4.Valid {
-		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used(ip_address, last_used) VALUES($1, now()) ON CONFLICT(ip_address) DO UPDATE SET last_used = now()", ipv4.String)
+		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, vpc_id, last_seen) VALUES($1, $2, now()) ON CONFLICT(ip_address, vpc_id) DO UPDATE SET last_seen = now()", ipv4.String, vpcID)
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update IPv4 last used in database").Error())
 			span.SetStatus(traceStatusFromError(err))
@@ -853,7 +1104,7 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 	}
 
 	if ipv6.Valid {
-		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used(ip_address, last_used) VALUES($1, now()) ON CONFLICT(ip_address) DO UPDATE SET last_used = now()", ipv6.String)
+		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, vpc_id, last_seen) VALUES($1, $2, now()) ON CONFLICT(ip_address, vpc_id) DO UPDATE SET last_seen = now()", ipv6.String, vpcID)
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update IPv6 last used in database").Error())
 			span.SetStatus(traceStatusFromError(err))
@@ -876,4 +1127,56 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 	}
 
 	return &vpcapi.UnassignIPResponseV3{}, nil
+}
+
+func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, s *subnet, eni *branchENI, maxIPAddresses int, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation) (*vpcapi.UsableAddress, error) {
+	ctx, span := trace.StartSpan(ctx, "assignSpecificIPv4AddressV3")
+
+	_, ipnet, err := net.ParseCIDR(s.cidr)
+	if err != nil {
+		err = errors.Wrapf(err, "Cannot parse cidr %s", s.cidr)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	prefixlength, _ := ipnet.Mask.Size()
+
+	row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_addresses WHERE id = $1", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
+	var ip string
+	err = row.Scan(&ip)
+	if err == sql.ErrNoRows {
+		err = errors.Wrapf(err, "Could not find allocation: %s", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
+		span.SetStatus(trace.Status{Code: trace.StatusCodeNotFound, Message: err.Error()})
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+
+	if err != nil {
+		err = errors.Wrap(err, "Could not fetch allocations from database")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	ec2client := ec2.New(session.Session)
+
+	assignPrivateIPAddressesInput := &ec2.AssignPrivateIpAddressesInput{
+		NetworkInterfaceId: branchENI.NetworkInterfaceId,
+		PrivateIpAddresses: aws.StringSlice([]string{ip}),
+		AllowReassignment:  aws.Bool(true),
+	}
+
+	// There's one error condition here which is kind of nasty and unaddressed (at least for now)
+	// if there have been 50 users of the interface, and we come along, we'll blow out the max ip addresses
+	// for the interface.
+	//
+	// A todo is to clean up / GC the interface prior to doing this assignment.
+	output, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, assignPrivateIPAddressesInput)
+	if err != nil {
+		err = ec2wrapper.HandleEC2Error(err, span)
+		return nil, err
+	}
+	return &vpcapi.UsableAddress{
+		Address: &vpcapi.Address{
+			Address: aws.StringValue(output.AssignedPrivateIpAddresses[0].PrivateIpAddress),
+		},
+		PrefixLength: uint32(prefixlength),
+	}, nil
 }

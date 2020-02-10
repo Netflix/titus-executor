@@ -134,9 +134,7 @@ message AssignIPRequestV3 {
     }
     repeated string subnets = 7;
     // This identifies the trunk ENI
-    oneof identity {
-        InstanceIdentity instanceIdentity = 8;
-    }
+    InstanceIdentity instanceIdentity = 8;
     string accountID = 9;
 };
 
@@ -195,6 +193,16 @@ message GCResponseV2 {
     repeated Address addressToDelete = 1;
 }
 
+
+message GCRequestV3 {
+    InstanceIdentity instanceIdentity = 1;
+    repeated string runningTaskIDs = 2;
+}
+
+message GCResponseV3 {
+
+}
+
 message RefreshIPRequest {
     repeated UtilizedAddress utilizedAddress = 1;
     NetworkInterface branchNetworkInterface = 2;
@@ -235,6 +243,8 @@ service TitusAgentVPCService {
     rpc GC (GCRequest) returns (GCResponse);
     rpc GCSetup (GCSetupRequest) returns (GCSetupResponse);
     rpc GCV2 (GCRequestV2) returns (GCResponseV2);
+    rpc GCV3 (GCRequestV3) returns (GCResponseV3);
+
 }
 
 message PrivateKey {

@@ -301,14 +301,13 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 		logger.G(ctx).WithError(err).Warn("Could not tag network interface")
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO trunk_enis(trunk_eni, account_id, az, subnet_id, vpc_id, region, mac) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+	_, err = tx.ExecContext(ctx, "INSERT INTO trunk_enis(trunk_eni, account_id, az, subnet_id, vpc_id, region) VALUES ($1, $2, $3, $4, $5, $6)",
 		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId),
 		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.OwnerId),
 		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.AvailabilityZone),
 		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.SubnetId),
 		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.VpcId),
 		region,
-		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.MacAddress),
 	)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update trunk enis")

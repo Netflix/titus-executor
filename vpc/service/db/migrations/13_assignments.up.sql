@@ -4,12 +4,6 @@ create unique index branch_eni_attachments_association_id_uindex
 alter table subnets
     add cidr cidr;
 
-alter table branch_enis
-    add mac macaddr;
-
-alter table trunk_enis
-    add mac macaddr;
-
 create table assignments
 (
     id bigserial
@@ -33,3 +27,20 @@ create unique index assignments_branch_eni_association_ipv4addr_uindex
 
 create unique index assignments_branch_eni_association_ipv6addr_uindex
     on assignments (branch_eni_association, ipv6addr);
+
+create index assignments_branch_eni_association_index
+    on assignments (branch_eni_association);
+
+create unlogged table ip_last_used_v3
+(
+    id bigserial
+        constraint ip_last_used_v3_pk
+            primary key,
+    ip_address inet not null,
+    vpc_id text not null,
+    last_seen timestamp not null
+);
+
+create unique index ip_last_used_v3_ip_address_uindex
+    on ip_last_used_v3 (ip_address, vpc_id);
+

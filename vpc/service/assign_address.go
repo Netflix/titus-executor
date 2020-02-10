@@ -32,8 +32,7 @@ const (
 )
 
 var (
-	azToRegionRegexp  = regexp.MustCompile("[a-z]+-[a-z]+-[0-9]+")
-	methodNotPossible = errors.New("Assignment method is not possible")
+	azToRegionRegexp = regexp.MustCompile("[a-z]+-[a-z]+-[0-9]+")
 )
 
 func isAssignIPRequestValid(req *vpcapi.AssignIPRequest) error {
@@ -551,14 +550,13 @@ func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sq
 	}
 	sort.Strings(securityGroupIds)
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at, mac) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp(), $7)",
+	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp())",
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.SubnetId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
 		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.VpcId),
 		pq.Array(securityGroupIds),
-		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.MacAddress),
 	)
 	if err != nil {
 		return "", err
