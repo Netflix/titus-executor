@@ -388,7 +388,7 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 	}
 	unusedIndexes := allIndexes.Difference(usedIndexes)
 	var attachmentIdx int
-	if unusedIndexes.Len() == 0 || allIndexes.Len() == maxBranchENIs {
+	if unusedIndexes.Len() == 0 {
 		attachmentIdx, err = vpcService.detachBranchENI(ctx, tx, instanceSession, trunkENI)
 		if err != nil {
 			err = errors.Wrap(err, "Could detach existing branch ENI")
