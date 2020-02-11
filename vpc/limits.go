@@ -10,6 +10,7 @@ type limits struct {
 	ipAddressesPerInterface int
 	// in Mbps
 	networkThroughput int
+	branchENIs        int
 }
 
 var interfaceLimits = map[string]map[string]limits{
@@ -88,37 +89,44 @@ var interfaceLimits = map[string]map[string]limits{
 			interfaces:              3,
 			ipAddressesPerInterface: 10,
 			networkThroughput:       100,
+			branchENIs:              10,
 		},
 		"xlarge": limits{
 			interfaces:              4,
 			ipAddressesPerInterface: 15,
 			networkThroughput:       1000,
+			branchENIs:              20,
 		},
 		"2xlarge": limits{
 			interfaces:              4,
 			ipAddressesPerInterface: 15,
 			networkThroughput:       1000,
+			branchENIs:              40,
 		},
 		"4xlarge": limits{
 			interfaces:              8,
 			ipAddressesPerInterface: 30,
 			networkThroughput:       2000,
+			branchENIs:              60,
 		},
 		"12xlarge": limits{
 			interfaces:              8,
 			ipAddressesPerInterface: 30,
 			// Is this number correct?
 			networkThroughput: 10000,
+			branchENIs:        60,
 		},
 		"24xlarge": limits{
 			interfaces:              15,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       23000,
+			branchENIs:              120,
 		},
 		"metal": limits{
 			interfaces:              12,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       25000,
+			branchENIs:              120,
 		},
 	},
 	"r4": {
@@ -158,36 +166,43 @@ var interfaceLimits = map[string]map[string]limits{
 			interfaces:              3,
 			ipAddressesPerInterface: 10,
 			networkThroughput:       1000,
+			branchENIs:              10,
 		},
 		"xlarge": limits{
 			interfaces:              4,
 			ipAddressesPerInterface: 15,
 			networkThroughput:       1000,
+			branchENIs:              20,
 		},
 		"2xlarge": limits{
 			interfaces:              4,
 			ipAddressesPerInterface: 15,
 			networkThroughput:       2000,
+			branchENIs:              40,
 		},
 		"4xlarge": limits{
 			interfaces:              8,
 			ipAddressesPerInterface: 30,
 			networkThroughput:       4000,
+			branchENIs:              60,
 		},
 		"12xlarge": limits{
 			interfaces:              8,
 			ipAddressesPerInterface: 30,
 			networkThroughput:       9000,
+			branchENIs:              60,
 		},
 		"24xlarge": limits{
 			interfaces:              15,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       23000,
+			branchENIs:              120,
 		},
 		"metal": limits{
 			interfaces:              12,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       25000,
+			branchENIs:              120,
 		},
 	},
 	"p2": {
@@ -213,16 +228,19 @@ var interfaceLimits = map[string]map[string]limits{
 			interfaces:              4,
 			ipAddressesPerInterface: 15,
 			networkThroughput:       2000,
+			branchENIs:              40,
 		},
 		"8xlarge": limits{
 			interfaces:              8,
 			ipAddressesPerInterface: 30,
 			networkThroughput:       10000,
+			branchENIs:              40,
 		},
 		"16xlarge": limits{
 			interfaces:              8,
 			ipAddressesPerInterface: 30,
 			networkThroughput:       25000,
+			branchENIs:              40,
 		},
 	},
 	"c5": {
@@ -312,6 +330,17 @@ func GetMaxNetworkbps(instanceType string) (uint64, error) {
 	maxNetworkMbps, err := GetMaxNetworkMbps(instanceType)
 
 	return uint64(maxNetworkMbps) * 1000 * 1000, err
+}
+
+func GetMaxBranchENIs(instanceType string) (int, error) {
+	l, err := getLimits(instanceType)
+	if err != nil {
+		return 0, err
+	}
+	if l.branchENIs == 0 {
+		return 0, fmt.Errorf("Instance type %s does not support branch ENIs", instanceType)
+	}
+	return l.branchENIs, nil
 }
 
 // MustGetMaxInterfaces returns the maximum number of interfaces that this instance type can handle

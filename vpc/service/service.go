@@ -125,15 +125,16 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 }
 
 type Config struct {
-	Listener             net.Listener
-	DB                   *sql.DB
-	Key                  vpcapi.PrivateKey
-	MaxConcurrentRefresh int64
-	GCTimeout            time.Duration
-	ReconcileInterval    time.Duration
-	RefreshInterval      time.Duration
-	TLSConfig            *tls.Config
-	TitusAgentCACertPool *x509.CertPool
+	Listener              net.Listener
+	DB                    *sql.DB
+	Key                   vpcapi.PrivateKey
+	MaxConcurrentRefresh  int64
+	GCTimeout             time.Duration
+	ReconcileInterval     time.Duration
+	RefreshInterval       time.Duration
+	TLSConfig             *tls.Config
+	TitusAgentCACertPool  *x509.CertPool
+	DisableLongLivedTasks bool
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -275,6 +276,15 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error {
 		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_eni_attachments", vpc.getTrunkENIRegionAccounts, vpc.reconcileBranchENIAttachmentsForRegionAccount)
 	})
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
+	})
+
+	if !config.DisableLongLivedTasks {
+		group.Go(func() error {
+			return vpc.gcAttachedENIs(ctx)
+		})
+	}
 	err = group.Wait()
 	if ctx.Err() != nil {
 		return nil

@@ -29,7 +29,7 @@ func setupInstanceCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					conn,
 					v.GetString(interaceSubnet),
 					v.GetString(interfaceAccount))
-			case "v2":
+			case "v2", "v3":
 				return setup2.Setup(ctx,
 					iipGetter(),
 					locker,

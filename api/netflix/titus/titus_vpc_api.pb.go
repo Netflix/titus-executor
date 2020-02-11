@@ -10,6 +10,8 @@ import (
 
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -437,6 +439,17 @@ type UserIPServiceServer interface {
 	GetAllocation(context.Context, *GetAllocationRequest) (*GetAllocationResponse, error)
 }
 
+// UnimplementedUserIPServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedUserIPServiceServer struct {
+}
+
+func (*UnimplementedUserIPServiceServer) AllocateAddress(ctx context.Context, req *AllocateAddressRequest) (*AllocateAddressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AllocateAddress not implemented")
+}
+func (*UnimplementedUserIPServiceServer) GetAllocation(ctx context.Context, req *GetAllocationRequest) (*GetAllocationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllocation not implemented")
+}
+
 func RegisterUserIPServiceServer(s *grpc.Server, srv UserIPServiceServer) {
 	s.RegisterService(&_UserIPService_serviceDesc, srv)
 }
@@ -521,6 +534,14 @@ func (c *validatorIPServiceClient) ValidateAllocation(ctx context.Context, in *V
 // ValidatorIPServiceServer is the server API for ValidatorIPService service.
 type ValidatorIPServiceServer interface {
 	ValidateAllocation(context.Context, *ValidationRequest) (*ValidationResponse, error)
+}
+
+// UnimplementedValidatorIPServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedValidatorIPServiceServer struct {
+}
+
+func (*UnimplementedValidatorIPServiceServer) ValidateAllocation(ctx context.Context, req *ValidationRequest) (*ValidationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateAllocation not implemented")
 }
 
 func RegisterValidatorIPServiceServer(s *grpc.Server, srv ValidatorIPServiceServer) {

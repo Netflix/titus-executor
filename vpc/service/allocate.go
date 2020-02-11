@@ -180,7 +180,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 		"family":   rq.Family,
 		"region":   rq.AddressAllocation.AddressLocation.Region,
 		"az":       rq.AddressAllocation.AddressLocation.AvailabilityZone,
-		"subnetId": rq.AddressAllocation.AddressLocation.SubnetId,
+		"subnetID": rq.AddressAllocation.AddressLocation.SubnetId,
 	})
 	logger.G(ctx).Info("Performing Address allocation")
 

@@ -40,6 +40,10 @@ func (vpcService *vpcService) deleteDanglingTrunksForRegionAccount(ctx context.C
 				Name:   aws.String("status"),
 				Values: aws.StringSlice([]string{"available"}),
 			},
+			{
+				Name:   aws.String("owner-id"),
+				Values: aws.StringSlice([]string{account.accountID}),
+			},
 		},
 		MaxResults: aws.Int64(1000),
 	}
@@ -80,7 +84,7 @@ func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	rows, err := tx.QueryContext(ctx, "SELECT region, account_id FROM trunk_eni_accounts")
+	rows, err := tx.QueryContext(ctx, "SELECT region, account_id FROM trunk_enis GROUP BY region, account_id")
 	if err != nil {
 		return nil, err
 	}

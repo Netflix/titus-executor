@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	set "github.com/deckarep/golang-set"
@@ -675,7 +674,7 @@ func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRe
 		return nil, err
 	}
 
-	rows, err := tx.QueryContext(ctx, "SELECT branch_eni, idx FROM branch_eni_attachments WHERE trunk_eni = $1 AND state = 'attached'", aws.StringValue(trunkENI.NetworkInterfaceId))
+	rows, err := tx.QueryContext(ctx, "SELECT branch_eni, idx FROM branch_eni_attachments WHERE trunk_eni = $1", aws.StringValue(trunkENI.NetworkInterfaceId))
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not run database query").Error())
 		span.SetStatus(traceStatusFromError(err))
