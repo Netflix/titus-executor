@@ -16,7 +16,7 @@ import (
 func (vpcService *vpcService) deleteDanglingTrunksForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) (retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIsForRegionAccount")
+	ctx, span := trace.StartSpan(ctx, "deleteDanglingTrunksForRegionAccount")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
