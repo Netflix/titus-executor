@@ -343,6 +343,14 @@ func GetMaxBranchENIs(instanceType string) (int, error) {
 	return l.branchENIs, nil
 }
 
+func MustGetMaxBranchENIs(instanceType string) int {
+	l, err := GetMaxBranchENIs(instanceType)
+	if err != nil {
+		panic(err)
+	}
+	return l
+}
+
 // MustGetMaxInterfaces returns the maximum number of interfaces that this instance type can handle
 // includes the primary ENI
 func MustGetMaxInterfaces(instanceType string) int {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 
 	"github.com/Netflix/titus-executor/vpc/tool/genconf"
 	"github.com/spf13/cobra"
@@ -15,7 +16,7 @@ func genConfCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceId
 		RunE: func(cmd *cobra.Command, args []string) error {
 			export := v.GetBool("export")
 			resourceSetsOnly := v.GetBool("resource-sets-only")
-			return genconf.GenConf(ctx, iipGetter(), export, resourceSetsOnly)
+			return genconf.GenConf(ctx, iipGetter(), export, resourceSetsOnly, strings.ToLower(v.GetString(generationFlagName)))
 		},
 	}
 
