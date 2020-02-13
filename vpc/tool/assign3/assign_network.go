@@ -107,7 +107,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 				TrunkENIMAC:     allocation.trunkNetworkInterface.MacAddress,
 				TrunkENIVPC:     allocation.trunkNetworkInterface.VpcId,
 				AllocationIndex: allocationIndex,
-				DeviceIndex:     allocation.vlanID - 1,
+				DeviceIndex:     allocation.vlanID,
 			})
 	if err != nil {
 		return errors.Wrap(err, "Unable to write allocation record")
