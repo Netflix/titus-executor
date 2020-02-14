@@ -459,13 +459,14 @@ func (vpcService *vpcService) detachBranchENI(ctx context.Context, tx *sql.Tx, i
 	row := tx.QueryRowContext(ctx, `
 DELETE
 FROM branch_eni_attachments
-WHERE association_id =
-    (SELECT association_id
+WHERE branch_eni =
+    (SELECT branch_eni
      FROM branch_eni_attachments
      LEFT JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
      WHERE trunk_eni = $1
-     GROUP BY association_id
+     GROUP BY branch_eni
      HAVING count(assignment_id) = 0
+     ORDER BY COALESCE((SELECT last_used FROM branch_eni_last_used WHERE branch_eni = branch_eni_attachments.branch_eni), TIMESTAMP 'EPOCH') ASC
      LIMIT 1) RETURNING idx, branch_eni_attachments.association_id;
      `, aws.StringValue(trunkENI.NetworkInterfaceId))
 
@@ -673,6 +674,7 @@ FROM
           branch_enis.az,
           branch_eni_attachments.association_id,
           branch_eni_attachments.idx,
+          branch_eni_attachments.created_at AS branch_eni_attached_at,
      (SELECT count(*)
       FROM assignments
       WHERE assignments.branch_eni_association = branch_eni_attachments.association_id) AS c
@@ -682,7 +684,7 @@ FROM
      AND trunk_eni = $2
      AND security_groups = $3 ) valid_branch_enis
 WHERE c < $4
-ORDER BY c DESC
+ORDER BY c DESC, branch_eni_attached_at ASC
 FOR UPDATE
 LIMIT 1
 `, s.subnetID, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(securityGroupIDs), maxIPAddresses)
@@ -1033,8 +1035,10 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 	for idx := range output.AssignedPrivateIpAddresses {
 		newPrivateAddresses[idx] = aws.StringValue(output.AssignedPrivateIpAddresses[idx].PrivateIpAddress)
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, last_seen, vpc_id) (SELECT unnest(($1)):: inet AS ip, now(), $2) ON CONFLICT (vpc_id, ip_address) DO UPDATE SET last_seen = now()", pq.Array(newPrivateAddresses), aws.StringValue(branchENI.VpcId))
-	if ipsToAssign <= 0 {
+
+	logger.G(ctx).WithField("newPrivateAddresses", newPrivateAddresses).Debug("Trying to insert new IPs")
+	_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, last_seen, vpc_id) (SELECT unnest($1::text[]):: inet AS ip, now(), $2) ON CONFLICT (vpc_id, ip_address) DO UPDATE SET last_seen = now()", pq.Array(newPrivateAddresses), aws.StringValue(branchENI.VpcId))
+	if err != nil {
 		err = errors.Wrap(err, "Cannot update ip_last_used_v3 table")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err

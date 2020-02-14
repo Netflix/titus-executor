@@ -271,7 +271,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 
 	region := az[:len(az)-1]
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO ip_addresses(id, az, region, subnet_id, ip_address, home_eni, host_public_key, host_public_key_signature, message, message_signature) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		`INSERT INTO ip_addresses(id, az, region, subnet_id, ip_address, home_eni, host_public_key, host_public_key_signature, message, message_signature, account_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		allocationUUID,
 		az,
 		region,
@@ -282,6 +282,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 		vpcService.hostPublicKeySignature,
 		bytes,
 		signature,
+		aws.StringValue(subnet.OwnerId),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not persist allocation")
