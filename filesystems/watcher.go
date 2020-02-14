@@ -3,7 +3,6 @@ package filesystems
 import (
 	"bytes"
 	"context"
-	"github.com/Netflix/titus-executor/uploader"
 	"io"
 	"io/ioutil"
 	"math"
@@ -18,6 +17,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/Netflix/titus-executor/uploader"
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
@@ -692,7 +693,7 @@ func shouldIgnoreFile(fileInfo os.FileInfo, uploadThreshold time.Duration, check
 }
 
 func isFileModifiedAfterThreshold(file os.FileInfo, uploadThreshold time.Duration) bool {
-	return time.Now().Sub(file.ModTime()) > uploadThreshold
+	return time.Since(file.ModTime()) > uploadThreshold
 }
 
 // Stop stops the watcher.

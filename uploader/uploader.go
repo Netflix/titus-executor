@@ -2,13 +2,14 @@ package uploader
 
 import (
 	"context"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/hashicorp/go-multierror"
 	"io"
 	"io/ioutil"
 	"os"
 	"path"
 	"sync"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
@@ -27,8 +28,12 @@ type Uploader struct {
 
 // The upload always prefers s3, then copy, and will use a black hole sink if nothing else is configured. The first
 // s3 location or copy destination specified is used. Rest are ignored.
-func NewUploader(config *config.Config, titusInfo *titus.ContainerInfo, taskId string, m metrics.Reporter) (*Uploader, error) {
+func NewUploader(config *config.Config, titusInfo *titus.ContainerInfo, taskID string, m metrics.Reporter) (*Uploader, error) {
 	bucketName, pathPrefix := "", ""
+
+	if len(config.S3Uploaders) > 0 {
+		bucketName = config.S3Uploaders[0]
+	}
 
 	if param, ok := titusInfo.GetPassthroughAttributes()[s3BucketNameParam]; ok {
 		bucketName = param
@@ -38,12 +43,8 @@ func NewUploader(config *config.Config, titusInfo *titus.ContainerInfo, taskId s
 		pathPrefix = param
 	}
 
-	if bucketName == "" && len(config.S3Uploaders) > 0 {
-		bucketName = config.S3Uploaders[0]
-	}
-
 	if bucketName != "" {
-		s3, err := NewS3Backend(m, bucketName, pathPrefix, titusInfo.GetIamProfile(), taskId)
+		s3, err := NewS3Backend(m, bucketName, pathPrefix, titusInfo.GetIamProfile(), taskID)
 		if err != nil {
 			return nil, err
 		}
@@ -84,9 +85,9 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 				}
 
 				wg.Add(1)
-				go func() {
-					qlocal := path.Join(local, finfo.Name())
-					qremote := path.Join(remote, finfo.Name())
+				go func(fi os.FileInfo) {
+					qlocal := path.Join(local, fi.Name())
+					qremote := path.Join(remote, fi.Name())
 
 					log.WithField("local", qlocal).WithField("remote", qremote).Info("uploading")
 					if err = uploader.Upload(ctx, qlocal, qremote, ctypeFunc); err != nil {
@@ -95,7 +96,7 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 					}
 
 					wg.Done()
-				}()
+				}(finfo)
 			}
 		}
 		wg.Wait()
@@ -113,10 +114,10 @@ func (e *Uploader) Upload(ctx context.Context, local, remote string, ctypeFunc C
 
 	if fi.IsDir() {
 		return uploadDir(ctx, e.backend, local, remote, ctypeFunc)
-	} else {
-		log.WithField("local", local).WithField("remote", remote).Info("uploading")
-		return e.backend.Upload(ctx, local, remote, ctypeFunc)
 	}
+
+	log.WithField("local", local).WithField("remote", remote).Info("uploading")
+	return e.backend.Upload(ctx, local, remote, ctypeFunc)
 }
 
 // UploadPartOfFile logs the call and forwards to the backend. It can upload a subset of a file. Offsets are not preserved.

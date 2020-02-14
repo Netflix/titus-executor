@@ -40,7 +40,7 @@ func makeWatcher(localDir, uploadDir string) *Watcher {
 	uploader := uploader.NewUploaderWithBackend(uploader.NewCopyBackend("."))
 
 	return &Watcher{
-		config:    config,
+		config:   config,
 		uploader: uploader,
 	}
 }

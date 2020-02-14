@@ -24,14 +24,13 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.3.3
 	github.com/ftrvxmtrx/fd v0.0.0-20150925145434-c6d800382fff
-	github.com/go-critic/go-critic v0.0.0-20181204210945-ee9bf5809ead // indirect
 	github.com/go-sql-driver/mysql v1.4.1 // indirect
 	github.com/godbus/dbus v4.1.0+incompatible // indirect
 	github.com/gogo/protobuf v1.2.1
 	github.com/golang-migrate/migrate v3.5.4+incompatible
 	github.com/golang/mock v1.3.1 // indirect
 	github.com/golang/protobuf v1.3.2
-	github.com/golangci/golangci-lint v1.17.1
+	github.com/golangci/golangci-lint v1.18.0
 	github.com/gorilla/mux v1.7.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.0
 	github.com/hashicorp/go-multierror v1.0.0
@@ -69,7 +68,7 @@ require (
 	golang.org/x/net v0.0.0-20190620200207-3b0461eec859
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 	golang.org/x/sys v0.0.0-20190616124812-15dcb6c0061f
-	golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
+	golang.org/x/tools v0.0.0-20190909030654-5b82db07426d
 	google.golang.org/appengine v1.5.0 // indirect
 	google.golang.org/grpc v1.25.0
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61

@@ -2,12 +2,13 @@ package uploader
 
 import (
 	"errors"
-	"github.com/Netflix/titus-executor/metadataserver"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/Netflix/titus-executor/metadataserver"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/aws/aws-sdk-go/aws/session"
 
 	"io"
 
@@ -37,7 +38,7 @@ type S3Backend struct {
 }
 
 // NewS3Backend creates a new instance of an S3 manager which uploads to the specified location.
-func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskId string) (Backend, error) {
+func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskID string) (Backend, error) {
 	region, err := getEC2Region()
 	if err != nil {
 		panic(err)
@@ -53,7 +54,7 @@ func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskId string)
 
 	cred := stscreds.NewCredentials(roleSess, iamRoleArn, func(p *stscreds.AssumeRoleProvider) {
 		// This session key is also used by the iam proxy system service.
-		p.RoleSessionName = metadataserver.GenerateSessionName(taskId)
+		p.RoleSessionName = metadataserver.GenerateSessionName(taskID)
 	})
 
 	s3Sess, err := session.NewSession(&aws.Config{
