@@ -66,6 +66,7 @@ atlassian-ide-plugin.xml
 *.cache
 
 # Go
+tags
 test.out
 test.xml
 tests.xml

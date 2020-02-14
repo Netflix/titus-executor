@@ -21,7 +21,6 @@ import (
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
-	"github.com/Netflix/titus-executor/uploader"
 	protobuf "github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 )
@@ -276,13 +275,9 @@ func NewJobRunner(jobInput *JobInput) *JobRunner {
 
 	log.SetLevel(log.DebugLevel)
 	// Create an executor
-	logUploaders, err := uploader.NewUploaders(cfg, metrics.Discard)
-	if err != nil {
-		log.Fatalf("cannot create log uploaders: %s", err)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	// TODO: Replace this config mechanism
-	r, err := runner.New(ctx, metrics.Discard, logUploaders, *cfg, *dockerCfg)
+	r, err := runner.New(ctx, metrics.Discard, *cfg, *dockerCfg)
 	if err != nil {
 		log.Fatalf("cannot create executor : %s", err)
 	}

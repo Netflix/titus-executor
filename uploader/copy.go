@@ -12,19 +12,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// CopyUploader is an uploader that just copies files to another
+// CopyBackend is an uploader that just copies files to another
 // location on the same host
-type CopyUploader struct {
+type CopyBackend struct {
 	Dir string `json:"directory"`
 }
 
-// NewCopyUploader creates a new instance of a copy uploader
-func NewCopyUploader(directory string) Uploader {
-	return &CopyUploader{Dir: directory}
+// NewCopyBackend creates a new instance of a copy uploader
+func NewCopyBackend(directory string) Backend {
+	return &CopyBackend{Dir: directory}
 }
 
 // Upload copies a single file only!
-func (u *CopyUploader) Upload(ctx context.Context, local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
+func (u *CopyBackend) Upload(ctx context.Context, local, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (u *CopyUploader) Upload(ctx context.Context, local, remote string, ctypeFu
 }
 
 // UploadFile copies a single file only!
-func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) error {
+func (u *CopyBackend) uploadFile(local io.Reader, remote, contentType string) error {
 	fullremote := path.Join(u.Dir, remote)
 	log.Println("copy : local io.Reader -> " + fullremote)
 
@@ -76,7 +76,7 @@ func (u *CopyUploader) uploadFile(local io.Reader, remote, contentType string) e
 }
 
 // UploadPartOfFile copies a single file only. It doesn't preserve the cursor location in the file.
-func (u *CopyUploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
+func (u *CopyBackend) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

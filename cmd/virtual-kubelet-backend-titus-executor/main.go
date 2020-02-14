@@ -18,7 +18,6 @@ import (
 
 	"time"
 
-	"github.com/Netflix/titus-executor/uploader"
 	"github.com/sirupsen/logrus"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	logruslogger "github.com/virtual-kubelet/virtual-kubelet/log/logrus"
@@ -105,13 +104,8 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	defer m.Flush()
 
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Getting uploaders from %+v", cfg.S3Uploaders)
-	var logUploaders *uploader.Uploaders
-	if logUploaders, err = uploader.NewUploaders(cfg, m); err != nil {
-		return errors.Wrap(err, "cannot create log uploaders")
-	}
-	log.G(ctx).WithField("pod", pod.Name).Debugf("Got log uploaders %+v", logUploaders)
 
-	dockerRunner, err := runner.New(ctx, m, logUploaders, *cfg, *dockerCfg)
+	dockerRunner, err := runner.New(ctx, m, *cfg, *dockerCfg)
 	if err != nil {
 		return errors.Wrap(err, "cannot create Titus executor")
 	}

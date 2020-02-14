@@ -387,7 +387,7 @@ func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
 	input := &sts.AssumeRoleInput{
 		DurationSeconds: aws.Int64(int64(sessionLifetime.Seconds())),
 		RoleArn:         aws.String(proxy.arn.String()),
-		RoleSessionName: aws.String(generateSessionName(proxy.titusTaskInstanceID)),
+		RoleSessionName: aws.String(GenerateSessionName(proxy.titusTaskInstanceID)),
 	}
 
 	// This should be safe because this method should be serialized
@@ -434,7 +434,7 @@ func (proxy *iamProxy) getRoleAssumptionState(ctx context.Context) *roleAssumpti
 	return proxy.roleAssumptionState
 }
 
-func generateSessionName(containerID string) string {
+func GenerateSessionName(containerID string) string {
 	sessionName := fmt.Sprintf("titus-%s", containerID)
 	sessionName = invalidSessionNameRegexp.ReplaceAllString(sessionName, "_")
 	if len(sessionName) <= maxSessionNameLen {

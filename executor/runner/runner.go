@@ -13,6 +13,7 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/hashicorp/go-multierror"
 	"github.com/sirupsen/logrus"
+	"regexp"
 
 	"context"
 	"errors"
@@ -51,9 +52,6 @@ type Runner struct {
 	container *runtimeTypes.Container
 	watcher   *filesystems.Watcher
 
-	// TODO: Remove
-	logUploaders *uploader.Uploaders
-
 	sync.RWMutex
 	err      error
 	taskChan chan task
@@ -68,21 +66,20 @@ type Runner struct {
 type RuntimeProvider func(context.Context, config.Config) (runtimeTypes.Runtime, error)
 
 // New constructs a new Executor object with the default (docker) runtime
-func New(ctx context.Context, m metrics.Reporter, logUploaders *uploader.Uploaders, cfg config.Config, dockerCfg docker.Config) (*Runner, error) {
+func New(ctx context.Context, m metrics.Reporter, cfg config.Config, dockerCfg docker.Config) (*Runner, error) {
 	dockerRuntime := func(ctx context.Context, cfg config.Config) (runtimeTypes.Runtime, error) {
 		return docker.NewDockerRuntime(ctx, m, dockerCfg, cfg)
 	}
-	return WithRuntime(ctx, m, dockerRuntime, logUploaders, cfg)
+	return WithRuntime(ctx, m, dockerRuntime, cfg)
 }
 
 // WithRuntime builds an Executor using the provided Runtime factory func
-func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, logUploaders *uploader.Uploaders, cfg config.Config) (*Runner, error) {
+func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, cfg config.Config) (*Runner, error) {
 	metricsTagger, _ := m.(tagger) // metrics.Reporter may or may not implement tagger interface.  OK to be nil
 	runner := &Runner{
 		logger:        logrus.NewEntry(logrus.StandardLogger()),
 		metrics:       m,
 		metricsTagger: metricsTagger,
-		logUploaders:  logUploaders,
 		config:        cfg,
 		taskChan:      make(chan task, 1),
 		killChan:      make(chan struct{}),
@@ -278,16 +275,11 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 		return
 	}
 
-	if logDir != "" {
-		r.logger.Info("Starting external logger")
-		err = r.maybeSetupExternalLogger(ctx, logDir)
-		if err != nil {
-			r.logger.Error("Unable to setup logging for container: ", err)
-			updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
-			return
-		}
-	} else {
-		r.logger.Info("Not starting external logger")
+	err = r.maybeSetupExternalLogger(ctx, logDir)
+	if err != nil {
+		r.logger.Error("Unable to setup logging for container: ", err)
+		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
+		return
 	}
 
 	if details == nil {
@@ -439,26 +431,50 @@ func (r *Runner) wasKilled() bool {
 }
 
 func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) error {
-	logUploadCheckInterval, err := r.container.GetLogStdioCheckInterval()
+	if logDir == "" {
+		r.logger.Info("Not starting external logger")
+		return nil
+	}
+	r.logger.Info("Starting external logger")
+
+	uploadCheckInterval, err := r.container.GetLogUploadCheckInterval()
 	if err != nil {
 		return err
 	}
-	logUploadThresholdTime, err := r.container.GetLogUploadThresholdTime()
+	uploadThresholdTime, err := r.container.GetLogUploadThresholdTime()
 	if err != nil {
 		return err
 	}
-	logStdioCheckInterval, err := r.container.GetLogStdioCheckInterval()
+	stdioCheckInterval, err := r.container.GetLogStdioCheckInterval()
 	if err != nil {
 		return err
 	}
-	keepLocalLogFileAfterUpload, err := r.container.GetKeepLocalFileAfterUpload()
+	keepAfterUpload, err := r.container.GetKeepLocalFileAfterUpload()
 	if err != nil {
 		return err
 	}
 
 	uploadDir := r.container.UploadDir("logs")
-	uploadRegex := r.container.TitusInfo.GetLogUploadRegexp()
-	r.watcher, err = filesystems.NewWatcher(r.metrics, logDir, uploadDir, uploadRegex, r.logUploaders, logUploadCheckInterval, logUploadThresholdTime, logStdioCheckInterval, keepLocalLogFileAfterUpload)
+
+	var uploadRegexp *regexp.Regexp
+
+	uploadRegexpStr := r.container.TitusInfo.GetLogUploadRegexp()
+	if uploadRegexpStr != "" {
+		var err error
+		uploadRegexp, err = regexp.Compile(uploadRegexpStr)
+		if err != nil {
+			return err
+		}
+	}
+
+	wConf := filesystems.NewWatchConfig(logDir, uploadDir, uploadRegexp, uploadCheckInterval, uploadThresholdTime, stdioCheckInterval, keepAfterUpload)
+
+	uploader, err := uploader.NewUploader(&r.config, r.container.TitusInfo, r.container.TaskID, r.metrics)
+	if err != nil {
+		return err
+	}
+
+	r.watcher, err = filesystems.NewWatcher(r.metrics, wConf, uploader)
 	if err != nil {
 		return err
 	}

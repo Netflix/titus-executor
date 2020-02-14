@@ -5,9 +5,9 @@ import (
 	"io"
 )
 
-// Uploader is a common interface for a service that can upload log
+// Backend is a common interface for a service that can upload log
 // files somewhere
-type Uploader interface {
+type Backend interface {
 	Upload(ctx context.Context, local, remote string, ctypeFunc ContentTypeInferenceFunction) error
 	UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error
 }

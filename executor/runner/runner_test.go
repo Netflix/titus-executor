@@ -12,7 +12,6 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/Netflix/titus-executor/uploader"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -149,12 +148,10 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 		return nil
 	}
 
-	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	cfg := config.Config{}
-
 	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
-	}, l, cfg)
+	}, config.Config{})
+
 	require.NoError(t, err)
 	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 
@@ -222,12 +219,10 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 		return c.Err()
 	}
 
-	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	cfg := config.Config{}
-
 	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
-	}, l, cfg)
+	}, config.Config{})
+
 	require.NoError(t, err)
 	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 
@@ -307,12 +302,10 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 		statusChan:  statusChan,
 	}
 
-	l := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&uploader.NoopUploader{}})
-	cfg := config.Config{}
-
 	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
-	}, l, cfg)
+	}, config.Config{})
+
 	require.NoError(t, err)
 	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
 
