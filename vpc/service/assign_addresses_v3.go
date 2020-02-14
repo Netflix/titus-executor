@@ -189,6 +189,12 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"taskID": req.TaskId,
+	})
+	span.AddAttributes(
+		trace.StringAttribute("taskID", req.TaskId))
+
 	instanceSession, instance, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))

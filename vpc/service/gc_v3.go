@@ -9,11 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
-	"golang.org/x/time/rate"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -22,9 +17,13 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
+	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -349,8 +348,6 @@ func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, region, 
 }
 
 type concurrencyLimiter struct {
-	awsv4ratelimiter     *rate.Limiter
-	awsv6ratelimiter     *rate.Limiter
 	dbratelimiter        *rate.Limiter
 	dbconcurrencylimiter *semaphore.Weighted
 }
@@ -400,9 +397,7 @@ func (vpcService *vpcService) doGCAttachedENIs(ctx context.Context, region, acco
 
 	// TODO: Tune all of these constants to sane numbers?
 	limiter := &concurrencyLimiter{
-		awsv4ratelimiter:     rate.NewLimiter(10, 1),
-		awsv6ratelimiter:     rate.NewLimiter(10, 1),
-		dbratelimiter:        rate.NewLimiter(100, 1),
+		dbratelimiter:        rate.NewLimiter(1000, 1),
 		dbconcurrencylimiter: semaphore.NewWeighted(100),
 	}
 
@@ -627,13 +622,6 @@ func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Net
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("ipv4AddressesToRemove", fmt.Sprint(ipv4AddressesToRemove)))
 
-	// This might make it so that database trasnactions are held longer than neccessary.
-	if err := limiter.awsv4ratelimiter.Wait(ctx); err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		errCh <- err
-		return
-	}
-
 	logger.G(ctx).WithField("ipv4AddressesToRemove", ipv4AddressesToRemove).Debug("Removing IPv4 Addresses")
 	//	_, err := ec2client.UnassignPrivateIpAddresses(&ec2.UnassignPrivateIpAddressesInput{
 	//		PrivateIpAddresses: aws.StringSlice(ipv4AddressesToRemove),
@@ -649,14 +637,7 @@ func removeIPv6Addresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Net
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("ipv6AddressesToRemove", fmt.Sprint(ipv6AddressesToRemove)))
 
-	// This might make it so that database trasnactions are held longer than neccessary.
-	if err := limiter.awsv6ratelimiter.Wait(ctx); err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		errCh <- err
-		return
-	}
-
-	//	logger.G(ctx).WithField("ipv6AddressesToRemove", ipv6AddressesToRemove).Debug("Removing IPv6 Addresses")
+	logger.G(ctx).WithField("ipv6AddressesToRemove", ipv6AddressesToRemove).Debug("Removing IPv6 Addresses")
 	//	_, err := ec2client.UnassignIpv6Addresses(&ec2.UnassignIpv6AddressesInput{
 	//		Ipv6Addresses:      aws.StringSlice(ipv6AddressesToRemove),
 	//		NetworkInterfaceId: iface.NetworkInterfaceId,
