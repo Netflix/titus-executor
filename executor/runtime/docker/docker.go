@@ -99,6 +99,7 @@ func NewConfig() (*Config, []cli.Flag) {
 	flags := []cli.Flag{
 		cli.Uint64Flag{
 			Name:        "titus.executor.cfsBandwidthPeriod",
+			EnvVar:      "CFS_BANDWIDTH_PERIOD",
 			Value:       100000,
 			Destination: &cfg.cfsBandwidthPeriod,
 		},
@@ -157,6 +158,7 @@ func NewConfig() (*Config, []cli.Flag) {
 		// by default, i.e.: docker-for-mac.
 		cli.BoolTFlag{
 			Name:        "titus.executor.tiniSchedPriority",
+			EnvVar:      "BUMP_TINI_SCHED_PRIORITY",
 			Destination: &cfg.bumpTiniSchedPriority,
 			Usage: "enable a realtime scheduling priority for tini (PID=1), so it can always reap processes on contended " +
 				"systems. Kernels with CONFIG_RT_GROUP_SCHED=y require all cgroups in the hierarchy to have some " +
