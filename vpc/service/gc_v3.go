@@ -545,6 +545,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 			if err != nil {
 				span.SetStatus(traceStatusFromError(err))
 				logger.G(ctx).WithError(err).Error("Cannot scan unused IPv4 addresses")
+				return
 			}
 			ipv4AddressesToRemove = append(ipv4AddressesToRemove, ipAddress)
 		}
@@ -588,6 +589,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 			if err != nil {
 				span.SetStatus(traceStatusFromError(err))
 				logger.G(ctx).WithError(err).Error("Cannot scan unused IPv4 addresses")
+				return
 			}
 			ipv6AddressesToRemove = append(ipv6AddressesToRemove, ipAddress)
 		}
@@ -623,6 +625,7 @@ func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Net
 	span.AddAttributes(trace.StringAttribute("ipv4AddressesToRemove", fmt.Sprint(ipv4AddressesToRemove)))
 
 	logger.G(ctx).WithField("ipv4AddressesToRemove", ipv4AddressesToRemove).Debug("Removing IPv4 Addresses")
+	time.Sleep(500 * time.Millisecond)
 	//	_, err := ec2client.UnassignPrivateIpAddresses(&ec2.UnassignPrivateIpAddressesInput{
 	//		PrivateIpAddresses: aws.StringSlice(ipv4AddressesToRemove),
 	//		NetworkInterfaceId: iface.NetworkInterfaceId,
@@ -638,6 +641,8 @@ func removeIPv6Addresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Net
 	span.AddAttributes(trace.StringAttribute("ipv6AddressesToRemove", fmt.Sprint(ipv6AddressesToRemove)))
 
 	logger.G(ctx).WithField("ipv6AddressesToRemove", ipv6AddressesToRemove).Debug("Removing IPv6 Addresses")
+	time.Sleep(500 * time.Millisecond)
+
 	//	_, err := ec2client.UnassignIpv6Addresses(&ec2.UnassignIpv6AddressesInput{
 	//		Ipv6Addresses:      aws.StringSlice(ipv6AddressesToRemove),
 	//		NetworkInterfaceId: iface.NetworkInterfaceId,
