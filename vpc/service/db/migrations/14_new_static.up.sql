@@ -1,4 +1,4 @@
-create table if not exists static_enis
+create table static_enis
 (
     id serial
         constraint static_enis_pk
