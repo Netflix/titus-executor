@@ -609,7 +609,7 @@ LIMIT 1
 	// Update the security groups on the branch ENI
 	securityGroups := req.SecurityGroupIds
 	sort.Strings(securityGroups)
-	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1 WHERE id = $2", pq.Array(securityGroups), branchENIID)
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1, modified_at = now() WHERE id = $2", pq.Array(securityGroups), branchENIID)
 	if err != nil {
 		err = errors.Wrap(err, "Could not update security groups in database")
 		span.SetStatus(traceStatusFromError(err))

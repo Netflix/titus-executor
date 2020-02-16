@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
@@ -22,11 +20,16 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
+)
+
+const (
+	gcBatchSize    = 100
+	gcWorkers      = 10
+	timeBetweenGCs = time.Minute
 )
 
 func (vpcService *vpcService) tryReallocateStaticAssignment(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) (bool, error) {
@@ -338,18 +341,13 @@ func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, region, 
 		if err != nil {
 			logger.G(ctx).WithField("region", region).WithField("accountID", accountID).WithError(err).Error("Failed to adequately GC interfaces")
 		}
-		timer.Reset(time.Minute)
+		timer.Reset(timeBetweenGCs)
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
 			return
 		}
 	}
-}
-
-type concurrencyLimiter struct {
-	dbratelimiter        *rate.Limiter
-	dbconcurrencylimiter *semaphore.Weighted
 }
 
 func (vpcService *vpcService) doGCAttachedENIs(ctx context.Context, region, accountID string) error {
@@ -375,96 +373,199 @@ func (vpcService *vpcService) doGCAttachedENIs(ctx context.Context, region, acco
 		return err
 	}
 
+	dbratelimiter := rate.NewLimiter(1000, 1)
 	ec2client := ec2.New(session.Session)
-
-	describeNetworkInterfacesInput := ec2.DescribeNetworkInterfacesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String("description"),
-				Values: aws.StringSlice([]string{vpc.BranchNetworkInterfaceDescription}),
-			},
-			{
-				Name:   aws.String("owner-id"),
-				Values: aws.StringSlice([]string{accountID}),
-			},
-			{
-				Name:   aws.String("status"),
-				Values: aws.StringSlice([]string{"in-use"}),
-			},
-		},
-		MaxResults: aws.Int64(1000),
-	}
-
-	// TODO: Tune all of these constants to sane numbers?
-	limiter := &concurrencyLimiter{
-		dbratelimiter:        rate.NewLimiter(1000, 1),
-		dbconcurrencylimiter: semaphore.NewWeighted(100),
-	}
-
-	s1 := rand.NewSource(time.Now().UnixNano())
-	r1 := rand.New(s1)
-
 	group, ctx := errgroup.WithContext(ctx)
-	n := 0
-	for {
-		describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
+	eniWQ := make(chan string, 10000)
+	describeWQ := make(chan []string, 100)
+	gcWQ := make(chan ec2.NetworkInterface, 10000)
+	group.Go(func() error {
+		return vpcService.getGCableENIs(ctx, region, accountID, eniWQ)
+	})
+
+	group.Go(func() error {
+		return vpcService.describeENIsFoGCWorker(ctx, ec2client, describeWQ, gcWQ)
+	})
+
+	group.Go(func() error {
+		vpcService.describeCollector(ctx, eniWQ, describeWQ)
+		return nil
+	})
+
+	for i := 0; i < gcWorkers; i++ {
+		group.Go(func() error {
+			vpcService.gcWorker(ctx, ec2client, gcWQ, dbratelimiter)
+			return nil
+		})
+	}
+
+	return group.Wait()
+}
+
+func (vpcService *vpcService) getGCableENIs(ctx context.Context, region, accountID string, ch chan string) error {
+	ctx, span := trace.StartSpan(ctx, "getGCableENIs")
+	defer span.End()
+
+	defer close(ch)
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database transaction to enumerate ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+SELECT branch_eni
+FROM branch_enis
+WHERE branch_eni IN
+    (SELECT branch_eni
+     FROM branch_eni_attachments
+     WHERE attachment_generation = 3)
+  AND account_id = $1
+  AND (regexp_match(az, '[a-z]+-[a-z]+-[0-9]+'))[1] = $2
+ORDER BY RANDOM()
+  `, accountID, region)
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database query to enumerate attached ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	for rows.Next() {
+		var eni string
+		err = rows.Scan(&eni)
 		if err != nil {
-			err = errors.Wrap(err, "Cannot not describe network interfaces")
+			err = errors.Wrap(err, "Could scan eni ID")
 			span.SetStatus(traceStatusFromError(err))
 			return err
 		}
+		ch <- eni
+	}
 
-		networkInterfaces := describeNetworkInterfacesOutput.NetworkInterfaces
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit db txn")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
 
-		r1.Shuffle(len(networkInterfaces), func(i, j int) {
-			networkInterfaces[i], networkInterfaces[j] = networkInterfaces[j], networkInterfaces[i]
-		})
+	return nil
+}
 
-		for idx := range describeNetworkInterfacesOutput.NetworkInterfaces {
-			// I think this prevents the concurrency problem in for loops?
-			iface := describeNetworkInterfacesOutput.NetworkInterfaces[idx]
-			group.Go(func() error {
-				vpcService.doGCAttachedENI(ctx, ec2client, iface, limiter)
-				return nil
-			})
-			n++
+func (vpcService *vpcService) describeCollector(ctx context.Context, eniWQ chan string, describeWQ chan []string) {
+	defer close(describeWQ)
+	enis := []string{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case eni, ok := <-eniWQ:
+			if !ok {
+				// The queue is complete
+				if len(enis) > 0 {
+					describeWQ <- enis
+				}
+				return
+			}
+			enis = append(enis, eni)
 		}
+		if len(enis) > gcBatchSize {
+			describeWQ <- enis
+			enis = []string{}
+		}
+	}
+}
 
+func (vpcService *vpcService) describeENIsFoGCWorker(ctx context.Context, ec2client *ec2.EC2, describeWQ chan []string, gcWQ chan ec2.NetworkInterface) error {
+	defer close(gcWQ)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case describeRQ, ok := <-describeWQ:
+			if !ok {
+				return nil
+			}
+			err := vpcService.describeENIsFoGC(ctx, ec2client, describeRQ, gcWQ)
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (vpcService *vpcService) describeENIsFoGC(ctx context.Context, ec2client *ec2.EC2, eniList []string, gcWQ chan ec2.NetworkInterface) error {
+	ctx, span := trace.StartSpan(ctx, "describer")
+	defer span.End()
+	span.AddAttributes(
+		trace.StringAttribute("enis", fmt.Sprint(eniList)),
+		trace.Int64Attribute("n", int64(len(eniList))))
+
+	describeNetworkInterfacesInput := ec2.DescribeNetworkInterfacesInput{
+		NetworkInterfaceIds: aws.StringSlice(eniList),
+	}
+
+	for {
+		describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot describe ENIs")
+			return err
+		}
+		for _, iface := range describeNetworkInterfacesOutput.NetworkInterfaces {
+			i := *iface
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case gcWQ <- i:
+			}
+		}
 		if describeNetworkInterfacesOutput.NextToken == nil {
-			break
+			return nil
 		}
 		describeNetworkInterfacesInput.NextToken = describeNetworkInterfacesOutput.NextToken
 	}
 
-	logger.G(ctx).WithField("n", n).Debug("Started all GC workers")
-	// group.Wait will never return an error here because the functions we call don't actually do anything.
-	_ = group.Wait()
-	logger.G(ctx).WithField("n", n).Debug("All GC workers finished")
-	return nil
 }
 
-func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, ec2client *ec2.EC2, iface *ec2.NetworkInterface, limiter *concurrencyLimiter) {
-	err := limiter.dbconcurrencylimiter.Acquire(ctx, 1)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to acquire concurrency limiter")
-		return
+func (vpcService *vpcService) gcWorker(ctx context.Context, ec2client *ec2.EC2, wq chan ec2.NetworkInterface, limiter *rate.Limiter) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case eni, ok := <-wq:
+			if !ok {
+				return
+			}
+			if err := vpcService.doGCAttachedENI(ctx, ec2client, eni, limiter); err != nil {
+				logger.G(ctx).WithError(err).Error("Cannot GC ENI")
+			}
+		}
 	}
-	defer limiter.dbconcurrencylimiter.Release(1)
+}
 
-	err = limiter.dbratelimiter.Wait(ctx)
+func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, limiter *rate.Limiter) error {
+	ctx, span := trace.StartSpan(ctx, "doGCAttachedENI")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
+
+	ctx = logger.WithField(ctx, "eni", aws.StringValue(iface.NetworkInterfaceId))
+	err := limiter.Wait(ctx)
 	if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to pass database rate limiter")
-		return
+		err = errors.Wrap(err, "Unable to pass database rate limiter")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
 	// TODO: Probably make this timeout adjustable
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-
-	ctx, span := trace.StartSpan(ctx, "doGCAttachedENI")
-	defer span.End()
-	ctx = logger.WithField(ctx, "eni", aws.StringValue(iface.NetworkInterfaceId))
-	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -490,12 +591,15 @@ WHERE branch_eni_attachments.branch_eni = $1
 	var associationID string
 	err = row.Scan(&associationID)
 	if err == sql.ErrNoRows {
-		return
+		err = fmt.Errorf("ENI %q was not in v3 attachments", aws.StringValue(iface.NetworkInterfaceId))
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
 	if err != nil {
+		err = errors.Wrap(err, "Cannot scan row")
 		span.SetStatus(traceStatusFromError(err))
-		logger.G(ctx).WithError(err).Error("Cannot scan row")
+		return err
 	}
 
 	interfaceIPv4Addresses := sets.NewString()
@@ -534,8 +638,9 @@ FROM unassigned_ip_addresses_with_last_seen
 WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 `, pq.Array(interfaceIPv4Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId))
 		if err != nil {
+			err = errors.Wrap(err, "Cannot query for unused IPv4 addresses")
 			span.SetStatus(traceStatusFromError(err))
-			logger.G(ctx).WithError(err).Error("Cannot query for unused IPv4 addresses")
+			return err
 		}
 
 		ipv4AddressesToRemove := []string{}
@@ -543,16 +648,16 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 			var ipAddress string
 			err = rows.Scan(&ipAddress)
 			if err != nil {
+				err = errors.Wrap(err, "Cannot scan unused IPv4 addresses")
 				span.SetStatus(traceStatusFromError(err))
-				logger.G(ctx).WithError(err).Error("Cannot scan unused IPv4 addresses")
-				return
+				return err
 			}
 			ipv4AddressesToRemove = append(ipv4AddressesToRemove, ipAddress)
 		}
 
 		if len(ipv4AddressesToRemove) > 0 {
 			dispatched++
-			go removeIPv4Addresses(ctx, ec2client, iface, ipv4AddressesToRemove, errCh, limiter)
+			go removeIPv4Addresses(ctx, ec2client, iface, ipv4AddressesToRemove, errCh)
 		}
 	}
 
@@ -578,8 +683,9 @@ FROM unassigned_ip_addresses_with_last_seen
 WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 `, pq.Array(interfaceIPv6Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId))
 		if err != nil {
+			err = errors.Wrap(err, "Cannot query for unused IPv6 addresses")
 			span.SetStatus(traceStatusFromError(err))
-			logger.G(ctx).WithError(err).Error("Cannot query for unused IPv4 addresses")
+			return err
 		}
 
 		ipv6AddressesToRemove := []string{}
@@ -587,16 +693,16 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 			var ipAddress string
 			err = rows.Scan(&ipAddress)
 			if err != nil {
+				err = errors.Wrap(err, "Cannot scan unused IPv6 addresses")
 				span.SetStatus(traceStatusFromError(err))
-				logger.G(ctx).WithError(err).Error("Cannot scan unused IPv4 addresses")
-				return
+				return err
 			}
 			ipv6AddressesToRemove = append(ipv6AddressesToRemove, ipAddress)
 		}
 
 		if len(ipv6AddressesToRemove) > 0 {
 			dispatched++
-			go removeIPv6Addresses(ctx, ec2client, iface, ipv6AddressesToRemove, errCh, limiter)
+			go removeIPv6Addresses(ctx, ec2client, iface, ipv6AddressesToRemove, errCh)
 		}
 	}
 
@@ -614,12 +720,15 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 out:
 	err = result.ErrorOrNil()
 	if err != nil {
+		err = errors.Wrap(err, "Unable to GC interface")
 		span.SetStatus(traceStatusFromError(err))
-		logger.G(ctx).WithError(err).Error("Unable to GC interface")
+		return err
 	}
+
+	return nil
 }
 
-func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.NetworkInterface, ipv4AddressesToRemove []string, errCh chan error, limiter *concurrencyLimiter) {
+func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipv4AddressesToRemove []string, errCh chan error) {
 	ctx, span := trace.StartSpan(ctx, "removeIPv4Addresses")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("ipv4AddressesToRemove", fmt.Sprint(ipv4AddressesToRemove)))
@@ -635,7 +744,7 @@ func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Net
 	errCh <- nil
 }
 
-func removeIPv6Addresses(ctx context.Context, ec2client *ec2.EC2, iface *ec2.NetworkInterface, ipv6AddressesToRemove []string, errCh chan error, limiter *concurrencyLimiter) {
+func removeIPv6Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipv6AddressesToRemove []string, errCh chan error) {
 	ctx, span := trace.StartSpan(ctx, "removeIPv6Addresses")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("ipv6AddressesToRemove", fmt.Sprint(ipv6AddressesToRemove)))
