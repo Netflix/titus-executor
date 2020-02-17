@@ -34,6 +34,7 @@ const (
 var (
 	errAllENIsInUse                = errors.New("All ENIs in use, cannot deallocate any ENIs")
 	errAssignmentMethodNotPossible = errors.New("Assignment method is not possible")
+	errOnlyStaticAddressesAssigned = errors.New("We only found static IP addresses on this interface, and there are no free dynamic IPs")
 )
 
 func (vpcService *vpcService) getSessionAndTrunkInterface(ctx context.Context, instanceIdentity *vpcapi.InstanceIdentity) (*ec2wrapper.EC2Session, *ec2.Instance, *ec2.InstanceNetworkInterface, error) {
@@ -979,6 +980,27 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 	if unusedIPAddresses.Len() > 0 {
 		unusedIPv4AddressesList := unusedIPAddresses.List()
 
+		rows, err := tx.QueryContext(ctx, "SELECT ip_address FROM ip_addresses WHERE host(ip_address) = any($1) AND subnet_id = $2", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.SubnetId))
+		if err != nil {
+			err = errors.Wrap(err, "Cannot fetch statically assigned IP addresses")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		for rows.Next() {
+			var staticIPAddress string
+			err = rows.Scan(&staticIPAddress)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot scan statically assigned IP address")
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
+			unusedIPAddresses.Delete(staticIPAddress)
+		}
+	}
+
+	if unusedIPAddresses.Len() > 0 {
+		unusedIPv4AddressesList := unusedIPAddresses.List()
+
 		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.VpcId))
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
@@ -1041,6 +1063,7 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 	for idx := range output.AssignedPrivateIpAddresses {
 		newPrivateAddresses[idx] = aws.StringValue(output.AssignedPrivateIpAddresses[idx].PrivateIpAddress)
 	}
+	newPrivateAddressesSet := sets.NewString(newPrivateAddresses...)
 
 	logger.G(ctx).WithField("newPrivateAddresses", newPrivateAddresses).Debug("Trying to insert new IPs")
 	_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, last_seen, vpc_id) (SELECT unnest($1::text[]):: inet AS ip, now(), $2) ON CONFLICT (vpc_id, ip_address) DO UPDATE SET last_seen = now()", pq.Array(newPrivateAddresses), aws.StringValue(branchENI.VpcId))
@@ -1050,9 +1073,31 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 		return nil, err
 	}
 
+	rows, err = tx.QueryContext(ctx, "SELECT ip_address FROM ip_addresses WHERE host(ip_address) = any($1) AND subnet_id = $2", pq.Array(newPrivateAddresses), aws.StringValue(branchENI.SubnetId))
+	if err != nil {
+		err = errors.Wrap(err, "Cannot fetch statically assigned IP addresses")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	for rows.Next() {
+		var staticIPAddress string
+		err = rows.Scan(&staticIPAddress)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan statically assigned IP address")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		newPrivateAddressesSet.Delete(staticIPAddress)
+	}
+
+	if newPrivateAddressesSet.Len() == 0 {
+		span.SetStatus(traceStatusFromError(errOnlyStaticAddressesAssigned))
+		return nil, errOnlyStaticAddressesAssigned
+	}
+
 	return &vpcapi.UsableAddress{
 		Address: &vpcapi.Address{
-			Address: aws.StringValue(output.AssignedPrivateIpAddresses[0].PrivateIpAddress),
+			Address: newPrivateAddressesSet.UnsortedList()[0],
 		},
 		PrefixLength: uint32(prefixlength),
 	}, nil
