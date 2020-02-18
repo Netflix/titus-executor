@@ -1178,42 +1178,46 @@ WHERE assignment_id = $1
 	var ipv4, ipv6 sql.NullString
 	var association string
 	err = row.Scan(&ipv4, &ipv6, &association)
-	if err != nil {
+	if err == nil {
+		row = tx.QueryRowContext(ctx, "SELECT vpc_id FROM branch_enis JOIN branch_eni_attachments ON branch_eni_attachments.branch_eni = branch_enis.branch_eni WHERE branch_eni_attachments.association_id = $1", association)
+		var vpcID string
+		err = row.Scan(&vpcID)
+		if err != nil {
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not get VPC ID from database").Error())
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+
+		if ipv4.Valid {
+			_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, vpc_id, last_seen) VALUES($1, $2, now()) ON CONFLICT(ip_address, vpc_id) DO UPDATE SET last_seen = now()", ipv4.String, vpcID)
+			if err != nil {
+				err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update IPv4 last used in database").Error())
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
+		}
+
+		if ipv6.Valid {
+			_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, vpc_id, last_seen) VALUES($1, $2, now()) ON CONFLICT(ip_address, vpc_id) DO UPDATE SET last_seen = now()", ipv6.String, vpcID)
+			if err != nil {
+				err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update IPv6 last used in database").Error())
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
+		}
+
+		_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_last_used(branch_eni, last_used) VALUES ((SELECT branch_eni FROM branch_eni_attachments WHERE association_id = $1), now()) ON CONFLICT (branch_eni) DO UPDATE SET last_used = now()", association)
+		if err != nil {
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update branch eni last used in database").Error())
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+	} else if err == sql.ErrNoRows {
+		err = status.Errorf(codes.NotFound, "Could not find assignment ID %q in the database", req.TaskId)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	} else {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not delete assignment from database").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	row = tx.QueryRowContext(ctx, "SELECT vpc_id FROM branch_enis JOIN branch_eni_attachments ON branch_eni_attachments.branch_eni = branch_enis.branch_eni WHERE branch_eni_attachments.association_id = $1", association)
-	var vpcID string
-	err = row.Scan(&vpcID)
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not get VPC ID from database").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	if ipv4.Valid {
-		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, vpc_id, last_seen) VALUES($1, $2, now()) ON CONFLICT(ip_address, vpc_id) DO UPDATE SET last_seen = now()", ipv4.String, vpcID)
-		if err != nil {
-			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update IPv4 last used in database").Error())
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-	}
-
-	if ipv6.Valid {
-		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, vpc_id, last_seen) VALUES($1, $2, now()) ON CONFLICT(ip_address, vpc_id) DO UPDATE SET last_seen = now()", ipv6.String, vpcID)
-		if err != nil {
-			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update IPv6 last used in database").Error())
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-	}
-
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_last_used(branch_eni, last_used) VALUES ((SELECT branch_eni FROM branch_eni_attachments WHERE association_id = $1), now()) ON CONFLICT (branch_eni) DO UPDATE SET last_used = now()", association)
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update branch eni last used in database").Error())
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
