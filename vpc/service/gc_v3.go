@@ -734,14 +734,16 @@ func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.Netw
 	span.AddAttributes(trace.StringAttribute("ipv4AddressesToRemove", fmt.Sprint(ipv4AddressesToRemove)))
 
 	logger.G(ctx).WithField("ipv4AddressesToRemove", ipv4AddressesToRemove).Debug("Removing IPv4 Addresses")
-	time.Sleep(500 * time.Millisecond)
-	//	_, err := ec2client.UnassignPrivateIpAddresses(&ec2.UnassignPrivateIpAddressesInput{
-	//		PrivateIpAddresses: aws.StringSlice(ipv4AddressesToRemove),
-	//		NetworkInterfaceId: iface.NetworkInterfaceId,
-	//	})
-	//	logger.G(ctx).WithError(err).Debug("Removed IPv4 Addresses")
+	_, err := ec2client.UnassignPrivateIpAddresses(&ec2.UnassignPrivateIpAddressesInput{
+		PrivateIpAddresses: aws.StringSlice(ipv4AddressesToRemove),
+		NetworkInterfaceId: iface.NetworkInterfaceId,
+	})
+	logger.G(ctx).WithError(err).Debug("Removed IPv4 Addresses")
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+	}
 
-	errCh <- nil
+	errCh <- err
 }
 
 func removeIPv6Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipv6AddressesToRemove []string, errCh chan error) {
@@ -750,12 +752,16 @@ func removeIPv6Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.Netw
 	span.AddAttributes(trace.StringAttribute("ipv6AddressesToRemove", fmt.Sprint(ipv6AddressesToRemove)))
 
 	logger.G(ctx).WithField("ipv6AddressesToRemove", ipv6AddressesToRemove).Debug("Removing IPv6 Addresses")
-	time.Sleep(500 * time.Millisecond)
 
-	//	_, err := ec2client.UnassignIpv6Addresses(&ec2.UnassignIpv6AddressesInput{
-	//		Ipv6Addresses:      aws.StringSlice(ipv6AddressesToRemove),
-	//		NetworkInterfaceId: iface.NetworkInterfaceId,
-	//	})
-	//	logger.G(ctx).WithError(err).Debug("Removed IPv6 Addresses")
-	errCh <- nil
+	_, err := ec2client.UnassignIpv6Addresses(&ec2.UnassignIpv6AddressesInput{
+		Ipv6Addresses:      aws.StringSlice(ipv6AddressesToRemove),
+		NetworkInterfaceId: iface.NetworkInterfaceId,
+	})
+	logger.G(ctx).WithError(err).Debug("Removed IPv6 Addresses")
+
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+	}
+
+	errCh <- err
 }
