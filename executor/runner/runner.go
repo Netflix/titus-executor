@@ -284,16 +284,11 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 		return
 	}
 
-	if logDir != "" {
-		r.logger.Info("Starting external logger")
-		err = r.maybeSetupExternalLogger(ctx, logDir, titusInfo)
-		if err != nil {
-			r.logger.Error("Unable to setup logging for container: ", err)
-			updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
-			return
-		}
-	} else {
-		r.logger.Info("Not starting external logger")
+	err = r.maybeSetupExternalLogger(ctx, logDir, titusInfo)
+	if err != nil {
+		r.logger.Error("Unable to setup logging for container: ", err)
+		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
+		return
 	}
 
 	if details == nil {
@@ -447,12 +442,19 @@ func (r *Runner) wasKilled() bool {
 func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string, titusInfo *titus.ContainerInfo) error {
 	if val, ok := titusInfo.GetPassthroughAttributes()[disableLoggingParameter]; ok {
 		if disable, err := strconv.ParseBool(val); err != nil {
+			r.logger.Infof("%s is set, not starting external logger", disableLoggingParameter)
 			if disable {
 				return nil
 			}
 		}
 	}
 
+	if logDir == "" {
+		r.logger.Info("logDir is empty, no starting external logger")
+		return nil
+	}
+
+	r.logger.Info("Starting external logger")
 	logUploadCheckInterval, err := r.container.GetLogStdioCheckInterval()
 	if err != nil {
 		return err
