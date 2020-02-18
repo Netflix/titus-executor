@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"strconv"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -13,7 +15,6 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/hashicorp/go-multierror"
 	"github.com/sirupsen/logrus"
-	"strconv"
 
 	"context"
 	"errors"
