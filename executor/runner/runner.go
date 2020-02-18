@@ -13,6 +13,7 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/hashicorp/go-multierror"
 	"github.com/sirupsen/logrus"
+	"strconv"
 
 	"context"
 	"errors"
@@ -22,7 +23,11 @@ import (
 	"time"
 )
 
-const waitForTaskTimeout = 5 * time.Minute
+const (
+	waitForTaskTimeout = 5 * time.Minute
+
+	disableLoggingParameter = "titusParameter.agent.log.disable"
+)
 
 var (
 	errorRunnerAlreadyStarted = errors.New("Runner already started task or not available")
@@ -178,7 +183,7 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	r.container = runtime.NewContainer(taskConfig.taskID, taskConfig.titusInfo, resources, labels, r.config)
 
 	updateChan := make(chan update, 10)
-	go r.runContainer(ctx, startTime, updateChan)
+	go r.runContainer(ctx, startTime, updateChan, taskConfig.titusInfo)
 
 	var lastUpdate *update
 	for update := range updateChan {
@@ -242,7 +247,7 @@ func (r *Runner) prepareContainer(ctx context.Context, updateChan chan update, s
 }
 
 // This is just splitting the "run" part of the of the runner
-func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateChan chan update) {
+func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateChan chan update, titusInfo *titus.ContainerInfo) {
 	defer close(updateChan)
 	select {
 	case <-r.killChan:
@@ -280,7 +285,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 
 	if logDir != "" {
 		r.logger.Info("Starting external logger")
-		err = r.maybeSetupExternalLogger(ctx, logDir)
+		err = r.maybeSetupExternalLogger(ctx, logDir, titusInfo)
 		if err != nil {
 			r.logger.Error("Unable to setup logging for container: ", err)
 			updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
@@ -438,7 +443,15 @@ func (r *Runner) wasKilled() bool {
 	}
 }
 
-func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) error {
+func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string, titusInfo *titus.ContainerInfo) error {
+	if val, ok := titusInfo.GetPassthroughAttributes()[disableLoggingParameter]; ok {
+		if disable, err := strconv.ParseBool(val); err != nil {
+			if disable {
+				return nil
+			}
+		}
+	}
+
 	logUploadCheckInterval, err := r.container.GetLogStdioCheckInterval()
 	if err != nil {
 		return err
