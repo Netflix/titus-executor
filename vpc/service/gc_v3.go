@@ -629,11 +629,8 @@ WITH interface_v4_addresses AS
   (SELECT ip_addresses.ip_address,
           home_eni
    FROM interface_v4_addresses
-   JOIN ip_addresses ON interface_v4_addresses.ip_address = ip_addresses.ip_address
-   AND interface_v4_addresses.subnet_id = ip_addresses.subnet_id
-   LEFT JOIN assignments ON interface_v4_addresses.ip_address = assignments.ipv4addr
-   AND interface_v4_addresses.assoc_id = assignments.branch_eni_association
-   WHERE assignment_id IS NULL )
+   JOIN ip_addresses ON interface_v4_addresses.ip_address = ip_addresses.ip_address AND interface_v4_addresses.subnet_id = ip_addresses.subnet_id
+   WHERE ip_addresses.id NOT IN (SELECT ip_address_uuid FROM ip_address_attachments) FOR UPDATE OF ip_addresses )
 SELECT ip_address,
        home_eni
 FROM unassigned_ip_addresses
