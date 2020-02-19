@@ -591,7 +591,7 @@ FROM
    FROM branch_enis
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
-     AND trunk_eni = $2  FOR UPDATE OF branch_enis) valid_branch_enis
+     AND trunk_eni = $2  FOR UPDATE OF branch_enis, branch_eni_attachments) valid_branch_enis
 WHERE c = 0
 FOR UPDATE
 LIMIT 1
@@ -692,7 +692,7 @@ FROM
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
      AND trunk_eni = $2
-     AND security_groups = $3 FOR UPDATE OF branch_enis ) valid_branch_enis
+     AND security_groups = $3 FOR UPDATE OF branch_enis, branch_eni_attachments ) valid_branch_enis
 WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
 FOR UPDATE

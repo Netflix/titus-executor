@@ -676,8 +676,8 @@ FROM unassigned_ip_addresses
 		// We have no idea why this association is here.
 		if c == 0 {
 			dispatched++
-			// There's an interesting race condition here where the IP address can be disassociated at the same "speed"
-			// at which the disassociation can occur. This has an "interesting" result of false errors.
+			// We avoid the race condition where the IP can be disassociated via removal of a static address because
+			// we check static addresses prior to this loop
 			association := ip.Association
 			go removeAssociation(ctx, ec2client, association, errCh)
 		}
