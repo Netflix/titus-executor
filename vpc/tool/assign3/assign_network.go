@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/golang/protobuf/ptypes/empty"
+
 	"github.com/Netflix/titus-executor/vpc/utilities"
 
 	"github.com/pborman/uuid"
@@ -40,6 +42,8 @@ type Arguments struct {
 	InterfaceAccount   string
 	TaskID             string
 	Oneshot            bool
+	ElasticIPPool      string
+	ElasticIPs         []string
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, args Arguments) error {
@@ -181,6 +185,15 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		trace.StringAttribute("subnet-ids", fmt.Sprintf("%v", args.SubnetIds)),
 	)
 
+	if args.ElasticIPPool != "" && len(args.ElasticIPs) > 0 {
+		err := fmt.Errorf("Both Elastic IP pool specified (%s), and Elastic IP list (%s) specified", args.ElasticIPPool, args.ElasticIPs)
+		span.SetStatus(trace.Status{
+			Code:    trace.StatusCodeInvalidArgument,
+			Message: err.Error(),
+		})
+		return nil, err
+	}
+
 	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot retrieve instance identity")
@@ -195,6 +208,22 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		Subnets:          args.SubnetIds,
 		InstanceIdentity: instanceIdentity,
 		AccountID:        args.InterfaceAccount,
+	}
+
+	if args.ElasticIPPool != "" {
+		assignIPRequest.ElasticAddress = &vpcapi.AssignIPRequestV3_GroupName{
+			GroupName: args.ElasticIPPool,
+		}
+	} else if len(args.ElasticIPs) > 0 {
+		assignIPRequest.ElasticAddress = &vpcapi.AssignIPRequestV3_ElasticAdddresses{
+			ElasticAdddresses: &vpcapi.ElasticAddressSet{
+				ElasticAddresses: args.ElasticIPs,
+			},
+		}
+	} else {
+		assignIPRequest.ElasticAddress = &vpcapi.AssignIPRequestV3_Empty{
+			Empty: &empty.Empty{},
+		}
 	}
 
 	if args.IPv4AllocationUUID != "" {

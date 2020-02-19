@@ -274,6 +274,14 @@ func Run(ctx context.Context, config *Config) error {
 		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
 	})
 
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "elastic_ip", vpc.getRegionAccounts, vpc.reconcileEIPsForRegionAccount)
+	})
+
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "availability_zone", vpc.getRegionAccounts, vpc.reconcileAvailabilityZonesRegionAccount)
+	})
+
 	if !config.DisableLongLivedTasks {
 		group.Go(func() error {
 			return vpc.gcAttachedENIs(ctx)

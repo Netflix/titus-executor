@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
@@ -28,13 +27,15 @@ import (
 )
 
 const (
-	invalidParameterValue = "InvalidParameterValue"
+	invalidParameterValue        = "InvalidParameterValue"
+	invalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
 )
 
 var (
 	errAllENIsInUse                = errors.New("All ENIs in use, cannot deallocate any ENIs")
 	errAssignmentMethodNotPossible = errors.New("Assignment method is not possible")
 	errOnlyStaticAddressesAssigned = errors.New("We only found static IP addresses on this interface, and there are no free dynamic IPs")
+	errZeroAddresses               = errors.New("Zero addresses in Elastic IP list")
 )
 
 func (vpcService *vpcService) getSessionAndTrunkInterface(ctx context.Context, instanceIdentity *vpcapi.InstanceIdentity) (*ec2wrapper.EC2Session, *ec2.Instance, *ec2.InstanceNetworkInterface, error) {
@@ -316,6 +317,8 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 		return nil, err
 	}
 
+	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
+
 	securityGroupIds := make([]string, len(createNetworkInterfaceOutput.NetworkInterface.Groups))
 	for idx := range createNetworkInterfaceOutput.NetworkInterface.Groups {
 		securityGroupIds[idx] = aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.Groups[idx].GroupId)
@@ -588,7 +591,7 @@ FROM
    FROM branch_enis
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
-     AND trunk_eni = $2) valid_branch_enis
+     AND trunk_eni = $2  FOR UPDATE OF branch_enis) valid_branch_enis
 WHERE c = 0
 FOR UPDATE
 LIMIT 1
@@ -689,7 +692,7 @@ FROM
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
      AND trunk_eni = $2
-     AND security_groups = $3 ) valid_branch_enis
+     AND security_groups = $3 FOR UPDATE OF branch_enis ) valid_branch_enis
 WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
 FOR UPDATE
@@ -765,7 +768,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	resp := vpcapi.AssignIPResponseV3{}
 	switch ipv4req := (req.Ipv4).(type) {
 	case *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation:
-		resp.Ipv4Address, err = assignSpecificIPv4AddressV3(ctx, tx, session, iface, subnet, eni, maxIPAddresses, ipv4req)
+		resp.Ipv4Address, err = assignSpecificIPv4AddressV3(ctx, tx, session, iface, subnet, eni, maxIPAddresses, ipv4req, req.TaskId)
 		if err != nil {
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
@@ -785,6 +788,23 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 			err = errors.Wrap(err, "Cannot update assignment with v4 addr")
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
+		}
+
+		// TODO(The user will get no public IP if they don't assign an IPv4 IP
+		switch eip := (req.ElasticAddress).(type) {
+		case *vpcapi.AssignIPRequestV3_ElasticAdddresses:
+			resp.ElasticAddress, err = assignElasticAddressesBasedOnIDs(ctx, tx, session, iface, resp.Ipv4Address, eip.ElasticAdddresses, req.TaskId)
+			if err != nil {
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
+		case *vpcapi.AssignIPRequestV3_GroupName:
+			resp.ElasticAddress, err = assignElasticAddressesBasedOnGroupName(ctx, tx, session, iface, resp.Ipv4Address, eip.GroupName, req.TaskId)
+			if err != nil {
+				span.SetStatus(traceStatusFromError(err))
+				return nil, err
+			}
+		case *vpcapi.AssignIPRequestV3_Empty:
 		}
 	}
 
@@ -827,6 +847,170 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	resp.VlanId = uint32(eni.idx)
 
 	return &resp, nil
+}
+
+func assignElasticAddressesBasedOnIDs(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, ipv4Address *vpcapi.UsableAddress, elasticAddressSet *vpcapi.ElasticAddressSet, assignmentID string) (*vpcapi.ElasticAddress, error) {
+	ctx, span := trace.StartSpan(ctx, "assignElasticAddressesBasedOnIDs")
+	defer span.End()
+
+	borderGroup, err := getBorderGroupForENI(ctx, tx, branchENI)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	addresses := elasticAddressSet.ElasticAddresses
+	if len(addresses) == 0 {
+		span.SetStatus(traceStatusFromError(errZeroAddresses))
+		return nil, errZeroAddresses
+	}
+
+	row := tx.QueryRowContext(ctx, `
+SELECT allocation_id, public_ip
+FROM elastic_ips
+WHERE account_id = $1
+  AND allocation_id NOT IN
+    (SELECT elastic_ip_allocation_id
+     FROM elastic_ip_attachments)
+  AND network_border_group = $2
+  AND allocation_id = any($3)
+LIMIT 1
+FOR
+UPDATE OF elastic_ips
+`, aws.StringValue(branchENI.OwnerId), borderGroup, pq.Array(addresses))
+	var allocationID, publicIP string
+	err = row.Scan(&allocationID, &publicIP)
+	if err == sql.ErrNoRows {
+		err = fmt.Errorf("No EIP in list %s free", addresses)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	} else if err != nil {
+		err = errors.Wrap(err, "Cannot query for free elastic IPs")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	row = tx.QueryRowContext(ctx, "INSERT INTO elastic_ip_attachments(elastic_ip_allocation_id, assignment_id) VALUES ($1, $2) RETURNING id",
+		allocationID, assignmentID)
+	var id int
+	err = row.Scan(&id)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot insert into elastic_ip_attachments")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	ec2client := ec2.New(session.Session)
+	associateAddressOutput, err := ec2client.AssociateAddress(&ec2.AssociateAddressInput{
+		AllocationId:       aws.String(allocationID),
+		AllowReassociation: aws.Bool(true),
+		NetworkInterfaceId: branchENI.NetworkInterfaceId,
+		PrivateIpAddress:   aws.String(ipv4Address.Address.Address),
+	})
+	if err != nil {
+		return nil, ec2wrapper.HandleEC2Error(err, span)
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE elastic_ip_attachments SET association_id = $1 WHERE id = $2", aws.StringValue(associateAddressOutput.AssociationId), id)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to update elastic_ip_attachments table")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	return &vpcapi.ElasticAddress{
+		AllocationId:   allocationID,
+		Ip:             publicIP,
+		AssociationdId: aws.StringValue(associateAddressOutput.AssociationId),
+	}, nil
+}
+
+func assignElasticAddressesBasedOnGroupName(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, ipv4Address *vpcapi.UsableAddress, groupName, assignmentID string) (*vpcapi.ElasticAddress, error) {
+	ctx, span := trace.StartSpan(ctx, "assignElasticAddressesBasedOnGroupName")
+	defer span.End()
+
+	borderGroup, err := getBorderGroupForENI(ctx, tx, branchENI)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	row := tx.QueryRowContext(ctx, `
+SELECT allocation_id, public_ip
+FROM elastic_ips
+WHERE account_id = $1
+  AND allocation_id NOT IN
+    (SELECT elastic_ip_allocation_id
+     FROM elastic_ip_attachments)
+  AND network_border_group = $2
+  AND tags->>'titus_vpc_pool' = $3
+LIMIT 1
+FOR
+UPDATE of elastic_ips
+`, aws.StringValue(branchENI.OwnerId), borderGroup, groupName)
+	var allocationID, publicIP string
+	err = row.Scan(&allocationID, &publicIP)
+	if err == sql.ErrNoRows {
+		err = fmt.Errorf("No EIP in group %s free in network border group %s", groupName, borderGroup)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	} else if err != nil {
+		err = errors.Wrap(err, "Cannot query for free elastic IPs")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	row = tx.QueryRowContext(ctx, "INSERT INTO elastic_ip_attachments(elastic_ip_allocation_id, assignment_id) VALUES ($1, $2) RETURNING id",
+		allocationID, assignmentID)
+	var id int
+	err = row.Scan(&id)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot insert into elastic_ip_attachments")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	ec2client := ec2.New(session.Session)
+	associateAddressOutput, err := ec2client.AssociateAddress(&ec2.AssociateAddressInput{
+		AllocationId:       aws.String(allocationID),
+		AllowReassociation: aws.Bool(true),
+		NetworkInterfaceId: branchENI.NetworkInterfaceId,
+		PrivateIpAddress:   aws.String(ipv4Address.Address.Address),
+	})
+	if err != nil {
+		return nil, ec2wrapper.HandleEC2Error(err, span)
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE elastic_ip_attachments SET association_id = $1 WHERE id = $2", aws.StringValue(associateAddressOutput.AssociationId), id)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to update elastic_ip_attachments table")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	return &vpcapi.ElasticAddress{
+		AllocationId:   allocationID,
+		Ip:             publicIP,
+		AssociationdId: aws.StringValue(associateAddressOutput.AssociationId),
+	}, nil
+}
+
+func getBorderGroupForENI(ctx context.Context, tx *sql.Tx, eni *ec2.NetworkInterface) (string, error) {
+	ctx, span := trace.StartSpan(ctx, "getBorderGroupForENI")
+	defer span.End()
+
+	az := aws.StringValue(eni.AvailabilityZone)
+	ownerID := aws.StringValue(eni.OwnerId)
+	row := tx.QueryRowContext(ctx, "SELECT network_border_group FROM availability_zones WHERE zone_name = $1 AND account_id = $2", az, ownerID)
+	var borderGroup string
+	err := row.Scan(&borderGroup)
+	if err != nil {
+		err = errors.Wrapf(err, "Cannot get border group for AZ %s, and owner ID %s", az, ownerID)
+		span.SetStatus(traceStatusFromError(err))
+		return "", err
+	}
+
+	return borderGroup, nil
 }
 
 func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, s *subnet, eni *branchENI, maxIPAddresses int) (*vpcapi.UsableAddress, error) {
@@ -1103,6 +1287,156 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 	}, nil
 }
 
+func (vpcService *vpcService) unassignStaticAddress(ctx context.Context, assignmentID string) (bool, error) {
+	ctx, span := trace.StartSpan(ctx, "unassignStaticAddress")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return false, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	row := tx.QueryRowContext(ctx, `
+SELECT branch_enis.branch_eni,
+       branch_enis.az,
+       branch_enis.account_id,
+       ip_address,
+       home_eni
+FROM ip_address_attachments
+JOIN ip_addresses ON ip_address_attachments.ip_address_uuid = ip_addresses.id
+JOIN assignments ON ip_address_attachments.assignment_id = assignments.assignment_id
+JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
+WHERE ip_address_attachments.assignment_id = $1
+`, assignmentID)
+	var branchENI, az, accountID, ipAddress, homeEni string
+	err = row.Scan(&branchENI, &az, &accountID, &ipAddress, &homeEni)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Cannot query assignment for static addresses")
+		span.SetStatus(traceStatusFromError(err))
+		return false, err
+	}
+
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: azToRegionRegexp.FindString(az)})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get AWS session")
+		span.SetStatus(traceStatusFromError(err))
+		return false, err
+	}
+
+	ec2client := ec2.New(session.Session)
+	_, err = ec2client.AssignPrivateIpAddressesWithContext(ctx, &ec2.AssignPrivateIpAddressesInput{
+		NetworkInterfaceId: aws.String(branchENI),
+		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+		AllowReassignment:  aws.Bool(true),
+	})
+	if err != nil {
+		return false, ec2wrapper.HandleEC2Error(err, span)
+	}
+
+	// This will automagically cascade and delete the static attachment as well
+	_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1", assignmentID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot delete assignment from assignments table")
+		span.SetStatus(traceStatusFromError(err))
+		return false, err
+	}
+
+	err = tx.Commit()
+
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit transaction")
+		span.SetStatus(traceStatusFromError(err))
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (vpcService *vpcService) unassignElasticAddress(ctx context.Context, assignmentID string) error {
+	ctx, span := trace.StartSpan(ctx, "unassignElasticAddress")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	row := tx.QueryRowContext(ctx, `
+SELECT elastic_ip_attachments.id,
+       account_id,
+       region,
+       association_id
+FROM elastic_ip_attachments
+JOIN elastic_ips ON elastic_ip_attachments.elastic_ip_allocation_id = elastic_ips.allocation_id
+WHERE elastic_ip_attachments.assignment_id = $1
+`, assignmentID)
+	var id int
+	var accountID, region, associationID string
+	err = row.Scan(&id, &accountID, &region, &associationID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+
+	if err != nil {
+		err = errors.Wrap(err, "Could not scan elastic IP associations")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: region})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get AWS session")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	ec2client := ec2.New(session.Session)
+	_, err = ec2client.DisassociateAddressWithContext(ctx, &ec2.DisassociateAddressInput{
+		AssociationId: aws.String(associationID),
+	})
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() != invalidAssociationIDNotFound {
+				return ec2wrapper.HandleEC2Error(err, span)
+			}
+		} else {
+			return ec2wrapper.HandleEC2Error(err, span)
+		}
+	}
+
+	// This will automagically cascade and delete the static attachment as well
+	_, err = tx.ExecContext(ctx, "DELETE FROM elastic_ip_attachments WHERE id = $1", id)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot delete elastic ip attachment from elastic ip attachments table")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	err = tx.Commit()
+
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit transaction")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	return nil
+}
+
 func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.UnassignIPRequestV3) (resp *vpcapi.UnassignIPResponseV3, retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -1111,6 +1445,18 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
+
+	if unassigned, err := vpcService.unassignStaticAddress(ctx, req.TaskId); err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	} else if unassigned {
+		return &vpcapi.UnassignIPResponseV3{}, nil
+	}
+
+	if err := vpcService.unassignElasticAddress(ctx, req.TaskId); err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -1122,59 +1468,7 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, `
-SELECT ip_addresses.ip_address,
-       ip_addresses.home_eni,
-       branch_enis.branch_eni,
-       branch_enis.account_id,
-       branch_enis.az 
-FROM assignments
-JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
-JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
-JOIN ip_addresses ON assignments.ipv4addr = ip_addresses.ip_address AND branch_enis.subnet_id = ip_addresses.subnet_id
-WHERE assignment_id = $1
-`, req.TaskId)
-	var ipAddress, homeENI, branchENI, accountID, az string
-	err = row.Scan(&ipAddress, &homeENI, &branchENI, &accountID, &az)
-	if err == nil {
-		session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: azToRegionRegexp.FindString(az)})
-		if err != nil {
-			err = errors.Wrap(err, "Cannot get AWS session")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-
-		_, err = session.UnassignPrivateIPAddresses(ctx, ec2.UnassignPrivateIpAddressesInput{
-			NetworkInterfaceId: aws.String(branchENI),
-			PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
-		})
-		// TODO: If the IP address has already been assigned, it's actually "okay"
-		if awsErr, ok := err.(awserr.Error); ok {
-			if awsErr.Code() != invalidParameterValue && strings.HasSuffix(awsErr.Message(), "Some of the specified addresses are not assigned to interface") {
-				return nil, ec2wrapper.HandleEC2Error(err, span)
-			}
-		} else if err != nil {
-			return nil, ec2wrapper.HandleEC2Error(err, span)
-		}
-
-		_, err = session.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
-			NetworkInterfaceId: aws.String(homeENI),
-			PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
-		})
-		if awsErr, ok := err.(awserr.Error); ok {
-			if awsErr.Code() != invalidParameterValue {
-				return nil, ec2wrapper.HandleEC2Error(err, span)
-			}
-		} else if err != nil {
-			logger.G(ctx).WithError(err).Error("Unable to relocate IP address back to home ENI")
-		}
-	} else if err != sql.ErrNoRows {
-		err = errors.Wrap(err, "Cannot query assignment if static address from database")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	row = tx.QueryRowContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1 RETURNING assignments.ipv4addr, assignments.ipv6addr, assignments.branch_eni_association", req.TaskId)
+	row := tx.QueryRowContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1 RETURNING assignments.ipv4addr, assignments.ipv6addr, assignments.branch_eni_association", req.TaskId)
 	var ipv4, ipv6 sql.NullString
 	var association string
 	err = row.Scan(&ipv4, &ipv6, &association)
@@ -1232,7 +1526,7 @@ WHERE assignment_id = $1
 	return &vpcapi.UnassignIPResponseV3{}, nil
 }
 
-func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, s *subnet, eni *branchENI, maxIPAddresses int, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation) (*vpcapi.UsableAddress, error) {
+func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, s *subnet, eni *branchENI, maxIPAddresses int, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation, assignmentID string) (*vpcapi.UsableAddress, error) {
 	ctx, span := trace.StartSpan(ctx, "assignSpecificIPv4AddressV3")
 
 	_, ipnet, err := net.ParseCIDR(s.cidr)
@@ -1243,17 +1537,23 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wr
 	}
 	prefixlength, _ := ipnet.Mask.Size()
 
-	row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_addresses WHERE id = $1 FOR UPDATE", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
-	var ip string
-	err = row.Scan(&ip)
+	row := tx.QueryRowContext(ctx, "SELECT id, ip_address FROM ip_addresses WHERE id = $1 FOR UPDATE", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
+	var id, ip string
+	err = row.Scan(&id, &ip)
 	if err == sql.ErrNoRows {
 		err = errors.Wrapf(err, "Could not find allocation: %s", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
 		span.SetStatus(trace.Status{Code: trace.StatusCodeNotFound, Message: err.Error()})
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
-
 	if err != nil {
 		err = errors.Wrap(err, "Could not fetch allocations from database")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO ip_address_attachments(ip_address_uuid, assignment_id) VALUES ($1, $2)", id, assignmentID)
+	if err != nil {
+		err = errors.Wrap(err, "Could not insert ip address attachment into database")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}

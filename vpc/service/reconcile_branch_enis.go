@@ -16,7 +16,7 @@ import (
 	"go.opencensus.io/trace"
 )
 
-func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) (retErr error) {
+func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIsForRegionAccount")
@@ -81,7 +81,9 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 				pq.Array(securityGroups),
 			)
 			if err != nil {
-				return errors.Wrap(err, "Could not update known_branch_enis")
+				err = errors.Wrap(err, "Could not update known_branch_enis")
+				span.SetStatus(traceStatusFromError(err))
+				return err
 			}
 		}
 		if output.NextToken == nil {
@@ -106,7 +108,9 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	  AND (branch_enis.security_groups != excluded.security_groups)
 	  `)
 	if err != nil {
-		return errors.Wrap(err, "Could not insert new branch ENIs")
+		err = errors.Wrap(err, "Could not insert new branch ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
 	// there are two race conditions here. Listing all the ENIs in the account takes ~5 minutes. If the branch ENI was not associated / existed
@@ -115,7 +119,9 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	// Populate branch eni attachments with ENIs that are not in use
 	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE branch_eni IN (SELECT branch_eni FROM known_branch_enis WHERE state = 'available') AND created_at < transaction_timestamp()")
 	if err != nil {
-		return errors.Wrap(err, "Could not delete unattached branch eni attachments")
+		err = errors.Wrap(err, "Could not delete unattached branch eni attachments")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
 	_, err = tx.ExecContext(ctx, `
@@ -129,7 +135,9 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	  AND created_at < transaction_timestamp()
 	`, account.accountID, account.region)
 	if err != nil {
-		return errors.Wrap(err, "Cannot delete removed branch ENIs")
+		err = errors.Wrap(err, "Cannot delete removed branch ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
 	return nil

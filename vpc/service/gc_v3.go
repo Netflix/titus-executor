@@ -550,7 +550,7 @@ func (vpcService *vpcService) gcWorker(ctx context.Context, ec2client *ec2.EC2, 
 	}
 }
 
-func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, limiter *rate.Limiter) error {
+func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, limiter *rate.Limiter) error { // nolint: gocyclo
 	ctx, span := trace.StartSpan(ctx, "doGCAttachedENI")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
@@ -586,7 +586,7 @@ JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
 WHERE branch_eni_attachments.branch_eni = $1
   AND attachment_generation = 3
   FOR
-  UPDATE
+  UPDATE OF branch_enis
 `, aws.StringValue(iface.NetworkInterfaceId))
 	var associationID string
 	err = row.Scan(&associationID)
@@ -602,19 +602,86 @@ WHERE branch_eni_attachments.branch_eni = $1
 		return err
 	}
 
+	errCh := make(chan error, 10)
+	dispatched := 0
+
 	interfaceIPv4Addresses := sets.NewString()
 	for _, ip := range iface.PrivateIpAddresses {
 		if !aws.BoolValue(ip.Primary) {
 			interfaceIPv4Addresses.Insert(aws.StringValue(ip.PrivateIpAddress))
 		}
 	}
+
 	interfaceIPv6Addresses := sets.NewString()
 	for _, ip := range iface.Ipv6Addresses {
 		interfaceIPv6Addresses.Insert(aws.StringValue(ip.Ipv6Address))
 	}
 
-	errCh := make(chan error, 2)
-	dispatched := 0
+	removedStaticAddresses := sets.NewString()
+	if interfaceIPv4Addresses.Len() > 0 {
+		rows, err := tx.QueryContext(ctx, `
+WITH interface_v4_addresses AS
+  (SELECT unnest($1::text[])::INET AS ip_address,
+          $2 AS assoc_id,
+          $3 AS vpc_id,
+          $4 AS subnet_id),
+     unassigned_ip_addresses AS
+  (SELECT ip_addresses.ip_address,
+          home_eni
+   FROM interface_v4_addresses
+   JOIN ip_addresses ON interface_v4_addresses.ip_address = ip_addresses.ip_address
+   AND interface_v4_addresses.subnet_id = ip_addresses.subnet_id
+   LEFT JOIN assignments ON interface_v4_addresses.ip_address = assignments.ipv4addr
+   AND interface_v4_addresses.assoc_id = assignments.branch_eni_association
+   WHERE assignment_id IS NULL )
+SELECT ip_address,
+       home_eni
+FROM unassigned_ip_addresses
+`, pq.Array(interfaceIPv4Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId), aws.StringValue(iface.SubnetId))
+		if err != nil {
+			err = errors.Wrap(err, "Cannot query for unused static IPv4 addresses")
+			span.SetStatus(traceStatusFromError(err))
+			return err
+		}
+		for rows.Next() {
+			var ipAddress, homeENI string
+			err = rows.Scan(&ipAddress, &homeENI)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot scan static (unused) ip address")
+				span.SetStatus(traceStatusFromError(err))
+				return err
+			}
+			removedStaticAddresses.Insert(ipAddress)
+			dispatched++
+			go relocateIPAddress(ctx, ec2client, iface, ipAddress, homeENI, errCh)
+			interfaceIPv4Addresses.Delete(ipAddress)
+		}
+	}
+
+	for _, ip := range iface.PrivateIpAddresses {
+		if removedStaticAddresses.Has(aws.StringValue(ip.PrivateIpAddress)) {
+			continue
+		}
+		if ip.Association == nil {
+			continue
+		}
+		row := tx.QueryRowContext(ctx, "SELECT count(*) FROM elastic_ip_attachments WHERE association_id = $1", aws.StringValue(ip.Association.AssociationId))
+		var c int
+		err = row.Scan(&c)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan row")
+			span.SetStatus(traceStatusFromError(err))
+			return err
+		}
+		// We have no idea why this association is here.
+		if c == 0 {
+			dispatched++
+			// There's an interesting race condition here where the IP address can be disassociated at the same "speed"
+			// at which the disassociation can occur. This has an "interesting" result of false errors.
+			association := ip.Association
+			go removeAssociation(ctx, ec2client, association, errCh)
+		}
+	}
 
 	if interfaceIPv4Addresses.Len() > 0 {
 		rows, err := tx.QueryContext(ctx, `
@@ -728,6 +795,46 @@ out:
 	return nil
 }
 
+func relocateIPAddress(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipAddress, homeENI string, errCh chan error) {
+	ctx, span := trace.StartSpan(ctx, "relocateIPAddress")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("ipAddress", ipAddress))
+	logger.G(ctx).WithField("ipAddress", ipAddress).Debug("Relocating IP Address")
+	_, err := ec2client.UnassignPrivateIpAddressesWithContext(ctx, &ec2.UnassignPrivateIpAddressesInput{
+		NetworkInterfaceId: iface.NetworkInterfaceId,
+		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+	})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot unassign static address")
+		logger.G(ctx).WithError(err).Debug("Unassigned address")
+		span.SetStatus(traceStatusFromError(err))
+		errCh <- err
+		return
+	}
+
+	_, err = ec2client.AssignPrivateIpAddressesWithContext(ctx, &ec2.AssignPrivateIpAddressesInput{
+		AllowReassignment:  aws.Bool(false),
+		NetworkInterfaceId: aws.String(homeENI),
+		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+	})
+	logger.G(ctx).WithError(err).Debug("Relocated address")
+	errCh <- err
+}
+
+func removeAssociation(ctx context.Context, ec2client *ec2.EC2, association *ec2.NetworkInterfaceAssociation, errCh chan error) {
+	ctx, span := trace.StartSpan(ctx, "removeAssociation")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("association", aws.StringValue(association.AssociationId)))
+
+	logger.G(ctx).WithField("association", aws.StringValue(association.AssociationId)).Debug("Removing association")
+	_, err := ec2client.DisassociateAddressWithContext(ctx, &ec2.DisassociateAddressInput{
+		AssociationId: association.AssociationId,
+	})
+	logger.G(ctx).WithError(err).Debug("Removed association")
+	span.SetStatus(traceStatusFromError(err))
+	errCh <- err
+}
+
 func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipv4AddressesToRemove []string, errCh chan error) {
 	ctx, span := trace.StartSpan(ctx, "removeIPv4Addresses")
 	defer span.End()
@@ -739,9 +846,7 @@ func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.Netw
 		NetworkInterfaceId: iface.NetworkInterfaceId,
 	})
 	logger.G(ctx).WithError(err).Debug("Removed IPv4 Addresses")
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-	}
+	span.SetStatus(traceStatusFromError(err))
 
 	errCh <- err
 }
