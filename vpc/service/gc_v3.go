@@ -62,7 +62,7 @@ JOIN ip_addresses ON assignments.ipv4addr = ip_addresses.ip_address AND branch_e
 WHERE trunk_eni = $1
 AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
   FOR
-  UPDATE
+  UPDATE OF branch_enis, ip_addresses
   LIMIT 1
 `, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	var ipAddress, homeENI, branchENI, accountID, az, assignmentID string
