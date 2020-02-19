@@ -59,6 +59,8 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						InterfaceAccount:   v.GetString(interfaceAccount),
 						TaskID:             v.GetString("task-id"),
 						Oneshot:            v.GetBool("oneshot"),
+						ElasticIPPool:      v.GetString("elastic-ip-pool"),
+						ElasticIPs:         v.GetStringSlice("elastic-ips"),
 					},
 				)
 			default:
@@ -74,6 +76,8 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().String(interfaceAccount, "", "The account that the interface should live in")
 	cmd.Flags().String("task-id", "", "The task ID for the allocation")
 	cmd.Flags().StringSlice("subnet-ids", []string{}, "The subnet IDs for the allocation")
+	cmd.Flags().StringSlice("elastic-ips", []string{}, "One of the elastic IPs to use for attachment to the interface")
+	cmd.Flags().String("elastic-ip-pool", "", "The elastic IP pool to allocate from")
 	cmd.Flags().Bool("oneshot", false, "Whether or not to assign the address, and then exit")
 	addSharedFlags(cmd.Flags())
 

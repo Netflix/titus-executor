@@ -3,6 +3,7 @@ package com.netflix.titus.executor.vpc;
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
 import "netflix/titus/titus_base.proto";
 
 option go_package = "vpcapi";
@@ -122,6 +123,10 @@ message AssignIPResponseV2 {
     uint32 vlanId = 5;
 };
 
+message elasticAddressSet {
+    repeated string elasticAddresses = 1;
+};
+
 message AssignIPRequestV3 {
     string taskId = 1;
     repeated string securityGroupIds = 2;
@@ -136,7 +141,18 @@ message AssignIPRequestV3 {
     // This identifies the trunk ENI
     InstanceIdentity instanceIdentity = 8;
     string accountID = 9;
+    oneof elasticAddress {
+        google.protobuf.Empty empty = 10;
+        elasticAddressSet elasticAdddresses  = 11;
+        string groupName = 12;
+    }
 };
+
+message ElasticAddress {
+    string ip = 1;
+    string allocationId = 2;
+    string associationdId = 3;
+}
 
 message AssignIPResponseV3 {
     UsableAddress ipv4address = 1;
@@ -144,6 +160,7 @@ message AssignIPResponseV3 {
     NetworkInterface branchNetworkInterface = 3;
     NetworkInterface trunkNetworkInterface = 4;
     uint32 vlanId = 5;
+    ElasticAddress elasticAddress = 6;
 };
 
 message UnassignIPRequestV3 {

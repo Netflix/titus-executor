@@ -8,22 +8,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
-	"github.com/Netflix/titus-executor/vpc"
-	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
+	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
+)
+
+const (
+	gcBatchSize    = 100
+	gcWorkers      = 10
+	timeBetweenGCs = time.Minute
 )
 
 func (vpcService *vpcService) tryReallocateStaticAssignment(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) (bool, error) {
@@ -326,6 +332,7 @@ func (vpcService *vpcService) startGCAttachedENIs(ctx context.Context, hostname 
 }
 
 // This function, once invoked, is meant to run forever until context is cancelled
+// Make this adjustable so it's not done every minute?
 func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, region, accountID string) {
 	timer := time.NewTimer(time.Minute)
 	timer.Stop()
@@ -334,7 +341,7 @@ func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, region, 
 		if err != nil {
 			logger.G(ctx).WithField("region", region).WithField("accountID", accountID).WithError(err).Error("Failed to adequately GC interfaces")
 		}
-		timer.Reset(time.Minute)
+		timer.Reset(timeBetweenGCs)
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
@@ -344,7 +351,7 @@ func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, region, 
 }
 
 func (vpcService *vpcService) doGCAttachedENIs(ctx context.Context, region, accountID string) error {
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "doGCAttachedENIs")
@@ -353,6 +360,11 @@ func (vpcService *vpcService) doGCAttachedENIs(ctx context.Context, region, acco
 		trace.StringAttribute("region", region),
 		trace.StringAttribute("accountID", accountID),
 	)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"region":    region,
+		"accountID": accountID,
+	})
+	logger.G(ctx).Debug("Beginning GC of ENIs")
 
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: region})
 	if err != nil {
@@ -361,145 +373,500 @@ func (vpcService *vpcService) doGCAttachedENIs(ctx context.Context, region, acco
 		return err
 	}
 
+	dbratelimiter := rate.NewLimiter(1000, 1)
 	ec2client := ec2.New(session.Session)
+	group, ctx := errgroup.WithContext(ctx)
+	eniWQ := make(chan string, 10000)
+	describeWQ := make(chan []string, 100)
+	gcWQ := make(chan ec2.NetworkInterface, 10000)
+	group.Go(func() error {
+		return vpcService.getGCableENIs(ctx, region, accountID, eniWQ)
+	})
 
-	describeNetworkInterfacesInput := ec2.DescribeNetworkInterfacesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String("description"),
-				Values: aws.StringSlice([]string{vpc.BranchNetworkInterfaceDescription}),
-			},
-			{
-				Name:   aws.String("owner-id"),
-				Values: aws.StringSlice([]string{accountID}),
-			},
-			{
-				Name:   aws.String("status"),
-				Values: aws.StringSlice([]string{"in-use"}),
-			},
-		},
-		MaxResults: aws.Int64(100),
+	group.Go(func() error {
+		return vpcService.describeENIsFoGCWorker(ctx, ec2client, describeWQ, gcWQ)
+	})
+
+	group.Go(func() error {
+		vpcService.describeCollector(ctx, eniWQ, describeWQ)
+		return nil
+	})
+
+	for i := 0; i < gcWorkers; i++ {
+		group.Go(func() error {
+			vpcService.gcWorker(ctx, ec2client, gcWQ, dbratelimiter)
+			return nil
+		})
 	}
-	for {
-		describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
+
+	return group.Wait()
+}
+
+func (vpcService *vpcService) getGCableENIs(ctx context.Context, region, accountID string, ch chan string) error {
+	ctx, span := trace.StartSpan(ctx, "getGCableENIs")
+	defer span.End()
+
+	defer close(ch)
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database transaction to enumerate ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+SELECT branch_eni
+FROM branch_enis
+WHERE branch_eni IN
+    (SELECT branch_eni
+     FROM branch_eni_attachments
+     WHERE attachment_generation = 3)
+  AND account_id = $1
+  AND (regexp_match(az, '[a-z]+-[a-z]+-[0-9]+'))[1] = $2
+ORDER BY RANDOM()
+  `, accountID, region)
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database query to enumerate attached ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	for rows.Next() {
+		var eni string
+		err = rows.Scan(&eni)
 		if err != nil {
-			err = errors.Wrap(err, "Cannot not describe network interfaces")
+			err = errors.Wrap(err, "Could scan eni ID")
 			span.SetStatus(traceStatusFromError(err))
 			return err
 		}
+		ch <- eni
+	}
 
-		for _, iface := range describeNetworkInterfacesOutput.NetworkInterfaces {
-			err = vpcService.doGCAttachedENI(ctx, iface)
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit db txn")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) describeCollector(ctx context.Context, eniWQ chan string, describeWQ chan []string) {
+	defer close(describeWQ)
+	enis := []string{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case eni, ok := <-eniWQ:
+			if !ok {
+				// The queue is complete
+				if len(enis) > 0 {
+					describeWQ <- enis
+				}
+				return
+			}
+			enis = append(enis, eni)
+		}
+		if len(enis) > gcBatchSize {
+			describeWQ <- enis
+			enis = []string{}
+		}
+	}
+}
+
+func (vpcService *vpcService) describeENIsFoGCWorker(ctx context.Context, ec2client *ec2.EC2, describeWQ chan []string, gcWQ chan ec2.NetworkInterface) error {
+	defer close(gcWQ)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case describeRQ, ok := <-describeWQ:
+			if !ok {
+				return nil
+			}
+			err := vpcService.describeENIsFoGC(ctx, ec2client, describeRQ, gcWQ)
 			if err != nil {
-				err = errors.Wrap(err, "Cannot GC network interface")
-				span.SetStatus(traceStatusFromError(err))
 				return err
 			}
 		}
+	}
+}
 
+func (vpcService *vpcService) describeENIsFoGC(ctx context.Context, ec2client *ec2.EC2, eniList []string, gcWQ chan ec2.NetworkInterface) error {
+	ctx, span := trace.StartSpan(ctx, "describer")
+	defer span.End()
+	span.AddAttributes(
+		trace.StringAttribute("enis", fmt.Sprint(eniList)),
+		trace.Int64Attribute("n", int64(len(eniList))))
+
+	describeNetworkInterfacesInput := ec2.DescribeNetworkInterfacesInput{
+		NetworkInterfaceIds: aws.StringSlice(eniList),
+	}
+
+	for {
+		describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot describe ENIs")
+			return err
+		}
+		for _, iface := range describeNetworkInterfacesOutput.NetworkInterfaces {
+			i := *iface
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case gcWQ <- i:
+			}
+		}
 		if describeNetworkInterfacesOutput.NextToken == nil {
 			return nil
 		}
 		describeNetworkInterfacesInput.NextToken = describeNetworkInterfacesOutput.NextToken
 	}
+
 }
 
-func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, iface *ec2.NetworkInterface) error {
+func (vpcService *vpcService) gcWorker(ctx context.Context, ec2client *ec2.EC2, wq chan ec2.NetworkInterface, limiter *rate.Limiter) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case eni, ok := <-wq:
+			if !ok {
+				return
+			}
+			if err := vpcService.doGCAttachedENI(ctx, ec2client, eni, limiter); err != nil {
+				logger.G(ctx).WithError(err).Error("Cannot GC ENI")
+			}
+		}
+	}
+}
+
+func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, limiter *rate.Limiter) error { // nolint: gocyclo
+	ctx, span := trace.StartSpan(ctx, "doGCAttachedENI")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
+
+	ctx = logger.WithField(ctx, "eni", aws.StringValue(iface.NetworkInterfaceId))
+	err := limiter.Wait(ctx)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to pass database rate limiter")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	// TODO: Probably make this timeout adjustable
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
-		return err
+		span.SetStatus(traceStatusFromError(err))
+		logger.G(ctx).WithError(err).Error()
 	}
 
 	defer func() {
 		_ = tx.Rollback()
 	}()
 
+	// This verifies that the branch ENI is still attached when we do the operation
 	row := tx.QueryRowContext(ctx, `
 SELECT association_id
 FROM branch_eni_attachments
 JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
 WHERE branch_eni_attachments.branch_eni = $1
   AND attachment_generation = 3
-  AND COALESCE(last_assigned_to, TIMESTAMP 'EPOCH') < transaction_timestamp() - INTERVAL '1 minutes'
   FOR
-  UPDATE
+  UPDATE OF branch_enis
 `, aws.StringValue(iface.NetworkInterfaceId))
 	var associationID string
 	err = row.Scan(&associationID)
 	if err == sql.ErrNoRows {
-		return nil
+		err = fmt.Errorf("ENI %q was not in v3 attachments", aws.StringValue(iface.NetworkInterfaceId))
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan row")
+		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
 
-	/*
-			row = tx.QueryRowContext(ctx, `
-		SELECT (array_agg(host(ipv4addr)) FILTER (WHERE ipv4addr IS NOT NULL)),
-		       (array_agg(host(ipv6addr)) FILTER (WHERE ipv6addr IS NOT NULL))
-		FROM assignments
-		WHERE branch_eni_association = $1
-		`, associationID)
-			var ipv4addrs, ipv6addrs []string
-			err = row.Scan(pq.Array(&ipv4addrs), pq.Array(&ipv6addrs))
+	errCh := make(chan error, 10)
+	dispatched := 0
+
+	interfaceIPv4Addresses := sets.NewString()
+	for _, ip := range iface.PrivateIpAddresses {
+		if !aws.BoolValue(ip.Primary) {
+			interfaceIPv4Addresses.Insert(aws.StringValue(ip.PrivateIpAddress))
+		}
+	}
+
+	interfaceIPv6Addresses := sets.NewString()
+	for _, ip := range iface.Ipv6Addresses {
+		interfaceIPv6Addresses.Insert(aws.StringValue(ip.Ipv6Address))
+	}
+
+	removedStaticAddresses := sets.NewString()
+	if interfaceIPv4Addresses.Len() > 0 {
+		rows, err := tx.QueryContext(ctx, `
+WITH interface_v4_addresses AS
+  (SELECT unnest($1::text[])::INET AS ip_address,
+          $2 AS assoc_id,
+          $3 AS vpc_id,
+          $4 AS subnet_id),
+     unassigned_ip_addresses AS
+  (SELECT ip_addresses.ip_address,
+          home_eni
+   FROM interface_v4_addresses
+   JOIN ip_addresses ON interface_v4_addresses.ip_address = ip_addresses.ip_address
+   AND interface_v4_addresses.subnet_id = ip_addresses.subnet_id
+   LEFT JOIN assignments ON interface_v4_addresses.ip_address = assignments.ipv4addr
+   AND interface_v4_addresses.assoc_id = assignments.branch_eni_association
+   WHERE assignment_id IS NULL )
+SELECT ip_address,
+       home_eni
+FROM unassigned_ip_addresses
+`, pq.Array(interfaceIPv4Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId), aws.StringValue(iface.SubnetId))
+		if err != nil {
+			err = errors.Wrap(err, "Cannot query for unused static IPv4 addresses")
+			span.SetStatus(traceStatusFromError(err))
+			return err
+		}
+		for rows.Next() {
+			var ipAddress, homeENI string
+			err = rows.Scan(&ipAddress, &homeENI)
 			if err != nil {
-				err = errors.Wrap(err, "Cannot scan row with used ipv4addrs / ipv6addrs")
+				err = errors.Wrap(err, "Cannot scan static (unused) ip address")
+				span.SetStatus(traceStatusFromError(err))
 				return err
 			}
+			removedStaticAddresses.Insert(ipAddress)
+			dispatched++
+			go relocateIPAddress(ctx, ec2client, iface, ipAddress, homeENI, errCh)
+			interfaceIPv4Addresses.Delete(ipAddress)
+		}
+	}
 
-			interfaceIPv4Addresses := sets.NewString()
-			for _, ip := range iface.PrivateIpAddresses {
-				if !aws.BoolValue(ip.Primary) {
-					interfaceIPv4Addresses.Insert(aws.StringValue(ip.PrivateIpAddress))
-				}
-			}
-			interfaceIPv6Addresses := sets.NewString()
-			for _, ip := range iface.Ipv6Addresses {
-				interfaceIPv6Addresses.Insert(aws.StringValue(ip.Ipv6Address))
-			}
-			removableIPv6Addresses := interfaceIPv6Addresses.Difference(sets.NewString(ipv6addrs...))
-			removableIPv4Addresses := interfaceIPv4Addresses.Difference(sets.NewString(ipv4addrs...))
+	for _, ip := range iface.PrivateIpAddresses {
+		if removedStaticAddresses.Has(aws.StringValue(ip.PrivateIpAddress)) {
+			continue
+		}
+		if ip.Association == nil {
+			continue
+		}
+		row := tx.QueryRowContext(ctx, "SELECT count(*) FROM elastic_ip_attachments WHERE association_id = $1", aws.StringValue(ip.Association.AssociationId))
+		var c int
+		err = row.Scan(&c)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan row")
+			span.SetStatus(traceStatusFromError(err))
+			return err
+		}
+		// We have no idea why this association is here.
+		if c == 0 {
+			dispatched++
+			// There's an interesting race condition here where the IP address can be disassociated at the same "speed"
+			// at which the disassociation can occur. This has an "interesting" result of false errors.
+			association := ip.Association
+			go removeAssociation(ctx, ec2client, association, errCh)
+		}
+	}
 
-			rows, err := tx.QueryContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2 AND now() - last_seen < INTERVAL '2 MINUTE'", pq.Array(removableIPv4Addresses.List()), aws.StringValue(iface.VpcId))
+	if interfaceIPv4Addresses.Len() > 0 {
+		rows, err := tx.QueryContext(ctx, `
+WITH interface_v4_addresses AS
+  (SELECT unnest($1::text[])::INET AS ip_address,
+          $2 AS assoc_id,
+          $3 AS vpc_id),
+     unassigned_ip_addresses AS
+  (SELECT interface_v4_addresses.ip_address,
+          vpc_id
+   FROM interface_v4_addresses
+   LEFT JOIN assignments ON interface_v4_addresses.ip_address = assignments.ipv4addr AND interface_v4_addresses.assoc_id = assignments.branch_eni_association
+   WHERE assignment_id IS NULL ),
+     unassigned_ip_addresses_with_last_seen AS
+  (SELECT unassigned_ip_addresses.ip_address,
+          last_seen
+   FROM unassigned_ip_addresses
+   LEFT JOIN ip_last_used_v3 ON unassigned_ip_addresses.ip_address = ip_last_used_v3.ip_address AND unassigned_ip_addresses.vpc_id = ip_last_used_v3.vpc_id)
+SELECT ip_address
+FROM unassigned_ip_addresses_with_last_seen
+WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
+`, pq.Array(interfaceIPv4Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId))
+		if err != nil {
+			err = errors.Wrap(err, "Cannot query for unused IPv4 addresses")
+			span.SetStatus(traceStatusFromError(err))
+			return err
+		}
+
+		ipv4AddressesToRemove := []string{}
+		for rows.Next() {
+			var ipAddress string
+			err = rows.Scan(&ipAddress)
 			if err != nil {
-				err = errors.Wrap(err, "Cannot query for ipv4 addresses which may have been allocated in the last 2 minutes")
+				err = errors.Wrap(err, "Cannot scan unused IPv4 addresses")
+				span.SetStatus(traceStatusFromError(err))
 				return err
 			}
-			for rows.Next() {
-				var ipv4Address string
-				err = rows.Scan(&ipv4Address)
-				if err != nil {
-					err = errors.Wrap(err, "Cannot scan address")
-					return err
-				}
-				removableIPv4Addresses.Delete(ipv4Address)
-			}
+			ipv4AddressesToRemove = append(ipv4AddressesToRemove, ipAddress)
+		}
 
-			rows, err = tx.QueryContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2 AND now() - last_seen < INTERVAL '2 MINUTE'", pq.Array(removableIPv6Addresses.List()), aws.StringValue(iface.VpcId))
+		if len(ipv4AddressesToRemove) > 0 {
+			dispatched++
+			go removeIPv4Addresses(ctx, ec2client, iface, ipv4AddressesToRemove, errCh)
+		}
+	}
+
+	if interfaceIPv6Addresses.Len() > 0 {
+		rows, err := tx.QueryContext(ctx, `
+WITH interface_v6_addresses AS
+  (SELECT unnest($1::text[])::INET AS ip_address,
+          $2 AS assoc_id,
+          $3 AS vpc_id),
+     unassigned_ip_addresses AS
+  (SELECT interface_v6_addresses.ip_address,
+          vpc_id
+   FROM interface_v6_addresses
+   LEFT JOIN assignments ON interface_v6_addresses.ip_address = assignments.ipv6addr AND interface_v6_addresses.assoc_id = assignments.branch_eni_association
+   WHERE assignment_id IS NULL ),
+     unassigned_ip_addresses_with_last_seen AS
+  (SELECT unassigned_ip_addresses.ip_address,
+          last_seen
+   FROM unassigned_ip_addresses
+   LEFT JOIN ip_last_used_v3 ON unassigned_ip_addresses.ip_address = ip_last_used_v3.ip_address AND unassigned_ip_addresses.vpc_id = ip_last_used_v3.vpc_id)
+SELECT ip_address
+FROM unassigned_ip_addresses_with_last_seen
+WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
+`, pq.Array(interfaceIPv6Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId))
+		if err != nil {
+			err = errors.Wrap(err, "Cannot query for unused IPv6 addresses")
+			span.SetStatus(traceStatusFromError(err))
+			return err
+		}
+
+		ipv6AddressesToRemove := []string{}
+		for rows.Next() {
+			var ipAddress string
+			err = rows.Scan(&ipAddress)
 			if err != nil {
-				err = errors.Wrap(err, "Cannot query for ipv4 addresses which may have been allocated in the last 2 minutes")
+				err = errors.Wrap(err, "Cannot scan unused IPv6 addresses")
+				span.SetStatus(traceStatusFromError(err))
 				return err
 			}
-			for rows.Next() {
-				var ipv6Address string
-				err = rows.Scan(&ipv6Address)
-				if err != nil {
-					err = errors.Wrap(err, "Cannot scan address")
-					return err
-				}
-				removableIPv6Addresses.Delete(ipv6Address)
-			}
+			ipv6AddressesToRemove = append(ipv6AddressesToRemove, ipAddress)
+		}
 
-			logger.G(ctx).
-				WithField("interface", aws.StringValue(iface.NetworkInterfaceId)).
-				WithField("ipv4addrs", ipv4addrs).
-				WithField("ipv6addrs", ipv6addrs).
-				WithField("removableIPv6Addresses", removableIPv6Addresses.List()).
-				WithField("removableIPv4Addresses", removableIPv4Addresses.List()).
-				Debug("Scanned row")
-	*/
+		if len(ipv6AddressesToRemove) > 0 {
+			dispatched++
+			go removeIPv6Addresses(ctx, ec2client, iface, ipv6AddressesToRemove, errCh)
+		}
+	}
+
+	var result *multierror.Error
+	for dispatched > 0 {
+		select {
+		case err := <-errCh:
+			result = multierror.Append(result, err)
+			dispatched--
+		case <-ctx.Done():
+			result = multierror.Append(result, ctx.Err())
+			goto out
+		}
+	}
+out:
+	err = result.ErrorOrNil()
+	if err != nil {
+		err = errors.Wrap(err, "Unable to GC interface")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
 	return nil
+}
+
+func relocateIPAddress(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipAddress, homeENI string, errCh chan error) {
+	ctx, span := trace.StartSpan(ctx, "relocateIPAddress")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("ipAddress", ipAddress))
+	logger.G(ctx).WithField("ipAddress", ipAddress).Debug("Relocating IP Address")
+	_, err := ec2client.UnassignPrivateIpAddressesWithContext(ctx, &ec2.UnassignPrivateIpAddressesInput{
+		NetworkInterfaceId: iface.NetworkInterfaceId,
+		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+	})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot unassign static address")
+		logger.G(ctx).WithError(err).Debug("Unassigned address")
+		span.SetStatus(traceStatusFromError(err))
+		errCh <- err
+		return
+	}
+
+	_, err = ec2client.AssignPrivateIpAddressesWithContext(ctx, &ec2.AssignPrivateIpAddressesInput{
+		AllowReassignment:  aws.Bool(false),
+		NetworkInterfaceId: aws.String(homeENI),
+		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+	})
+	logger.G(ctx).WithError(err).Debug("Relocated address")
+	errCh <- err
+}
+
+func removeAssociation(ctx context.Context, ec2client *ec2.EC2, association *ec2.NetworkInterfaceAssociation, errCh chan error) {
+	ctx, span := trace.StartSpan(ctx, "removeAssociation")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("association", aws.StringValue(association.AssociationId)))
+
+	logger.G(ctx).WithField("association", aws.StringValue(association.AssociationId)).Debug("Removing association")
+	_, err := ec2client.DisassociateAddressWithContext(ctx, &ec2.DisassociateAddressInput{
+		AssociationId: association.AssociationId,
+	})
+	logger.G(ctx).WithError(err).Debug("Removed association")
+	span.SetStatus(traceStatusFromError(err))
+	errCh <- err
+}
+
+func removeIPv4Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipv4AddressesToRemove []string, errCh chan error) {
+	ctx, span := trace.StartSpan(ctx, "removeIPv4Addresses")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("ipv4AddressesToRemove", fmt.Sprint(ipv4AddressesToRemove)))
+
+	logger.G(ctx).WithField("ipv4AddressesToRemove", ipv4AddressesToRemove).Debug("Removing IPv4 Addresses")
+	_, err := ec2client.UnassignPrivateIpAddresses(&ec2.UnassignPrivateIpAddressesInput{
+		PrivateIpAddresses: aws.StringSlice(ipv4AddressesToRemove),
+		NetworkInterfaceId: iface.NetworkInterfaceId,
+	})
+	logger.G(ctx).WithError(err).Debug("Removed IPv4 Addresses")
+	span.SetStatus(traceStatusFromError(err))
+
+	errCh <- err
+}
+
+func removeIPv6Addresses(ctx context.Context, ec2client *ec2.EC2, iface ec2.NetworkInterface, ipv6AddressesToRemove []string, errCh chan error) {
+	ctx, span := trace.StartSpan(ctx, "removeIPv6Addresses")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("ipv6AddressesToRemove", fmt.Sprint(ipv6AddressesToRemove)))
+
+	logger.G(ctx).WithField("ipv6AddressesToRemove", ipv6AddressesToRemove).Debug("Removing IPv6 Addresses")
+
+	_, err := ec2client.UnassignIpv6Addresses(&ec2.UnassignIpv6AddressesInput{
+		Ipv6Addresses:      aws.StringSlice(ipv6AddressesToRemove),
+		NetworkInterfaceId: iface.NetworkInterfaceId,
+	})
+	logger.G(ctx).WithError(err).Debug("Removed IPv6 Addresses")
+
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+	}
+
+	errCh <- err
 }

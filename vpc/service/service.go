@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -21,7 +20,6 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -75,9 +73,6 @@ type vpcService struct {
 	// We hope this is globally unique
 	hostname string
 	ec2      *ec2wrapper.EC2SessionManager
-
-	dummyInterfaceLock sync.Mutex
-	dummyInterfaces    map[string]*ec2.NetworkInterface
 
 	db *sql.DB
 
@@ -158,10 +153,9 @@ func Run(ctx context.Context, config *Config) error {
 	}
 
 	vpc := &vpcService{
-		hostname:        hostname,
-		ec2:             ec2wrapper.NewEC2SessionManager(),
-		dummyInterfaces: make(map[string]*ec2.NetworkInterface),
-		db:              config.DB,
+		hostname: hostname,
+		ec2:      ec2wrapper.NewEC2SessionManager(),
+		db:       config.DB,
 
 		gcTimeout:       config.GCTimeout,
 		refreshInterval: config.RefreshInterval,
@@ -278,6 +272,14 @@ func Run(ctx context.Context, config *Config) error {
 	})
 	group.Go(func() error {
 		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
+	})
+
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "elastic_ip", vpc.getRegionAccounts, vpc.reconcileEIPsForRegionAccount)
+	})
+
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "availability_zone", vpc.getRegionAccounts, vpc.reconcileAvailabilityZonesRegionAccount)
 	})
 
 	if !config.DisableLongLivedTasks {
