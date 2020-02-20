@@ -29,7 +29,7 @@ type Uploader struct {
 // The upload always prefers s3, then copy, and will use a black hole sink if nothing else is configured. The first
 // s3 location or copy destination specified is used. Rest are ignored.
 func NewUploader(config *config.Config, titusInfo *titus.ContainerInfo, taskID string, m metrics.Reporter) (*Uploader, error) {
-	bucketName, pathPrefix := "", ""
+	bucketName, pathPrefix, useTitusRole := "", "", true
 
 	if len(config.S3Uploaders) > 0 {
 		bucketName = config.S3Uploaders[0]
@@ -37,6 +37,7 @@ func NewUploader(config *config.Config, titusInfo *titus.ContainerInfo, taskID s
 
 	if param, ok := titusInfo.GetPassthroughAttributes()[s3BucketNameParam]; ok {
 		bucketName = param
+		useTitusRole = false
 	}
 
 	if param, ok := titusInfo.GetPassthroughAttributes()[s3PathPrefixParam]; ok {
@@ -44,7 +45,7 @@ func NewUploader(config *config.Config, titusInfo *titus.ContainerInfo, taskID s
 	}
 
 	if bucketName != "" {
-		s3, err := NewS3Backend(m, bucketName, pathPrefix, titusInfo.GetIamProfile(), taskID)
+		s3, err := NewS3Backend(m, bucketName, pathPrefix, titusInfo.GetIamProfile(), taskID, useTitusRole)
 		if err != nil {
 			return nil, err
 		}

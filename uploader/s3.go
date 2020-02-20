@@ -38,12 +38,46 @@ type S3Backend struct {
 }
 
 // NewS3Backend creates a new instance of an S3 manager which uploads to the specified location.
-func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskID string) (Backend, error) {
+func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskID string, useDefaultRole bool) (Backend, error) {
+	log.StandardLogger().Infof("logging to %s/%s using iamRole %s", bucket, prefix, iamRoleArn)
+
 	region, err := getEC2Region()
 	if err != nil {
 		panic(err)
 	}
 
+	var session *session.Session
+
+	if useDefaultRole {
+		session, err = getDefaultSession(region)
+	} else {
+		session, err = getCustomSession(region, iamRoleArn, taskID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	s3Uploader := s3manager.NewUploader(session, func(u *s3manager.Uploader) {
+		u.PartSize = defaultS3PartSize
+	})
+
+	return &S3Backend{
+		log:        log.StandardLogger(),
+		bucketName: bucket,
+		pathPrefix: prefix,
+		metrics:    m,
+		s3Uploader: s3Uploader,
+	}, nil
+}
+
+func getDefaultSession(region string) (*session.Session, error) {
+	return session.NewSession(&aws.Config{
+		Logger: newLogAdapter(),
+		Region: &region,
+	})
+}
+
+func getCustomSession(region, iamRoleArn, taskID string) (*session.Session, error) {
 	roleSess, err := session.NewSession(&aws.Config{
 		Logger: newLogAdapter(),
 		Region: &region,
@@ -57,26 +91,11 @@ func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskID string)
 		p.RoleSessionName = metadataserver.GenerateSessionName(taskID)
 	})
 
-	s3Sess, err := session.NewSession(&aws.Config{
+	return session.NewSession(&aws.Config{
 		Logger:      newLogAdapter(),
 		Region:      &region,
 		Credentials: cred,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	s3Uploader := s3manager.NewUploader(s3Sess, func(u *s3manager.Uploader) {
-		u.PartSize = defaultS3PartSize
-	})
-
-	return &S3Backend{
-		log:        log.StandardLogger(),
-		bucketName: bucket,
-		pathPrefix: prefix,
-		metrics:    m,
-		s3Uploader: s3Uploader,
-	}, nil
 }
 
 func getEC2Region() (string, error) {
@@ -93,7 +112,7 @@ func getEC2Region() (string, error) {
 }
 
 func (u *S3Backend) Upload(ctx context.Context, local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
-	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
+	u.log.Printf("Attempting to upload file from %s to %s", local, path.Join(u.bucketName, remote))
 
 	// warning: Potential file inclusion via variable,MEDIUM,HIGH (gosec)
 	f, err := os.Open(local) // nolint: gosec
@@ -130,7 +149,6 @@ func (r *countingReader) Read(p []byte) (n int, err error) {
 
 // UploadFile writes a single file only to S3!
 func (u *S3Backend) uploadFile(ctx context.Context, local io.Reader, remote string, contentType string) error {
-	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
 	if contentType == "" {
 		contentType = defaultS3ContentType
 	}
@@ -158,6 +176,7 @@ func (u *S3Backend) uploadFile(ctx context.Context, local io.Reader, remote stri
 
 // UploadPartOfFile copies a single file only. It doesn't preserve the cursor location in the file.
 func (u *S3Backend) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
+	u.log.Printf("Attempting to upload part of file (%d,%d) to %s", start, length, path.Join(u.bucketName, remote))
 	if _, err := local.Seek(start, io.SeekStart); err != nil {
 		return err
 	}
