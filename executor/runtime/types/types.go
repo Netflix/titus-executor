@@ -506,11 +506,12 @@ type Resources struct {
 
 // NetworkConfigurationDetails used to pass results back to master
 type NetworkConfigurationDetails struct {
-	IsRoutableIP bool
-	IPAddress    string
-	EniIPAddress string
-	EniID        string
-	ResourceID   string
+	IsRoutableIP   bool
+	IPAddress      string
+	EniIPAddress   string
+	EniIPv6Address string
+	EniID          string
+	ResourceID     string
 }
 
 func (n *NetworkConfigurationDetails) ToMap() map[string]string {
@@ -520,6 +521,9 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 	m["EniIpAddress"] = n.EniIPAddress
 	m["EniId"] = n.EniID
 	m["ResourceId"] = n.ResourceID
+	if n.EniIPv6Address != "" {
+		m["EniIPv6Address"] = n.EniIPv6Address
+	}
 
 	return m
 }
