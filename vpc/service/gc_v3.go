@@ -62,7 +62,7 @@ JOIN ip_addresses ON assignments.ipv4addr = ip_addresses.ip_address AND branch_e
 WHERE trunk_eni = $1
 AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
   FOR
-  UPDATE
+  UPDATE OF branch_enis, ip_addresses
   LIMIT 1
 `, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	var ipAddress, homeENI, branchENI, accountID, az, assignmentID string
@@ -629,11 +629,8 @@ WITH interface_v4_addresses AS
   (SELECT ip_addresses.ip_address,
           home_eni
    FROM interface_v4_addresses
-   JOIN ip_addresses ON interface_v4_addresses.ip_address = ip_addresses.ip_address
-   AND interface_v4_addresses.subnet_id = ip_addresses.subnet_id
-   LEFT JOIN assignments ON interface_v4_addresses.ip_address = assignments.ipv4addr
-   AND interface_v4_addresses.assoc_id = assignments.branch_eni_association
-   WHERE assignment_id IS NULL )
+   JOIN ip_addresses ON interface_v4_addresses.ip_address = ip_addresses.ip_address AND interface_v4_addresses.subnet_id = ip_addresses.subnet_id
+   WHERE ip_addresses.id NOT IN (SELECT ip_address_uuid FROM ip_address_attachments) FOR UPDATE OF ip_addresses )
 SELECT ip_address,
        home_eni
 FROM unassigned_ip_addresses
@@ -676,8 +673,8 @@ FROM unassigned_ip_addresses
 		// We have no idea why this association is here.
 		if c == 0 {
 			dispatched++
-			// There's an interesting race condition here where the IP address can be disassociated at the same "speed"
-			// at which the disassociation can occur. This has an "interesting" result of false errors.
+			// We avoid the race condition where the IP can be disassociated via removal of a static address because
+			// we check static addresses prior to this loop
 			association := ip.Association
 			go removeAssociation(ctx, ec2client, association, errCh)
 		}
