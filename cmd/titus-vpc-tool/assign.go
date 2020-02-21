@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Netflix/titus-executor/vpc/tool/assign3"
+
 	"github.com/Netflix/titus-executor/vpc/tool/allocate"
 
 	"github.com/Netflix/titus-executor/vpc/tool/assign2"
@@ -44,6 +46,23 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					v.GetString("ipv4-allocation-uuid"),
 					v.GetString(interfaceAccount),
 				)
+			case "v3":
+				return assign3.Assign(ctx,
+					iipGetter(),
+					locker,
+					conn,
+					assign3.Arguments{
+						SecurityGroups:     v.GetStringSlice("security-groups"),
+						SubnetIds:          v.GetStringSlice("subnet-ids"),
+						AssignIPv6Address:  v.GetBool("assign-ipv6-address"),
+						IPv4AllocationUUID: v.GetString("ipv4-allocation-uuid"),
+						InterfaceAccount:   v.GetString(interfaceAccount),
+						TaskID:             v.GetString("task-id"),
+						Oneshot:            v.GetBool("oneshot"),
+						ElasticIPPool:      v.GetString("elastic-ip-pool"),
+						ElasticIPs:         v.GetStringSlice("elastic-ips"),
+					},
+				)
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}
@@ -55,6 +74,11 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().Bool("assign-ipv6-address", false, "Assign IPv6 Address for container")
 	cmd.Flags().String("ipv4-allocation-uuid", "", "The UUID of the allocation")
 	cmd.Flags().String(interfaceAccount, "", "The account that the interface should live in")
+	cmd.Flags().String("task-id", "", "The task ID for the allocation")
+	cmd.Flags().StringSlice("subnet-ids", []string{}, "The subnet IDs for the allocation")
+	cmd.Flags().StringSlice("elastic-ips", []string{}, "One of the elastic IPs to use for attachment to the interface")
+	cmd.Flags().String("elastic-ip-pool", "", "The elastic IP pool to allocate from")
+	cmd.Flags().Bool("oneshot", false, "Whether or not to assign the address, and then exit")
 	addSharedFlags(cmd.Flags())
 
 	return cmd

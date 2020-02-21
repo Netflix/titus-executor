@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"database/sql"
+	"sort"
+
+	"github.com/lib/pq"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -13,7 +16,7 @@ import (
 	"go.opencensus.io/trace"
 )
 
-func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) (retErr error) {
+func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIsForRegionAccount")
@@ -34,7 +37,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		"accountID": account.accountID,
 	}).Info("Beginning reconcilation of branch ENIs")
 
-	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_enis (branch_eni TEXT PRIMARY KEY, account_id text, subnet_id text, az text, vpc_id text, state text) ON COMMIT DROP ")
+	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_enis (branch_eni TEXT PRIMARY KEY, account_id text, subnet_id text, az text, vpc_id text, state text, security_groups text array) ON COMMIT DROP ")
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return errors.Wrap(err, "Could not create temporary table for known branch enis")
@@ -62,16 +65,25 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 			return ec2wrapper.HandleEC2Error(err, span)
 		}
 		for _, branchENI := range output.NetworkInterfaces {
-			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, state) VALUES ($1, $2, $3, $4, $5, $6)",
+			securityGroups := make([]string, len(branchENI.Groups))
+			for idx := range branchENI.Groups {
+				group := branchENI.Groups[idx]
+				securityGroups[idx] = aws.StringValue(group.GroupId)
+			}
+			sort.Strings(securityGroups)
+			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, state, security_groups) VALUES ($1, $2, $3, $4, $5, $6, $7)",
 				aws.StringValue(branchENI.NetworkInterfaceId),
 				aws.StringValue(branchENI.OwnerId),
 				aws.StringValue(branchENI.SubnetId),
 				aws.StringValue(branchENI.AvailabilityZone),
 				aws.StringValue(branchENI.VpcId),
 				aws.StringValue(branchENI.Status),
+				pq.Array(securityGroups),
 			)
 			if err != nil {
-				return errors.Wrap(err, "Could not update known_branch_enis")
+				err = errors.Wrap(err, "Could not update known_branch_enis")
+				span.SetStatus(traceStatusFromError(err))
+				return err
 			}
 		}
 		if output.NextToken == nil {
@@ -79,20 +91,53 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		}
 		describeNetworkInterfacesInput.NextToken = output.NextToken
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id) SELECT branch_eni, account_id, subnet_id, az, vpc_id FROM known_branch_enis ON CONFLICT (branch_eni) DO NOTHING")
+	_, err = tx.ExecContext(ctx, `
+	INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, security_groups, modified_at)
+	SELECT branch_eni,
+		   account_id,
+		   subnet_id,
+		   az,
+		   vpc_id,
+		   security_groups,
+	       transaction_timestamp()
+	FROM known_branch_enis ON CONFLICT (branch_eni) DO
+	UPDATE
+	SET security_groups = excluded.security_groups,
+		modified_at = transaction_timestamp()
+	WHERE branch_enis.modified_at < transaction_timestamp()
+	  AND (branch_enis.security_groups != excluded.security_groups)
+	  `)
 	if err != nil {
-		return errors.Wrap(err, "Could not insert new branch ENIs")
+		err = errors.Wrap(err, "Could not insert new branch ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
+
+	// there are two race conditions here. Listing all the ENIs in the account takes ~5 minutes. If the branch ENI was not associated / existed
+	// at the beginning of the reconciliation, then we can act upon stale data.
 
 	// Populate branch eni attachments with ENIs that are not in use
-	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE branch_eni IN (SELECT branch_eni FROM known_branch_enis WHERE state = 'available')")
+	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE branch_eni IN (SELECT branch_eni FROM known_branch_enis WHERE state = 'available') AND created_at < transaction_timestamp()")
 	if err != nil {
-		return errors.Wrap(err, "Could not delete unattached branch eni attachments")
+		err = errors.Wrap(err, "Could not delete unattached branch eni attachments")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM branch_enis WHERE account_id = $1 AND (regexp_match(az, '[a-z]+-[a-z]+-[0-9]+'))[1] = $2 AND branch_eni NOT IN (SELECT branch_eni FROM known_branch_enis)", account.accountID, account.region)
+	_, err = tx.ExecContext(ctx, `
+	DELETE
+	FROM branch_enis
+	WHERE account_id = $1
+	  AND (regexp_match(az, '[a-z]+-[a-z]+-[0-9]+'))[1] = $2
+	  AND branch_eni NOT IN
+		(SELECT branch_eni
+		 FROM known_branch_enis)
+	  AND created_at < transaction_timestamp()
+	`, account.accountID, account.region)
 	if err != nil {
-		return errors.Wrap(err, "Cannot delete removed branch ENIs")
+		err = errors.Wrap(err, "Cannot delete removed branch ENIs")
+		span.SetStatus(traceStatusFromError(err))
+		return err
 	}
 
 	return nil
@@ -153,7 +198,28 @@ func (vpcService *vpcService) reconcileBranchENIAttachmentsForRegionAccount(ctx 
 		describeTrunkInterfaceAssociationsInput.NextToken = output.NextToken
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, state) SELECT branch_eni, trunk_eni, idx, association_id, 'attached' FROM known_branch_eni_attachments ON CONFLICT(branch_eni) DO UPDATE SET trunk_eni = excluded.trunk_eni, state = 'attached', idx = excluded.idx, association_id = excluded.association_id")
+	_, err = tx.ExecContext(ctx, `
+	DELETE
+	FROM branch_eni_attachments
+	WHERE branch_eni IN
+		(SELECT branch_eni_attachments.branch_eni
+		 FROM branch_eni_attachments
+		 JOIN known_branch_eni_attachments ON branch_eni_attachments.branch_eni = known_branch_eni_attachments.branch_eni
+		 WHERE branch_eni_attachments.association_id != known_branch_eni_attachments.association_id
+		   AND created_at < transaction_timestamp())
+	`)
+	if err != nil {
+		return errors.Wrap(err, "Cannot delete old (bad) branch ENI attachments")
+	}
+	_, err = tx.ExecContext(ctx, `
+	INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, created_at)
+	SELECT branch_eni,
+		   trunk_eni,
+		   idx,
+		   association_id,
+		   transaction_timestamp()
+	FROM known_branch_eni_attachments WHERE branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments)
+`)
 	if err != nil {
 		return errors.Wrap(err, "Could not insert new branch eni attachments")
 	}
@@ -177,6 +243,8 @@ func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([
 	defer func() {
 		_ = tx.Rollback()
 	}()
+
+	// TODO: Fix and extract from branch_eni table
 	rows, err := tx.QueryContext(ctx, "SELECT (regexp_match(availability_zone, '[a-z]+-[a-z]+-[0-9]+'))[1] AS region, account FROM account_mapping GROUP BY region, account")
 	if err != nil {
 		return nil, err

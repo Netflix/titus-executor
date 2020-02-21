@@ -13,6 +13,8 @@ import (
 	empty "github.com/golang/protobuf/ptypes/empty"
 	wrappers "github.com/golang/protobuf/ptypes/wrappers"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -4463,6 +4465,68 @@ type JobManagementServiceServer interface {
 	// * Any container.attributes not prefixed with `titus.` or `titusParameter.`
 	// * All information specific to service jobs (JobSpec): Capacity, RetryPolicy, MigrationPolicy, etc
 	MoveTask(context.Context, *TaskMoveRequest) (*empty.Empty, error)
+}
+
+// UnimplementedJobManagementServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedJobManagementServiceServer struct {
+}
+
+func (*UnimplementedJobManagementServiceServer) CreateJob(ctx context.Context, req *JobDescriptor) (*JobId, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateJob not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) UpdateJobCapacity(ctx context.Context, req *JobCapacityUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateJobCapacity not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) UpdateJobCapacityWithOptionalAttributes(ctx context.Context, req *JobCapacityUpdateWithOptionalAttributes) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateJobCapacityWithOptionalAttributes not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) UpdateJobStatus(ctx context.Context, req *JobStatusUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateJobStatus not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) UpdateJobProcesses(ctx context.Context, req *JobProcessesUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateJobProcesses not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) UpdateJobDisruptionBudget(ctx context.Context, req *JobDisruptionBudgetUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateJobDisruptionBudget not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) FindJobs(ctx context.Context, req *JobQuery) (*JobQueryResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FindJobs not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) FindJob(ctx context.Context, req *JobId) (*Job, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FindJob not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) ObserveJob(req *JobId, srv JobManagementService_ObserveJobServer) error {
+	return status.Errorf(codes.Unimplemented, "method ObserveJob not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) ObserveJobs(req *ObserveJobsQuery, srv JobManagementService_ObserveJobsServer) error {
+	return status.Errorf(codes.Unimplemented, "method ObserveJobs not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) KillJob(ctx context.Context, req *JobId) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method KillJob not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) UpdateJobAttributes(ctx context.Context, req *JobAttributesUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateJobAttributes not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) DeleteJobAttributes(ctx context.Context, req *JobAttributesDeleteRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteJobAttributes not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) FindTask(ctx context.Context, req *TaskId) (*Task, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FindTask not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) FindTasks(ctx context.Context, req *TaskQuery) (*TaskQueryResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FindTasks not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) KillTask(ctx context.Context, req *TaskKillRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method KillTask not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) UpdateTaskAttributes(ctx context.Context, req *TaskAttributesUpdate) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateTaskAttributes not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) DeleteTaskAttributes(ctx context.Context, req *TaskAttributesDeleteRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteTaskAttributes not implemented")
+}
+func (*UnimplementedJobManagementServiceServer) MoveTask(ctx context.Context, req *TaskMoveRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MoveTask not implemented")
 }
 
 func RegisterJobManagementServiceServer(s *grpc.Server, srv JobManagementServiceServer) {

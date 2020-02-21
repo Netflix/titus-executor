@@ -33094,12 +33094,21 @@ type Address struct {
 	// VPC.
 	AssociationId *string `locationName:"associationId" type:"string"`
 
+	// The customer-owned IP address.
+	CustomerOwnedIp *string `locationName:"customerOwnedIp" type:"string"`
+
+	// The ID of the customer-owned address pool.
+	CustomerOwnedIpv4Pool *string `locationName:"customerOwnedIpv4Pool" type:"string"`
+
 	// Indicates whether this Elastic IP address is for use with instances in EC2-Classic
 	// (standard) or instances in a VPC (vpc).
 	Domain *string `locationName:"domain" type:"string" enum:"DomainType"`
 
 	// The ID of the instance that the address is associated with (if any).
 	InstanceId *string `locationName:"instanceId" type:"string"`
+
+	// The name of the location from which the IP address is advertised.
+	NetworkBorderGroup *string `locationName:"networkBorderGroup" type:"string"`
 
 	// The ID of the network interface.
 	NetworkInterfaceId *string `locationName:"networkInterfaceId" type:"string"`
@@ -35770,23 +35779,36 @@ func (s AuthorizeSecurityGroupIngressOutput) GoString() string {
 	return s.String()
 }
 
-// Describes an Availability Zone.
 type AvailabilityZone struct {
 	_ struct{} `type:"structure"`
 
-	// Any messages about the Availability Zone.
+	// For Availability Zones, this parameter has the same value as the Region name.
+	//
+	// For Local Zones, the name of the associated group, for example us-west-2-lax-1.
+	GroupName *string `locationName:"groupName" type:"string"`
+
+	// Any messages about the Availability Zone or Local Zone.
 	Messages []*AvailabilityZoneMessage `locationName:"messageSet" locationNameList:"item" type:"list"`
+
+	// The name of the location from which the address is advertised.
+	NetworkBorderGroup *string `locationName:"networkBorderGroup" type:"string"`
+
+	// For Availability Zones, this parameter always has the value of opt-in-not-required.
+	//
+	// For Local Zones, this parameter is the opt in status. The possible values
+	// are opted-in, and not-opted-in.
+	OptInStatus *string `locationName:"optInStatus" type:"string" enum:"AvailabilityZoneOptInStatus"`
 
 	// The name of the Region.
 	RegionName *string `locationName:"regionName" type:"string"`
 
-	// The state of the Availability Zone.
+	// The state of the Availability Zone or Local Zone.
 	State *string `locationName:"zoneState" type:"string" enum:"AvailabilityZoneState"`
 
-	// The ID of the Availability Zone.
+	// The ID of the Availability Zone or Local Zone.
 	ZoneId *string `locationName:"zoneId" type:"string"`
 
-	// The name of the Availability Zone.
+	// The name of the Availability Zone or Local Zone.
 	ZoneName *string `locationName:"zoneName" type:"string"`
 }
 

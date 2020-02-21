@@ -16,7 +16,7 @@ import (
 func (vpcService *vpcService) deleteDanglingTrunksForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) (retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIsForRegionAccount")
+	ctx, span := trace.StartSpan(ctx, "deleteDanglingTrunksForRegionAccount")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
@@ -39,6 +39,10 @@ func (vpcService *vpcService) deleteDanglingTrunksForRegionAccount(ctx context.C
 			{
 				Name:   aws.String("status"),
 				Values: aws.StringSlice([]string{"available"}),
+			},
+			{
+				Name:   aws.String("owner-id"),
+				Values: aws.StringSlice([]string{account.accountID}),
 			},
 		},
 		MaxResults: aws.Int64(1000),
@@ -80,7 +84,7 @@ func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	rows, err := tx.QueryContext(ctx, "SELECT region, account_id FROM trunk_eni_accounts")
+	rows, err := tx.QueryContext(ctx, "SELECT region, account_id FROM trunk_enis GROUP BY region, account_id")
 	if err != nil {
 		return nil, err
 	}

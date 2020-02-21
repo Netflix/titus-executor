@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -21,7 +20,6 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -76,9 +74,6 @@ type vpcService struct {
 	hostname string
 	ec2      *ec2wrapper.EC2SessionManager
 
-	dummyInterfaceLock sync.Mutex
-	dummyInterfaces    map[string]*ec2.NetworkInterface
-
 	db *sql.DB
 
 	authoritativePublicKey ed25519.PublicKey
@@ -125,15 +120,16 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 }
 
 type Config struct {
-	Listener             net.Listener
-	DB                   *sql.DB
-	Key                  vpcapi.PrivateKey
-	MaxConcurrentRefresh int64
-	GCTimeout            time.Duration
-	ReconcileInterval    time.Duration
-	RefreshInterval      time.Duration
-	TLSConfig            *tls.Config
-	TitusAgentCACertPool *x509.CertPool
+	Listener              net.Listener
+	DB                    *sql.DB
+	Key                   vpcapi.PrivateKey
+	MaxConcurrentRefresh  int64
+	GCTimeout             time.Duration
+	ReconcileInterval     time.Duration
+	RefreshInterval       time.Duration
+	TLSConfig             *tls.Config
+	TitusAgentCACertPool  *x509.CertPool
+	DisableLongLivedTasks bool
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -157,10 +153,9 @@ func Run(ctx context.Context, config *Config) error {
 	}
 
 	vpc := &vpcService{
-		hostname:        hostname,
-		ec2:             ec2wrapper.NewEC2SessionManager(),
-		dummyInterfaces: make(map[string]*ec2.NetworkInterface),
-		db:              config.DB,
+		hostname: hostname,
+		ec2:      ec2wrapper.NewEC2SessionManager(),
+		db:       config.DB,
 
 		gcTimeout:       config.GCTimeout,
 		refreshInterval: config.RefreshInterval,
@@ -275,6 +270,23 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error {
 		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_eni_attachments", vpc.getTrunkENIRegionAccounts, vpc.reconcileBranchENIAttachmentsForRegionAccount)
 	})
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
+	})
+
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "elastic_ip", vpc.getRegionAccounts, vpc.reconcileEIPsForRegionAccount)
+	})
+
+	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "availability_zone", vpc.getRegionAccounts, vpc.reconcileAvailabilityZonesRegionAccount)
+	})
+
+	if !config.DisableLongLivedTasks {
+		group.Go(func() error {
+			return vpc.gcAttachedENIs(ctx)
+		})
+	}
 	err = group.Wait()
 	if ctx.Err() != nil {
 		return nil

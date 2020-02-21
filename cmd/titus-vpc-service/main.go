@@ -50,6 +50,8 @@ const (
 	sslPrivateKeyFlagName   = "ssl-private-key"
 	sslCAFlagName           = "ssl-ca"
 	sslTitusAgentCAFlagName = "ssl-titusagent-ca"
+
+	disableLongLivedTasks = "disable-long-lived-tasks"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -245,15 +247,16 @@ func main() {
 			}
 
 			return service.Run(ctx, &service.Config{
-				Listener:             listener,
-				DB:                   conn,
-				Key:                  signingKey,
-				MaxConcurrentRefresh: v.GetInt64(maxConcurrentRefreshFlagName),
-				GCTimeout:            v.GetDuration(gcTimeoutFlagName),
-				ReconcileInterval:    v.GetDuration("reconcile-interval"),
-				RefreshInterval:      v.GetDuration(refreshIntervalFlagName),
-				TLSConfig:            tlsConfig,
-				TitusAgentCACertPool: titusAgentCACertPool,
+				Listener:              listener,
+				DB:                    conn,
+				Key:                   signingKey,
+				MaxConcurrentRefresh:  v.GetInt64(maxConcurrentRefreshFlagName),
+				GCTimeout:             v.GetDuration(gcTimeoutFlagName),
+				ReconcileInterval:     v.GetDuration("reconcile-interval"),
+				RefreshInterval:       v.GetDuration(refreshIntervalFlagName),
+				TLSConfig:             tlsConfig,
+				TitusAgentCACertPool:  titusAgentCACertPool,
+				DisableLongLivedTasks: v.GetBool(disableLongLivedTasks),
 			})
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
@@ -272,6 +275,7 @@ func main() {
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
 	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
+	rootCmd.Flags().Bool(disableLongLivedTasks, true, "Disable running long lived tasks")
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().String(atlasAddrFlagName, "", "Atlas aggregator address")
@@ -355,6 +359,10 @@ func bindVariables(v *pkgviper.Viper) {
 	}
 
 	if err := v.BindEnv(maxConcurrentRefreshFlagName, "MAX_CONCURRENT_REFRESH"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(disableLongLivedTasks, "DISABLE_LONG_LIVED_TASKS"); err != nil {
 		panic(err)
 	}
 }

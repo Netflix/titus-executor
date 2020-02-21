@@ -66,6 +66,9 @@ const (
 	trueString              = "true"
 	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
 	accountID               = "titusParameter.agent.accountId"
+	subnets                 = "titusParameter.agent.subnets"
+	elasticIPPool           = "titusParameter.agent.elasticIPPool"
+	elasticIPs              = "titusParameter.agent.elasticIPs"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
@@ -98,6 +101,7 @@ func NewConfig() (*Config, []cli.Flag) {
 	flags := []cli.Flag{
 		cli.Uint64Flag{
 			Name:        "titus.executor.cfsBandwidthPeriod",
+			EnvVar:      "CFS_BANDWIDTH_PERIOD",
 			Value:       100000,
 			Destination: &cfg.cfsBandwidthPeriod,
 		},
@@ -156,6 +160,7 @@ func NewConfig() (*Config, []cli.Flag) {
 		// by default, i.e.: docker-for-mac.
 		cli.BoolTFlag{
 			Name:        "titus.executor.tiniSchedPriority",
+			EnvVar:      "BUMP_TINI_SCHED_PRIORITY",
 			Destination: &cfg.bumpTiniSchedPriority,
 			Usage: "enable a realtime scheduling priority for tini (PID=1), so it can always reap processes on contended " +
 				"systems. Kernels with CONFIG_RT_GROUP_SCHED=y require all cgroups in the hierarchy to have some " +
@@ -715,6 +720,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		"assign",
 		"--device-idx", strconv.Itoa(c.NormalizedENIIndex),
 		"--security-groups", strings.Join(c.SecurityGroupIDs, ","),
+		"--task-id", c.TaskID,
 	}
 
 	if c.AllocationUUID != "" {
@@ -723,6 +729,18 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 
 	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
 		args = append(args, "--interface-account", vpcAccountID)
+	}
+
+	if subnets, ok := c.TitusInfo.GetPassthroughAttributes()[subnets]; ok {
+		args = append(args, "--subnet-ids", subnets)
+	}
+
+	if pool, ok := c.TitusInfo.GetPassthroughAttributes()[elasticIPPool]; ok {
+		args = append(args, "--elastic-ip-pool", pool)
+	}
+
+	if ips, ok := c.TitusInfo.GetPassthroughAttributes()[elasticIPs]; ok {
+		args = append(args, "--elastic-ips", ips)
 	}
 
 	assignIPv6Address, err := c.AssignIPv6Address()
