@@ -497,7 +497,7 @@ func testImageInvalidDigestFails(t *testing.T, jobID string) {
 		ImageName:     byDigest.name,
 		Version:       "latest", // should be ignored
 		ImageDigest:   digest,
-		EntrypointOld: fmt.Sprintf(`/bin/true`),
+		EntrypointOld: "/bin/true",
 		JobID:         jobID,
 	}
 	status, err := mock.RunJob(t, ji)
@@ -514,7 +514,7 @@ func testImageNonExistingDigestFails(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
 		ImageName:     byDigest.name,
 		ImageDigest:   digest,
-		EntrypointOld: fmt.Sprintf(`/bin/true`),
+		EntrypointOld: "/bin/true",
 		JobID:         jobID,
 	}
 	status, err := mock.RunJob(t, ji)
