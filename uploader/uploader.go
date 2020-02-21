@@ -72,35 +72,44 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 		errs = multierror.Append(errs, err)
 	}
 
-	var wg sync.WaitGroup
-
 	if fi.IsDir() {
 		finfos, err := ioutil.ReadDir(local)
 		if err != nil {
 			errs = multierror.Append(errs, err)
 		} else {
+			uploadErrs := make([]error, len(finfos))
+
 			// Iterate over each file and upload it
-			for _, finfo := range finfos {
+			var wg sync.WaitGroup
+
+			for i, finfo := range finfos {
 				if finfo.IsDir() {
 					continue // don't upload subdirs
 				}
 
 				wg.Add(1)
-				go func(fi os.FileInfo) {
+				go func(i int, fi os.FileInfo) {
 					qlocal := path.Join(local, fi.Name())
 					qremote := path.Join(remote, fi.Name())
 
 					log.WithField("local", qlocal).WithField("remote", qremote).Info("uploading")
 					if err = uploader.Upload(ctx, qlocal, qremote, ctypeFunc); err != nil {
 						log.WithField("local", qlocal).WithField("remote", qremote).Error(err)
-						errs = multierror.Append(errs, err)
+						uploadErrs[i] = multierror.Append(errs, err)
 					}
 
 					wg.Done()
-				}(finfo)
+				}(i, finfo)
+			}
+			wg.Wait()
+
+			for _, err := range uploadErrs {
+				if err != nil {
+					errs = multierror.Append(errs, err)
+				}
 			}
 		}
-		wg.Wait()
+
 	}
 
 	return errs.ErrorOrNil()

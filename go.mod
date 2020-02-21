@@ -69,13 +69,14 @@ require (
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 	golang.org/x/sys v0.0.0-20190616124812-15dcb6c0061f
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
-	golang.org/x/tools v0.0.0-20190610231749-f8d1dee965f7
+	golang.org/x/tools v0.0.0-20190909030654-5b82db07426d
 	google.golang.org/appengine v1.5.0 // indirect
 	google.golang.org/grpc v1.25.0
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/karlseguin/expect.v1 v1.0.1 // indirect
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gotest.tools v2.2.0+incompatible
+	honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc // indirect
 	k8s.io/api v0.0.0-20190222213804-5cb15d344471
 	k8s.io/apimachinery v0.0.0-20190221213512-86fb29eff628
 )
