@@ -103,3 +103,5 @@ require (
 )
 
 replace github.com/coreos/go-systemd => github.com/coreos/go-systemd/v22 v22.0.0
+
+replace sourcegraph.com/sqs/pbtypes => github.com/sqs/pbtypes v1.0.0
