@@ -95,7 +95,7 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 					log.WithField("local", qlocal).WithField("remote", qremote).Info("uploading")
 					if err = uploader.Upload(ctx, qlocal, qremote, ctypeFunc); err != nil {
 						log.WithField("local", qlocal).WithField("remote", qremote).Error(err)
-						uploadErrs[i] = multierror.Append(errs, err)
+						uploadErrs[i] = err
 					}
 
 					wg.Done()
