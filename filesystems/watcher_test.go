@@ -4,7 +4,7 @@ import (
 	"context"
 	"io/ioutil"
 	"math/rand"
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"path"
 	"path/filepath"

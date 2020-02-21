@@ -1,20 +1,29 @@
 package statsd
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 var (
 	// DefaultNamespace is the default value for the Namespace option
 	DefaultNamespace = ""
 	// DefaultTags is the default value for the Tags option
 	DefaultTags = []string{}
-	// DefaultBuffered is the default value for the Buffered option
-	DefaultBuffered = false
+	// DefaultMaxBytesPerPayload is the default value for the MaxBytesPerPayload option
+	DefaultMaxBytesPerPayload = 0
 	// DefaultMaxMessagesPerPayload is the default value for the MaxMessagesPerPayload option
-	DefaultMaxMessagesPerPayload = 16
-	// DefaultAsyncUDS is the default value for the AsyncUDS option
-	DefaultAsyncUDS = false
+	DefaultMaxMessagesPerPayload = math.MaxInt32
+	// DefaultBufferPoolSize is the default value for the DefaultBufferPoolSize option
+	DefaultBufferPoolSize = 0
+	// DefaultBufferFlushInterval is the default value for the BufferFlushInterval option
+	DefaultBufferFlushInterval = 100 * time.Millisecond
+	// DefaultSenderQueueSize is the default value for the DefaultSenderQueueSize option
+	DefaultSenderQueueSize = 0
 	// DefaultWriteTimeoutUDS is the default value for the WriteTimeoutUDS option
 	DefaultWriteTimeoutUDS = 1 * time.Millisecond
+	// DefaultTelemetry is the default value for the Telemetry option
+	DefaultTelemetry = true
 )
 
 // Options contains the configuration options for a client.
@@ -23,28 +32,41 @@ type Options struct {
 	Namespace string
 	// Tags are global tags to be applied to every metrics, events and service checks.
 	Tags []string
-	// Buffered allows to pack multiple DogStatsD messages in one payload. Messages will be buffered
-	// until the total size of the payload exceeds MaxMessagesPerPayload metrics, events and/or service
-	// checks or after 100ms since the payload startedto be built.
-	Buffered bool
+	// MaxBytesPerPayload is the maximum number of bytes a single payload will contain.
+	// The magic value 0 will set the option to the optimal size for the transport
+	// protocol used when creating the client: 1432 for UDP and 8192 for UDS.
+	MaxBytesPerPayload int
 	// MaxMessagesPerPayload is the maximum number of metrics, events and/or service checks a single payload will contain.
-	// Note that this option only takes effect when the client is buffered.
+	// This option can be set to `1` to create an unbuffered client.
 	MaxMessagesPerPayload int
-	// AsyncUDS allows to switch between async and blocking mode for UDS.
-	// Blocking mode allows for error checking but does not guarentee that calls won't block the execution.
-	AsyncUDS bool
+	// BufferPoolSize is the size of the pool of buffers in number of buffers.
+	// The magic value 0 will set the option to the optimal size for the transport
+	// protocol used when creating the client: 2048 for UDP and 512 for UDS.
+	BufferPoolSize int
+	// BufferFlushInterval is the interval after which the current buffer will get flushed.
+	BufferFlushInterval time.Duration
+	// SenderQueueSize is the size of the sender queue in number of buffers.
+	// The magic value 0 will set the option to the optimal size for the transport
+	// protocol used when creating the client: 2048 for UDP and 512 for UDS.
+	SenderQueueSize int
 	// WriteTimeoutUDS is the timeout after which a UDS packet is dropped.
 	WriteTimeoutUDS time.Duration
+	// Telemetry is a set of metrics automatically injected by the client in the
+	// dogstatsd stream to be able to monitor the client itself.
+	Telemetry bool
 }
 
 func resolveOptions(options []Option) (*Options, error) {
 	o := &Options{
 		Namespace:             DefaultNamespace,
 		Tags:                  DefaultTags,
-		Buffered:              DefaultBuffered,
+		MaxBytesPerPayload:    DefaultMaxBytesPerPayload,
 		MaxMessagesPerPayload: DefaultMaxMessagesPerPayload,
-		AsyncUDS:              DefaultAsyncUDS,
+		BufferPoolSize:        DefaultBufferPoolSize,
+		BufferFlushInterval:   DefaultBufferFlushInterval,
+		SenderQueueSize:       DefaultSenderQueueSize,
 		WriteTimeoutUDS:       DefaultWriteTimeoutUDS,
+		Telemetry:             DefaultTelemetry,
 	}
 
 	for _, option := range options {
@@ -76,14 +98,6 @@ func WithTags(tags []string) Option {
 	}
 }
 
-// Buffered sets the Buffered option.
-func Buffered() Option {
-	return func(o *Options) error {
-		o.Buffered = true
-		return nil
-	}
-}
-
 // WithMaxMessagesPerPayload sets the MaxMessagesPerPayload option.
 func WithMaxMessagesPerPayload(maxMessagesPerPayload int) Option {
 	return func(o *Options) error {
@@ -92,10 +106,34 @@ func WithMaxMessagesPerPayload(maxMessagesPerPayload int) Option {
 	}
 }
 
-// WithAsyncUDS sets the AsyncUDS option.
-func WithAsyncUDS() Option {
+// WithMaxBytesPerPayload sets the MaxBytesPerPayload option.
+func WithMaxBytesPerPayload(MaxBytesPerPayload int) Option {
 	return func(o *Options) error {
-		o.AsyncUDS = true
+		o.MaxBytesPerPayload = MaxBytesPerPayload
+		return nil
+	}
+}
+
+// WithBufferPoolSize sets the BufferPoolSize option.
+func WithBufferPoolSize(bufferPoolSize int) Option {
+	return func(o *Options) error {
+		o.BufferPoolSize = bufferPoolSize
+		return nil
+	}
+}
+
+// WithBufferFlushInterval sets the BufferFlushInterval option.
+func WithBufferFlushInterval(bufferFlushInterval time.Duration) Option {
+	return func(o *Options) error {
+		o.BufferFlushInterval = bufferFlushInterval
+		return nil
+	}
+}
+
+// WithSenderQueueSize sets the SenderQueueSize option.
+func WithSenderQueueSize(senderQueueSize int) Option {
+	return func(o *Options) error {
+		o.SenderQueueSize = senderQueueSize
 		return nil
 	}
 }
@@ -104,6 +142,14 @@ func WithAsyncUDS() Option {
 func WithWriteTimeoutUDS(writeTimeoutUDS time.Duration) Option {
 	return func(o *Options) error {
 		o.WriteTimeoutUDS = writeTimeoutUDS
+		return nil
+	}
+}
+
+// WithoutTelemetry disables the telemetry
+func WithoutTelemetry() Option {
+	return func(o *Options) error {
+		o.Telemetry = false
 		return nil
 	}
 }
