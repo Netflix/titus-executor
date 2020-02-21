@@ -205,8 +205,8 @@ func main() {
 			if zipkinURL := v.GetString(zipkinURLFlagName); zipkinURL != "" {
 				reporter := zipkinHTTP.NewReporter(zipkinURL,
 					zipkinHTTP.BatchInterval(time.Second*5),
-					zipkinHTTP.BatchSize(10000),
-					zipkinHTTP.MaxBacklog(1000),
+					zipkinHTTP.BatchSize(1000),
+					zipkinHTTP.MaxBacklog(100000),
 				)
 				hostname, err := os.Hostname()
 				if err != nil {

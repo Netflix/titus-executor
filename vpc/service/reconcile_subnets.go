@@ -13,7 +13,7 @@ import (
 	"go.opencensus.io/trace"
 )
 
-func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]regionAccount, error) {
+func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]keyedItem, error) {
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
@@ -29,25 +29,27 @@ func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]regionAc
 		return nil, err
 	}
 
-	ret := []regionAccount{}
+	ret := []keyedItem{}
 	for rows.Next() {
 		var ra regionAccount
 		err = rows.Scan(&ra.region, &ra.accountID)
 		if err != nil {
 			return nil, err
 		}
-		ret = append(ret, ra)
+		ret = append(ret, &ra)
 	}
 
 	_ = tx.Commit()
 	return ret, nil
 }
 
-func (vpcService *vpcService) reconcileSubnetsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) (retErr error) {
+func (vpcService *vpcService) reconcileSubnetsForRegionAccount(ctx context.Context, protoAccount keyedItem, tx *sql.Tx) (retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileSubnetsForRegionAccount")
 	defer span.End()
+
+	account := protoAccount.(*regionAccount)
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
