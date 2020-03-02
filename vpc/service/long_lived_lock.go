@@ -7,9 +7,14 @@ import (
 	"os"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/Netflix/titus-executor/logger"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
@@ -18,6 +23,133 @@ const (
 	lockTime                        = 30 * time.Second
 	timeBetweenTryingToAcquireLocks = 15 * time.Second
 )
+
+type scanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func (vpcService *vpcService) scanLock(rowScanner scanner) (*vpcapi.Lock, error) {
+	lock := vpcapi.Lock{}
+	var heldUntil time.Time
+	err := rowScanner.Scan(&lock.Id, &lock.LockName, &lock.HeldBy, &heldUntil)
+	if err != nil {
+		return nil, err
+	}
+
+	lock.HeldUntil, err = ptypes.TimestampProto(heldUntil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lock, nil
+}
+
+func (vpcService *vpcService) GetLocks(ctx context.Context, req *vpcapi.GetLocksRequest) (*vpcapi.GetLocksResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "GetLocks")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, errors.Wrap(err, "Could not start database transaction")
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	rows, err := tx.QueryContext(ctx, "SELECT id, lock_name, held_by, held_until FROM long_lived_locks LIMIT 1000")
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	defer rows.Close()
+
+	locks := []*vpcapi.Lock{}
+	for rows.Next() {
+		lock, err := vpcService.scanLock(rows)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		locks = append(locks, lock)
+	}
+
+	return &vpcapi.GetLocksResponse{Locks: locks}, nil
+}
+
+func (vpcService *vpcService) GetLock(ctx context.Context, id *vpcapi.LockId) (*vpcapi.Lock, error) {
+	ctx, span := trace.StartSpan(ctx, "GetLock")
+	defer span.End()
+
+	row := vpcService.db.QueryRowContext(ctx, "SELECT id, lock_name, held_by, held_until FROM long_lived_locks WHERE id = $1", id.GetId())
+
+	lock, err := vpcService.scanLock(row)
+	if err == sql.ErrNoRows {
+		err = status.Error(codes.NotFound, "lock not found")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	} else if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	return lock, nil
+}
+
+func (vpcService *vpcService) DeleteLock(ctx context.Context, id *vpcapi.LockId) (*empty.Empty, error) {
+	ctx, span := trace.StartSpan(ctx, "DeleteLock")
+	defer span.End()
+
+	res, err := vpcService.db.ExecContext(ctx, "DELETE FROM long_lived_locks WHERE id = $1", id.GetId())
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	if affected == 0 {
+		err = status.Error(codes.NotFound, "lock not found")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	return &empty.Empty{}, nil
+}
+
+func (vpcService *vpcService) PreemptLock(ctx context.Context, req *vpcapi.PreemptLockRequest) (*empty.Empty, error) {
+	ctx, span := trace.StartSpan(ctx, "PreemptLock")
+	defer span.End()
+
+	// in order to preempt a lock the holder has to be removed from the lock AND held_until has to be set to sometime in the past
+	// by setting held_by to null, we force the current holder to drop the lock
+	// by setting held_until to sometime in the past, we allow a new holder to acquire the lock
+	res, err := vpcService.db.ExecContext(ctx, "UPDATE long_lived_locks SET held_by = null, held_until = now() - (30 * interval '1 sec') WHERE lock_name = $1", req.GetLockName())
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	if affected == 0 {
+		err = status.Error(codes.NotFound, "lock not found")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	return &empty.Empty{}, nil
+}
 
 type keyedItem interface {
 	key() string

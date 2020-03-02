@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go v0.53.0 // indirect
 	contrib.go.opencensus.io/exporter/zipkin v0.1.1
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
+	github.com/DATA-DOG/go-sqlmock v1.4.1
 	github.com/DataDog/datadog-go v3.4.0+incompatible // indirect
 	github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
 	github.com/Microsoft/go-winio v0.4.11 // indirect
