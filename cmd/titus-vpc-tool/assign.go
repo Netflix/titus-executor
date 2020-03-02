@@ -61,6 +61,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						Oneshot:            v.GetBool("oneshot"),
 						ElasticIPPool:      v.GetString("elastic-ip-pool"),
 						ElasticIPs:         v.GetStringSlice("elastic-ips"),
+						Idempotent:         v.GetBool("idempotent"),
 					},
 				)
 			default:
@@ -79,6 +80,8 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().StringSlice("elastic-ips", []string{}, "One of the elastic IPs to use for attachment to the interface")
 	cmd.Flags().String("elastic-ip-pool", "", "The elastic IP pool to allocate from")
 	cmd.Flags().Bool("oneshot", false, "Whether or not to assign the address, and then exit")
+	cmd.Flags().Bool("idempotent", false, "Try to allocate the assignment idempotently")
+
 	addSharedFlags(cmd.Flags())
 
 	return cmd

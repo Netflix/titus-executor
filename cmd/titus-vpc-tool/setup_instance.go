@@ -29,11 +29,18 @@ func setupInstanceCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					conn,
 					v.GetString(interaceSubnet),
 					v.GetString(interfaceAccount))
-			case "v2", "v3":
+			case "v2":
 				return setup2.Setup(ctx,
 					iipGetter(),
 					locker,
-					conn)
+					conn,
+					2)
+			case "v3":
+				return setup2.Setup(ctx,
+					iipGetter(),
+					locker,
+					conn,
+					3)
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}

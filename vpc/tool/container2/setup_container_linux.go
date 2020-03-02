@@ -13,6 +13,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/hashicorp/go-multierror"
+
 	"github.com/Netflix/titus-executor/vpc/tool/shared"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -78,7 +80,7 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 	return vlanLink, nil
 }
 
-func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
+func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
 	branchLink, err := getBranchLink(ctx, allocation)
 	if err != nil {
 		return nil, err
@@ -432,114 +434,173 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 	return nil
 }
 
-func teardownNetwork(ctx context.Context, allocation types.Allocation, link netlink.Link, netnsfd int) {
-	deleteLink(ctx, link, netnsfd)
+func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netnsfd int) error {
+	var result *multierror.Error
+	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
+	if err != nil {
+		err = errors.Wrap(err, "Could not open handle to netnsfd")
+		result = multierror.Append(result, err)
+	} else {
+		link, err := nsHandle.LinkByName("eth0")
+		if err != nil {
+			_, ok := err.(*netlink.LinkNotFoundError)
+			if !ok {
+				err = errors.Wrap(err, "Could not find link eth0 in container network namespace")
+				result = multierror.Append(result, err)
+			} else {
+				logger.G(ctx).WithError(err).Warning("eth0 not found in container on get link by name")
+			}
+		} else {
+			linkDelErr := nsHandle.LinkDel(link)
+			if linkDelErr != nil {
+				_, ok := linkDelErr.(*netlink.LinkNotFoundError)
+				if !ok {
+					result = multierror.Append(result, linkDelErr)
+				} else {
+					logger.G(ctx).WithError(err).Warning("eth0 not found in container on delete")
+				}
+			}
+		}
+		nsHandle.Delete()
+	}
 
+	result = multierror.Append(result, teardownNetwork(ctx, allocation))
+
+	return result.ErrorOrNil()
+}
+
+func teardownNetwork(ctx context.Context, allocation types.Allocation) error {
+	var result *multierror.Error
 	// Removing the classes automatically removes the qdiscs
 	trunkENI, err := shared.GetLinkByMac(allocation.TrunkENIMAC)
 	if err == nil {
-		removeClass(ctx, allocation.AllocationIndex, trunkENI)
+		err = errors.Wrap(removeClass(ctx, allocation.AllocationIndex, trunkENI), "Cannot remove class from trunk ENI")
+		result = multierror.Append(result, err)
 	} else {
+		err = errors.Wrap(err, "Unable to find trunk ENI")
+		result = multierror.Append(result, err)
 		logger.G(ctx).WithError(err).Warning("Unable to find trunk eni, during deallocation")
 	}
 
 	ifbIngress, err := netlink.LinkByName(vpc.IngressIFB)
 	if err == nil {
-		removeClass(ctx, allocation.AllocationIndex, ifbIngress)
+		err = errors.Wrap(removeClass(ctx, allocation.AllocationIndex, ifbIngress), "Cannot remove class from ingress IFB")
+		result = multierror.Append(result, err)
 	} else {
+		err = errors.Wrap(err, "Unable to find ifb ingress ENI")
+		result = multierror.Append(result, err)
 		logger.G(ctx).WithError(err).Warning("Unable to find ifb ingress, during deallocation")
 	}
 
-	deleteFromBPFMaps(ctx, allocation)
+	result = multierror.Append(result, deleteFromBPFMaps(ctx, allocation))
+	return result.ErrorOrNil()
+}
+func deleteFromBPFMaps(ctx context.Context, allocation types.Allocation) error {
+	var result *multierror.Error
+	result = multierror.Append(result, deleteFromIPv4BPFMap(ctx, allocation))
+	result = multierror.Append(result, deleteFromIPv6BPFMap(ctx, allocation))
+	return result.ErrorOrNil()
 }
 
-func deleteFromBPFMaps(ctx context.Context, allocation types.Allocation) {
-	if allocation.IPV4Address != nil {
-		buf := make([]byte, 8)
+func deleteFromIPv4BPFMap(ctx context.Context, allocation types.Allocation) error {
+	if allocation.IPV4Address == nil {
+		return nil
+	}
+	buf := make([]byte, 8)
 
-		binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
-		ip := net.ParseIP(allocation.IPV4Address.Address.Address).To4()
-		if len(ip) != 4 {
-			panic("Length of IP is not 4")
-		}
-		copy(buf[4:], ip)
-		path := []byte("/sys/fs/bpf//tc/globals/ipv4_map\000")
-		openAttrObjOp := bpfAttrObjOp{
-			pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
-		}
-
-		fd, _, err := unix.Syscall(
-			unix.SYS_BPF,
-			unix.BPF_OBJ_GET,
-			uintptr(unsafe.Pointer(&openAttrObjOp)),
-			unsafe.Sizeof(openAttrObjOp),
-		)
-		if err != 0 {
-			logger.G(ctx).WithError(errors.Wrap(err, "Cannot open BPF Map")).Error("Cannot get ipv4_map")
-			return
-		}
-		defer unix.Close(int(fd))
-		runtime.KeepAlive(path)
-
-		uba := bpfAttrMapOpElem{
-			mapFd: uint32(fd),
-			key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
-		}
-		_, _, err = unix.Syscall(
-			unix.SYS_BPF,
-			unix.BPF_MAP_DELETE_ELEM,
-			uintptr(unsafe.Pointer(&uba)),
-			unsafe.Sizeof(uba),
-		)
-		if err != 0 {
-			logger.G(ctx).WithError(err).Errorf("Unable to delete element for ipv4 map with file descriptor %d", fd)
-		}
-		runtime.KeepAlive(uba)
+	binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
+	ip := net.ParseIP(allocation.IPV4Address.Address.Address).To4()
+	if len(ip) != 4 {
+		panic("Length of IP is not 4")
+	}
+	copy(buf[4:], ip)
+	path := []byte("/sys/fs/bpf//tc/globals/ipv4_map\000")
+	openAttrObjOp := bpfAttrObjOp{
+		pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
 	}
 
-	if allocation.IPV6Address != nil {
-		buf := make([]byte, 20)
-		binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
-		ip := net.ParseIP(allocation.IPV6Address.Address.Address).To16()
-		if len(ip) != 16 {
-			panic("Length of IP is not 16")
-		}
+	fd, _, err := unix.Syscall(
+		unix.SYS_BPF,
+		unix.BPF_OBJ_GET,
+		uintptr(unsafe.Pointer(&openAttrObjOp)),
+		unsafe.Sizeof(openAttrObjOp),
+	)
+	if err != 0 {
+		err2 := errors.Wrap(err, "Cannot open BPF Map ipv4_map")
+		logger.G(ctx).WithError(err2).Error("Cannot get ipv4_map")
+		return err2
+	}
+	defer unix.Close(int(fd))
+	runtime.KeepAlive(path)
 
-		copy(buf[4:], ip)
+	uba := bpfAttrMapOpElem{
+		mapFd: uint32(fd),
+		key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
+	}
+	_, _, err = unix.Syscall(
+		unix.SYS_BPF,
+		unix.BPF_MAP_DELETE_ELEM,
+		uintptr(unsafe.Pointer(&uba)),
+		unsafe.Sizeof(uba),
+	)
+	if err != 0 {
+		logger.G(ctx).WithError(err).Errorf("Unable to delete element for ipv4 map with file descriptor %d", fd)
+		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
+		return err2
+	}
+	runtime.KeepAlive(uba)
 
-		path := []byte("/sys/fs/bpf//tc/globals/ipv6_map\000")
-		openAttrObjOp := bpfAttrObjOp{
-			pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
-		}
-
-		fd, _, err := unix.Syscall(
-			unix.SYS_BPF,
-			unix.BPF_OBJ_GET,
-			uintptr(unsafe.Pointer(&openAttrObjOp)),
-			unsafe.Sizeof(openAttrObjOp),
-		)
-		if err != 0 {
-			logger.G(ctx).WithError(errors.Wrap(err, "Cannot open BPF Map")).Error("Cannot get ipv6_map")
-		}
-		defer unix.Close(int(fd))
-		runtime.KeepAlive(path)
-
-		uba := bpfAttrMapOpElem{
-			mapFd: uint32(fd),
-			key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
-		}
-		_, _, err = unix.Syscall(
-			unix.SYS_BPF,
-			unix.BPF_MAP_DELETE_ELEM,
-			uintptr(unsafe.Pointer(&uba)),
-			unsafe.Sizeof(uba),
-		)
-		if err != 0 {
-			logger.G(ctx).WithError(errors.Wrapf(err, "Unable to delete element for map with file descriptor %d", fd)).Error()
-		}
-		runtime.KeepAlive(uba)
+	return nil
+}
+func deleteFromIPv6BPFMap(ctx context.Context, allocation types.Allocation) error {
+	if allocation.IPV6Address == nil {
+		return nil
+	}
+	buf := make([]byte, 20)
+	binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
+	ip := net.ParseIP(allocation.IPV6Address.Address.Address).To16()
+	if len(ip) != 16 {
+		panic("Length of IP is not 16")
 	}
 
+	copy(buf[4:], ip)
+
+	path := []byte("/sys/fs/bpf//tc/globals/ipv6_map\000")
+	openAttrObjOp := bpfAttrObjOp{
+		pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
+	}
+
+	fd, _, err := unix.Syscall(
+		unix.SYS_BPF,
+		unix.BPF_OBJ_GET,
+		uintptr(unsafe.Pointer(&openAttrObjOp)),
+		unsafe.Sizeof(openAttrObjOp),
+	)
+	if err != 0 {
+		err2 := errors.Wrap(err, "Cannot open BPF Map ipv6_map")
+		logger.G(ctx).WithError(err2).Error("Cannot get ipv6_map")
+		return err2
+	}
+	defer unix.Close(int(fd))
+	runtime.KeepAlive(path)
+
+	uba := bpfAttrMapOpElem{
+		mapFd: uint32(fd),
+		key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
+	}
+	_, _, err = unix.Syscall(
+		unix.SYS_BPF,
+		unix.BPF_MAP_DELETE_ELEM,
+		uintptr(unsafe.Pointer(&uba)),
+		unsafe.Sizeof(uba),
+	)
+	if err != 0 {
+		logger.G(ctx).WithError(errors.Wrapf(err, "Unable to delete element for map with file descriptor %d", fd)).Error()
+		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
+		return err2
+	}
+	runtime.KeepAlive(uba)
+	return nil
 }
 
 func deleteLink(ctx context.Context, link netlink.Link, netnsfd int) {
@@ -559,11 +620,12 @@ func deleteLink(ctx context.Context, link netlink.Link, netnsfd int) {
 	}
 }
 
-func removeClass(ctx context.Context, handle uint16, link netlink.Link) {
+func removeClass(ctx context.Context, handle uint16, link netlink.Link) error {
 	classes, err := netlink.ClassList(link, netlink.MakeHandle(1, 1))
 	if err != nil {
 		logger.G(ctx).Errorf("Unable to list classes on link %v because %v", link, err)
-		return
+		err = errors.Wrapf(err, "Unable to list classes on link %v", link)
+		return err
 	}
 	for _, class := range classes {
 		htbClass := class.(*netlink.HtbClass)
@@ -574,10 +636,13 @@ func removeClass(ctx context.Context, handle uint16, link netlink.Link) {
 			err = netlink.ClassDel(class)
 			if err != nil {
 				logger.G(ctx).WithError(err).Warning("Unable to remove class")
+				err = errors.Wrap(err, "Unable to remove class")
+				return err
 			}
-			return
+			return nil
 		}
 	}
 
 	logger.G(ctx).Warning("Unable to find class for container")
+	return fmt.Errorf("Unable to find class %d on link %v", handle, link)
 }

@@ -11,12 +11,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
-
-	"github.com/Netflix/titus-executor/vpc/utilities"
-
-	"github.com/pborman/uuid"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
@@ -24,6 +18,9 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/Netflix/titus-executor/vpc/types"
+	"github.com/Netflix/titus-executor/vpc/utilities"
+	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"golang.org/x/sys/unix"
@@ -44,6 +41,7 @@ type Arguments struct {
 	Oneshot            bool
 	ElasticIPPool      string
 	ElasticIPs         []string
+	Idempotent         bool
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, args Arguments) error {
@@ -211,6 +209,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		Subnets:          args.SubnetIds,
 		InstanceIdentity: instanceIdentity,
 		AccountID:        args.InterfaceAccount,
+		Idempotent:       args.Idempotent,
 	}
 
 	if args.ElasticIPPool != "" {
