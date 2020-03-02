@@ -33,7 +33,6 @@ const (
 
 var (
 	errAllENIsInUse                = errors.New("All ENIs in use, cannot deallocate any ENIs")
-	errAssignmentMethodNotPossible = errors.New("Assignment method is not possible")
 	errOnlyStaticAddressesAssigned = errors.New("We only found static IP addresses on this interface, and there are no free dynamic IPs")
 	errZeroAddresses               = errors.New("Zero addresses in Elastic IP list")
 )
@@ -78,6 +77,11 @@ type subnet struct {
 	accountID string
 	subnetID  string
 	cidr      string
+	region    string
+}
+
+func (s *subnet) key() string {
+	return fmt.Sprintf("%s_%s_%s", s.region, s.accountID, s.subnetID)
 }
 
 type branchENI struct {
@@ -108,12 +112,37 @@ func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID strin
 
 	var row *sql.Row
 	if len(subnetIDs) == 0 {
-		row = tx.QueryRowContext(ctx, "SELECT subnets.az, subnets.vpc_id, subnets.account_id, subnets.subnet_id, subnets.cidr FROM subnets JOIN account_mapping ON subnets.subnet_id = account_mapping.subnet_id WHERE account_id = $1 AND subnets.az  = $2", accountID, az)
+		row = tx.QueryRowContext(ctx, `
+SELECT subnets.az,
+       subnets.vpc_id,
+       subnets.account_id,
+       subnets.subnet_id,
+       subnets.cidr,
+       availability_zones.region
+FROM subnets
+JOIN account_mapping ON subnets.subnet_id = account_mapping.subnet_id
+JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets.account_id = availability_zones.account_id
+WHERE subnets.account_id = $1
+  AND subnets.az = $2
+`,
+			accountID, az)
 	} else {
-		row = tx.QueryRowContext(ctx, "SELECT az, vpc_id, account_id, subnet_id, cidr FROM subnets WHERE az = $1 AND subnet_id = any($2) LIMIT 1", az, pq.Array(subnetIDs))
+		row = tx.QueryRowContext(ctx, `
+SELECT subnets.az,
+       subnets.vpc_id,
+       subnets.account_id,
+       subnet_id,
+       CIDR,
+       availability_zones.region
+FROM subnets
+JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets.account_id = availability_zones.account_id
+WHERE subnets.az = $1
+  AND subnets.subnet_id = any($2)
+LIMIT 1
+`, az, pq.Array(subnetIDs))
 	}
 	ret := subnet{}
-	err = row.Scan(&ret.az, &ret.vpcID, &ret.accountID, &ret.subnetID, &ret.cidr)
+	err = row.Scan(&ret.az, &ret.vpcID, &ret.accountID, &ret.subnetID, &ret.cidr, &ret.region)
 	if err == sql.ErrNoRows {
 		if len(subnetIDs) == 0 {
 			err = fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az)
@@ -240,19 +269,20 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	}
 
 	resp, err := vpcService.assignIPWithSharedENI(ctx, req, subnet, trunkENI, instance, maxIPAddresses)
-	if err == nil {
+	if err == nil && resp != nil {
 		return resp, err
 	}
 
-	if err != errAssignmentMethodNotPossible {
+	if err != nil {
 		return nil, err
 	}
 
 	resp, err = vpcService.assignIPWithChangeSGOnENI(ctx, req, subnet, trunkENI, instance, maxIPAddresses)
-	if err == nil {
+	if err == nil && resp != nil {
 		return resp, err
 	}
-	if err != errAssignmentMethodNotPossible {
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -314,23 +344,26 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	logger.G(ctx).WithField("createNetworkInterfaceInput", createNetworkInterfaceInput).Debug("Creating Branch ENI")
 	createNetworkInterfaceOutput, err := ec2client.CreateNetworkInterface(createNetworkInterfaceInput)
 	if err != nil {
+		err = errors.Wrap(err, "Cannot create network interface")
+		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	iface := createNetworkInterfaceOutput.NetworkInterface
 
 	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
 
-	securityGroupIds := make([]string, len(createNetworkInterfaceOutput.NetworkInterface.Groups))
-	for idx := range createNetworkInterfaceOutput.NetworkInterface.Groups {
-		securityGroupIds[idx] = aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.Groups[idx].GroupId)
+	securityGroupIds := make([]string, len(iface.Groups))
+	for idx := range iface.Groups {
+		securityGroupIds[idx] = aws.StringValue(iface.Groups[idx].GroupId)
 	}
 	sort.Strings(securityGroupIds)
 
 	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp())",
-		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId),
-		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.SubnetId),
-		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
-		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
-		aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.VpcId),
+		aws.StringValue(iface.NetworkInterfaceId),
+		aws.StringValue(iface.SubnetId),
+		aws.StringValue(iface.OwnerId),
+		aws.StringValue(iface.AvailabilityZone),
+		aws.StringValue(iface.VpcId),
 		pq.Array(securityGroupIds),
 	)
 	if err != nil {
@@ -338,9 +371,9 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	}
 
 	return &branchENI{
-		id:        aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.NetworkInterfaceId),
-		az:        aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.AvailabilityZone),
-		accountID: aws.StringValue(createNetworkInterfaceOutput.NetworkInterface.OwnerId),
+		id:        aws.StringValue(iface.NetworkInterfaceId),
+		az:        aws.StringValue(iface.AvailabilityZone),
+		accountID: aws.StringValue(iface.OwnerId),
 	}, nil
 }
 
@@ -571,6 +604,8 @@ func (vpcService *vpcService) assignIPWithChangeSGOnENI(ctx context.Context, req
 	}()
 
 	// TODO: Join branch_eni_last_used to get "oldest" branch ENI
+	// This over-locks all the branch ENIs attached to the trunk ENI.
+	// TODO(Fix locking)
 	row := tx.QueryRowContext(ctx, `
 SELECT valid_branch_enis.branch_eni_id,
        valid_branch_enis.branch_eni,
@@ -602,8 +637,8 @@ LIMIT 1
 	err = row.Scan(&branchENIID, &eni.id, &eni.associationID, &eni.accountID, &eni.az, &eni.idx)
 	if err == sql.ErrNoRows {
 		logger.G(ctx).Debug("Could not find ENI")
-		span.SetStatus(traceStatusFromError(errAssignmentMethodNotPossible))
-		return nil, errAssignmentMethodNotPossible
+		span.SetStatus(trace.Status{Code: trace.StatusCodeFailedPrecondition, Message: "Assignment method not possible"})
+		return nil, nil
 	}
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
@@ -702,8 +737,8 @@ LIMIT 1
 	var eni branchENI
 	err = row.Scan(&eni.id, &eni.associationID, &eni.accountID, &eni.az, &eni.idx)
 	if err == sql.ErrNoRows {
-		span.SetStatus(traceStatusFromError(errAssignmentMethodNotPossible))
-		return nil, errAssignmentMethodNotPossible
+		span.SetStatus(trace.Status{Code: trace.StatusCodeFailedPrecondition, Message: "Assignment method not possible"})
+		return nil, nil
 	}
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
@@ -1537,9 +1572,9 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wr
 	}
 	prefixlength, _ := ipnet.Mask.Size()
 
-	row := tx.QueryRowContext(ctx, "SELECT id, ip_address FROM ip_addresses WHERE id = $1 FOR UPDATE", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
-	var id, ip string
-	err = row.Scan(&id, &ip)
+	row := tx.QueryRowContext(ctx, "SELECT id, ip_address, subnet_id FROM ip_addresses WHERE id = $1 FOR UPDATE", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
+	var id, ip, subnetID string
+	err = row.Scan(&id, &ip, &subnetID)
 	if err == sql.ErrNoRows {
 		err = errors.Wrapf(err, "Could not find allocation: %s", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
 		span.SetStatus(trace.Status{Code: trace.StatusCodeNotFound, Message: err.Error()})
@@ -1547,6 +1582,12 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, session *ec2wr
 	}
 	if err != nil {
 		err = errors.Wrap(err, "Could not fetch allocations from database")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	if subnetID != aws.StringValue(branchENI.SubnetId) {
+		err = fmt.Errorf("Branch ENI in subnet %s, but IP allocation in subnet %s", aws.StringValue(branchENI.SubnetId), subnetID)
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}

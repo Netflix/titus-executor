@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/pkg/errors"
@@ -12,15 +15,61 @@ import (
 )
 
 const (
-	lockTime = 30 * time.Second
+	lockTime                        = 30 * time.Second
+	timeBetweenTryingToAcquireLocks = 15 * time.Second
 )
+
+type keyedItem interface {
+	key() string
+}
+
+func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, itemLister func(context.Context) ([]keyedItem, error), workFunc func(context.Context, keyedItem)) error {
+	startedLockers := sets.NewString()
+	hostname, err := os.Hostname()
+	if err != nil {
+		return err
+	}
+
+	t := time.NewTimer(timeBetweenTryingToAcquireLocks)
+	defer t.Stop()
+	for {
+		items, err := itemLister(ctx)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Cannot list items")
+		} else {
+			for idx := range items {
+				item := items[idx]
+				if !startedLockers.Has(item.key()) {
+					startedLockers.Insert(item.key())
+					ctx := logger.WithFields(ctx, map[string]interface{}{
+						"key":      item.key(),
+						"taskName": taskName,
+					})
+					logger.G(ctx).Info("Starting new long running function under lock")
+					lockName := fmt.Sprintf("%s_%s", taskName, item.key())
+					go vpcService.waitToAcquireLongLivedLock(ctx, hostname, lockName, func(ctx2 context.Context) {
+						logger.G(ctx2).Debug("Work fun starting")
+						workFunc(ctx2, item)
+						logger.G(ctx2).Debug("Work fun ending")
+					})
+				}
+			}
+		}
+		t.Reset(timeBetweenTryingToAcquireLocks)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
 
 func (vpcService *vpcService) waitToAcquireLongLivedLock(ctx context.Context, hostname, lockName string, workFun func(context.Context)) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ticker := time.NewTicker(lockTime / 2)
-	defer ticker.Stop()
+	timer := time.NewTimer(lockTime / 2)
+	defer timer.Stop()
 	for {
 		lockAcquired, id, err := vpcService.tryToAcquireLock(ctx, hostname, lockName)
 		if err != nil {
@@ -32,10 +81,11 @@ func (vpcService *vpcService) waitToAcquireLongLivedLock(ctx context.Context, ho
 				logger.G(ctx).WithError(err).Error("Error while holding lock")
 			}
 		}
+		timer.Reset(lockTime / 2)
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }
@@ -144,5 +194,16 @@ func (vpcService *vpcService) holdLock(ctx context.Context, hostname string, id 
 			return ctx.Err()
 		case <-ticker.C:
 		}
+	}
+}
+
+func waitFor(ctx context.Context, duration time.Duration) error {
+	t := time.NewTimer(duration)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }

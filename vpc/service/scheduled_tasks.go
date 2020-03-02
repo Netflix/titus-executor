@@ -75,7 +75,7 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 	return cb(ctx, tx)
 }
 
-func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]regionAccount, error), cb func(context.Context, regionAccount, *sql.Tx) error) error {
+func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]keyedItem, error), cb func(context.Context, keyedItem, *sql.Tx) error) error {
 	t := time.NewTimer(interval / 10)
 	for {
 		select {
@@ -88,24 +88,24 @@ func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Durati
 	}
 }
 
-func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]regionAccount, error), cb func(context.Context, regionAccount, *sql.Tx) error) error {
+func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]keyedItem, error), cb func(context.Context, keyedItem, *sql.Tx) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, taskPrefix)
 	defer span.End()
 	logger.G(ctx).WithField("taskPrefix", taskPrefix).Info("Starting task")
-	regionAccounts, err := itemLister(ctx)
+	items, err := itemLister(ctx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get region / accounts")
 		return err
 	}
-	logger.G(ctx).Info(regionAccounts)
-	for _, regionAndAccount := range regionAccounts {
-		taskName := fmt.Sprintf("%s_%s_%s", taskPrefix, regionAndAccount.accountID, regionAndAccount.region)
+	logger.G(ctx).Info(items)
+	for idx := range items {
+		item := items[idx]
+		taskName := fmt.Sprintf("%s_%s", taskPrefix, item.key())
 		// rebind this so it doesn't get overwritten on the subsequent loop
-		regionAndAccount := regionAndAccount
 		err := vpcService.runScheduledTask(ctx, taskName, interval, func(ctx context.Context, tx *sql.Tx) error {
-			return cb(ctx, regionAndAccount, tx)
+			return cb(ctx, item, tx)
 		})
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Cannot run task")

@@ -12,11 +12,13 @@ import (
 	"go.opencensus.io/trace"
 )
 
-func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) error {
+func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx context.Context, protoAccount keyedItem, tx *sql.Tx) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileAvailabilityZonesRegionAccount")
 	defer span.End()
+
+	account := protoAccount.(*regionAccount)
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
