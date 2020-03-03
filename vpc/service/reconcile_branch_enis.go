@@ -107,7 +107,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	SET security_groups = excluded.security_groups,
 		modified_at = transaction_timestamp()
 	WHERE branch_enis.modified_at < transaction_timestamp()
-	  AND (branch_enis.security_groups != excluded.security_groups)
+	  AND (branch_enis.security_groups IS NULL)
 	  `)
 	if err != nil {
 		err = errors.Wrap(err, "Could not insert new branch ENIs")
