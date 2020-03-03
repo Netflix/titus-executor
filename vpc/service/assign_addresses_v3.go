@@ -84,6 +84,10 @@ func (s *subnet) key() string {
 	return fmt.Sprintf("%s_%s_%s", s.region, s.accountID, s.subnetID)
 }
 
+func (s *subnet) String() string {
+	return fmt.Sprintf("Subnet{id=%s, az=%s, vpc=%s, account=%s}", s.vpcID, s.az, s.vpcID, s.accountID)
+}
+
 type branchENI struct {
 	id            string
 	az            string

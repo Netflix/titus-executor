@@ -153,6 +153,7 @@ func (vpcService *vpcService) PreemptLock(ctx context.Context, req *vpcapi.Preem
 
 type keyedItem interface {
 	key() string
+	String() string
 }
 
 func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, itemLister func(context.Context) ([]keyedItem, error), workFunc func(context.Context, keyedItem)) error {

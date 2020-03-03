@@ -239,6 +239,10 @@ func (ra *regionAccount) key() string {
 	return fmt.Sprintf("%s_%s", ra.region, ra.accountID)
 }
 
+func (ra *regionAccount) String() string {
+	return fmt.Sprintf("RegionAccount{region=%s account=%s}", ra.region, ra.accountID)
+}
+
 func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]keyedItem, error) {
 	ctx, span := trace.StartSpan(ctx, "getBranchENIRegionAccounts")
 	defer span.End()

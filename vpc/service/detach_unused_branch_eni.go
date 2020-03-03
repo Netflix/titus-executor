@@ -26,6 +26,10 @@ func (n *nilItem) key() string {
 	return "nilitem"
 }
 
+func (n *nilItem) String() string {
+	return "Nilitem{}"
+}
+
 func nilItemEnumerator(ctx context.Context) ([]keyedItem, error) {
 	return []keyedItem{&nilItem{}}, nil
 }
