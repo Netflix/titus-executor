@@ -76,6 +76,12 @@ func migrateCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			to := v.GetUint("to")
+			check := v.GetBool("check")
+			if to > 0 {
+				return db.MigrateTo(ctx, conn, to, check)
+			}
 			needsMigration, err := db.NeedsMigration(ctx, conn)
 			if err != nil {
 				return err
@@ -84,15 +90,17 @@ func migrateCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 				logger.G(ctx).Info("No migration needed")
 				return nil
 			}
-			if v.GetBool("check") {
+			if check {
 				logger.G(ctx).Fatal("Migration needed, but check set to true")
 			}
 
 			return db.Migrate(ctx, conn)
+
 		},
 	}
 
 	cmd.Flags().Bool("check", true, "Do not perform migration, but check if migration is neccessary")
+	cmd.Flags().Uint("to", 0, "Migrate to a specific version")
 	return cmd
 }
 

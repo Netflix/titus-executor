@@ -305,8 +305,31 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	ec2client := ec2.New(session.Session)
 
 	var eni branchENI
+
+	sort.Strings(wantedSecurityGroupsIDs)
+	row := tx.QueryRowContext(ctx, `
+	SELECT branch_eni, az, account_id
+	FROM branch_enis
+	WHERE branch_eni NOT IN
+		(SELECT branch_eni
+		 FROM branch_eni_attachments)
+	  AND subnet_id = $1
+	  AND security_groups = $2
+	ORDER BY RANDOM()
+	FOR
+	UPDATE SKIP LOCKED
+	LIMIT 1
+	`, subnetID, pq.Array(wantedSecurityGroupsIDs))
+	err := row.Scan(&eni.id, &eni.az, &eni.accountID)
+	if err == nil {
+		return &eni, nil
+	} else if err != sql.ErrNoRows {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	var hasSecurityGroupIDs []string
-	rowContext := tx.QueryRowContext(ctx, `
+	row = tx.QueryRowContext(ctx, `
 	SELECT branch_eni, az, account_id, security_groups
 	FROM branch_enis
 	WHERE branch_eni NOT IN
@@ -317,12 +340,9 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	FOR
 	UPDATE SKIP LOCKED
 	LIMIT 1
-	`, subnetID)
-	err := rowContext.Scan(&eni.id, &eni.az, &eni.accountID, pq.Array(&hasSecurityGroupIDs))
+	`, subnetID, wantedSecurityGroupsIDs)
+	err = row.Scan(&eni.id, &eni.az, &eni.accountID, pq.Array(&hasSecurityGroupIDs))
 	if err == nil {
-		if sets.NewString(wantedSecurityGroupsIDs...).Equal(sets.NewString(hasSecurityGroupIDs...)) {
-			return &eni, nil
-		}
 		_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, &ec2.ModifyNetworkInterfaceAttributeInput{
 			Groups:             aws.StringSlice(wantedSecurityGroupsIDs),
 			NetworkInterfaceId: aws.String(eni.id),

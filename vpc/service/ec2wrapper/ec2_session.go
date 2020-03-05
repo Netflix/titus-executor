@@ -166,6 +166,7 @@ func (s *EC2Session) GetDefaultSecurityGroups(ctx context.Context, vpcID string)
 	return result, nil
 }
 
+// Deprecated
 func (s *EC2Session) ModifySecurityGroups(ctx context.Context, networkInterfaceID string, groupIds []*string) error {
 	ctx, span := trace.StartSpan(ctx, "modifySecurityGroups")
 	defer span.End()
@@ -236,6 +237,88 @@ func (s *EC2Session) AssignIPv6Addresses(ctx context.Context, assignIpv6Addresse
 	}
 
 	return assignIpv6AddressesOutput, nil
+}
+
+func (s *EC2Session) DeleteNetworkInterface(ctx context.Context, input ec2.DeleteNetworkInterfaceInput) (*ec2.DeleteNetworkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "DeleteNetworkInterface")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)))
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DeleteNetworkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot delete network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) CreateNetworkInterface(ctx context.Context, input ec2.CreateNetworkInterfaceInput) (*ec2.CreateNetworkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "CreateNetworkInterface")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("subnet", aws.StringValue(input.SubnetId)))
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.CreateNetworkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) ModifyNetworkInterfaceAttribute(ctx context.Context, input ec2.ModifyNetworkInterfaceAttributeInput) (*ec2.ModifyNetworkInterfaceAttributeOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "ModifyNetworkInterfaceAttribute")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)))
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot modify network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) AttachNetworkInterface(ctx context.Context, input ec2.AttachNetworkInterfaceInput) (*ec2.AttachNetworkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AttachNetworkInterface")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)),
+		trace.StringAttribute("instance", aws.StringValue(input.InstanceId)),
+	)
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.AttachNetworkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot attach network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) DescribeNetworkInterfaces(ctx context.Context, input ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AttachNetworkInterface")
+	defer span.End()
+
+	// Presumably there are filters here?
+	if input.Filters != nil {
+		span.AddAttributes(trace.StringAttribute("filters", fmt.Sprintf("%v", input.Filters)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe network interfaces")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
 }
 
 type EC2InstanceCacheValue struct {

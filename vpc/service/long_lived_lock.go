@@ -156,7 +156,10 @@ type keyedItem interface {
 	String() string
 }
 
-func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, itemLister func(context.Context) ([]keyedItem, error), workFunc func(context.Context, keyedItem)) error {
+type itemLister func(context.Context) ([]keyedItem, error)
+type workFunc func(context.Context, keyedItem)
+
+func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, lister itemLister, wf workFunc) error {
 	startedLockers := sets.NewString()
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -166,7 +169,7 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 	t := time.NewTimer(timeBetweenTryingToAcquireLocks)
 	defer t.Stop()
 	for {
-		items, err := itemLister(ctx)
+		items, err := lister(ctx)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Cannot list items")
 		} else {
@@ -182,7 +185,7 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 					lockName := fmt.Sprintf("%s_%s", taskName, item.key())
 					go vpcService.waitToAcquireLongLivedLock(ctx, hostname, lockName, func(ctx2 context.Context) {
 						logger.G(ctx2).Debug("Work fun starting")
-						workFunc(ctx2, item)
+						wf(ctx2, item)
 						logger.G(ctx2).Debug("Work fun ending")
 					})
 				}

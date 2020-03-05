@@ -50,7 +50,8 @@ func TestService(t *testing.T) {
 			RefreshInterval:       30 * time.Second,
 			TLSConfig:             nil,
 			TitusAgentCACertPool:  nil,
-			DisableLongLivedTasks: true,
+			EnabledTaskLoops:      []string{},
+			EnabledLongLivedTasks: []string{},
 		})
 		if serverErr != nil && serverErr != context.Canceled {
 			serverErrCh <- serverErr

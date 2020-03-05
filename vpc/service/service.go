@@ -10,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"golang.org/x/time/rate"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -124,16 +126,18 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 }
 
 type Config struct {
-	Listener              net.Listener
-	DB                    *sql.DB
-	Key                   vpcapi.PrivateKey
-	MaxConcurrentRefresh  int64
-	GCTimeout             time.Duration
-	ReconcileInterval     time.Duration
-	RefreshInterval       time.Duration
-	TLSConfig             *tls.Config
-	TitusAgentCACertPool  *x509.CertPool
-	DisableLongLivedTasks bool
+	Listener             net.Listener
+	DB                   *sql.DB
+	Key                  vpcapi.PrivateKey
+	MaxConcurrentRefresh int64
+	GCTimeout            time.Duration
+	ReconcileInterval    time.Duration
+	RefreshInterval      time.Duration
+	TLSConfig            *tls.Config
+	TitusAgentCACertPool *x509.CertPool
+
+	EnabledLongLivedTasks []string
+	EnabledTaskLoops      []string
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -267,48 +271,127 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error { return serve(anyListener, false) })
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_enis", vpc.getBranchENIRegionAccounts, vpc.reconcileBranchENIsForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "delete_dangling_trunks", vpc.getTrunkENIRegionAccounts, vpc.deleteDanglingTrunksForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_eni_attachments", vpc.getTrunkENIRegionAccounts, vpc.reconcileBranchENIAttachmentsForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_trunk_enis", vpc.getTrunkENIRegionAccounts, vpc.reconcileTrunkENIsForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
-	})
 
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "elastic_ip", vpc.getRegionAccounts, vpc.reconcileEIPsForRegionAccount)
-	})
-
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "availability_zone", vpc.getRegionAccounts, vpc.reconcileAvailabilityZonesRegionAccount)
-	})
-
-	if !config.DisableLongLivedTasks {
-		group.Go(func() error {
-			return vpc.runFunctionUnderLongLivedLock(ctx, "gc_enis", vpc.getBranchENIRegionAccounts, vpc.doGCAttachedENIsLoop)
-		})
-
-		group.Go(func() error {
-			return vpc.runFunctionUnderLongLivedLock(ctx, "delete_excess_branches", vpc.getSubnets, vpc.deleteExccessBranchesLoop)
-		})
-
-		group.Go(func() error {
-			return vpc.runFunctionUnderLongLivedLock(ctx, "detach_unused_branch_eni", nilItemEnumerator, vpc.detatchUnusedBranchENILoop)
-		})
+	taskLoops := vpc.getTaskLoops()
+	enabledTaskLoops := sets.NewString(config.EnabledTaskLoops...)
+	for idx := range taskLoops {
+		task := taskLoops[idx]
+		if enabledTaskLoops.Has(task.taskName) {
+			logger.G(ctx).WithField("task", task.taskName).Info("Starting task loop")
+			group.Go(func() error {
+				return vpc.taskLoop(ctx, config.ReconcileInterval, task.taskName, task.itemLister, task.workFunc)
+			})
+		} else {
+			logger.G(ctx).WithField("task", task.taskName).Info("Task loop disabled")
+		}
 	}
+
+	longLivedTasks := vpc.getLongLivedTasks()
+	enabledLongLivedTasks := sets.NewString(config.EnabledLongLivedTasks...)
+	for idx := range longLivedTasks {
+		task := longLivedTasks[idx]
+		if enabledLongLivedTasks.Has(task.taskName) {
+			logger.G(ctx).WithField("task", task.taskName).Info("Starting task")
+			group.Go(func() error {
+				return vpc.runFunctionUnderLongLivedLock(ctx, task.taskName, task.itemLister, task.workFunc)
+			})
+		} else {
+			logger.G(ctx).WithField("task", task.taskName).Info("Task disabled")
+		}
+	}
+
 	err = group.Wait()
 	if ctx.Err() != nil {
 		return nil
 	}
 	return err
+}
+
+type longLivedTask struct {
+	taskName   string
+	workFunc   workFunc
+	itemLister itemLister
+}
+
+func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
+	return []longLivedTask{
+		{
+			taskName:   "gc_enis",
+			itemLister: vpcService.getBranchENIRegionAccounts,
+			workFunc:   vpcService.doGCAttachedENIsLoop,
+		},
+		{
+			taskName:   "delete_excess_branches",
+			itemLister: vpcService.getSubnets,
+			workFunc:   vpcService.deleteExccessBranchesLoop,
+		},
+		{
+			taskName:   "detach_unused_branch_eni",
+			itemLister: nilItemEnumerator,
+			workFunc:   vpcService.detatchUnusedBranchENILoop,
+		},
+		{
+			taskName:   "reconcile_trunk_enis",
+			itemLister: vpcService.getTrunkENIRegionAccounts,
+			workFunc:   vpcService.reconcileTrunkENIsForRegionAccountLoop,
+		},
+	}
+}
+
+func GetLongLivedTaskNames() []string {
+	s := &vpcService{}
+	tasks := s.getLongLivedTasks()
+	ret := make([]string, len(tasks))
+	for idx := range tasks {
+		ret[idx] = tasks[idx].taskName
+	}
+	return ret
+}
+
+type taskLoop struct {
+	taskName   string
+	workFunc   taskLoopWorkFunc
+	itemLister itemLister
+}
+
+func (vpcService *vpcService) getTaskLoops() []taskLoop {
+	return []taskLoop{
+		{
+			taskName:   "reconcile_branch_enis",
+			itemLister: vpcService.getBranchENIRegionAccounts,
+			workFunc:   vpcService.reconcileBranchENIsForRegionAccount,
+		},
+		{
+			taskName:   "reconcile_branch_eni_attachments",
+			itemLister: vpcService.getTrunkENIRegionAccounts,
+			workFunc:   vpcService.reconcileBranchENIAttachmentsForRegionAccount,
+		},
+		{
+			taskName:   "subnets",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.reconcileSubnetsForRegionAccount,
+		},
+		{
+			taskName:   "elastic_ip",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.reconcileEIPsForRegionAccount,
+		},
+		{
+			taskName:   "availability_zone",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.reconcileAvailabilityZonesRegionAccount,
+		},
+	}
+}
+
+func GetTaskLoopTaskNames() []string {
+	s := &vpcService{}
+	tasks := s.getTaskLoops()
+	ret := make([]string, len(tasks))
+	for idx := range tasks {
+		ret[idx] = tasks[idx].taskName
+	}
+	return ret
 }
 
 type healthcheck struct {

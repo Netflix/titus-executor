@@ -75,14 +75,16 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 	return cb(ctx, tx)
 }
 
-func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]keyedItem, error), cb func(context.Context, keyedItem, *sql.Tx) error) error {
+type taskLoopWorkFunc func(context.Context, keyedItem, *sql.Tx) error
+
+func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, lister itemLister, cb taskLoopWorkFunc) error {
 	t := time.NewTimer(interval / 10)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
-			_ = vpcService.runTask(ctx, interval, taskPrefix, itemLister, cb)
+			_ = vpcService.runTask(ctx, interval, taskPrefix, lister, cb)
 			t.Reset(interval / 10)
 		}
 	}
