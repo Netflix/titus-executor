@@ -52,7 +52,7 @@ func (vpcService *vpcService) deleteTrunkInterface(ctx context.Context, session 
 		})
 		if err != nil {
 			if awsErr, ok := err.(awserr.Error); ok {
-				if awsErr.Code() != "InvalidNetworkInterfaceID.NotFound" {
+				if awsErr.Code() != ec2wrapper.InvalidNetworkInterfaceIDNotFound {
 					// untombstone the interface.
 					// TODO: Do not untombstone the interface for all errors
 					err2 := vpcService.untombstoneTrunkNetworkInterface(ctx, networkInterfaceID)

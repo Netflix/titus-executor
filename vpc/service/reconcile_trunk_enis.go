@@ -216,7 +216,7 @@ func (vpcService *vpcService) reconcileOrphanedTrunkENI(ctx context.Context, ses
 		return err
 	}
 
-	if awsErr.Code() == "InvalidNetworkInterfaceID.NotFound" {
+	if awsErr.Code() == ec2wrapper.InvalidNetworkInterfaceIDNotFound {
 		logger.G(ctx).Info("Hard deleting ENI, as could not find it in AWS")
 		err = vpcService.hardDeleteTrunkInterface(ctx, eni)
 		if err != nil {

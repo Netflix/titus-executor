@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
@@ -98,7 +100,7 @@ func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, pro
 }
 
 func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet *subnet) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "doDeleteExcessBranches")
@@ -121,7 +123,6 @@ func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet
 		return false, err
 	}
 
-	ec2client := ec2.New(session.Session)
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
@@ -157,6 +158,7 @@ WHERE branch_eni IN
 		span.SetStatus(traceStatusFromError(err))
 		return false, err
 	}
+	ctx = logger.WithField(ctx, "eni", branchENI)
 
 	iface, err := session.GetNetworkInterfaceByID(ctx, branchENI, 500*time.Millisecond)
 	if err != nil {
@@ -176,18 +178,48 @@ WHERE branch_eni IN
 		return false, err
 	}
 
-	logger.G(ctx).WithField("eni", branchENI).Info("Deleting excess ENI")
-	_, err = ec2client.DeleteNetworkInterfaceWithContext(ctx, &ec2.DeleteNetworkInterfaceInput{
+	// TODO: Handle the not found case
+	logger.G(ctx).Info("Deleting excess ENI")
+	_, err = session.DeleteNetworkInterface(ctx, ec2.DeleteNetworkInterfaceInput{
 		NetworkInterfaceId: aws.String(branchENI),
+		DryRun:             aws.Bool(true),
 	})
-	if err != nil {
+	if err == nil {
+		err = fmt.Errorf("Did not receive error on operation to delete ENI %s, in dry run mode", branchENI)
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+	awsErr := ec2wrapper.RetrieveEC2Error(err)
+	if awsErr == nil {
+		err = errors.Wrap(err, "Failed to call delete on ENI due to non-AWS error")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	} else if awsErr.Code() == ec2wrapper.InvalidNetworkInterfaceIDNotFound {
+		err = tx.Commit()
+		if err != nil {
+			err = errors.Wrap(err, "Cannot commit transaction")
+			tracehelpers.SetStatus(err, span)
+			return false, err
+		}
+	} else if awsErr.Code() != "DryRunOperation" {
+		err = errors.Wrap(err, "Received unexpected result from AWS")
 		return false, ec2wrapper.HandleEC2Error(err, span)
 	}
+
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Cannot commit transaction")
 		span.SetStatus(traceStatusFromError(err))
 		return false, err
 	}
+
+	_, err = session.DeleteNetworkInterface(ctx, ec2.DeleteNetworkInterfaceInput{
+		NetworkInterfaceId: aws.String(branchENI),
+	})
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Deleted (excess) branch ENI from database, but was unable to delete it from AWS; ENI leak")
+		return false, ec2wrapper.HandleEC2Error(err, span)
+	}
+
 	return true, nil
 }
