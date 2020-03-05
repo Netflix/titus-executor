@@ -274,6 +274,17 @@ func (s *EC2Session) ModifyNetworkInterfaceAttribute(ctx context.Context, input 
 	defer span.End()
 
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)))
+
+	if input.SourceDestCheck != nil {
+		span.AddAttributes(trace.StringAttribute("sourceDestCheck", input.SourceDestCheck.String()))
+	} else if input.Groups != nil {
+		span.AddAttributes(trace.StringAttribute("groups", fmt.Sprintf("%+v", input.Groups)))
+	} else if input.Description != nil {
+		span.AddAttributes(trace.StringAttribute("description", input.Description.String()))
+	} else if input.Attachment != nil {
+		span.AddAttributes(trace.StringAttribute("attachment", input.Attachment.String()))
+	}
+
 	ec2client := ec2.New(s.Session)
 	output, err := ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, &input)
 	if err != nil {

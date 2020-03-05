@@ -214,6 +214,13 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	defer span.End()
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
+
+	if req.InstanceIdentity == nil {
+		err := status.Error(codes.InvalidArgument, "Instance ID is not specified")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	ctx = logger.WithFields(ctx, map[string]interface{}{
 		"instance": req.InstanceIdentity.InstanceID,
 	})
@@ -223,6 +230,12 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	if req.TaskId == "" {
 		err := status.Error(codes.InvalidArgument, "Task ID is not specified")
 		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	if len(req.SecurityGroupIds) == 0 {
+		err := status.Error(codes.InvalidArgument, "No security groups specified")
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -330,9 +343,8 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 		return nil, err
 	}
 
-	var hasSecurityGroupIDs []string
 	row = tx.QueryRowContext(ctx, `
-	SELECT branch_eni, az, account_id, security_groups
+	SELECT branch_eni, az, account_id
 	FROM branch_enis
 	WHERE branch_eni NOT IN
 		(SELECT branch_eni
@@ -342,18 +354,25 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	FOR
 	UPDATE SKIP LOCKED
 	LIMIT 1
-	`, subnetID, wantedSecurityGroupsIDs)
-	err = row.Scan(&eni.id, &eni.az, &eni.accountID, pq.Array(&hasSecurityGroupIDs))
+	`, subnetID)
+	err = row.Scan(&eni.id, &eni.az, &eni.accountID)
 	if err == nil {
-		_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, &ec2.ModifyNetworkInterfaceAttributeInput{
+		_, err = session.ModifyNetworkInterfaceAttribute(ctx, ec2.ModifyNetworkInterfaceAttributeInput{
 			Groups:             aws.StringSlice(wantedSecurityGroupsIDs),
 			NetworkInterfaceId: aws.String(eni.id),
 		})
 		if err != nil {
 			err = errors.Wrap(err, "Cannot modify security groups on interface")
-			span.SetStatus(traceStatusFromError(err))
+			return nil, ec2wrapper.HandleEC2Error(err, span)
+		}
+
+		_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1 WHERE branch_eni = $2", pq.Array(wantedSecurityGroupsIDs), eni.id)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot update security groups in database on branch ENI")
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
+
 		return &eni, nil
 	} else if err != sql.ErrNoRows {
 		span.SetStatus(traceStatusFromError(err))
@@ -398,6 +417,7 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 	ctx, span := trace.StartSpan(ctx, "assignIPWithAddENI")
 	defer span.End()
 
+	logger.G(ctx).Debug("Trying to add new ENI attachment to instance")
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
@@ -681,8 +701,7 @@ LIMIT 1
 		return nil, err
 	}
 
-	ec2client := ec2.New(session.Session)
-	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, &ec2.ModifyNetworkInterfaceAttributeInput{
+	_, err = session.ModifyNetworkInterfaceAttribute(ctx, ec2.ModifyNetworkInterfaceAttributeInput{
 		Groups:             aws.StringSlice(securityGroups),
 		NetworkInterfaceId: aws.String(eni.id),
 	})
@@ -782,6 +801,21 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("eni", eni.id))
 
+	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1", eni.id)
+	var dbSecurityGroups []string
+	err := row.Scan(pq.Array(&dbSecurityGroups))
+	if err != nil {
+		err = errors.Wrap(err, "Cannot query assigned SGs to ENI in database")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	if !sets.NewString(dbSecurityGroups...).Equal(sets.NewString(req.SecurityGroupIds...)) {
+		err = fmt.Errorf("Database has security groups %s, when expected %s", dbSecurityGroups, req.SecurityGroupIds)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
 	iface, err := session.GetNetworkInterfaceByID(ctx, eni.id, 100*time.Millisecond)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get branch ENI")
@@ -806,7 +840,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		return nil, err
 	}
 
-	row := tx.QueryRowContext(ctx, "INSERT INTO assignments(assignment_id, branch_eni_association) VALUES ($1, $2) RETURNING id", req.TaskId, eni.associationID)
+	row = tx.QueryRowContext(ctx, "INSERT INTO assignments(assignment_id, branch_eni_association) VALUES ($1, $2) RETURNING id", req.TaskId, eni.associationID)
 	var assignmentID int
 	err = row.Scan(&assignmentID)
 	if err != nil {
