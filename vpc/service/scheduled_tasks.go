@@ -78,6 +78,8 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 type taskLoopWorkFunc func(context.Context, keyedItem, *sql.Tx) error
 
 func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, lister itemLister, cb taskLoopWorkFunc) error {
+	ctx = logger.WithField(ctx, "taskPrefix", taskPrefix)
+
 	t := time.NewTimer(interval / 10)
 	for {
 		select {
@@ -95,7 +97,7 @@ func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duratio
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, taskPrefix)
 	defer span.End()
-	logger.G(ctx).WithField("taskPrefix", taskPrefix).Info("Starting task")
+	logger.G(ctx).Info("Starting task")
 	items, err := itemLister(ctx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get region / accounts")
@@ -106,12 +108,25 @@ func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duratio
 		item := items[idx]
 		taskName := fmt.Sprintf("%s_%s", taskPrefix, item.key())
 		// rebind this so it doesn't get overwritten on the subsequent loop
-		err := vpcService.runScheduledTask(ctx, taskName, interval, func(ctx context.Context, tx *sql.Tx) error {
-			return cb(ctx, item, tx)
+		err := vpcService.runScheduledTask(ctx, taskName, interval, func(ctx2 context.Context, tx *sql.Tx) error {
+			return cb(ctx2, item, tx)
 		})
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Cannot run task")
 		}
 	}
 	return nil
+}
+
+type regionAccount struct {
+	accountID string
+	region    string
+}
+
+func (ra *regionAccount) key() string {
+	return fmt.Sprintf("%s_%s", ra.region, ra.accountID)
+}
+
+func (ra *regionAccount) String() string {
+	return fmt.Sprintf("RegionAccount{region=%s account=%s}", ra.region, ra.accountID)
 }

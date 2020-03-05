@@ -177,16 +177,15 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 				item := items[idx]
 				if !startedLockers.Has(item.key()) {
 					startedLockers.Insert(item.key())
-					ctx := logger.WithFields(ctx, map[string]interface{}{
-						"key":      item.key(),
+					ctx2 := logger.WithFields(ctx, map[string]interface{}{
 						"taskName": taskName,
 					})
-					logger.G(ctx).Info("Starting new long running function under lock")
+					logger.G(ctx2).Info("Starting new long running function under lock")
 					lockName := fmt.Sprintf("%s_%s", taskName, item.key())
-					go vpcService.waitToAcquireLongLivedLock(ctx, hostname, lockName, func(ctx2 context.Context) {
-						logger.G(ctx2).Debug("Work fun starting")
-						wf(ctx2, item)
-						logger.G(ctx2).Debug("Work fun ending")
+					go vpcService.waitToAcquireLongLivedLock(ctx2, hostname, lockName, func(ctx3 context.Context) {
+						logger.G(ctx3).Info("Work fun starting")
+						wf(ctx3, item)
+						logger.G(ctx3).Info("Work fun ending")
 					})
 				}
 			}

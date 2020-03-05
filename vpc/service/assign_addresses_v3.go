@@ -9,6 +9,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -376,21 +378,10 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 
 	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
 
-	securityGroupIds := make([]string, len(iface.Groups))
-	for idx := range iface.Groups {
-		securityGroupIds[idx] = aws.StringValue(iface.Groups[idx].GroupId)
-	}
-	sort.Strings(securityGroupIds)
-
-	_, err = tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, modified_at) VALUES ($1, $2, $3, $4, $5, $6, transaction_timestamp())",
-		aws.StringValue(iface.NetworkInterfaceId),
-		aws.StringValue(iface.SubnetId),
-		aws.StringValue(iface.OwnerId),
-		aws.StringValue(iface.AvailabilityZone),
-		aws.StringValue(iface.VpcId),
-		pq.Array(securityGroupIds),
-	)
+	err = insertBranchENIIntoDB(ctx, tx, iface)
 	if err != nil {
+		err = errors.Wrap(err, "Cannot insert branch ENI into database")
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 

@@ -335,6 +335,11 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 			itemLister: vpcService.getTrunkENIRegionAccounts,
 			workFunc:   vpcService.reconcileTrunkENIsForRegionAccountLoop,
 		},
+		{
+			taskName:   "reconcile_branch_enis",
+			itemLister: vpcService.getBranchENIRegionAccounts,
+			workFunc:   vpcService.reconcileBranchENILoop,
+		},
 	}
 }
 
@@ -356,11 +361,6 @@ type taskLoop struct {
 
 func (vpcService *vpcService) getTaskLoops() []taskLoop {
 	return []taskLoop{
-		{
-			taskName:   "reconcile_branch_enis",
-			itemLister: vpcService.getBranchENIRegionAccounts,
-			workFunc:   vpcService.reconcileBranchENIsForRegionAccount,
-		},
 		{
 			taskName:   "reconcile_branch_eni_attachments",
 			itemLister: vpcService.getTrunkENIRegionAccounts,

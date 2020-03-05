@@ -27,10 +27,15 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccountLoop(ctx context
 	defer cancel()
 
 	item := protoItem.(*regionAccount)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"region":    item.region,
+		"accountID": item.accountID,
+	})
+
 	for {
 		err := vpcService.reconcileTrunkENIsForRegionAccount(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithField("region", item.region).WithField("accountID", item.accountID).WithError(err).Error("Failed to reconcile trunk ENIs")
+			logger.G(ctx).WithError(err).Error("Failed to reconcile trunk ENIs")
 		}
 		err = waitFor(ctx, timeBetweenTrunkENIReconcilation)
 		if err != nil {
@@ -83,10 +88,7 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccount(ctx context.Con
 	// Also, unmark all tombstones > 24 hours old
 	//
 
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"region":    account.region,
-		"accountID": account.accountID,
-	}).Info("Beginning reconcilation of trunk ENIs")
+	logger.G(ctx).Info("Beginning reconcilation of trunk ENIs")
 
 	describeNetworkInterfacesInput := ec2.DescribeNetworkInterfacesInput{
 		Filters: []*ec2.Filter{
@@ -121,7 +123,8 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccount(ctx context.Con
 
 	enis := sets.NewString()
 
-	for _, ni := range networkInterfaces {
+	for idx := range networkInterfaces {
+		ni := networkInterfaces[idx]
 		networkInterfaceID := aws.StringValue(ni.NetworkInterfaceId)
 		enis.Insert(networkInterfaceID)
 		ctx2 := logger.WithField(ctx, "eni", networkInterfaceID)
@@ -152,7 +155,7 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccountInDatabase(ctx c
 	ctx, span := trace.StartSpan(ctx, "reconcileTrunkENIsForRegionAccountInDatabase")
 	defer span.End()
 
-	databaseOrphanedTrunkENIs, err := vpcService.getDatabaseOrphanedENIs(ctx, account, enis)
+	databaseOrphanedTrunkENIs, err := vpcService.getDatabaseOrphanedTrunkENIs(ctx, account, enis)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Cannot find orphaned ENIs")
 	}
@@ -199,24 +202,13 @@ func (vpcService *vpcService) reconcileOrphanedTrunkENI(ctx context.Context, ses
 		return err
 	}
 
-	_, err = session.ModifyNetworkInterfaceAttribute(ctx, ec2.ModifyNetworkInterfaceAttributeInput{
-		NetworkInterfaceId: aws.String(eni),
-		Description: &ec2.AttributeValue{
-			Value: aws.String(vpc.TrunkNetworkInterfaceDescription),
-		},
-	})
-	if err == nil {
-		logger.G(ctx).Warn("Was able to find interface via modify interface attribute, skipping")
-		return nil
-	}
-	awsErr := ec2wrapper.RetrieveEC2Error(err)
-	if awsErr == nil {
-		logger.G(ctx).WithError(err).Error("Experienced non-AWS error while calling modify network interface attribute")
-		tracehelpers.SetStatus(err, span)
-		return err
+	eniExists, err := doesENIExist(ctx, session, eni, vpc.TrunkNetworkInterfaceDescription)
+	if err != nil {
+		err = errors.Wrap(err, "Could not find out if branch ENI exists")
+		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	if awsErr.Code() == ec2wrapper.InvalidNetworkInterfaceIDNotFound {
+	if !eniExists {
 		logger.G(ctx).Info("Hard deleting ENI, as could not find it in AWS")
 		err = vpcService.hardDeleteTrunkInterface(ctx, eni)
 		if err != nil {
@@ -227,12 +219,11 @@ func (vpcService *vpcService) reconcileOrphanedTrunkENI(ctx context.Context, ses
 	}
 
 	logger.G(ctx).WithError(err).Error("Experienced unexpected AWS error")
-	tracehelpers.SetStatus(err, span)
-	return err
+	return ec2wrapper.HandleEC2Error(err, span)
 }
 
-func (vpcService *vpcService) getDatabaseOrphanedENIs(ctx context.Context, account *regionAccount, enis sets.String) (sets.String, error) {
-	ctx, span := trace.StartSpan(ctx, "getDatabaseOrphanedENIs")
+func (vpcService *vpcService) getDatabaseOrphanedTrunkENIs(ctx context.Context, account *regionAccount, enis sets.String) (sets.String, error) {
+	ctx, span := trace.StartSpan(ctx, "getDatabaseOrphanedTrunkENIs")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
