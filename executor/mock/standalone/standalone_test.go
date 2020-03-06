@@ -32,15 +32,13 @@ import (
 
 var standalone bool
 
-func init() {
+func TestMain(m *testing.M) {
 	if debug, err := strconv.ParseBool(os.Getenv("DEBUG")); err == nil && debug {
 		log.SetLevel(log.DebugLevel)
 	}
-}
-
-func TestMain(m *testing.M) {
 	flag.BoolVar(&standalone, "standalone", false, "Enable standalone tests")
 	flag.Parse()
+	os.Exit(m.Run())
 }
 
 type testImage struct {
