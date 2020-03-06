@@ -1372,7 +1372,7 @@ func (m *JobDisruptionBudget_RatePercentagePerInterval) GetPercentageLimitPerInt
 
 /// Batch job specification.
 type BatchJobSpec struct {
-	/// (Required) Number of tasks to run (>= 0).
+	/// (Required) Number of tasks to run (> 0).
 	Size uint32 `protobuf:"varint,1,opt,name=size,proto3" json:"size,omitempty"`
 	/// (Required) Maximum amount of time in seconds that the job's task is allowed to run. The timer is started once the task
 	// transitions to the 'RUNNING' state. If a task terminates with an error and is restarted, the timer starts again from 0.
@@ -4124,11 +4124,11 @@ var fileDescriptor_1c07f2bd2273ea55 = []byte{
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
-var _ grpc.ClientConn
+var _ grpc.ClientConnInterface
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
+const _ = grpc.SupportPackageIsVersion6
 
 // JobManagementServiceClient is the client API for JobManagementService service.
 //
@@ -4188,10 +4188,10 @@ type JobManagementServiceClient interface {
 }
 
 type jobManagementServiceClient struct {
-	cc *grpc.ClientConn
+	cc grpc.ClientConnInterface
 }
 
-func NewJobManagementServiceClient(cc *grpc.ClientConn) JobManagementServiceClient {
+func NewJobManagementServiceClient(cc grpc.ClientConnInterface) JobManagementServiceClient {
 	return &jobManagementServiceClient{cc}
 }
 

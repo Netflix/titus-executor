@@ -292,6 +292,9 @@ message ContainerInfo {
 
     /// (Optional) IP address allocation for the task
     optional com.netflix.titus.SignedAddressAllocation signedAddressAllocation = 41;
+
+    /// Timestamp in epoch millis of when the task's job was Accepted
+    optional uint64 jobAcceptedTimestampMs = 42;
 }
 
 // For the identity client to query the metadata server to confirm the
@@ -313,6 +316,9 @@ message TaskIdentity {
 
     // (Required) IP address of container
     optional string ipv4Address = 4;
+
+    // (Optional) IPv6 address of container
+    optional string ipv6Address = 5;
 }
 
 enum SignatureAlgorithm {

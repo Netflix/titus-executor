@@ -40,6 +40,8 @@ github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef h1:KJSUpdkLKo
 github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef/go.mod h1:3oJNZd93I7dEODYw8RBj8v5DO8VRgZrZLFZXWkmNqmY=
 github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20191021181820-7e2e4314c840 h1:Jw3uDKHJwVames3MyOi0z203ttmZ2fLwsfhhlqYD1k8=
 github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20191021181820-7e2e4314c840/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
+github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200212222136-a4a89636720b h1:FpsO+14fnJZFWoXk+tWOaCgT2Xf9uWNr7F5QYQHheKc=
+github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200212222136-a4a89636720b/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=

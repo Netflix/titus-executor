@@ -391,11 +391,11 @@ var fileDescriptor_fee69f8d9b907b12 = []byte{
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
-var _ grpc.ClientConn
+var _ grpc.ClientConnInterface
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
+const _ = grpc.SupportPackageIsVersion6
 
 // UserIPServiceClient is the client API for UserIPService service.
 //
@@ -407,10 +407,10 @@ type UserIPServiceClient interface {
 }
 
 type userIPServiceClient struct {
-	cc *grpc.ClientConn
+	cc grpc.ClientConnInterface
 }
 
-func NewUserIPServiceClient(cc *grpc.ClientConn) UserIPServiceClient {
+func NewUserIPServiceClient(cc grpc.ClientConnInterface) UserIPServiceClient {
 	return &userIPServiceClient{cc}
 }
 
@@ -515,10 +515,10 @@ type ValidatorIPServiceClient interface {
 }
 
 type validatorIPServiceClient struct {
-	cc *grpc.ClientConn
+	cc grpc.ClientConnInterface
 }
 
-func NewValidatorIPServiceClient(cc *grpc.ClientConn) ValidatorIPServiceClient {
+func NewValidatorIPServiceClient(cc grpc.ClientConnInterface) ValidatorIPServiceClient {
 	return &validatorIPServiceClient{cc}
 }
 

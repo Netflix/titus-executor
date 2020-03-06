@@ -7,7 +7,6 @@ package com.netflix.titus;
 
 import "google/protobuf/empty.proto";
 import "netflix/titus/titus_job_api.proto";
-import "google/protobuf/wrappers.proto";
 import "netflix/titus/titus_base.proto";
 
 option java_multiple_files = true;
