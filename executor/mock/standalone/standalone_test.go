@@ -36,6 +36,9 @@ func init() {
 	if debug, err := strconv.ParseBool(os.Getenv("DEBUG")); err == nil && debug {
 		log.SetLevel(log.DebugLevel)
 	}
+}
+
+func TestMain(m *testing.M) {
 	flag.BoolVar(&standalone, "standalone", false, "Enable standalone tests")
 	flag.Parse()
 }
