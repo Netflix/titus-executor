@@ -1,6 +1,6 @@
 FROM ubuntu:bionic as builder
 
-COPY --from=golang:1.12-stretch /usr/local/go /usr/local/go
+COPY --from=golang:1.13-stretch /usr/local/go /usr/local/go
 RUN apt-get update && apt-get install busybox-static
 ENV GOPATH /go
 ENV EXECUTOR_DIR "$GOPATH/src/github.com/Netflix/titus-executor"

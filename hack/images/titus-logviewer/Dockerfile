@@ -1,4 +1,4 @@
-FROM golang:1.12-stretch as builder
+FROM golang:1.13-stretch as builder
 
 ENV GOPATH /go
 ENV EXECUTOR_DIR "$GOPATH/src/github.com/Netflix/titus-executor"

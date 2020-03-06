@@ -1,6 +1,6 @@
 module github.com/Netflix/titus-executor
 
-go 1.12
+go 1.13
 
 replace github.com/docker/docker => github.com/docker/engine v0.0.0-20190408150954-50ebe4562dfc
 
