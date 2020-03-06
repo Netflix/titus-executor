@@ -332,7 +332,7 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	  AND security_groups = $2
 	ORDER BY RANDOM()
 	FOR
-	UPDATE SKIP LOCKED
+	NO KEY UPDATE SKIP LOCKED
 	LIMIT 1
 	`, subnetID, pq.Array(wantedSecurityGroupsIDs))
 	err := row.Scan(&eni.id, &eni.az, &eni.accountID)
@@ -352,7 +352,7 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	  AND subnet_id = $1
 	ORDER BY RANDOM()
 	FOR
-	UPDATE SKIP LOCKED
+	NO KEY UPDATE SKIP LOCKED
 	LIMIT 1
 	`, subnetID)
 	err = row.Scan(&eni.id, &eni.az, &eni.accountID)
@@ -480,6 +480,7 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 		attachmentIdx = unusedIndexesList[r1.Intn(len(unusedIndexesList))]
 	}
 
+	logger.G(ctx).WithField("idx", attachmentIdx).Debug("Attaching new branch ENI")
 	branchENISession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: azToRegionRegexp.FindString(s.az), AccountID: s.accountID})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get session for account / region")
@@ -493,39 +494,20 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	row := tx.QueryRowContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, attachment_generation) VALUES ($1, $2, $3, 3) RETURNING id", eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
-	var branchENIAttachmentID int
-	err = row.Scan(&branchENIAttachmentID)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot create row in branch ENI attachments")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
 	err = vpcService.ensureBranchENIPermissionV3(ctx, tx, trunkENI, branchENISession, eni)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	ec2client := ec2.New(instanceSession.Session)
-	association, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &ec2.AssociateTrunkInterfaceInput{
-		BranchInterfaceId: aws.String(eni.id),
-		TrunkInterfaceId:  trunkENI.NetworkInterfaceId,
-		VlanId:            aws.Int64(int64(attachmentIdx)),
-	})
+	associationID, err := vpcService.associateNetworkInterface(ctx, tx, instanceSession, eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot associate trunk interface with branch ENI")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET association_id = $1 WHERE id = $2", aws.StringValue(association.InterfaceAssociation.AssociationId), branchENIAttachmentID)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot update branch ENI attachments table")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	eni.idx = int(aws.Int64Value(association.InterfaceAssociation.VlanId))
-	eni.associationID = aws.StringValue(association.InterfaceAssociation.AssociationId)
+	eni.idx = attachmentIdx
+	eni.associationID = *associationID
 
 	return vpcService.assignIPsToENI(ctx, req, tx, branchENISession, s, eni, instance, trunkENI, maxIPAddresses)
 }
@@ -661,7 +643,7 @@ FROM
    FROM branch_enis
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
-     AND trunk_eni = $2  FOR UPDATE OF branch_enis, branch_eni_attachments) valid_branch_enis
+     AND trunk_eni = $2  FOR NO KEY UPDATE OF branch_enis, branch_eni_attachments) valid_branch_enis
 WHERE c = 0
 FOR UPDATE
 LIMIT 1

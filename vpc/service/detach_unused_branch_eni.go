@@ -16,7 +16,7 @@ import (
 const (
 	timeBetweenDetaches    = 5 * time.Second
 	timeBetweenNoDetatches = time.Minute
-	minTimeDetached        = time.Hour
+	minTimeUnused          = time.Hour
 )
 
 type nilItem struct {
@@ -105,8 +105,8 @@ UPDATE OF branch_enis,
 		return timeBetweenErrors, err
 	}
 	timeSinceLastUsed := time.Since(lastUsed)
-	if timeSinceLastUsed < minTimeDetached {
-		waitTime := minTimeDetached - timeSinceLastUsed
+	if timeSinceLastUsed < minTimeUnused {
+		waitTime := minTimeUnused - timeSinceLastUsed
 		return waitTime, nil
 	}
 	span.AddAttributes(trace.StringAttribute("eni", branchENI))

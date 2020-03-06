@@ -332,6 +332,30 @@ func (s *EC2Session) DescribeNetworkInterfaces(ctx context.Context, input ec2.De
 	return output, nil
 }
 
+func (s *EC2Session) AssociateTrunkInterface(ctx context.Context, input ec2.AssociateTrunkInterfaceInput) (*ec2.AssociateTrunkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AssociateTrunkInterface")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("trunk", aws.StringValue(input.TrunkInterfaceId)),
+		trace.StringAttribute("branch", aws.StringValue(input.BranchInterfaceId)),
+		trace.Int64Attribute("idx", aws.Int64Value(input.VlanId)),
+	)
+
+	if input.ClientToken != nil {
+		span.AddAttributes(trace.StringAttribute("token", aws.StringValue(input.ClientToken)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot associate trunk network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
 type EC2InstanceCacheValue struct {
 	ownerID  string
 	instance *ec2.Instance
