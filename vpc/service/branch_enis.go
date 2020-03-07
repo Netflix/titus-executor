@@ -648,6 +648,7 @@ FOR UPDATE OF branch_eni_attachments
 				tracehelpers.SetStatus(err, span)
 				return ec2wrapper.HandleEC2Error(err, span)
 			}
+			err = &irrecoverableError{err: err}
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
@@ -746,7 +747,7 @@ func hasAssignments(ctx context.Context, tx *sql.Tx, associationID string) error
 	}
 	logger.G(ctx).WithField("assignments", assignments).Debug("Found assignments")
 	if l := len(assignments); l > 0 {
-		err = fmt.Errorf("Cannot start deletion, %d assignments still assigned to table, and force not specified: %s", l, strings.Join(assignments, ","))
+		err = fmt.Errorf("%d assignments still assigned to table: %s", l, strings.Join(assignments, ","))
 		return err
 	}
 	return nil
@@ -887,13 +888,11 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 			_ = tx.Rollback()
 		}()
 		err = actionWorker.cb(ctx, tx, id)
+		// TODO: Consider updating the table state here
 		if errors.Is(err, &persistentError{}) {
-			logger.G(ctx).WithError(err).Error("Experienced persistent error, still committing database state")
+			logger.G(ctx).WithError(err).Error("Experienced persistent error, still committing database state (assuming function updated state to failed)")
 		} else if errors.Is(err, &irrecoverableError{}) {
-			logger.G(ctx).WithError(err).Errorf("Experienced irrecoverable error, rolling back")
-			_ = tx.Rollback()
-			wq.Forget(item)
-			return nil
+			logger.G(ctx).WithError(err).Errorf("Experienced irrecoverable error, still committing database state (assuming function updated state to failed)")
 		} else if err != nil {
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error("Failed to process item")
@@ -979,13 +978,14 @@ func (vpcService *vpcService) detachBranchENI(ctx context.Context, tx *sql.Tx, i
 	defer span.End()
 
 	row := tx.QueryRowContext(ctx, `
-SELECT idx, branch_eni, association_id
+SELECT idx,
+       branch_eni,
+       association_id
 FROM branch_eni_attachments
 WHERE trunk_eni = $1
-  AND
-    (SELECT count(*)
-     FROM assignments
-     WHERE branch_eni_association = association_id) = 0
+  AND branch_eni_attachments.association_id NOT IN
+    (SELECT branch_eni_association
+     FROM assignments)
 ORDER BY COALESCE(
                     (SELECT last_used
                      FROM branch_eni_last_used

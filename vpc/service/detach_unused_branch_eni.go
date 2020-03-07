@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/pkg/errors"
@@ -68,28 +68,29 @@ func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context) (tim
 	}()
 
 	row := tx.QueryRowContext(ctx, `
-SELECT branch_enis.branch_eni,
-       branch_eni_attachments.association_id,
+SELECT branch_eni_attachments.branch_eni,
+       association_id,
        availability_zones.region,
        trunk_enis.account_id,
        COALESCE(
                   (SELECT last_used
                    FROM branch_eni_last_used
                    WHERE branch_eni = branch_enis.branch_eni), TIMESTAMP 'EPOCH') AS lu
-FROM branch_enis
-JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
+FROM branch_eni_attachments
+JOIN branch_enis ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
 JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
-JOIN availability_zones ON trunk_enis.account_id = availability_zones.account_id AND trunk_enis.az = availability_zones.zone_name
+JOIN availability_zones ON trunk_enis.account_id = availability_zones.account_id
+AND trunk_enis.az = availability_zones.zone_name
 WHERE branch_eni_attachments.association_id NOT IN
     (SELECT branch_eni_association
      FROM assignments)
-	AND attachment_generation = 3
-ORDER BY lu ASC
+ORDER BY COALESCE(
+                    (SELECT last_used
+                     FROM branch_eni_last_used
+                     WHERE branch_eni = branch_eni_attachments.branch_eni), TIMESTAMP 'EPOCH') ASC
 LIMIT 1
-FOR
-UPDATE OF branch_enis,
-          branch_eni_attachments
-
+FOR NO KEY
+UPDATE OF branch_eni_attachments SKIP LOCKED
 `)
 	var branchENI, associationID, region, accountID string
 	var lastUsed time.Time
@@ -112,15 +113,6 @@ UPDATE OF branch_enis,
 
 	logger.G(ctx).WithField("eni", branchENI).Info("Disassociating ENI")
 
-	// We could fetch the row ID if we wanted to be more efficient here, but this works fine for now
-	// as there is an index on the association ID
-	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE association_id = $1", associationID)
-	if err != nil {
-		err = errors.Wrap(err, "Could not delete association from database")
-		span.SetStatus(traceStatusFromError(err))
-		return timeBetweenErrors, err
-	}
-
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		Region:    region,
 		AccountID: accountID,
@@ -130,15 +122,23 @@ UPDATE OF branch_enis,
 		span.SetStatus(traceStatusFromError(err))
 		return timeBetweenErrors, err
 	}
-	ec2client := ec2.New(session.Session)
-	_, err = ec2client.DisassociateTrunkInterfaceWithContext(ctx, &ec2.DisassociateTrunkInterfaceInput{
-		AssociationId: aws.String(associationID),
-	})
-	if err != nil {
-		err = errors.Wrap(err, "Could not disassociate branch ENI")
-		span.SetStatus(traceStatusFromError(err))
-		return timeBetweenErrors, err
+
+	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
+	if !errors.Is(err, &irrecoverableError{}) && !errors.Is(err, &persistentError{}) {
+		err2 := tx.Commit()
+		if err2 != nil {
+			err2 = errors.Wrap(err2, "Could not commit transaction")
+			span.SetStatus(traceStatusFromError(err2))
+			return timeBetweenErrors, err2
+		}
+		logger.G(ctx).WithError(err).Error("Experienced error while trying to disassociate network interface")
+		return timeBetweenErrors, nil
+	} else if err != nil {
+		err = errors.Wrap(err, "Cannot disassociate network interface")
+		tracehelpers.SetStatus(err, span)
+		return timeBetweenErrors, nil
 	}
+
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Could not commit transaction")
