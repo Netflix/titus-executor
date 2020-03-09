@@ -638,7 +638,7 @@ FROM branch_eni_actions_disassociate
 JOIN branch_eni_attachments ON branch_eni_actions_disassociate.association_id = branch_eni_attachments.association_id
 JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
 WHERE branch_eni_actions_disassociate.id = $1
-FOR NO KEY UPDATE OF branch_eni_attachments
+FOR NO KEY UPDATE OF branch_eni_actions_disassociate
 `, id)
 
 	var errorCode, errorMessage sql.NullString
