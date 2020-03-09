@@ -1474,6 +1474,10 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 		},
 	}
 
+	if c.Allocation.IPV6Address != nil && c.Allocation.IPV6Address.Address != nil {
+		details.NetworkConfiguration.EniIPv6Address = c.Allocation.IPV6Address.Address.Address
+	}
+
 	if r.tiniEnabled {
 		logDir, err := r.waitForTini(ctx, listener, efsMountInfos, c)
 		if err != nil {

@@ -10,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
@@ -87,6 +89,8 @@ type vpcService struct {
 	refreshLock *semaphore.Weighted
 
 	TitusAgentCACertPool *x509.CertPool
+
+	dbRateLimiter *rate.Limiter
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -163,6 +167,8 @@ func Run(ctx context.Context, config *Config) error {
 		refreshLock: semaphore.NewWeighted(config.MaxConcurrentRefresh),
 
 		TitusAgentCACertPool: config.TitusAgentCACertPool,
+
+		dbRateLimiter: rate.NewLimiter(1000, 1),
 	}
 
 	// TODO: actually validate this
@@ -271,6 +277,9 @@ func Run(ctx context.Context, config *Config) error {
 		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_eni_attachments", vpc.getTrunkENIRegionAccounts, vpc.reconcileBranchENIAttachmentsForRegionAccount)
 	})
 	group.Go(func() error {
+		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_trunk_enis", vpc.getTrunkENIRegionAccounts, vpc.reconcileTrunkENIsForRegionAccount)
+	})
+	group.Go(func() error {
 		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
 	})
 
@@ -284,7 +293,15 @@ func Run(ctx context.Context, config *Config) error {
 
 	if !config.DisableLongLivedTasks {
 		group.Go(func() error {
-			return vpc.gcAttachedENIs(ctx)
+			return vpc.runFunctionUnderLongLivedLock(ctx, "gc_enis", vpc.getBranchENIRegionAccounts, vpc.doGCAttachedENIsLoop)
+		})
+
+		group.Go(func() error {
+			return vpc.runFunctionUnderLongLivedLock(ctx, "delete_excess_branches", vpc.getSubnets, vpc.deleteExccessBranchesLoop)
+		})
+
+		group.Go(func() error {
+			return vpc.runFunctionUnderLongLivedLock(ctx, "detach_unused_branch_eni", nilItemEnumerator, vpc.detatchUnusedBranchENILoop)
 		})
 	}
 	err = group.Wait()

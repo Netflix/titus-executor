@@ -274,7 +274,7 @@ message JobDisruptionBudget {
 
 /// Batch job specification.
 message BatchJobSpec {
-    /// (Required) Number of tasks to run (>= 0).
+    /// (Required) Number of tasks to run (> 0).
     uint32 size = 1;
 
     /// (Required) Maximum amount of time in seconds that the job's task is allowed to run. The timer is started once the task

@@ -32,12 +32,13 @@ import (
 
 var standalone bool
 
-func init() {
+func TestMain(m *testing.M) {
 	if debug, err := strconv.ParseBool(os.Getenv("DEBUG")); err == nil && debug {
 		log.SetLevel(log.DebugLevel)
 	}
 	flag.BoolVar(&standalone, "standalone", false, "Enable standalone tests")
 	flag.Parse()
+	os.Exit(m.Run())
 }
 
 type testImage struct {
@@ -497,7 +498,7 @@ func testImageInvalidDigestFails(t *testing.T, jobID string) {
 		ImageName:     byDigest.name,
 		Version:       "latest", // should be ignored
 		ImageDigest:   digest,
-		EntrypointOld: fmt.Sprintf(`/bin/true`),
+		EntrypointOld: "/bin/true",
 		JobID:         jobID,
 	}
 	status, err := mock.RunJob(t, ji)
@@ -514,7 +515,7 @@ func testImageNonExistingDigestFails(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
 		ImageName:     byDigest.name,
 		ImageDigest:   digest,
-		EntrypointOld: fmt.Sprintf(`/bin/true`),
+		EntrypointOld: "/bin/true",
 		JobID:         jobID,
 	}
 	status, err := mock.RunJob(t, ji)

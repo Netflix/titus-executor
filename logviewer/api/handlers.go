@@ -211,7 +211,7 @@ func writeResponse(w io.Writer, containerID string, fileList []string) error {
 				return err
 			}
 		} else {
-			if _, err := fmt.Fprintf(w, buildLink(containerID, fileName)); err != nil {
+			if _, err := fmt.Fprintf(w, buildLink(containerID, fileName)); err != nil { //nolint:staticcheck
 				return err
 			}
 		}

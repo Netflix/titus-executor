@@ -47,13 +47,15 @@ import (
 // It is incremented whenever an incompatibility between the generated code and
 // the grpc package is introduced; the generated code references
 // a constant, grpc.SupportPackageIsVersionN (where N is generatedCodeVersion).
-const generatedCodeVersion = 4
+const generatedCodeVersion = 6
 
 // Paths for packages used by code generated in this file,
 // relative to the import_prefix of the generator.Generator.
 const (
 	contextPkgPath = "context"
 	grpcPkgPath    = "google.golang.org/grpc"
+	codePkgPath    = "google.golang.org/grpc/codes"
+	statusPkgPath  = "google.golang.org/grpc/status"
 )
 
 func init() {
@@ -110,7 +112,7 @@ func (g *grpc) Generate(file *generator.FileDescriptor) {
 
 	g.P("// Reference imports to suppress errors if they are not otherwise used.")
 	g.P("var _ ", contextPkg, ".Context")
-	g.P("var _ ", grpcPkg, ".ClientConn")
+	g.P("var _ ", grpcPkg, ".ClientConnInterface")
 	g.P()
 
 	// Assert version compatibility.
@@ -164,6 +166,10 @@ func (g *grpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 	g.P("type ", servName, "Client interface {")
 	for i, method := range service.Method {
 		g.gen.PrintComments(fmt.Sprintf("%s,2,%d", path, i)) // 2 means method in a service.
+		if method.GetOptions().GetDeprecated() {
+			g.P("//")
+			g.P(deprecationComment)
+		}
 		g.P(g.generateClientSignature(servName, method))
 	}
 	g.P("}")
@@ -171,7 +177,7 @@ func (g *grpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 
 	// Client structure.
 	g.P("type ", unexport(servName), "Client struct {")
-	g.P("cc *", grpcPkg, ".ClientConn")
+	g.P("cc ", grpcPkg, ".ClientConnInterface")
 	g.P("}")
 	g.P()
 
@@ -179,7 +185,7 @@ func (g *grpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 	if deprecated {
 		g.P(deprecationComment)
 	}
-	g.P("func New", servName, "Client (cc *", grpcPkg, ".ClientConn) ", servName, "Client {")
+	g.P("func New", servName, "Client (cc ", grpcPkg, ".ClientConnInterface) ", servName, "Client {")
 	g.P("return &", unexport(servName), "Client{cc}")
 	g.P("}")
 	g.P()
@@ -211,10 +217,20 @@ func (g *grpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 	g.P("type ", serverType, " interface {")
 	for i, method := range service.Method {
 		g.gen.PrintComments(fmt.Sprintf("%s,2,%d", path, i)) // 2 means method in a service.
+		if method.GetOptions().GetDeprecated() {
+			g.P("//")
+			g.P(deprecationComment)
+		}
 		g.P(g.generateServerSignature(servName, method))
 	}
 	g.P("}")
 	g.P()
+
+	// Server Unimplemented struct for forward compatibility.
+	if deprecated {
+		g.P(deprecationComment)
+	}
+	g.generateUnimplementedServer(servName, service)
 
 	// Server registration.
 	if deprecated {
@@ -267,6 +283,35 @@ func (g *grpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 	g.P("Metadata: \"", file.GetName(), "\",")
 	g.P("}")
 	g.P()
+}
+
+// generateUnimplementedServer creates the unimplemented server struct
+func (g *grpc) generateUnimplementedServer(servName string, service *pb.ServiceDescriptorProto) {
+	serverType := servName + "Server"
+	g.P("// Unimplemented", serverType, " can be embedded to have forward compatible implementations.")
+	g.P("type Unimplemented", serverType, " struct {")
+	g.P("}")
+	g.P()
+	// Unimplemented<service_name>Server's concrete methods
+	for _, method := range service.Method {
+		g.generateServerMethodConcrete(servName, method)
+	}
+	g.P()
+}
+
+// generateServerMethodConcrete returns unimplemented methods which ensure forward compatibility
+func (g *grpc) generateServerMethodConcrete(servName string, method *pb.MethodDescriptorProto) {
+	header := g.generateServerSignatureWithParamNames(servName, method)
+	g.P("func (*Unimplemented", servName, "Server) ", header, " {")
+	var nilArg string
+	if !method.GetServerStreaming() && !method.GetClientStreaming() {
+		nilArg = "nil, "
+	}
+	methName := generator.CamelCase(method.GetName())
+	statusPkg := string(g.gen.AddImport(statusPkgPath))
+	codePkg := string(g.gen.AddImport(codePkgPath))
+	g.P("return ", nilArg, statusPkg, `.Errorf(`, codePkg, `.Unimplemented, "method `, methName, ` not implemented")`)
+	g.P("}")
 }
 
 // generateClientSignature returns the client-side signature for a method.
@@ -366,6 +411,30 @@ func (g *grpc) generateClientMethod(servName, fullServName, serviceDescVar strin
 		g.P("}")
 		g.P()
 	}
+}
+
+// generateServerSignatureWithParamNames returns the server-side signature for a method with parameter names.
+func (g *grpc) generateServerSignatureWithParamNames(servName string, method *pb.MethodDescriptorProto) string {
+	origMethName := method.GetName()
+	methName := generator.CamelCase(origMethName)
+	if reservedClientName[methName] {
+		methName += "_"
+	}
+
+	var reqArgs []string
+	ret := "error"
+	if !method.GetServerStreaming() && !method.GetClientStreaming() {
+		reqArgs = append(reqArgs, "ctx "+contextPkg+".Context")
+		ret = "(*" + g.typeName(method.GetOutputType()) + ", error)"
+	}
+	if !method.GetClientStreaming() {
+		reqArgs = append(reqArgs, "req *"+g.typeName(method.GetInputType()))
+	}
+	if method.GetServerStreaming() || method.GetClientStreaming() {
+		reqArgs = append(reqArgs, "srv "+servName+"_"+generator.CamelCase(origMethName)+"Server")
+	}
+
+	return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
 }
 
 // generateServerSignature returns the server-side signature for a method.

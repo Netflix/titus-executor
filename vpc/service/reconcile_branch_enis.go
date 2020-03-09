@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sort"
 
 	"github.com/lib/pq"
@@ -16,11 +17,12 @@ import (
 	"go.opencensus.io/trace"
 )
 
-func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) error {
+func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, protoItem keyedItem, tx *sql.Tx) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIsForRegionAccount")
 	defer span.End()
+	account := protoItem.(*regionAccount)
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
@@ -143,11 +145,12 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 	return nil
 }
 
-func (vpcService *vpcService) reconcileBranchENIAttachmentsForRegionAccount(ctx context.Context, account regionAccount, tx *sql.Tx) (retErr error) {
+func (vpcService *vpcService) reconcileBranchENIAttachmentsForRegionAccount(ctx context.Context, protoAccount keyedItem, tx *sql.Tx) (retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIAttachmentsForRegionAccount")
 	defer span.End()
+	account := protoAccount.(*regionAccount)
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
@@ -232,7 +235,14 @@ type regionAccount struct {
 	region    string
 }
 
-func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]regionAccount, error) {
+func (ra *regionAccount) key() string {
+	return fmt.Sprintf("%s_%s", ra.region, ra.accountID)
+}
+
+func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]keyedItem, error) {
+	ctx, span := trace.StartSpan(ctx, "getBranchENIRegionAccounts")
+	defer span.End()
+
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
@@ -245,21 +255,32 @@ func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([
 	}()
 
 	// TODO: Fix and extract from branch_eni table
-	rows, err := tx.QueryContext(ctx, "SELECT (regexp_match(availability_zone, '[a-z]+-[a-z]+-[0-9]+'))[1] AS region, account FROM account_mapping GROUP BY region, account")
+	rows, err := tx.QueryContext(ctx, `
+SELECT availability_zones.region, branch_enis.account_id FROM branch_enis
+JOIN subnets ON branch_enis.subnet_id = subnets.subnet_id
+JOIN availability_zones ON subnets.account_id = availability_zones.account_id AND subnets.az = availability_zones.zone_name
+GROUP BY availability_zones.region, branch_enis.account_id
+`)
 	if err != nil {
 		return nil, err
 	}
 
-	ret := []regionAccount{}
+	ret := []keyedItem{}
 	for rows.Next() {
 		var ra regionAccount
 		err = rows.Scan(&ra.region, &ra.accountID)
 		if err != nil {
 			return nil, err
 		}
-		ret = append(ret, ra)
+		ret = append(ret, &ra)
 	}
 
-	_ = tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Cannot commit transaction")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
 	return ret, nil
 }
