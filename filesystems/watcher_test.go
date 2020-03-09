@@ -27,17 +27,21 @@ func init() {
 }
 
 func makeWatcher(localDir, uploadDir string) *Watcher {
-	copyUploader := uploader.CopyUploader{Dir: "."}
-	uploaders := uploader.NewUploadersFromUploaderArray([]uploader.Uploader{&copyUploader})
+	config := WatchConfig{
+		localDir:              localDir,
+		uploadDir:             uploadDir,
+		uploadRegexp:          nil,
+		uploadCheckInterval:   time.Second * 2,
+		uploadThresholdTime:   time.Second * 10,
+		stdioLogCheckInterval: time.Second * 2,
+		keepFileAfterUpload:   false,
+	}
+
+	uploader := uploader.NewUploaderWithBackend(uploader.NewCopyBackend("."))
+
 	return &Watcher{
-		localDir:                 localDir,
-		uploadDir:                uploadDir,
-		uploadRegexp:             nil,
-		uploaders:                uploaders,
-		UploadThresholdTime:      time.Second * 10,
-		UploadCheckInterval:      time.Second * 2,
-		stdioLogCheckInterval:    time.Second * 2,
-		keepLocalFileAfterUpload: false,
+		config:   config,
+		uploader: uploader,
 	}
 }
 
@@ -71,8 +75,8 @@ func TestWatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	require.NoError(t, xattr.SetXattr(prana2, xattr.MimeTypeAttr, []byte("application/binary")))
-	destLoc, err := ioutil.TempDir(".", "s3-logs-")
 
+	destLoc, err := ioutil.TempDir(".", "s3-logs-")
 	if err != nil {
 		t.Fatal(err)
 	}

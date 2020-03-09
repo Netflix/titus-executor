@@ -4,6 +4,11 @@ import (
 	"errors"
 	"os"
 	"path"
+	"path/filepath"
+
+	"github.com/Netflix/titus-executor/metadataserver"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/aws/aws-sdk-go/aws/session"
 
 	"io"
 
@@ -12,10 +17,9 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -24,39 +28,74 @@ const (
 	defaultS3PartSize    = 64 * 1024 * 1024 // 64MB per part
 )
 
-// S3Uploader uploads logs to S3
-type S3Uploader struct {
-	log        logrus.FieldLogger
+// S3Backend uploads logs to S3
+type S3Backend struct {
+	log        log.FieldLogger
 	bucketName string
+	pathPrefix string
 	s3Uploader *s3manager.Uploader
 	metrics    metrics.Reporter
 }
 
-// NewS3Uploader creates a new instance of an S3 uploader
-func NewS3Uploader(m metrics.Reporter, log logrus.FieldLogger, bucket string) Uploader {
+// NewS3Backend creates a new instance of an S3 manager which uploads to the specified location.
+func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskID string, useDefaultRole bool) (Backend, error) {
+	log.StandardLogger().Infof("logging to %s/%s using iamRole %s", bucket, prefix, iamRoleArn)
+
 	region, err := getEC2Region()
 	if err != nil {
 		panic(err)
 	}
 
-	u := &S3Uploader{
-		log:        log,
-		bucketName: bucket,
-		metrics:    m,
+	var session *session.Session
+
+	if useDefaultRole {
+		session, err = getDefaultSession(region)
+	} else {
+		session, err = getCustomSession(region, iamRoleArn, taskID)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	session, err := session.NewSession(&aws.Config{
-		Logger: &logAdapter{log},
-		Region: &region,
-	})
-	if err != nil {
-		panic(err)
-	}
-	u.s3Uploader = s3manager.NewUploader(session, func(u *s3manager.Uploader) {
+	s3Uploader := s3manager.NewUploader(session, func(u *s3manager.Uploader) {
 		u.PartSize = defaultS3PartSize
 	})
 
-	return u
+	return &S3Backend{
+		log:        log.StandardLogger(),
+		bucketName: bucket,
+		pathPrefix: prefix,
+		metrics:    m,
+		s3Uploader: s3Uploader,
+	}, nil
+}
+
+func getDefaultSession(region string) (*session.Session, error) {
+	return session.NewSession(&aws.Config{
+		Logger: newLogAdapter(),
+		Region: &region,
+	})
+}
+
+func getCustomSession(region, iamRoleArn, taskID string) (*session.Session, error) {
+	roleSess, err := session.NewSession(&aws.Config{
+		Logger: newLogAdapter(),
+		Region: &region,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	cred := stscreds.NewCredentials(roleSess, iamRoleArn, func(p *stscreds.AssumeRoleProvider) {
+		// This session key is also used by the iam proxy system service.
+		p.RoleSessionName = metadataserver.GenerateSessionName(taskID)
+	})
+
+	return session.NewSession(&aws.Config{
+		Logger:      newLogAdapter(),
+		Region:      &region,
+		Credentials: cred,
+	})
 }
 
 func getEC2Region() (string, error) {
@@ -72,9 +111,8 @@ func getEC2Region() (string, error) {
 	return ec2metadatasvc.Region()
 }
 
-// Upload writes a single file only to S3!
-func (u *S3Uploader) Upload(ctx context.Context, local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
-	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
+func (u *S3Backend) Upload(ctx context.Context, local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
+	u.log.Printf("Attempting to upload file from %s to %s", local, path.Join(u.bucketName, remote))
 
 	// warning: Potential file inclusion via variable,MEDIUM,HIGH (gosec)
 	f, err := os.Open(local) // nolint: gosec
@@ -110,8 +148,7 @@ func (r *countingReader) Read(p []byte) (n int, err error) {
 }
 
 // UploadFile writes a single file only to S3!
-func (u *S3Uploader) uploadFile(ctx context.Context, local io.Reader, remote string, contentType string) error {
-	u.log.Printf("Attempting to upload file from: %s to: %s", local, path.Join(u.bucketName, remote))
+func (u *S3Backend) uploadFile(ctx context.Context, local io.Reader, remote string, contentType string) error {
 	if contentType == "" {
 		contentType = defaultS3ContentType
 	}
@@ -123,7 +160,7 @@ func (u *S3Uploader) uploadFile(ctx context.Context, local io.Reader, remote str
 		ACL:         aws.String(defaultS3ACL),
 		ContentType: aws.String(contentType),
 		Bucket:      aws.String(u.bucketName),
-		Key:         aws.String(remote),
+		Key:         aws.String(filepath.Join(u.pathPrefix, remote)),
 		Body:        reader,
 	})
 	if err != nil {
@@ -131,14 +168,15 @@ func (u *S3Uploader) uploadFile(ctx context.Context, local io.Reader, remote str
 	}
 
 	// TITUS-895 emit byes uploaded metrics.  tags = null to get default tags from the wrapped metrics Reporter (see Runner)
-	u.metrics.Counter("titus.executor.S3Uploader.successfullyUploadedBytes", reader.bytesRead, nil)
-	u.log.Printf("Successfully uploaded file from: %s to: %s", local, result.Location)
+	u.metrics.Counter("titus.executor.S3Backend.successfullyUploadedBytes", reader.bytesRead, nil)
+	u.log.WithField("local", local).WithField("remote", result.Location).Info("successfully uploaded")
 
 	return nil
 }
 
 // UploadPartOfFile copies a single file only. It doesn't preserve the cursor location in the file.
-func (u *S3Uploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
+func (u *S3Backend) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, start, length int64, remote, contentType string) error {
+	u.log.Printf("Attempting to upload part of file (%d,%d) to %s", start, length, path.Join(u.bucketName, remote))
 	if _, err := local.Seek(start, io.SeekStart); err != nil {
 		return err
 	}
@@ -150,9 +188,12 @@ func (u *S3Uploader) UploadPartOfFile(ctx context.Context, local io.ReadSeeker, 
 }
 
 type logAdapter struct {
-	log logrus.StdLogger
+	log log.StdLogger
 }
 
+func newLogAdapter() *logAdapter {
+	return &logAdapter{log.StandardLogger()}
+}
 func (a *logAdapter) Log(args ...interface{}) {
 	a.log.Print(args...)
 }

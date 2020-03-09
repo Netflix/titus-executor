@@ -17,7 +17,6 @@ import (
 	"github.com/Netflix/titus-executor/logsutil"
 	"github.com/Netflix/titus-executor/properties"
 	"github.com/Netflix/titus-executor/tag"
-	"github.com/Netflix/titus-executor/uploader"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/urfave/cli.v1"
 	"gopkg.in/urfave/cli.v1/altsrc"
@@ -116,13 +115,7 @@ func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config)
 		defer m.Flush()
 	}
 
-	// Create the Titus executor
-	var logUploaders *uploader.Uploaders
-	if logUploaders, err = uploader.NewUploaders(cfg, m); err != nil {
-		return fmt.Errorf("Cannot create log uploaders: %v", err)
-	}
-
-	runner, err := runner.New(ctx, m, logUploaders, *cfg, *dockerCfg)
+	runner, err := runner.New(ctx, m, *cfg, *dockerCfg)
 	if err != nil {
 		return fmt.Errorf("Cannot create Titus executor: %v", err)
 	}

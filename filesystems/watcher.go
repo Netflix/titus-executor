@@ -18,9 +18,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Netflix/titus-executor/uploader"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
-	"github.com/Netflix/titus-executor/uploader"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 )
@@ -65,52 +66,53 @@ var defaultUploadRegexpList = []*regexp.Regexp{
 	regexp.MustCompile(`[\S]+\.core\.[\d]+\.[\d]+`),
 }
 
-// Watcher is the holder struct for log uploaders, it should never be instantiated directly, only through NewWatcher
+type WatchConfig struct {
+	localDir              string
+	uploadDir             string
+	uploadRegexp          *regexp.Regexp
+	uploadCheckInterval   time.Duration // The interval at which we check for files that need uploading.
+	uploadThresholdTime   time.Duration // Duration for which a file must be untouched to be uploader.
+	stdioLogCheckInterval time.Duration
+	keepFileAfterUpload   bool
+}
+
+func NewWatchConfig(localDir, uploadDir string, uploadRegexp *regexp.Regexp, uploadCheckInterval, uploadThresholdTime, stdioLogCheckInterval time.Duration, keepFileAfterUpload bool) WatchConfig {
+	return WatchConfig{
+		localDir:              localDir,
+		uploadDir:             uploadDir,
+		uploadRegexp:          uploadRegexp,
+		uploadCheckInterval:   uploadCheckInterval,
+		uploadThresholdTime:   uploadThresholdTime,
+		stdioLogCheckInterval: stdioLogCheckInterval,
+		keepFileAfterUpload:   keepFileAfterUpload,
+	}
+}
+
 type Watcher struct {
-	metrics      metrics.Reporter
-	localDir     string
-	uploadDir    string
-	uploadRegexp *regexp.Regexp
-	uploaders    *uploader.Uploaders
-	// UploadCheckInterval returns how often files are checked if they need to be uploaded
-	UploadCheckInterval time.Duration
-	// UploadThresholdTime returns how long a file must be untouched prior to uploading it
-	UploadThresholdTime      time.Duration
-	stdioLogCheckInterval    time.Duration
-	keepLocalFileAfterUpload bool
-	retError                 error
-	dieCh                    chan struct{}
-	doneCh                   chan struct{}
-	started                  int32
-	shutdownOnce             sync.Once
+	metrics  metrics.Reporter
+	config   WatchConfig
+	uploader *uploader.Uploader
+
+	retError     error
+	dieCh        chan struct{}
+	doneCh       chan struct{}
+	started      int32
+	shutdownOnce sync.Once
 }
 
 // NewWatcher returns a fully instantiated instance of Watcher, which will run until Stop is called.
-func NewWatcher(m metrics.Reporter, localDir, uploadDir, uploadRegexpStr string, uploaders *uploader.Uploaders, uploadCheckInterval time.Duration, uploadThresholdTime time.Duration, stdioLogCheckInterval time.Duration, keepLocalFileAfterUpload bool) (*Watcher, error) {
+func NewWatcher(m metrics.Reporter, c WatchConfig, u *uploader.Uploader) (*Watcher, error) {
 	watcher := &Watcher{
-		metrics:                  m,
-		localDir:                 localDir,
-		uploadDir:                uploadDir,
-		uploaders:                uploaders,
-		UploadCheckInterval:      uploadCheckInterval,
-		UploadThresholdTime:      uploadThresholdTime,
-		stdioLogCheckInterval:    stdioLogCheckInterval,
-		keepLocalFileAfterUpload: keepLocalFileAfterUpload,
-	}
-
-	if uploadRegexpStr != "" {
-		if r, err := regexp.Compile(uploadRegexpStr); err == nil {
-			watcher.uploadRegexp = r
-		} else {
-			return nil, err
-		}
+		metrics:  m,
+		config:   c,
+		uploader: u,
 	}
 
 	return watcher, nil
 }
 
 func (w *Watcher) shouldRotate(file string) bool {
-	return CheckFileForRotation(file, w.uploadRegexp)
+	return CheckFileForRotation(file, w.config.uploadRegexp)
 }
 
 /*
@@ -198,7 +200,7 @@ func (w *Watcher) Watch(ctx context.Context) error {
 		panic("Watcher started twice")
 	}
 
-	log.WithField("localDir", w.localDir).WithField("uploadDir", w.uploadDir).Infof("watch (%s) : %s", w.UploadCheckInterval, w.localDir)
+	log.WithField("localDir", w.config.localDir).WithField("uploadDir", w.config.uploadDir).WithField("uploadCheckInterval", w.config.uploadCheckInterval).Info("starting watchLoop")
 
 	// We initialize there here because otherwise we would have to teach watcher_test about these
 	w.dieCh = make(chan struct{})
@@ -267,7 +269,7 @@ func (w *Watcher) stdioRotateLoop(parentCtx context.Context, wg *sync.WaitGroup)
 	defer cancel()
 
 	// Our Ticker automatically stops
-	c := newTicker(ctx, w.stdioLogCheckInterval)
+	c := newTicker(ctx, w.config.stdioLogCheckInterval)
 
 	for range c {
 		w.stdioRotate(ctx, normalRotate)
@@ -282,8 +284,8 @@ func (w *Watcher) traditionalRotateLoop(parentCtx context.Context, wg *sync.Wait
 	defer cancel()
 
 	// Our Ticker automatically stops
-	c := newTicker(ctx, w.UploadCheckInterval)
-	log.Debug("Rotate interval: ", w.UploadCheckInterval.String())
+	c := newTicker(ctx, w.config.uploadCheckInterval)
+	log.Debug("Rotate interval: ", w.config.uploadCheckInterval.String())
 
 	for range c {
 		w.traditionalRotate(ctx)
@@ -293,7 +295,7 @@ func (w *Watcher) traditionalRotateLoop(parentCtx context.Context, wg *sync.Wait
 // Traditional rotate doesn't actually rotate at all
 // it goes through a list of files, and checks when they were modified, and based upon that it uploads them and optionally deletes them
 func (w *Watcher) traditionalRotate(ctx context.Context) {
-	logFileList, err := buildFileListInDir(w.localDir, true, w.UploadThresholdTime)
+	logFileList, err := buildFileListInDir(w.config.localDir, true, w.config.uploadThresholdTime)
 	if err == nil {
 		for _, logFile := range logFileList {
 			w.uploadLogfile(ctx, logFile)
@@ -306,7 +308,7 @@ func (w *Watcher) traditionalRotate(ctx context.Context) {
 func (w *Watcher) stdioRotate(ctx context.Context, mode stdioRotateMode) {
 	for potentialStdioName := range PotentialStdioNames {
 
-		fullPath := filepath.Join(w.localDir, potentialStdioName)
+		fullPath := filepath.Join(w.config.localDir, potentialStdioName)
 		log.WithField("filename", fullPath).WithField("mode", mode).Debug("Stdio checking for rotation")
 
 		if !CheckFileForStdio(fullPath) {
@@ -343,9 +345,9 @@ func (w *Watcher) doFinalStdioUploadAndReclaim(ctx context.Context, file *os.Fil
 	}
 	log.WithField("cutLoc", cutLoc).WithField("filename", file.Name()).Debug("Uploading stdio file")
 
-	fullRemoteFilePath := path.Join(w.uploadDir, path.Base(file.Name()))
+	fullRemoteFilePath := path.Join(w.config.uploadDir, path.Base(file.Name()))
 
-	if err := w.uploaders.UploadPartOfFile(ctx, file, cutLoc, math.MaxInt64, fullRemoteFilePath, ""); err != nil {
+	if err := w.uploader.UploadPartOfFile(ctx, file, cutLoc, math.MaxInt64, fullRemoteFilePath, ""); err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 		log.Errorf("watch: error uploading %s: %s", file.Name(), err)
 	}
@@ -425,22 +427,21 @@ func (w *Watcher) doStdioUploadAndReclaimVirtualFile(ctx context.Context, mode s
 
 	now := time.Now()
 	age := now.Sub(creationTime)
-
-	if mode == normalRotate && now.Add(-1*w.UploadThresholdTime).Before(creationTime) {
+	if mode == normalRotate && age > w.config.uploadThresholdTime {
 		log.Debugf("Virtual file %s of real file %s not old enough to upload and discard because only %s old", virtualFileName, file.Name(), age.String())
 		return
 	}
 
 	log.Debugf("Uploading virtual file %s of real file %s because it is %s old", virtualFileName, file.Name(), age.String())
 	// This relies on the fact that the stdio files are always in the root directory
-	fullRemoteFilePath := path.Join(w.uploadDir, virtualFileName)
+	fullRemoteFilePath := path.Join(w.config.uploadDir, virtualFileName)
 
-	if err := w.uploaders.UploadPartOfFile(ctx, file, start, length, fullRemoteFilePath, ""); err != nil {
+	if err := w.uploader.UploadPartOfFile(ctx, file, start, length, fullRemoteFilePath, ""); err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 		log.Errorf("watch: error uploading %s's %s: %s", file.Name(), virtualFileName, err)
 	}
 
-	if !w.keepLocalFileAfterUpload {
+	if !w.config.keepFileAfterUpload {
 		holeSize := start + length - 1
 		log.WithField("filename", file.Name()).WithField("xattrKey", xattrKey).WithField("holeSize", holeSize).Debug("Deleting old file")
 		err = xattr.FDelXattr(file, xattrKey)
@@ -584,22 +585,21 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
 func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
-	var errs *multierror.Error
-
-	logFileList, err := buildFileListInDir(w.localDir, false, w.UploadThresholdTime)
+	logFileList, err := buildFileListInDir(w.config.localDir, false, w.config.uploadThresholdTime)
 	if err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
-		log.Printf("Error uploading directory %s : %s\n", w.localDir, err)
-		errs = multierror.Append(errs, err)
-		return errs.ErrorOrNil()
+		log.WithField("localDir", w.config.localDir).Errorf("error uploading %s", err)
+		return err
 	}
+
+	var errs *multierror.Error
 
 	for _, logFile := range logFileList {
 		if ctx.Err() != nil {
 			errs = multierror.Append(errs, ctx.Err())
 			break
 		}
-		remoteFilePath, err := filepath.Rel(w.localDir, logFile)
+		remoteFilePath, err := filepath.Rel(w.config.localDir, logFile)
 		if err != nil {
 			log.Printf("Unable to make relative path for %s : %s", logFile, err)
 			errs = multierror.Append(errs, err)
@@ -609,16 +609,16 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 			continue
 		}
 
-		errs2 := w.uploaders.Upload(ctx, logFile, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType)
-		for _, err := range errs2 {
-			errs = multierror.Append(errs, err)
-		}
+		err = w.uploader.Upload(ctx, logFile, path.Join(w.config.uploadDir, remoteFilePath), xattr.GetMimeType)
+		errs = multierror.Append(errs, err)
 	}
 
-	if errs.ErrorOrNil() != nil {
+	err = errs.ErrorOrNil()
+	if err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", len(errs.Errors), nil)
 	}
-	return errs.ErrorOrNil()
+
+	return err
 }
 
 // uploadLogFile is called to upload a single log file while the
@@ -628,17 +628,17 @@ func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string) {
 	if w.shouldRotate(path.Base(fileToUpload)) {
 		// FIXME set content type
 		log.Info("Uploading ", fileToUpload)
-		remoteFilePath, err := filepath.Rel(w.localDir, fileToUpload)
+		remoteFilePath, err := filepath.Rel(w.config.localDir, fileToUpload)
 		if err != nil {
 			log.Printf("watch : error uploading %s : %s\n", fileToUpload, err)
 			return
 		}
 
-		if err := w.uploaders.Upload(ctx, fileToUpload, path.Join(w.uploadDir, remoteFilePath), xattr.GetMimeType); err != nil {
+		if err := w.uploader.Upload(ctx, fileToUpload, path.Join(w.config.uploadDir, remoteFilePath), xattr.GetMimeType); err != nil {
 			w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 			log.Printf("watch : error uploading %s : %s\n", fileToUpload, err)
 		}
-		if !w.keepLocalFileAfterUpload {
+		if !w.config.keepFileAfterUpload {
 			if err := os.Remove(fileToUpload); err != nil {
 				w.metrics.Counter("titus.executor.logsWatchRemoveError", 1, nil)
 				log.Printf("watch : error removing %s : %s\n", fileToUpload, err)
@@ -693,8 +693,7 @@ func shouldIgnoreFile(fileInfo os.FileInfo, uploadThreshold time.Duration, check
 }
 
 func isFileModifiedAfterThreshold(file os.FileInfo, uploadThreshold time.Duration) bool {
-	thresholdTime := time.Now().Add(-1 * uploadThreshold)
-	return file.ModTime().After(thresholdTime)
+	return time.Since(file.ModTime()) > uploadThreshold
 }
 
 // Stop stops the watcher.
