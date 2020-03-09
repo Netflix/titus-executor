@@ -65,12 +65,15 @@ func hedge(ctx context.Context, rq func(context.Context) (interface{}, error), d
 		}
 	}
 out:
+	// The only way this is possible is if the `goto out` condition happened, which means ctx was done
+	// and therefore is set to an error value
 	if len(responses) == 0 {
 		return nil, ctx.Err()
 	}
+	// err always has to be non-nil here
 	var err *multierror.Error
 	for _, response := range responses {
 		err = multierror.Append(err, response.err)
 	}
-	return nil, err
+	return nil, err.ErrorOrNil()
 }
