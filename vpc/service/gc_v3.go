@@ -781,6 +781,7 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, ec2client *ec2.EC2, i
 	case inUse:
 		err = vpcService.doGCAttachedENI(ctx, tx, ec2client, iface, interfaceIPv4Addresses, interfaceIPv6Addresses)
 	default:
+		logger.G(ctx).WithField("iface", iface.String()).Warning("Observed unknown ENI status")
 		err = fmt.Errorf("AWS returned unknown ENI status: %s", s)
 	}
 
