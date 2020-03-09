@@ -9,20 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc"
-
-	"k8s.io/client-go/util/workqueue"
-
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
-
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
-	"github.com/lib/pq"
+	"k8s.io/client-go/util/workqueue"
 )
 
 const (
@@ -74,7 +71,26 @@ func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx 
 		trace.StringAttribute("trunkENI", trunkENI),
 		trace.Int64Attribute("idx", int64(idx)))
 
-	id, err := vpcService.startAssociation(ctx, branchENI, trunkENI, idx)
+	var id int
+	var err, underlyingErr error
+	var pqErr *pq.Error
+	var ok bool
+
+retry:
+	id, err = vpcService.startAssociation(ctx, branchENI, trunkENI, idx)
+	underlyingErr = err
+	for underlyingErr != nil {
+		pqErr, ok = underlyingErr.(*pq.Error)
+		if ok {
+			if pqErr.Code.Name() == "serialization_failure" {
+				logger.G(ctx).WithError(pqErr).Debug("Retrying transaction")
+				goto retry
+			}
+			break
+		}
+		underlyingErr = errors.Unwrap(underlyingErr)
+	}
+
 	if err != nil {
 		err = errors.Wrap(err, "Unable to start association")
 		tracehelpers.SetStatus(err, span)
@@ -287,7 +303,7 @@ FOR NO KEY UPDATE OF branch_eni_actions_associate
 	return output.InterfaceAssociation.AssociationId, nil
 }
 
-func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, trunkENI string, idx int) (int, error) {
+func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, trunkENI string, idx int) (_ int, retErr error) {
 	ctx, span := trace.StartSpan(ctx, "startAssociation")
 	defer span.End()
 
@@ -452,7 +468,25 @@ func (vpcService *vpcService) disassociateNetworkInterface(ctx context.Context, 
 
 	span.AddAttributes(trace.StringAttribute("associationID", associationID))
 
-	id, err := vpcService.startDissociation(ctx, associationID, force)
+	var id int
+	var err, underlyingErr error
+	var pqErr *pq.Error
+	var ok bool
+
+retry:
+	id, err = vpcService.startDissociation(ctx, associationID, force)
+	underlyingErr = err
+	for underlyingErr != nil {
+		pqErr, ok = underlyingErr.(*pq.Error)
+		if ok {
+			if pqErr.Code.Name() == "serialization_failure" {
+				logger.G(ctx).WithError(pqErr).Debug("Retrying transaction")
+				goto retry
+			}
+			break
+		}
+		underlyingErr = errors.Unwrap(underlyingErr)
+	}
 	if err != nil {
 		err = errors.Wrap(err, "Unable to start disassociation")
 		tracehelpers.SetStatus(err, span)

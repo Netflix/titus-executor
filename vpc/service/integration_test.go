@@ -74,16 +74,16 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "trunkENITests", trunkENITests)
 	runIntegrationTest(t, "branchENITests", branchENITests)
 	runIntegrationTest(t, "testAssociate", testAssociate)
-	runIntegrationTest(t, "testAssociateWithDelayFault", testAssociateWithDelayFault)
+	runIntegrationTest(t, "testAssociateWithDelayFaultInMainline", testAssociateWithDelayFaultInMainline)
 	runIntegrationTest(t, "testReconcileBranchENIAttachments", testReconcileBranchENIAttachments)
 }
 
 type integrationTestFunc func(context.Context, *testing.T, integrationTestMetadata, *vpcService, *ec2wrapper.EC2Session)
 
 func runIntegrationTest(t *testing.T, testName string, testFunction integrationTestFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), integrationTestTimeout)
-	defer cancel()
 	t.Run(testName, func(t2 *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), integrationTestTimeout)
+		defer cancel()
 		logrusLogger := logrus.StandardLogger()
 		logrusLogger.SetLevel(logrus.DebugLevel)
 		ctx = logger.WithLogger(ctx, logrusLogger)
@@ -268,7 +268,8 @@ RETURNING id
 	assert.Assert(t, is.Equal(aws.StringValue(output.NetworkInterfaces[0].Groups[0].GroupId), md.testSecurityGroupID))
 }
 
-func testAssociateWithDelayFault(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+func testAssociateWithDelayFaultInMainline(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	t.Parallel()
 	// This one is a little bit more scary because of what can go wrong if the associate worker is not running
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -303,15 +304,6 @@ func testAssociateWithDelayFault(ctx context.Context, t *testing.T, md integrati
 		trunkENI:  aws.StringValue(trunkENI.NetworkInterfaceId),
 	}
 
-	ctx = registerFault(ctx, associateFaultKey, func(ctx context.Context) error {
-		time.Sleep(5 * time.Second)
-		return nil
-	})
-	ctx = registerFault(ctx, disassociateFaultKey, func(ctx context.Context) error {
-		time.Sleep(5 * time.Second)
-		return nil
-	})
-
 	assert.NilError(t, group.Wait())
 	group.Go(func() error {
 		return associateWorker.loop(ctx, nilItems[0])
@@ -319,6 +311,16 @@ func testAssociateWithDelayFault(ctx context.Context, t *testing.T, md integrati
 
 	group.Go(func() error {
 		return disassociateWorker.loop(ctx, nilItems[0])
+	})
+
+	/* This will only effect the associate / disassociate calls that happen in "mainline" */
+	ctx = registerFault(ctx, associateFaultKey, func(ctx context.Context) error {
+		time.Sleep(5 * time.Second)
+		return nil
+	})
+	ctx = registerFault(ctx, disassociateFaultKey, func(ctx context.Context) error {
+		time.Sleep(5 * time.Second)
+		return nil
 	})
 
 	var associationID string
@@ -337,6 +339,7 @@ func testAssociateWithDelayFault(ctx context.Context, t *testing.T, md integrati
 }
 
 func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	t.Parallel()
 	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
 	assert.NilError(t, err)
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
