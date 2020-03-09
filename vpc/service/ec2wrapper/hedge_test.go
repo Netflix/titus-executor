@@ -8,6 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
 )
 
 func TestHedgeBasic(t *testing.T) {
@@ -25,6 +26,7 @@ func TestHedgeBasic(t *testing.T) {
 }
 
 func TestHedgeAllTimeout(t *testing.T) {
+	t.Parallel()
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -34,6 +36,7 @@ func TestHedgeAllTimeout(t *testing.T) {
 	_, err := hedge(ctx, func(ctx context.Context) (interface{}, error) {
 		atomic.AddInt64(&calls, 1)
 		time := time.NewTimer(time.Minute)
+		defer time.Stop()
 		select {
 		case <-time.C:
 		case <-ctx.Done():
@@ -41,9 +44,10 @@ func TestHedgeAllTimeout(t *testing.T) {
 		}
 		return "ok", nil
 	}, delays)
-	assert.Error(t, err, context.DeadlineExceeded.Error())
+	assert.Assert(t, is.Equal(err, context.DeadlineExceeded))
 	assert.Assert(t, atomic.LoadInt64(&calls) == 2)
-	assert.Assert(t, time.Since(start) < time.Minute)
+	// This should terminate well less than a minute in
+	assert.Assert(t, time.Since(start) < 30*time.Second)
 }
 
 func TestFirstError(t *testing.T) {
