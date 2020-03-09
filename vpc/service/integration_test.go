@@ -80,8 +80,8 @@ func TestIntegrationTests(t *testing.T) {
 
 type integrationTestFunc func(context.Context, *testing.T, integrationTestMetadata, *vpcService, *ec2wrapper.EC2Session)
 
-func runIntegrationTest(t *testing.T, testName string, testFunction integrationTestFunc) {
-	t.Run(testName, func(t2 *testing.T) {
+func runIntegrationTest(tParent *testing.T, testName string, testFunction integrationTestFunc) {
+	tParent.Run(testName, func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), integrationTestTimeout)
 		defer cancel()
 		logrusLogger := logrus.StandardLogger()
@@ -111,7 +111,7 @@ func runIntegrationTest(t *testing.T, testName string, testFunction integrationT
 
 		md.defaultSecurityGroupID = aws.StringValueSlice(securityGroupIDs)[0]
 
-		testFunction(ctx, t2, md, svc, session)
+		testFunction(ctx, t, md, svc, session)
 	})
 }
 
