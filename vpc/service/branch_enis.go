@@ -26,6 +26,11 @@ import (
 const (
 	maxAssociateTime   = 10 * time.Second
 	maxDisssociateTime = 10 * time.Second
+
+	// Branch ENI association / disassociation action states
+	completedState = "completed"
+	failedState    = "failed"
+	pendingState   = "pending"
 )
 
 func insertBranchENIIntoDB(ctx context.Context, tx *sql.Tx, iface *ec2.NetworkInterface) error {
@@ -157,14 +162,14 @@ FOR NO KEY UPDATE OF branch_eni_actions_associate
 		return nil, err
 	}
 
-	if state == "completed" {
+	if state == completedState {
 		if associationID.Valid {
 			return &associationID.String, nil
 		}
 		err = errors.New("State is completed, but associationID is null")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
-	} else if state == "failed" {
+	} else if state == failedState {
 		if !errorCode.Valid {
 			err = errors.New("state of association failed, but errorCode is null")
 			tracehelpers.SetStatus(err, span)
@@ -606,9 +611,9 @@ FOR UPDATE OF branch_eni_attachments
 	}
 
 	// Dope
-	if state == "completed" {
+	if state == completedState {
 		return nil
-	} else if state == "failed" {
+	} else if state == failedState {
 		if !errorCode.Valid {
 			err = errors.New("state of disassociation failed, but errorCode is null")
 			tracehelpers.SetStatus(err, span)
@@ -622,7 +627,7 @@ FOR UPDATE OF branch_eni_attachments
 		err = fmt.Errorf("Request failed with code: %q, message: %q", errorCode.String, errorMessage.String)
 		tracehelpers.SetStatus(err, span)
 		return err
-	} else if state != "pending" {
+	} else if state != pendingState {
 		err = fmt.Errorf("branch ENI disassociation in unknown state %q", state)
 		tracehelpers.SetStatus(err, span)
 		return err

@@ -161,7 +161,7 @@ func (vpcService *vpcService) reconcileOrphanedBranchENI(ctx context.Context, se
 		return nil
 	}
 
-	logger.G(ctx).Info("Deleting Branch ENI from database, as could not find it in AWS")
+	logger.G(ctx).Warning("Deleting Branch ENI from database, as could not find it in AWS")
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
@@ -189,7 +189,7 @@ func (vpcService *vpcService) reconcileOrphanedBranchENI(ctx context.Context, se
 	return nil
 }
 
-func (vpcService *vpcService) getDatabaseOrphanedBranchENIs(ctx context.Context, account *regionAccount, enis sets.String) (sets.String, error) {
+func (vpcService *vpcService) getDatabaseOrphanedBranchENIs(ctx context.Context, account *regionAccount, enis sets.String) (sets.String, error) { //nolint:dupl
 	ctx, span := trace.StartSpan(ctx, "getDatabaseOrphanedBranchENIs")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -370,6 +370,7 @@ func (vpcService *vpcService) reconcileBranchENIMissingInDatabase(ctx context.Co
 	}
 	if !eniExists {
 		logger.G(ctx).Warn("ENI does not exist, but is returning in describe calls")
+		return nil
 	}
 
 	// This interface still exists, which means it's probably a leak. Time to insert it into the DB.

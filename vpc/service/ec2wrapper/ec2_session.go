@@ -375,6 +375,24 @@ func (s *EC2Session) DisassociateTrunkInterface(ctx context.Context, input ec2.D
 	return output, nil
 }
 
+func (s *EC2Session) DescribeTrunkInterfaceAssociations(ctx context.Context, input ec2.DescribeTrunkInterfaceAssociationsInput) (*ec2.DescribeTrunkInterfaceAssociationsOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "DescribeTrunkInterfaceAssociations")
+	defer span.End()
+
+	if input.Filters != nil {
+		span.AddAttributes(trace.StringAttribute("filters", fmt.Sprintf("%v", input.Filters)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DescribeTrunkInterfaceAssociationsWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe trunk interface associations")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
 type EC2InstanceCacheValue struct {
 	ownerID  string
 	instance *ec2.Instance
