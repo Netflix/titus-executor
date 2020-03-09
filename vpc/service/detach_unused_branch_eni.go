@@ -124,19 +124,21 @@ UPDATE OF branch_eni_attachments SKIP LOCKED
 	}
 
 	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
-	if !errors.Is(err, &irrecoverableError{}) && !errors.Is(err, &persistentError{}) {
-		err2 := tx.Commit()
-		if err2 != nil {
-			err2 = errors.Wrap(err2, "Could not commit transaction")
-			span.SetStatus(traceStatusFromError(err2))
-			return timeBetweenErrors, err2
-		}
-		logger.G(ctx).WithError(err).Error("Experienced error while trying to disassociate network interface")
-		return timeBetweenErrors, nil
-	} else if err != nil {
+	if err != nil {
 		err = errors.Wrap(err, "Cannot disassociate network interface")
+		if errors.Is(err, &irrecoverableError{}) || errors.Is(err, &persistentError{}) {
+			err2 := tx.Commit()
+			if err2 != nil {
+				err2 = errors.Wrap(err2, "Could not commit transaction")
+				tracehelpers.SetStatus(err, span)
+				return timeBetweenErrors, err2
+			}
+			logger.G(ctx).WithError(err).Error("Experienced error while trying to disassociate network interface")
+			return timeBetweenErrors, nil
+		}
 		tracehelpers.SetStatus(err, span)
 		return timeBetweenErrors, nil
+
 	}
 
 	err = tx.Commit()

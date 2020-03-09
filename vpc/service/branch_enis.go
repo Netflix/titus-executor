@@ -604,7 +604,7 @@ FROM branch_eni_actions_disassociate
 JOIN branch_eni_attachments ON branch_eni_actions_disassociate.association_id = branch_eni_attachments.association_id
 JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
 WHERE branch_eni_actions_disassociate.id = $1
-FOR UPDATE OF branch_eni_attachments
+FOR NO KEY UPDATE OF branch_eni_attachments
 `, id)
 
 	var errorCode, errorMessage sql.NullString
@@ -613,19 +613,24 @@ FOR UPDATE OF branch_eni_attachments
 
 	err := row.Scan(&token, &associationID, &state, &errorCode, &errorMessage, &force, &accountID, &region)
 	if err == sql.ErrNoRows {
-		err = &irrecoverableError{err: fmt.Errorf("Work item %d not found", id)}
-		tracehelpers.SetStatus(err, span)
-		return err
-	} else if err != nil {
+		// The only way that this could have happened is if the work was "successful"
+		return nil
+	}
+
+	if err != nil {
 		err = errors.Wrap(err, "Cannot scan association action")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	// Dope
-	if state == completedState {
+	switch state {
+	case pendingState:
+		// Noop, it's expected to be in this state
+	case completedState:
+		// Success
 		return nil
-	} else if state == failedState {
+	case failedState:
 		if !errorCode.Valid {
 			err = errors.New("state of disassociation failed, but errorCode is null")
 			tracehelpers.SetStatus(err, span)
@@ -639,14 +644,12 @@ FOR UPDATE OF branch_eni_attachments
 		err = fmt.Errorf("Request failed with code: %q, message: %q", errorCode.String, errorMessage.String)
 		tracehelpers.SetStatus(err, span)
 		return err
-	} else if state != pendingState {
+	default:
 		err = fmt.Errorf("branch ENI disassociation in unknown state %q", state)
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	// TODO: When this version of the code is fully rolled out, we can remove this line of code, and just insert the whole branch_eni_attachments
-	// at once
 	_, err = tx.ExecContext(ctx, "SELECT FROM branch_eni_attachments WHERE association_id = $1 FOR UPDATE OF branch_eni_attachments", associationID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot select row from branch_eni_attachments to lock")
