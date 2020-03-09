@@ -251,7 +251,14 @@ func (vpcService *vpcService) tryToAcquireLock(ctx context.Context, hostname, lo
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, "INSERT INTO long_lived_locks(lock_name, held_by, held_until) VALUES ($1, $2, now() + ($3 * interval '1 sec')) ON CONFLICT (lock_name) DO UPDATE SET held_by = $2, held_until = now() + ($3 * interval '1 sec') WHERE long_lived_locks.held_until < now() RETURNING id", lockName, hostname, lockTime.Seconds())
+	row := tx.QueryRowContext(ctx, `
+INSERT INTO long_lived_locks(lock_name, held_by, held_until)
+VALUES ($1, $2, now() + ($3 * interval '1 sec')) ON CONFLICT (lock_name) DO
+UPDATE
+SET held_by = $2,
+    held_until = now() + ($3 * interval '1 sec')
+WHERE long_lived_locks.held_until < now() RETURNING id
+`, lockName, hostname, lockTime.Seconds())
 	var id int
 	err = row.Scan(&id)
 	if err == sql.ErrNoRows {
