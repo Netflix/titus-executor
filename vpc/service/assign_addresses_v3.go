@@ -317,8 +317,6 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 	ctx, span := trace.StartSpan(ctx, "getUnattachedBranchENIWithSecurityGroups")
 	defer span.End()
 
-	ec2client := ec2.New(session.Session)
-
 	var eni branchENI
 
 	sort.Strings(wantedSecurityGroupsIDs)
@@ -379,27 +377,8 @@ func (vpcService *vpcService) getUnattachedBranchENIWithSecurityGroups(ctx conte
 		return nil, err
 	}
 
-	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
-		Ipv6AddressCount: aws.Int64(0),
-		SubnetId:         aws.String(subnetID),
-		Description:      aws.String(vpc.BranchNetworkInterfaceDescription),
-		Groups:           aws.StringSlice(wantedSecurityGroupsIDs),
-	}
-
-	logger.G(ctx).WithField("createNetworkInterfaceInput", createNetworkInterfaceInput).Debug("Creating Branch ENI")
-	createNetworkInterfaceOutput, err := ec2client.CreateNetworkInterface(createNetworkInterfaceInput)
+	iface, err := vpcService.createBranchENI(ctx, tx, session, subnetID, wantedSecurityGroupsIDs)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot create network interface")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	iface := createNetworkInterfaceOutput.NetworkInterface
-
-	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
-
-	err = insertBranchENIIntoDB(ctx, tx, iface)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot insert branch ENI into database")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}

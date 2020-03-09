@@ -210,38 +210,46 @@ func (vpcService *vpcService) preemptLock(ctx context.Context, item keyedItem, l
 	}()
 
 	lockName := generateLockName(llt.taskName, item)
-	row := tx.QueryRowContext(ctx, "SELECT held_until, held_by FROM long_lived_locks WHERE lock_name = $1", lockName)
-	var heldBy string
-	var heldUntil time.Time
-	err = row.Scan(&heldUntil, &heldBy)
+	row := tx.QueryRowContext(ctx, "SELECT held_until, held_by FROM long_lived_locks WHERE lock_name = $1 FOR UPDATE", lockName)
+	var previouslyHeldBy string
+	var previouslyHeldUntil time.Time
+	err = row.Scan(&previouslyHeldUntil, &previouslyHeldBy)
 	if err == sql.ErrNoRows {
-		heldUntil = time.Now()
+		previouslyHeldUntil = time.Now()
 	} else if err != nil {
 		err = errors.Wrap(err, "Cannot get lock held until")
 		return err
 	} else {
 		ctx = logger.WithFields(ctx, map[string]interface{}{
-			"previouslyHeldBy":    heldBy,
-			"previouslyHeldUntil": heldUntil,
+			"previouslyHeldBy":    previouslyHeldBy,
+			"previouslyHeldUntil": previouslyHeldUntil,
 		})
 	}
 
+	timeUntilDeadline := time.Until(deadline)
 	row = tx.QueryRowContext(ctx, `
 INSERT INTO long_lived_locks(lock_name, held_by, held_until)
-VALUES ($1, $2, $3) ON CONFLICT (lock_name) DO
+VALUES ($1, $2, now() + ($3 * interval '1 sec')) ON CONFLICT (lock_name) DO
 UPDATE
 SET held_by = $2,
-    held_until = $3
-RETURNING id
-`, lockName, vpcService.hostname, deadline)
+    held_until = now() + ($3 * interval '1 sec')
+RETURNING held_by, held_until, id
+`, lockName, vpcService.hostname, timeUntilDeadline.Seconds())
 
 	var id int
-	err = row.Scan(&id)
+	var heldBy string
+	var heldUntil time.Time
+	err = row.Scan(&heldBy, &heldUntil, &id)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to scan row for lock preemption query")
 		return err
 	}
-	logger.G(ctx).WithField("id", id).WithField("lockName", lockName).Info("Preempted lock")
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"id":        id,
+		"lockName":  lockName,
+		"heldBy":    heldBy,
+		"heldUntil": heldUntil,
+	}).Info("Preempted lock")
 
 	err = tx.Commit()
 	if err != nil {

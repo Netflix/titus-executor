@@ -200,3 +200,11 @@ WHERE branch_eni IN
 
 	return true, nil
 }
+
+func (vpcService *vpcService) deleteExcessBranchesLongLivedTask() longLivedTask {
+	return longLivedTask{
+		taskName:   "delete_excess_branches",
+		itemLister: vpcService.getSubnets,
+		workFunc:   vpcService.deleteExccessBranchesLoop,
+	}
+}

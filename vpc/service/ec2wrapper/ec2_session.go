@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -15,6 +16,7 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/status"
 )
 
@@ -37,6 +39,9 @@ type EC2Session struct {
 	subnetCache             *ccache.Cache
 	batchENIDescriber       *BatchENIDescriber
 	batchInstancesDescriber *BatchInstanceDescriber
+
+	defaultSecurityGroupSingleFlight singleflight.Group
+	defaultSecurityGroupMap          sync.Map
 }
 
 func (s *EC2Session) Region(ctx context.Context) (string, error) {
@@ -138,32 +143,51 @@ func (s *EC2Session) GetNetworkInterfaceByID(ctx context.Context, networkInterfa
 
 func (s *EC2Session) GetDefaultSecurityGroups(ctx context.Context, vpcID string) ([]*string, error) {
 	// TODO: Cache
-	ctx, span := trace.StartSpan(ctx, "getDefaultSecurityGroups")
+	ctx, span := trace.StartSpan(ctx, "GetDefaultSecurityGroups")
 	defer span.End()
-	ec2client := ec2.New(s.Session)
 
-	vpcFilter := &ec2.Filter{
-		Name:   aws.String("vpc-id"),
-		Values: aws.StringSlice([]string{vpcID}),
-	}
-	groupNameFilter := &ec2.Filter{
-		Name:   aws.String("group-name"),
-		Values: aws.StringSlice([]string{"default"}),
-	}
-	describeSecurityGroupsInput := &ec2.DescribeSecurityGroupsInput{
-		Filters: []*ec2.Filter{vpcFilter, groupNameFilter},
-	}
-	// TODO: Cache this
-	describeSecurityGroupsOutput, err := ec2client.DescribeSecurityGroupsWithContext(ctx, describeSecurityGroupsInput)
+	val, err, _ := s.defaultSecurityGroupSingleFlight.Do(vpcID, func() (interface{}, error) {
+		sg, ok := s.defaultSecurityGroupMap.Load(vpcID)
+		if ok {
+			return sg, nil
+		}
+
+		ec2client := ec2.New(s.Session)
+
+		vpcFilter := &ec2.Filter{
+			Name:   aws.String("vpc-id"),
+			Values: aws.StringSlice([]string{vpcID}),
+		}
+		groupNameFilter := &ec2.Filter{
+			Name:   aws.String("group-name"),
+			Values: aws.StringSlice([]string{"default"}),
+		}
+		describeSecurityGroupsInput := &ec2.DescribeSecurityGroupsInput{
+			Filters: []*ec2.Filter{vpcFilter, groupNameFilter},
+		}
+		// TODO: Cache this
+		describeSecurityGroupsOutput, err := ec2client.DescribeSecurityGroupsWithContext(ctx, describeSecurityGroupsInput)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not describe security groups")
+		}
+
+		if l := len(describeSecurityGroupsOutput.SecurityGroups); l != 1 {
+			return nil, fmt.Errorf("Describe call returned unexpected number of security groups: %d", l)
+		}
+
+		sgID := aws.StringValue(describeSecurityGroupsOutput.SecurityGroups[0].GroupId)
+		s.defaultSecurityGroupMap.Store(vpcID, sgID)
+
+		return sgID, nil
+	})
+
 	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Could not describe security groups")).Err()
+		_ = HandleEC2Error(err, span)
+		return nil, err
 	}
 
-	result := make([]*string, len(describeSecurityGroupsOutput.SecurityGroups))
-	for idx := range describeSecurityGroupsOutput.SecurityGroups {
-		result[idx] = describeSecurityGroupsOutput.SecurityGroups[idx].GroupId
-	}
-	return result, nil
+	sg := val.(string)
+	return []*string{&sg}, nil
 }
 
 // Deprecated
@@ -259,6 +283,10 @@ func (s *EC2Session) CreateNetworkInterface(ctx context.Context, input ec2.Creat
 	defer span.End()
 
 	span.AddAttributes(trace.StringAttribute("subnet", aws.StringValue(input.SubnetId)))
+	if input.Groups != nil {
+		trace.StringAttribute("securityGroups", fmt.Sprintf("%+v", aws.StringValueSlice(input.Groups)))
+	}
+
 	ec2client := ec2.New(s.Session)
 	output, err := ec2client.CreateNetworkInterfaceWithContext(ctx, &input)
 	if err != nil {

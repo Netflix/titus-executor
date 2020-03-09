@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc"
+
 	"k8s.io/client-go/util/workqueue"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -76,6 +78,11 @@ func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx 
 	if err != nil {
 		err = errors.Wrap(err, "Unable to start association")
 		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	err = lookupFault(ctx, associateFaultKey).call(ctx)
+	if err != nil {
 		return nil, err
 	}
 
@@ -387,7 +394,7 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 		return 0, err
 	}
 
-	logger.G(ctx).Debug("Finished starting disassociation")
+	logger.G(ctx).Debug("Finished starting association")
 
 	return id, nil
 }
@@ -449,6 +456,11 @@ func (vpcService *vpcService) disassociateNetworkInterface(ctx context.Context, 
 	if err != nil {
 		err = errors.Wrap(err, "Unable to start disassociation")
 		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	err = lookupFault(ctx, disassociateFaultKey).call(ctx)
+	if err != nil {
 		return err
 	}
 
@@ -1058,4 +1070,35 @@ func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
 		name:            "disassociateWorker",
 		table:           "branch_eni_actions_disassociate",
 	}
+}
+
+func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, subnetID string, securityGroups []string) (*ec2.NetworkInterface, error) {
+	ctx, span := trace.StartSpan(ctx, "createBranchENI")
+	defer span.End()
+
+	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
+		Ipv6AddressCount: aws.Int64(0),
+		SubnetId:         aws.String(subnetID),
+		Description:      aws.String(vpc.BranchNetworkInterfaceDescription),
+		Groups:           aws.StringSlice(securityGroups),
+	}
+
+	output, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)
+	logger.G(ctx).WithField("createNetworkInterfaceInput", createNetworkInterfaceInput).Debug("Creating Branch ENI")
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create branch network interface")
+		return nil, ec2wrapper.HandleEC2Error(err, span)
+	}
+	iface := output.NetworkInterface
+
+	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
+
+	err = insertBranchENIIntoDB(ctx, tx, iface)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot insert branch ENI into database")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return iface, nil
 }

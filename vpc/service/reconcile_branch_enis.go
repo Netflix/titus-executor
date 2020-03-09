@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -62,7 +65,6 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 
 	logger.G(ctx).Info("Beginning reconcilation of branch ENIs")
 
-	networkInterfaces := []*ec2.NetworkInterface{}
 	describeNetworkInterfacesInput := ec2.DescribeNetworkInterfacesInput{
 		Filters: []*ec2.Filter{
 			{
@@ -77,37 +79,68 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		MaxResults: aws.Int64(1000),
 	}
 
+	errGroup, groupCtx := errgroup.WithContext(ctx)
+	networkInterfacesToCheckChan := make(chan *ec2.NetworkInterface, 1000)
+	enis := sets.NewString()
+
+	lock := &sync.Mutex{}
+	networkInterfacesToRecheck := []*ec2.NetworkInterface{}
+
+	for i := 0; i < 10; i++ {
+		errGroup.Go(func() error {
+			for {
+				select {
+				case ni, ok := <-networkInterfacesToCheckChan:
+					if !ok {
+						return nil
+					}
+					ctx2 := logger.WithField(groupCtx, "eni", aws.StringValue(ni.NetworkInterfaceId))
+					recheck, err := vpcService.reconcileBranchENI(ctx2, session, ni)
+					if err != nil {
+						logger.G(ctx2).WithError(err).Error("Was unable to reconcile branch ENI")
+					} else if recheck {
+						lock.Lock()
+						networkInterfacesToRecheck = append(networkInterfacesToRecheck, ni)
+						lock.Unlock()
+					}
+				case <-groupCtx.Done():
+					return groupCtx.Err()
+				}
+			}
+		})
+	}
+
 	for {
-		describeNetworkInterfacesOutput, err := session.DescribeNetworkInterfaces(ctx, describeNetworkInterfacesInput)
+		describeNetworkInterfacesOutput, err := session.DescribeNetworkInterfaces(groupCtx, describeNetworkInterfacesInput)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Could not describe network interfaces")
+			close(networkInterfacesToCheckChan)
+			logger.G(groupCtx).WithError(err).Error("Could not describe network interfaces")
 			return ec2wrapper.HandleEC2Error(err, span)
 		}
 
-		networkInterfaces = append(networkInterfaces, describeNetworkInterfacesOutput.NetworkInterfaces...)
+		for idx := range describeNetworkInterfacesOutput.NetworkInterfaces {
+			ni := describeNetworkInterfacesOutput.NetworkInterfaces[idx]
+			networkInterfaceID := aws.StringValue(ni.NetworkInterfaceId)
+			enis.Insert(networkInterfaceID)
+			networkInterfacesToCheckChan <- ni
+		}
 
 		if describeNetworkInterfacesOutput.NextToken == nil {
 			break
 		}
 		describeNetworkInterfacesInput.NextToken = describeNetworkInterfacesOutput.NextToken
 	}
+	close(networkInterfacesToCheckChan)
 
-	enis := sets.NewString()
-	networkInterfacesToRecheck := []*ec2.NetworkInterface{}
-	for idx := range networkInterfaces {
-		ni := networkInterfaces[idx]
-		networkInterfaceID := aws.StringValue(ni.NetworkInterfaceId)
-		enis.Insert(networkInterfaceID)
-		ctx2 := logger.WithField(ctx, "eni", networkInterfaceID)
-		recheck, err := vpcService.reconcileBranchENI(ctx2, session, ni)
-		if err != nil {
-			logger.G(ctx2).WithError(err).Error("Was unable to reconcile branch ENI")
-		} else if recheck {
-			networkInterfacesToRecheck = append(networkInterfacesToRecheck, ni)
-		}
+	err = errGroup.Wait()
+	if err != nil {
+		err = errors.Wrap(err, "Unable to check network interfaces")
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
+	lock.Lock()
 
-	recheckTime := time.NewTimer(2 * deleteExcessBranchENITimeout)
+	recheckTime := time.NewTimer(deleteExcessBranchENITimeout + time.Second)
 	defer recheckTime.Stop()
 
 	orphanedENIs, err := vpcService.getDatabaseOrphanedBranchENIs(ctx, account, enis)
@@ -134,7 +167,7 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		}
 		logger.G(ctx).Info("Rechecking interfaces")
 		for idx := range networkInterfacesToRecheck {
-			ni := networkInterfaces[idx]
+			ni := networkInterfacesToRecheck[idx]
 			networkInterfaceID := aws.StringValue(ni.NetworkInterfaceId)
 			ctx2 := logger.WithField(ctx, "eni", networkInterfaceID)
 			err = vpcService.reconcileBranchENIMissingInDatabase(ctx2, session, ni)
@@ -162,7 +195,7 @@ func (vpcService *vpcService) reconcileOrphanedBranchENI(ctx context.Context, se
 	}
 
 	logger.G(ctx).Warning("Deleting Branch ENI from database, as could not find it in AWS")
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
 		tracehelpers.SetStatus(err, span)
@@ -262,7 +295,7 @@ func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *e
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1 FOR UPDATE", aws.StringValue(networkInterface.NetworkInterfaceId))
+	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(networkInterface.NetworkInterfaceId))
 	var dbSecurityGroups []string
 	err = row.Scan(pq.Array(&dbSecurityGroups))
 	if err == sql.ErrNoRows {
@@ -272,7 +305,7 @@ func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *e
 		// 2. The interface was "orphaned" (created, but the txn didn't commit successfully)
 		//
 		// Without the "complicated" tombstoning behaviour we do for trunk ENIs, we just check again if it exists in a little bit.
-		logger.G(ctx).Info("ENI not found in database, reconciling missing branch ENI in database")
+		logger.G(ctx).Info("ENI not found in database, marking ENI to be rechecked, and potentially inserted into the database")
 		err = tx.Commit()
 		if err != nil {
 			err = errors.Wrap(err, "Could not commit transaction (no writes performed)")
@@ -317,9 +350,30 @@ func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *e
 			Groups:             aws.StringSlice(dbSecurityGroups),
 			NetworkInterfaceId: networkInterface.NetworkInterfaceId,
 		})
-		if err != nil {
-			logger.G(ctx).WithError(err).Error("Unable to update security groups on interface from database")
-			return false, ec2wrapper.HandleEC2Error(err, span)
+
+		logger.G(ctx).WithError(err).Error("Unable to update security groups on interface from database")
+		awsErr := ec2wrapper.RetrieveEC2Error(err)
+		if awsErr != nil {
+			if awsErr.Code() == ec2wrapper.InvalidGroupNotFound {
+				// The security groups in the database are wrong
+				// We can just update them based on what the security groups are from the ENI
+				logger.G(ctx).Info("Security groups incorrect in database, updating from AWS")
+				_, err = tx.ExecContext(ctx,
+					"UPDATE branch_enis SET security_groups = $1 WHERE branch_eni = $2",
+					pq.Array(networkInterfaceSecurityGroups), aws.StringValue(networkInterface.NetworkInterfaceId))
+				if err != nil {
+					err = errors.Wrap(err, "Could not update security groups in database")
+					tracehelpers.SetStatus(err, span)
+					return false, err
+				}
+			} else {
+				err = errors.Wrap(err, "Could not update security groups via modify network interface")
+				return false, ec2wrapper.HandleEC2Error(err, span)
+			}
+		} else if err != nil {
+			// Something weird has happened
+			tracehelpers.SetStatus(err, span)
+			return false, err
 		}
 	}
 
@@ -339,6 +393,8 @@ func (vpcService *vpcService) reconcileBranchENIMissingInDatabase(ctx context.Co
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	logger.G(ctx).WithField("networkInterface", networkInterface)
+	ctx = logger.WithField(ctx, "eni", aws.StringValue(networkInterface.NetworkInterfaceId))
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(networkInterface.NetworkInterfaceId)))
 
 	// Let's do a simple describe first. We cannot use a batch describe,
@@ -373,6 +429,7 @@ func (vpcService *vpcService) reconcileBranchENIMissingInDatabase(ctx context.Co
 		return nil
 	}
 
+	logger.G(ctx).Info("ENI actually exists, inserting it back into database")
 	// This interface still exists, which means it's probably a leak. Time to insert it into the DB.
 	iface := output.NetworkInterfaces[0]
 
@@ -401,4 +458,12 @@ func (vpcService *vpcService) reconcileBranchENIMissingInDatabase(ctx context.Co
 	}
 
 	return nil
+}
+
+func (vpcService *vpcService) reconcileBranchENIsLongLivedTask() longLivedTask {
+	return longLivedTask{
+		taskName:   "reconcile_branch_enis",
+		itemLister: vpcService.getBranchENIRegionAccounts,
+		workFunc:   vpcService.reconcileBranchENILoop,
+	}
 }

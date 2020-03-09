@@ -18,7 +18,7 @@ func doesENIExist(ctx context.Context, session *ec2wrapper.EC2Session, networkIn
 		},
 	})
 	if err == nil {
-		logger.G(ctx).Warn("Was able to find interface via modify interface attribute, skipping")
+		logger.G(ctx).Warn("Was able to find interface via modify interface attribute")
 		return true, nil
 	}
 	awsErr := ec2wrapper.RetrieveEC2Error(err)
