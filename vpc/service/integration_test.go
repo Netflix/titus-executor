@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"flag"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,6 +78,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testAssociate", testAssociate)
 	runIntegrationTest(t, "testAssociateWithDelayFaultInMainline", testAssociateWithDelayFaultInMainline)
 	runIntegrationTest(t, "testReconcileBranchENIAttachments", testReconcileBranchENIAttachments)
+	runIntegrationTest(t, "testAssociateWithFaultDeadlock", testAssociateWithFaultDeadlock)
 }
 
 type integrationTestFunc func(context.Context, *testing.T, integrationTestMetadata, *vpcService, *ec2wrapper.EC2Session)
@@ -269,25 +271,46 @@ RETURNING id
 	assert.Assert(t, is.Equal(aws.StringValue(output.NetworkInterfaces[0].Groups[0].GroupId), md.testSecurityGroupID))
 }
 
+// The first group is for the preemption, the second group is for the workers
+func startAssociationAndDisassociationWorkers(ctx context.Context, t *testing.T, service *vpcService) (*errgroup.Group, *errgroup.Group) {
+	associateWorker := service.associateActionWorker()
+	disassociateWorker := service.disassociateActionWorker()
+	nilItems, _ := nilItemEnumerator(ctx)
+	assert.Assert(t, is.Len(nilItems, 1))
+
+	workerGroup, workerCtx := errgroup.WithContext(ctx)
+	preemptionGroup, preemptionCtx := errgroup.WithContext(ctx)
+	preemptionGroup.Go(func() error {
+		if err := service.preemptLock(preemptionCtx, nilItems[0], associateWorker.longLivedTask()); err != nil {
+			return err
+		}
+		workerGroup.Go(func() error {
+			ctx2 := logger.WithField(workerCtx, "worker", "associateWorker")
+			return associateWorker.loop(ctx2, nilItems[0])
+		})
+		return nil
+	})
+	preemptionGroup.Go(func() error {
+		if err := service.preemptLock(preemptionCtx, nilItems[0], disassociateWorker.longLivedTask()); err != nil {
+			return err
+		}
+		workerGroup.Go(func() error {
+			ctx2 := logger.WithField(workerCtx, "worker", "disassociateWorker")
+			return disassociateWorker.loop(ctx2, nilItems[0])
+		})
+		return nil
+	})
+
+	return preemptionGroup, workerGroup
+}
+
 func testAssociateWithDelayFaultInMainline(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
 	t.Parallel()
 	// This one is a little bit more scary because of what can go wrong if the associate worker is not running
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
-	associateWorker := service.associateActionWorker()
-	disassociateWorker := service.disassociateActionWorker()
-	nilItems, err := nilItemEnumerator(ctx)
-	assert.NilError(t, err)
-	assert.Assert(t, is.Len(nilItems, 1))
-
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		return service.preemptLock(groupCtx, nilItems[0], associateWorker.longLivedTask())
-	})
-	group.Go(func() error {
-		return service.preemptLock(groupCtx, nilItems[0], disassociateWorker.longLivedTask())
-	})
+	preemptionGroup, workerGroup := startAssociationAndDisassociationWorkers(ctx, t, service)
 
 	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
 	assert.NilError(t, err)
@@ -305,16 +328,7 @@ func testAssociateWithDelayFaultInMainline(ctx context.Context, t *testing.T, md
 		trunkENI:  aws.StringValue(trunkENI.NetworkInterfaceId),
 	}
 
-	assert.NilError(t, group.Wait())
-	group.Go(func() error {
-		ctx2 := logger.WithField(ctx, "worker", "associateWorker")
-		return associateWorker.loop(ctx2, nilItems[0])
-	})
-
-	group.Go(func() error {
-		ctx2 := logger.WithField(ctx, "worker", "disassociateWorker")
-		return disassociateWorker.loop(ctx2, nilItems[0])
-	})
+	assert.NilError(t, preemptionGroup.Wait())
 
 	/* This will only effect the associate / disassociate calls that happen in "mainline" */
 	ctx = registerFault(ctx, associateFaultKey, func(ctx context.Context) error {
@@ -338,7 +352,7 @@ func testAssociateWithDelayFaultInMainline(ctx context.Context, t *testing.T, md
 
 	logger.G(ctx).WithField("associationID", associationID).Debug("Completed association")
 	cancel()
-	assert.Error(t, group.Wait(), context.Canceled.Error())
+	assert.Error(t, workerGroup.Wait(), context.Canceled.Error())
 }
 
 func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
@@ -369,20 +383,16 @@ func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata
 	}))
 
 	logger.G(ctx).WithField("associationID", associationID).Debug("Completed association")
-
-	output, err := session.DescribeTrunkInterfaceAssociations(ctx, ec2.DescribeTrunkInterfaceAssociationsInput{
-		AssociationIds: aws.StringSlice([]string{associationID}),
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, is.Len(output.InterfaceAssociations, 1))
-
 	// Now disassociate
 	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, "SELECT branch_eni FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
 		assert.NilError(t, err)
+		_, err = tx.ExecContext(ctx, "SELECT branch_eni FROM branch_eni_attachments WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
+		assert.NilError(t, err)
 		assert.NilError(t, service.disassociateNetworkInterface(ctx, tx, session, associationID, false))
 		return nil
 	}))
+	logger.G(ctx).WithField("associationID", associationID).Debug("Completed disassociation")
 
 	_, err = session.DescribeTrunkInterfaceAssociations(ctx, ec2.DescribeTrunkInterfaceAssociationsInput{
 		AssociationIds: aws.StringSlice([]string{associationID}),
@@ -395,6 +405,75 @@ func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata
 	row := service.db.QueryRowContext(ctx, "SELECT count(*) FROM branch_eni_attachments WHERE association_id = $1", associationID)
 	assert.NilError(t, row.Scan(&count))
 	assert.Assert(t, is.Equal(count, 0))
+}
+
+func testAssociateWithFaultDeadlock(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	t.Parallel()
+	// This one is a little bit more scary because of what can go wrong if the associate worker is not running
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
+	var selected int32
+
+	/* This will only effect the associate / disassociate calls that happen in "mainline" */
+	workerCtx := registerFault(ctx, afterSelectedDisassociationFaultKey, func(ctx context.Context) error {
+		logger.G(ctx).Debug("Running worker fault")
+		atomic.StoreInt32(&selected, 1)
+		return nil
+	})
+
+	preemptionGroup, workerGroup := startAssociationAndDisassociationWorkers(workerCtx, t, service)
+
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
+	assert.NilError(t, err)
+	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
+
+	var branchENI *ec2.NetworkInterface
+	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
+		var err error
+		branchENI, err = service.createBranchENI(ctx, tx, session, md.subnetID, []string{md.defaultSecurityGroupID})
+		return err
+	}))
+
+	assoc := association{
+		branchENI: aws.StringValue(branchENI.NetworkInterfaceId),
+		trunkENI:  aws.StringValue(trunkENI.NetworkInterfaceId),
+	}
+
+	assert.NilError(t, preemptionGroup.Wait())
+
+	var associationID string
+	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "SELECT branch_eni FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
+		assert.NilError(t, err)
+		id, err := service.associateNetworkInterface(ctx, tx, session, assoc, 5)
+		assert.NilError(t, err)
+		associationID = *id
+		return nil
+	}))
+
+	logger.G(ctx).WithField("associationID", associationID).Debug("Completed association")
+
+	// Give some time for the worker to be able to grab it
+	ctx = registerFault(ctx, disassociateFaultKey, func(ctx context.Context) error {
+		logger.G(ctx).Debug("Running disassociate fault")
+		time.Sleep(time.Second)
+		return nil
+	})
+
+	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "SELECT branch_eni FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
+		assert.NilError(t, err)
+		_, err = tx.ExecContext(ctx, "SELECT branch_eni FROM branch_eni_attachments WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
+		assert.NilError(t, err)
+		assert.NilError(t, service.disassociateNetworkInterface(ctx, tx, session, associationID, false))
+		// Make sure the worker didn't touch it
+		assert.Assert(t, is.Equal(0, int(atomic.LoadInt32(&selected))))
+		return nil
+	}))
+
+	cancel()
+	assert.Error(t, workerGroup.Wait(), context.Canceled.Error())
 }
 
 func testReconcileBranchENIAttachments(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {

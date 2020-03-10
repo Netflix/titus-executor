@@ -1,0 +1,3 @@
+START TRANSACTION ;
+DROP INDEX branch_eni_actions_associate_branch_eni_trunk_eni_idx_uindex;
+COMMIT;

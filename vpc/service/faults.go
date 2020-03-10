@@ -2,11 +2,23 @@ package service
 
 import "context"
 
-type faultKey *struct{}
+type faultKey interface {
+}
+
+func newFaultKey() faultKey {
+	return &struct {
+		int
+	}{}
+}
 
 var (
-	associateFaultKey    faultKey = &struct{}{}
-	disassociateFaultKey faultKey = &struct{}{}
+	// Runs in associateNetworkInterface between startAssociation and finishAssociation
+	associateFaultKey = newFaultKey()
+	// Runs in disassociateNetworkInterface between startDisassociation and finishDisassociation
+	disassociateFaultKey = newFaultKey()
+
+	beforeSelectedDisassociationFaultKey = newFaultKey()
+	afterSelectedDisassociationFaultKey  = newFaultKey()
 )
 
 type fault struct {

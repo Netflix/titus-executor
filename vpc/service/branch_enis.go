@@ -76,15 +76,15 @@ func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx 
 	var pqErr *pq.Error
 	var ok bool
 
-retry:
-	id, err = vpcService.startAssociation(ctx, branchENI, trunkENI, idx)
+startAssociation:
+	id, err = vpcService.startAssociation(ctx, tx, branchENI, trunkENI, idx)
 	underlyingErr = err
 	for underlyingErr != nil {
 		pqErr, ok = underlyingErr.(*pq.Error)
 		if ok {
 			if pqErr.Code.Name() == "serialization_failure" {
-				logger.G(ctx).WithError(pqErr).Debug("Retrying transaction")
-				goto retry
+				logger.G(ctx).WithError(pqErr).Info("Retrying start associate transaction")
+				goto startAssociation
 			}
 			break
 		}
@@ -303,7 +303,7 @@ FOR NO KEY UPDATE OF branch_eni_actions_associate
 	return output.InterfaceAssociation.AssociationId, nil
 }
 
-func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, trunkENI string, idx int) (_ int, retErr error) {
+func (vpcService *vpcService) startAssociation(ctx context.Context, slowTx *sql.Tx, branchENI, trunkENI string, idx int) (_ int, retErr error) {
 	ctx, span := trace.StartSpan(ctx, "startAssociation")
 	defer span.End()
 
@@ -324,6 +324,20 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 	defer func() {
 		_ = tx.Rollback()
 	}()
+
+	/* See:
+	 * https://www.postgresql.org/docs/9.1/transaction-iso.html
+	 * A sequential scan will always necessitate a relation-level predicate lock.
+	 * This can result in an increased rate of serialization failures.
+	 * It may be helpful to encourage the use of index scans by reducing random_page_cost and/or increasing cpu_tuple_cost.
+	 * Be sure to weigh any decrease in transaction rollbacks and restarts against any overall change in query execution time.
+	 */
+	_, err = tx.ExecContext(ctx, "SET enable_seqscan=false")
+	if err != nil {
+		err = errors.Wrap(err, "Could not set enable_seqscan to false")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
 
 	var id int
 	row := tx.QueryRowContext(ctx,
@@ -403,6 +417,18 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 		return 0, err
 	}
 
+	_, err = slowTx.ExecContext(ctx, `
+SELECT pg_advisory_xact_lock(
+                               (SELECT oid
+                                FROM pg_class
+                                WHERE relname = 'branch_eni_actions_associate')::int, $1)
+`, id)
+	if err != nil {
+		err = errors.Wrap(err, "Could not acquire advisory lock")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Unable to commit transaction")
@@ -461,7 +487,7 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 }
 
 func (vpcService *vpcService) disassociateNetworkInterface(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, associationID string, force bool) error {
-	ctx, span := trace.StartSpan(ctx, "associateNetworkInterface")
+	ctx, span := trace.StartSpan(ctx, "disassociateNetworkInterface")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, maxDisssociateTime)
 	defer cancel()
@@ -473,15 +499,15 @@ func (vpcService *vpcService) disassociateNetworkInterface(ctx context.Context, 
 	var pqErr *pq.Error
 	var ok bool
 
-retry:
-	id, err = vpcService.startDissociation(ctx, associationID, force)
+startDissociation:
+	id, err = vpcService.startDissociation(ctx, tx, associationID, force)
 	underlyingErr = err
 	for underlyingErr != nil {
 		pqErr, ok = underlyingErr.(*pq.Error)
 		if ok {
 			if pqErr.Code.Name() == "serialization_failure" {
 				logger.G(ctx).WithError(pqErr).Debug("Retrying transaction")
-				goto retry
+				goto startDissociation
 			}
 			break
 		}
@@ -498,6 +524,7 @@ retry:
 		return err
 	}
 
+	logger.G(ctx).Debug("Finishing disassociation")
 	err = vpcService.finishDisassociation(ctx, tx, session, id)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to finish disassociation")
@@ -509,7 +536,7 @@ retry:
 	return nil
 }
 
-func (vpcService *vpcService) startDissociation(ctx context.Context, associationID string, force bool) (int, error) {
+func (vpcService *vpcService) startDissociation(ctx context.Context, slowTx *sql.Tx, associationID string, force bool) (int, error) {
 	ctx, span := trace.StartSpan(ctx, "startDissociation")
 	defer span.End()
 
@@ -535,6 +562,20 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, association
 	defer func() {
 		_ = tx.Rollback()
 	}()
+
+	/* See:
+	 * https://www.postgresql.org/docs/9.1/transaction-iso.html
+	 * A sequential scan will always necessitate a relation-level predicate lock.
+	 * This can result in an increased rate of serialization failures.
+	 * It may be helpful to encourage the use of index scans by reducing random_page_cost and/or increasing cpu_tuple_cost.
+	 * Be sure to weigh any decrease in transaction rollbacks and restarts against any overall change in query execution time.
+	 */
+	_, err = tx.ExecContext(ctx, "SET enable_seqscan=false")
+	if err != nil {
+		err = errors.Wrap(err, "Could not set enable_seqscan to false")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
 
 	var id int
 	row := tx.QueryRowContext(ctx, "SELECT id FROM branch_eni_actions_disassociate WHERE association_id = $1 AND state = 'pending'", associationID)
@@ -605,6 +646,18 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, association
 		return 0, err
 	}
 
+	_, err = slowTx.ExecContext(ctx, `
+SELECT pg_advisory_xact_lock(
+                               (SELECT oid
+                                FROM pg_class
+                                WHERE relname = 'branch_eni_actions_disassociate')::int, $1)
+`, id)
+	if err != nil {
+		err = errors.Wrap(err, "Could not acquire advisory lock")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Unable to commit transaction")
@@ -625,6 +678,14 @@ func (vpcService *vpcService) finishDisassociation(ctx context.Context, tx *sql.
 
 	span.AddAttributes(trace.Int64Attribute("id", int64(id)))
 
+	logger.G(ctx).Debug("Running before selected disassociation fault key")
+
+	if err := lookupFault(ctx, beforeSelectedDisassociationFaultKey).call(ctx); err != nil {
+		return err
+	}
+
+	logger.G(ctx).Debug("Running select from branch_eni_actions_disassociate table")
+
 	row := tx.QueryRowContext(ctx, `
 SELECT branch_eni_actions_disassociate.token,
        branch_eni_actions_disassociate.association_id,
@@ -641,6 +702,11 @@ WHERE branch_eni_actions_disassociate.id = $1
 FOR NO KEY UPDATE OF branch_eni_actions_disassociate
 `, id)
 
+	logger.G(ctx).Debug("selected from branch_eni_actions_disassociate table")
+
+	if err := lookupFault(ctx, afterSelectedDisassociationFaultKey).call(ctx); err != nil {
+		return err
+	}
 	var errorCode, errorMessage sql.NullString
 	var token, associationID, state, accountID, region string
 	var force bool
@@ -824,6 +890,8 @@ type actionWorker struct {
 	finishedChanel  string
 	name            string
 	table           string
+
+	maxWorkTime time.Duration
 }
 
 func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) error {
@@ -915,6 +983,8 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 
 func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateLimitingInterface) error {
 	doWorkItem := func(item interface{}) error {
+		ctx, cancel := context.WithTimeout(ctx, actionWorker.maxWorkTime)
+		defer cancel()
 		ctx, span := trace.StartSpan(ctx, "doWorkItem")
 		defer span.End()
 		defer wq.Done(item)
@@ -942,6 +1012,39 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		defer func() {
 			_ = tx.Rollback()
 		}()
+
+		_, err = tx.ExecContext(ctx, "set lock_timeout = 1000")
+		if err != nil {
+			err = errors.Wrap(err, "Cannot set lock timeout to 1000 milliseconds")
+			tracehelpers.SetStatus(err, span)
+			logger.G(ctx).WithError(err).Error()
+			return nil
+		}
+
+		// Try to lock it for one second. It'll error out otherwise
+		_, err = tx.ExecContext(ctx, `
+SELECT pg_advisory_xact_lock(
+                               (SELECT oid
+                                FROM pg_class
+                                WHERE relname = $1)::int, $2)
+`, actionWorker.table, id)
+		if err != nil {
+			err = errors.Wrap(err, "Could not acquire lock on object")
+			tracehelpers.SetStatus(err, span)
+			logger.G(ctx).WithError(err).Error()
+			return nil
+		}
+
+		logger.G(ctx).Debug("Got lock?")
+
+		_, err = tx.ExecContext(ctx, "set lock_timeout = 0")
+		if err != nil {
+			err = errors.Wrap(err, "Cannot reset lock timeout to 0 (infinity)")
+			tracehelpers.SetStatus(err, span)
+			logger.G(ctx).WithError(err).Error()
+			return nil
+		}
+
 		err = actionWorker.cb(ctx, tx, id)
 		// TODO: Consider updating the table state here
 		if errors.Is(err, &persistentError{}) {
@@ -1093,6 +1196,7 @@ func (vpcService *vpcService) associateActionWorker() *actionWorker {
 		finishedChanel:  "branch_eni_actions_associate_finished",
 		name:            "associateWorker",
 		table:           "branch_eni_actions_associate",
+		maxWorkTime:     30 * time.Second,
 	}
 }
 
@@ -1107,6 +1211,8 @@ func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
 		finishedChanel:  "branch_eni_actions_disassociate_finished",
 		name:            "disassociateWorker",
 		table:           "branch_eni_actions_disassociate",
+
+		maxWorkTime: 30 * time.Second,
 	}
 }
 
@@ -1128,6 +1234,7 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 		return nil, ec2wrapper.HandleEC2Error(err, span)
 	}
 	iface := output.NetworkInterface
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
 
 	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
 

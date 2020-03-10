@@ -5,10 +5,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
@@ -42,6 +41,8 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 		resetTime, err := vpcService.doDetatchUnusedBranchENI(ctx)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Unable to detach ENI")
+		} else {
+			logger.G(ctx).WithField("resetTime", resetTime).Debug("Waiting to recheck")
 		}
 		err = waitFor(ctx, resetTime)
 		if err != nil {
@@ -61,7 +62,7 @@ func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context) (tim
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
 		span.SetStatus(traceStatusFromError(err))
-		return 0, err
+		return timeBetweenErrors, err
 	}
 	defer func() {
 		_ = tx.Rollback()
@@ -125,20 +126,18 @@ UPDATE OF branch_eni_attachments SKIP LOCKED
 
 	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot disassociate network interface")
 		if errors.Is(err, &irrecoverableError{}) || errors.Is(err, &persistentError{}) {
 			err2 := tx.Commit()
 			if err2 != nil {
-				err2 = errors.Wrap(err2, "Could not commit transaction")
+				err2 = errors.Wrap(err2, "Could not commit transaction during irrecoverableError / persistentError")
 				tracehelpers.SetStatus(err, span)
 				return timeBetweenErrors, err2
 			}
-			logger.G(ctx).WithError(err).Error("Experienced error while trying to disassociate network interface")
-			return timeBetweenErrors, nil
 		}
+		err = errors.Wrap(err, "Cannot disassociate network interface")
+		logger.G(ctx).WithError(err).Error("Experienced error while trying to disassociate network interface")
 		tracehelpers.SetStatus(err, span)
-		return timeBetweenErrors, nil
-
+		return timeBetweenErrors, err
 	}
 
 	err = tx.Commit()

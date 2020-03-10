@@ -351,9 +351,9 @@ func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *e
 			NetworkInterfaceId: networkInterface.NetworkInterfaceId,
 		})
 
-		logger.G(ctx).WithError(err).Error("Unable to update security groups on interface from database")
 		awsErr := ec2wrapper.RetrieveEC2Error(err)
 		if awsErr != nil {
+			logger.G(ctx).WithError(err).Error("Unable to update security groups on interface from database due to AWS error")
 			if awsErr.Code() == ec2wrapper.InvalidGroupNotFound {
 				// The security groups in the database are wrong
 				// We can just update them based on what the security groups are from the ENI
@@ -371,6 +371,7 @@ func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *e
 				return false, ec2wrapper.HandleEC2Error(err, span)
 			}
 		} else if err != nil {
+			logger.G(ctx).WithError(err).Error("Unable to update security groups on interface from database")
 			// Something weird has happened
 			tracehelpers.SetStatus(err, span)
 			return false, err
