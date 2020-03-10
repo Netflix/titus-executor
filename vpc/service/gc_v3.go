@@ -32,8 +32,9 @@ const (
 )
 
 const (
-	inUse     = "in-use"
-	available = "available"
+	inUse      = "in-use"
+	available  = "available"
+	associated = "associated"
 )
 
 func (vpcService *vpcService) tryReallocateStaticAssignment(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) (bool, error) {
@@ -779,6 +780,9 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, ec2client *ec2.EC2, i
 		err = vpcService.doGCUnattachedENI(ctx, tx, ec2client, iface, interfaceIPv4Addresses, interfaceIPv6Addresses)
 	case inUse:
 		err = vpcService.doGCAttachedENI(ctx, tx, ec2client, iface, interfaceIPv4Addresses, interfaceIPv6Addresses)
+	case associated:
+		logger.G(ctx).WithField("iface", iface.String()).Warning("Interface is associate with trunk ENI which is not associated with instance. Trunk ENI must be reconciled prior to GC")
+		err = nil
 	default:
 		logger.G(ctx).WithField("iface", iface.String()).Warning("Observed unknown ENI status")
 		err = fmt.Errorf("AWS returned unknown ENI status: %s", s)
