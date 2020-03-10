@@ -347,11 +347,17 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, slowTx *sql.
 	row := tx.QueryRowContext(ctx,
 		"SELECT id FROM branch_eni_actions_associate WHERE state = 'pending' AND branch_eni = $1 AND trunk_eni = $2 AND idx = $3", branchENI, trunkENI, idx)
 	err = row.Scan(&id)
+	span.AddAttributes(trace.Int64Attribute("id", int64(id)))
 	if err == nil {
-		logger.G(ctx).Debug("Association already in progress")
+		logger.G(ctx).Info("Association already in progress")
 		err = tx.Commit()
 		if err != nil {
 			err = errors.Wrap(err, "Could not commit transaction")
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
+		err = acquireLock(ctx, slowTx, "branch_eni_actions_associate", id)
+		if err != nil {
 			tracehelpers.SetStatus(err, span)
 			return 0, err
 		}
@@ -393,6 +399,7 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, slowTx *sql.
 		}
 		err = fmt.Errorf("Conflicting association: Branch ENI %q already associated with trunk ENI %q (association: %s)",
 			branchENI, existingTrunkENIID, existingAssociationID)
+		err = &concurrencyError{err: err}
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -406,6 +413,13 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, slowTx *sql.
 
 	err = row.Scan(&id)
 	if err != nil {
+		_ = tx.Rollback()
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == "unique_violation" && pqErr.Constraint == "branch_eni_actions_associate_trunk_eni_idx_uindex" {
+			err = &concurrencyError{err: errors.Wrapf(err, "Multiple simultaneous associations to same trunk ENI %q at index %d", trunkENI, idx)}
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
+
 		// These errors might largely be recoverable, so you know, deal with that
 		err = errors.Wrap(err, "Unable to insert and scan into branch_eni_actions_associate")
 		tracehelpers.SetStatus(err, span)
@@ -421,12 +435,7 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, slowTx *sql.
 		return 0, err
 	}
 
-	_, err = slowTx.ExecContext(ctx, `
-SELECT pg_advisory_xact_lock(
-                               (SELECT oid
-                                FROM pg_class
-                                WHERE relname = 'branch_eni_actions_associate')::int, $1)
-`, id)
+	err = acquireLock(ctx, slowTx, "branch_eni_actions_associate", id)
 	if err != nil {
 		err = errors.Wrap(err, "Could not acquire advisory lock")
 		tracehelpers.SetStatus(err, span)
@@ -592,6 +601,11 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, slowTx *sql
 			tracehelpers.SetStatus(err, span)
 			return 0, err
 		}
+		err = acquireLock(ctx, slowTx, "branch_eni_actions_disassociate", id)
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
 		return id, nil
 	} else if err != sql.ErrNoRows {
 		err = errors.Wrap(err, "Could not query branch_eni_actions_disassociate for existing requests to disassociate")
@@ -640,6 +654,12 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, slowTx *sql
 
 	err = row.Scan(&id)
 	if err != nil {
+		_ = tx.Rollback()
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == "unique_violation" && pqErr.Constraint == "branch_eni_actions_disassociate_association_id_uindex" {
+			err = &concurrencyError{err: errors.Wrapf(err, "Multiple simultaneous disassociations for same association ID %s", associationID)}
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
 		// These errors might largely be recoverable, so you know, deal with that
 		err = errors.Wrap(err, "Unable to insert and scan into branch_eni_actions_disassociate")
 		tracehelpers.SetStatus(err, span)
@@ -655,14 +675,8 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, slowTx *sql
 		return 0, err
 	}
 
-	_, err = slowTx.ExecContext(ctx, `
-SELECT pg_advisory_xact_lock(
-                               (SELECT oid
-                                FROM pg_class
-                                WHERE relname = 'branch_eni_actions_disassociate')::int, $1)
-`, id)
+	err = acquireLock(ctx, slowTx, "branch_eni_actions_disassociate", id)
 	if err != nil {
-		err = errors.Wrap(err, "Could not acquire advisory lock")
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -679,6 +693,17 @@ SELECT pg_advisory_xact_lock(
 	}).Debug("Finished starting disassociation")
 
 	return id, nil
+}
+
+func acquireLock(ctx context.Context, tx *sql.Tx, table string, id int) error {
+	_, err := tx.ExecContext(ctx, `
+SELECT pg_advisory_xact_lock(
+                               (SELECT oid
+                                FROM pg_class
+                                WHERE relname = $1)::int, $2)
+`, table, id)
+	err = errors.Wrapf(err, "Could not acquire advisory lock on table %s, id %d", table, id)
+	return err
 }
 
 func (vpcService *vpcService) finishDisassociation(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, id int) error {
@@ -714,10 +739,6 @@ FOR NO KEY UPDATE OF branch_eni_actions_disassociate
 `, id)
 
 	logger.G(ctx).Debug("selected from branch_eni_actions_disassociate table")
-
-	if err := lookupFault(ctx, afterSelectedDisassociationFaultKey).call(ctx); err != nil {
-		return err
-	}
 	var errorCode, errorMessage sql.NullString
 	var token, associationID, state, accountID, region, branchENI, trunkENI string
 	var force bool
@@ -733,8 +754,14 @@ FOR NO KEY UPDATE OF branch_eni_actions_disassociate
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
-	span.AddAttributes(trace.StringAttribute("branch", branchENI), trace.StringAttribute("trunk", trunkENI))
-
+	span.AddAttributes(
+		trace.StringAttribute("branch", branchENI),
+		trace.StringAttribute("trunk", trunkENI),
+		trace.StringAttribute("associationID", associationID),
+	)
+	if err := lookupFault(ctx, afterSelectedDisassociationFaultKey).call(ctx, associationID); err != nil {
+		return err
+	}
 	// Dope
 	switch state {
 	case pendingState:
@@ -1034,14 +1061,8 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		}
 
 		// Try to lock it for one second. It'll error out otherwise
-		_, err = tx.ExecContext(ctx, `
-SELECT pg_advisory_xact_lock(
-                               (SELECT oid
-                                FROM pg_class
-                                WHERE relname = $1)::int, $2)
-`, actionWorker.table, id)
+		err = acquireLock(ctx, tx, actionWorker.table, id)
 		if err != nil {
-			err = errors.Wrap(err, "Could not acquire lock on object")
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error()
 			return nil

@@ -22,14 +22,14 @@ var (
 )
 
 type fault struct {
-	callback func(context.Context) error
+	callback func(context.Context, ...interface{}) error
 }
 
-func (f *fault) call(ctx context.Context) error {
+func (f *fault) call(ctx context.Context, opts ...interface{}) error {
 	if f == nil {
 		return nil
 	}
-	return f.callback(ctx)
+	return f.callback(ctx, opts...)
 }
 
 func lookupFault(ctx context.Context, key faultKey) *fault {
@@ -41,6 +41,6 @@ func lookupFault(ctx context.Context, key faultKey) *fault {
 	return nil
 }
 
-func registerFault(ctx context.Context, key faultKey, cb func(context.Context) error) context.Context {
+func registerFault(ctx context.Context, key faultKey, cb func(context.Context, ...interface{}) error) context.Context {
 	return context.WithValue(ctx, key, &fault{callback: cb})
 }

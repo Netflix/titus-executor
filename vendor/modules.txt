@@ -274,7 +274,7 @@ github.com/grpc-ecosystem/go-grpc-middleware/tags
 github.com/grpc-ecosystem/go-grpc-middleware/util/metautils
 # github.com/hashicorp/errwrap v1.0.0
 github.com/hashicorp/errwrap
-# github.com/hashicorp/go-multierror v1.0.0
+# github.com/hashicorp/go-multierror v1.0.1-0.20191120192120-72917a1559e1
 github.com/hashicorp/go-multierror
 # github.com/hashicorp/hcl v1.0.0
 github.com/hashicorp/hcl

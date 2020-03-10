@@ -210,9 +210,16 @@ func (vpcService *vpcService) preemptLock(ctx context.Context, item keyedItem, l
 	}()
 
 	lockName := generateLockName(llt.taskName, item)
-	row := tx.QueryRowContext(ctx, "SELECT held_until, held_by FROM long_lived_locks WHERE lock_name = $1 FOR UPDATE", lockName)
 	var previouslyHeldBy string
-	var previouslyHeldUntil time.Time
+	var previouslyHeldUntil, now time.Time
+	row := tx.QueryRowContext(ctx, "SELECT now()")
+	err = row.Scan(&now)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot select now")
+		return err
+	}
+
+	row = tx.QueryRowContext(ctx, "SELECT held_until, held_by FROM long_lived_locks WHERE lock_name = $1 FOR UPDATE", lockName)
 	err = row.Scan(&previouslyHeldUntil, &previouslyHeldBy)
 	if err == sql.ErrNoRows {
 		previouslyHeldUntil = time.Now()
@@ -264,7 +271,17 @@ RETURNING held_by, held_until, id
 
 	// This is "suboptimal" in the sense that the lock will actually be knocked out by lockTime / 4 --
 	// since runUnderLock checks every lockTime / 4 if it still holds the lock
-	timer := time.NewTimer(time.Until(heldUntil))
+	sleepTime := previouslyHeldUntil.Sub(now)
+
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"previouslyHeldUntil": previouslyHeldUntil.String(),
+		"heldUntil":           heldUntil.String(),
+		"now":                 now.String(),
+		"sleepTimeLocation":   heldUntil.Location().String(),
+		"nowLocation":         now.Location().String(),
+		"sleepTime":           sleepTime.String(),
+	}).Debug("sleeping to wait out previous period")
+	timer := time.NewTimer(sleepTime)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
