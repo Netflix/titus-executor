@@ -333,6 +333,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		vpcService.reconcileBranchENIsLongLivedTask(),
 		vpcService.associateActionWorker().longLivedTask(),
 		vpcService.disassociateActionWorker().longLivedTask(),
+		vpcService.reconcileTrunkENIsLongLivedTask(),
 	}
 }
 
