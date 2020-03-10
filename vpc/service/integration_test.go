@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
+	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
@@ -52,10 +53,10 @@ type integrationTestMetadata struct {
 func newTestServiceInstance(t *testing.T) *vpcService {
 	connector, err := pq.NewConnector(dbURL)
 	assert.NilError(t, err)
-
 	hostname, err := os.Hostname()
 	assert.NilError(t, err)
-	db := sql.OpenDB(connector)
+	wrappedConnector := wrapper.NewConnectorWrapper(connector, hostname)
+	db := sql.OpenDB(wrappedConnector)
 	assert.NilError(t, db.Ping())
 	return &vpcService{
 		db:       db,
@@ -306,11 +307,13 @@ func testAssociateWithDelayFaultInMainline(ctx context.Context, t *testing.T, md
 
 	assert.NilError(t, group.Wait())
 	group.Go(func() error {
-		return associateWorker.loop(ctx, nilItems[0])
+		ctx2 := logger.WithField(ctx, "worker", "associateWorker")
+		return associateWorker.loop(ctx2, nilItems[0])
 	})
 
 	group.Go(func() error {
-		return disassociateWorker.loop(ctx, nilItems[0])
+		ctx2 := logger.WithField(ctx, "worker", "disassociateWorker")
+		return disassociateWorker.loop(ctx2, nilItems[0])
 	})
 
 	/* This will only effect the associate / disassociate calls that happen in "mainline" */

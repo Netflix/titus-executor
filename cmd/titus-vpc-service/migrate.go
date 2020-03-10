@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"net"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/db"
+	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
@@ -102,6 +104,11 @@ func migrateCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 func newConnection(ctx context.Context, v *pkgviper.Viper) (string, *sql.DB, error) {
 	dburl := v.GetString("dburl")
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", nil, errors.Wrap(err, "Unable to get hostname")
+	}
+
 	rawurl, err := url.Parse(dburl)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot parse dburl")
@@ -120,7 +127,7 @@ func newConnection(ctx context.Context, v *pkgviper.Viper) (string, *sql.DB, err
 		return "", nil, err
 	}
 
-	db := sql.OpenDB(connector)
+	db := sql.OpenDB(wrapper.NewConnectorWrapper(connector, hostname))
 
 	db.SetMaxIdleConns(v.GetInt(maxIdleConnectionsFlagName))
 	db.SetMaxOpenConns(v.GetInt(maxOpenConnectionsFlagName))

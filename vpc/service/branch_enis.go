@@ -764,7 +764,8 @@ FOR NO KEY UPDATE OF branch_eni_actions_disassociate
 		return err
 	}
 
-	// Funnily enough I think
+	logger.G(ctx).Debug("Successfully finished disassociating ENI")
+	// Funnily enough I think this actually deletes the disassociation row
 	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE association_id = $1", associationID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot delete from branch_eni_attachments table")
@@ -1139,3 +1140,25 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 
 	return iface, nil
 }
+
+/*
+
+func (vpcService *vpcService) sqlMetadata(span *trace.Span) string {
+	spanContext := span.SpanContext()
+
+	x := struct {
+		SpanID string `json:"spanID""`
+		Hostname string `json:"hostname"`
+	}{
+		Hostname: vpcService.hostname,
+		SpanID: spanContext.SpanID.String(),
+	}
+
+	data, err := json.Marshal(x)
+	if err != nil {
+		return fmt.Sprintf(" err: %s \n", err.Error())
+	}
+
+
+	return fmt.Sprintf(" md: %s ", string(data))
+}*/
