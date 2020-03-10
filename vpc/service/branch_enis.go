@@ -1140,25 +1140,3 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 
 	return iface, nil
 }
-
-/*
-
-func (vpcService *vpcService) sqlMetadata(span *trace.Span) string {
-	spanContext := span.SpanContext()
-
-	x := struct {
-		SpanID string `json:"spanID""`
-		Hostname string `json:"hostname"`
-	}{
-		Hostname: vpcService.hostname,
-		SpanID: spanContext.SpanID.String(),
-	}
-
-	data, err := json.Marshal(x)
-	if err != nil {
-		return fmt.Sprintf(" err: %s \n", err.Error())
-	}
-
-
-	return fmt.Sprintf(" md: %s ", string(data))
-}*/
