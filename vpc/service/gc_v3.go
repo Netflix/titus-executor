@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -16,6 +14,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
+	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -290,7 +289,7 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 		"region":    item.region,
 		"accountID": item.accountID,
 	})
-	logger.G(ctx).Debug("Beginning GC of ENIs")
+	logger.G(ctx).Info("Beginning GC of ENIs")
 
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: item.accountID, Region: item.region})
 	if err != nil {
