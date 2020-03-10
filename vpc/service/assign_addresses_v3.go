@@ -1016,7 +1016,7 @@ func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, session *ec2w
 	}
 
 	if l := usedIPAddresses.Len(); l >= maxIPAddresses {
-		err = status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses already in-use", l)
+		err = status.Errorf(codes.FailedPrecondition, "%d IPv6 addresses already in-use", l)
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
