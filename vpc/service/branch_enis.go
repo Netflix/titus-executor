@@ -67,8 +67,8 @@ func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx 
 	branchENI := association.branchENI
 	trunkENI := association.trunkENI
 	span.AddAttributes(
-		trace.StringAttribute("branchENI", branchENI),
-		trace.StringAttribute("trunkENI", trunkENI),
+		trace.StringAttribute("branch", branchENI),
+		trace.StringAttribute("trunk", trunkENI),
 		trace.Int64Attribute("idx", int64(idx)))
 
 	var id int
@@ -184,6 +184,8 @@ FOR NO KEY UPDATE OF branch_eni_actions_associate
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+
+	span.AddAttributes(trace.StringAttribute("branch", branchENI), trace.StringAttribute("trunk", trunkENI))
 
 	if state == completedState {
 		if associationID.Valid {
@@ -311,6 +313,8 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, slowTx *sql.
 		"branchENI": branchENI,
 		"trunkENI":  trunkENI,
 	})
+
+	span.AddAttributes(trace.StringAttribute("branch", branchENI), trace.StringAttribute("trunk", trunkENI))
 
 	// Get that predicate locking action.
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
@@ -616,6 +620,11 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, slowTx *sql
 		return 0, err
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("branch", branchENI),
+		trace.StringAttribute("trunk", trunkENI),
+	)
+
 	if !force {
 		err = hasAssignments(ctx, tx, associationID)
 		if err != nil {
@@ -693,6 +702,8 @@ SELECT branch_eni_actions_disassociate.token,
        branch_eni_actions_disassociate.error_code,
        branch_eni_actions_disassociate.error_message,
        branch_eni_actions_disassociate.force,
+       branch_eni_attachments.branch_eni,
+       branch_eni_attachments.trunk_eni,
        trunk_enis.account_id,
        trunk_enis.region
 FROM branch_eni_actions_disassociate
@@ -708,10 +719,10 @@ FOR NO KEY UPDATE OF branch_eni_actions_disassociate
 		return err
 	}
 	var errorCode, errorMessage sql.NullString
-	var token, associationID, state, accountID, region string
+	var token, associationID, state, accountID, region, branchENI, trunkENI string
 	var force bool
 
-	err := row.Scan(&token, &associationID, &state, &errorCode, &errorMessage, &force, &accountID, &region)
+	err := row.Scan(&token, &associationID, &state, &errorCode, &errorMessage, &force, &branchENI, &trunkENI, &accountID, &region)
 	if err == sql.ErrNoRows {
 		// The only way that this could have happened is if the work was "successful"
 		return nil
@@ -722,6 +733,7 @@ FOR NO KEY UPDATE OF branch_eni_actions_disassociate
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+	span.AddAttributes(trace.StringAttribute("branch", branchENI), trace.StringAttribute("trunk", trunkENI))
 
 	// Dope
 	switch state {
