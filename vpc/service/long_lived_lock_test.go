@@ -257,7 +257,7 @@ RETURNING held_by, held_until, id
 		return err
 	}
 
-	if heldBy == vpcService.hostname {
+	if previouslyHeldBy == vpcService.hostname {
 		logger.G(ctx).Debug("Lock previously held by us, assuming we can use it right away")
 		return nil
 	}
