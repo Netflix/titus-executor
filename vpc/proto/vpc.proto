@@ -285,6 +285,7 @@ message DisassociateTrunkNetworkInterfaceRequest {
     oneof key {
         string associationId = 1;
     }
+    bool force = 2;
 }
 
 message DisassociateTrunkNetworkInterfaceResponse {

@@ -356,6 +356,25 @@ func (s *EC2Session) AssociateTrunkInterface(ctx context.Context, input ec2.Asso
 	return output, nil
 }
 
+func (s *EC2Session) DisassociateTrunkInterface(ctx context.Context, input ec2.DisassociateTrunkInterfaceInput) (*ec2.DisassociateTrunkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AssociateTrunkInterface")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("associationID", aws.StringValue(input.AssociationId)))
+	if input.ClientToken != nil {
+		span.AddAttributes(trace.StringAttribute("token", aws.StringValue(input.ClientToken)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DisassociateTrunkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot disassociate network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
 type EC2InstanceCacheValue struct {
 	ownerID  string
 	instance *ec2.Instance

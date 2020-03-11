@@ -109,7 +109,7 @@ func (vpcService *vpcService) doAssociateTrunkNetworkInterface(ctx context.Conte
 
 	trunkENISession, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: trunkENIRegion, AccountID: trunkENIAccountID})
 	if err != nil {
-		err = errors.Wrap(err, "Could not get EC2 session for branch ENI")
+		err = errors.Wrap(err, "Could not get EC2 session for trunk ENI")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -153,8 +153,60 @@ func (vpcService *vpcService) doAssociateTrunkNetworkInterface(ctx context.Conte
 
 }
 
-func (vpcService *vpcService) DisassociateTrunkNetworkInterface(context.Context, *vpcapi.DisassociateTrunkNetworkInterfaceRequest) (*vpcapi.DisassociateTrunkNetworkInterfaceResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Not yet implemented :(")
+func (vpcService *vpcService) DisassociateTrunkNetworkInterface(ctx context.Context, req *vpcapi.DisassociateTrunkNetworkInterfaceRequest) (*vpcapi.DisassociateTrunkNetworkInterfaceResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "AssociateTrunkNetworkInterface")
+	defer span.End()
+
+	switch id := (req.Key).(type) {
+	case *vpcapi.DisassociateTrunkNetworkInterfaceRequest_AssociationId:
+		return vpcService.doDisassociateTrunkNetworkInterface(ctx, id.AssociationId, req.Force)
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "Could not determine associationID")
+
+}
+
+func (vpcService *vpcService) doDisassociateTrunkNetworkInterface(ctx context.Context, associationID string, force bool) (*vpcapi.DisassociateTrunkNetworkInterfaceResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "doDisassociateTrunkNetworkInterface")
+	defer span.End()
+
+	if associationID == "" {
+		return nil, status.Error(codes.InvalidArgument, "associationID must be specified")
+	}
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot start database transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	err = vpcService.disassociateNetworkInterface(ctx, tx, nil, associationID, force)
+	if err != nil {
+		if errors.Is(err, &persistentError{}) {
+			logger.G(ctx).WithError(err).Error("Received persistent error, committing current state, and returning error")
+			err2 := tx.Commit()
+			if err2 != nil {
+				logger.G(ctx).WithError(err2).Error("Failed to commit transaction early")
+			}
+		}
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return &vpcapi.DisassociateTrunkNetworkInterfaceResponse{}, nil
 }
 
 func (vpcService *vpcService) DescribeTrunkNetworkInterface(ctx context.Context, req *vpcapi.DescribeTrunkNetworkInterfaceRequest) (*vpcapi.DescribeTrunkNetworkInterfaceResponse, error) {

@@ -57,10 +57,11 @@ func operatorCmd(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdent
 			if err != nil {
 				return err
 			}
-			return operator.Disassociate(ctx, iipGetter(), conn, v.GetString("association-id"))
+			return operator.Disassociate(ctx, iipGetter(), conn, v.GetString("association-id"), v.GetBool("force"))
 		},
 	}
 	disassociatecmd.Flags().StringP("association-id", "a", "", "Trunk network interface association")
+	disassociatecmd.Flags().BoolP("force", "f", false, "Force disassociation")
 	cmd.AddCommand(disassociatecmd)
 
 	addSharedFlags(cmd.PersistentFlags())

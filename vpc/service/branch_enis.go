@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"k8s.io/client-go/util/workqueue"
@@ -23,7 +24,8 @@ import (
 )
 
 const (
-	maxAssociateTime = 10 * time.Second
+	maxAssociateTime   = 10 * time.Second
+	maxDisssociateTime = 10 * time.Second
 )
 
 func insertBranchENIIntoDB(ctx context.Context, tx *sql.Tx, iface *ec2.NetworkInterface) error {
@@ -112,6 +114,8 @@ SELECT branch_eni_actions_associate.token,
        branch_eni_actions_associate.branch_eni,
        branch_eni_actions_associate.trunk_eni,
        branch_eni_actions_associate.idx,
+       branch_eni_actions_associate.error_code,
+       branch_eni_actions_associate.error_message,
        trunk_enis.account_id,
        trunk_enis.region,
        branch_eni_actions_associate.state
@@ -121,11 +125,11 @@ WHERE branch_eni_actions_associate.id = $1
 FOR NO KEY UPDATE OF branch_eni_actions_associate
 `, id)
 
-	var associationID sql.NullString
+	var associationID, errorCode, errorMessage sql.NullString
 	var token, branchENI, trunkENI, accountID, region, state string
 	var idx int
 
-	err := row.Scan(&token, &associationID, &branchENI, &trunkENI, &idx, &accountID, &region, &state)
+	err := row.Scan(&token, &associationID, &branchENI, &trunkENI, &idx, &errorCode, &errorMessage, &accountID, &region, &state)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan association action")
 		tracehelpers.SetStatus(err, span)
@@ -139,24 +143,18 @@ FOR NO KEY UPDATE OF branch_eni_actions_associate
 		err = errors.New("State is completed, but associationID is null")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
-	}
-
-	if state == "failed" {
-		row = tx.QueryRowContext(ctx, `
-SELECT branch_eni_actions_associate.error_code,
-       branch_eni_actions_associate.error_message
-FROM branch_eni_actions_associate
-WHERE branch_eni_actions_associate.id = $1
-`, id)
-		var errorCode, errorMessage string
-		err = row.Scan(&errorCode, &errorMessage)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot scan association action for error")
+	} else if state == "failed" {
+		if !errorCode.Valid {
+			err = errors.New("state of association failed, but errorCode is null")
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
-
-		err = fmt.Errorf("Request failed with code: %q, message: %q", errorCode, errorMessage)
+		if !errorMessage.Valid {
+			err = errors.New("state of association failed, but errorMessage is null")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		err = fmt.Errorf("Request failed with code: %q, message: %q", errorCode.String, errorMessage.String)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -192,28 +190,28 @@ WHERE branch_eni_actions_associate.id = $1
 		logger.G(ctx).WithError(err).Error("Unable to associate trunk network interface")
 		awsErr := ec2wrapper.RetrieveEC2Error(err)
 		// This likely means that the association never succeeded.
-		if awsErr != nil {
-			logger.G(ctx).WithError(awsErr).Error("Unable to associate trunk network interface due to underlying AWS issue")
-			_, err2 := tx.ExecContext(ctx,
-				"UPDATE branch_eni_actions_associate SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
-				vpcService.hostname, awsErr.Code(), awsErr.Message(), id)
-			if err2 != nil {
-				logger.G(ctx).WithError(err).Error("Unable to update branch_eni_actions table to mark action as failed")
-				tracehelpers.SetStatus(err, span)
-				return nil, ec2wrapper.HandleEC2Error(err, span)
-			}
-
-			// We need to delete the row from branch_eni_attachments we inserted earlier
-			_, err2 = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE id = $1", branchENIAttachmentID)
-			if err2 != nil {
-				logger.G(ctx).WithError(err).Error("Unable to delete dangling entry in branch eni attachments table")
-				return nil, ec2wrapper.HandleEC2Error(err, span)
-			}
-			return nil, &persistentError{err: ec2wrapper.HandleEC2Error(err, span)}
-
+		if awsErr == nil {
+			tracehelpers.SetStatus(err, span)
+			return nil, err
 		}
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+
+		logger.G(ctx).WithError(awsErr).Error("Unable to associate trunk network interface due to underlying AWS issue")
+		_, err2 := tx.ExecContext(ctx,
+			"UPDATE branch_eni_actions_associate SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
+			vpcService.hostname, awsErr.Code(), awsErr.Message(), id)
+		if err2 != nil {
+			logger.G(ctx).WithError(err2).Error("Unable to update branch_eni_actions table to mark action as failed")
+			tracehelpers.SetStatus(err, span)
+			return nil, ec2wrapper.HandleEC2Error(err, span)
+		}
+
+		// We need to delete the row from branch_eni_attachments we inserted earlier
+		_, err2 = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE id = $1", branchENIAttachmentID)
+		if err2 != nil {
+			logger.G(ctx).WithError(err2).Error("Unable to delete dangling entry in branch eni attachments table")
+			return nil, ec2wrapper.HandleEC2Error(err, span)
+		}
+		return nil, &persistentError{err: ec2wrapper.HandleEC2Error(err, span)}
 	}
 
 	_, err = tx.ExecContext(ctx,
@@ -248,6 +246,11 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 	ctx, span := trace.StartSpan(ctx, "startAssociation")
 	defer span.End()
 
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"branchENI": branchENI,
+		"trunkENI":  trunkENI,
+	})
+
 	// Get that predicate locking action.
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelSerializable,
@@ -261,7 +264,26 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 		_ = tx.Rollback()
 	}()
 
+	var id int
 	row := tx.QueryRowContext(ctx,
+		"SELECT id FROM branch_eni_actions_associate WHERE state = 'pending' AND branch_eni = $1 AND trunk_eni = $2 AND idx = $3", branchENI, trunkENI, idx)
+	err = row.Scan(&id)
+	if err == nil {
+		logger.G(ctx).Debug("Association already in progress")
+		err = tx.Commit()
+		if err != nil {
+			err = errors.Wrap(err, "Could not commit transaction")
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
+		return id, nil
+	} else if err != sql.ErrNoRows {
+		err = errors.Wrap(err, "Could not query branch_eni_actions_associate for existing requests to associate")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	row = tx.QueryRowContext(ctx,
 		"SELECT branch_eni, association_id FROM branch_eni_attachments WHERE trunk_eni = $1 AND idx = $2 LIMIT 1",
 		trunkENI, idx)
 	var existingBranchENI, existingAssociationID string
@@ -303,11 +325,10 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 		clientToken, branchENI, trunkENI, idx, vpcService.hostname,
 	)
 
-	var id int
 	err = row.Scan(&id)
 	if err != nil {
 		// These errors might largely be recoverable, so you know, deal with that
-		err = errors.Wrap(err, "Unable to insert and scan into branch_eni_actions")
+		err = errors.Wrap(err, "Unable to insert and scan into branch_eni_actions_associate")
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -328,10 +349,7 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 		return 0, err
 	}
 
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"branchENI": branchENI,
-		"trunkENI":  trunkENI,
-	})
+	logger.G(ctx).Debug("Finished starting disassociation")
 
 	return id, nil
 }
@@ -375,6 +393,286 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 	if err != nil {
 		err = errors.Wrap(err, "Cannot insert network interface permission into database")
 		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) disassociateNetworkInterface(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, associationID string, force bool) error {
+	ctx, span := trace.StartSpan(ctx, "associateNetworkInterface")
+	defer span.End()
+	ctx, cancel := context.WithTimeout(ctx, maxDisssociateTime)
+	defer cancel()
+
+	span.AddAttributes(trace.StringAttribute("associationID", associationID))
+
+	id, err := vpcService.startDissociation(ctx, associationID, force)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to start disassociation")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	err = vpcService.finishDisassociation(ctx, tx, session, id)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Unable to finish disassociation")
+		err = errors.Wrap(err, "Unable to finish disassociation")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) startDissociation(ctx context.Context, associationID string, force bool) (int, error) {
+	ctx, span := trace.StartSpan(ctx, "startDissociation")
+	defer span.End()
+
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"associationID": associationID,
+		"force":         force,
+	})
+
+	span.AddAttributes(
+		trace.StringAttribute("associationID", associationID),
+		trace.BoolAttribute("force", force),
+	)
+
+	// Get that predicate locking action.
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+	})
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database transaction")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	var id int
+	row := tx.QueryRowContext(ctx, "SELECT id FROM branch_eni_actions_disassociate WHERE association_id = $1 AND state = 'pending'", associationID)
+	err = row.Scan(&id)
+	if err == nil {
+		logger.G(ctx).Debug("Disassociation already in progress")
+		err = tx.Commit()
+		if err != nil {
+			err = errors.Wrap(err, "Could not commit transaction")
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
+		return id, nil
+	} else if err != sql.ErrNoRows {
+		err = errors.Wrap(err, "Could not query branch_eni_actions_disassociate for existing requests to disassociate")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	// Technically, none of this is neccessary, because the step to do the INSERT will fail
+	// since the failure of the foreign key constraint
+	//
+	// But this makes nicer error messages
+	row = tx.QueryRowContext(ctx, "SELECT branch_eni, trunk_eni FROM branch_eni_attachments WHERE association_id = $1",
+		associationID)
+	var branchENI, trunkENI string
+	err = row.Scan(&branchENI, &trunkENI)
+
+	if err == sql.ErrNoRows {
+		_ = tx.Rollback()
+		err = fmt.Errorf("Association ID %q not found in branch_eni_attachments", associationID)
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	} else if err != nil {
+		_ = tx.Rollback()
+		err = errors.Wrap(err, "error querying branch_eni_attachments to check attachment exists")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	if !force {
+		rows, err := tx.QueryContext(ctx, "SELECT assignment_id FROM assignments WHERE branch_eni_association = $1", associationID)
+		if err != nil {
+			err = errors.Wrap(err, "error querying assignments to check if assignments exists")
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
+		assignments := []string{}
+		for rows.Next() {
+			var assignmentID string
+			err = rows.Scan(&assignmentID)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot scan assignment ID")
+				tracehelpers.SetStatus(err, span)
+				return 0, err
+			}
+			assignments = append(assignments, assignmentID)
+		}
+		logger.G(ctx).WithField("assignments", assignments).Debug("Found assignments")
+		if l := len(assignments); l > 0 {
+			err = fmt.Errorf("Cannot start deletion, %d assignments still assigned to table, and force not specified: %s", l, strings.Join(assignments, ","))
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
+	}
+
+	clientToken := uuid.New().String()
+	row = tx.QueryRowContext(ctx,
+		"INSERT INTO branch_eni_actions_disassociate(token, association_id, created_by) VALUES ($1, $2, $3) RETURNING id",
+		clientToken, associationID, vpcService.hostname,
+	)
+
+	err = row.Scan(&id)
+	if err != nil {
+		// These errors might largely be recoverable, so you know, deal with that
+		err = errors.Wrap(err, "Unable to insert and scan into branch_eni_actions_disassociate")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+	span.AddAttributes(trace.Int64Attribute("id", int64(id)))
+
+	_, err = tx.ExecContext(ctx, "SELECT pg_notify('branch_eni_actions_disassociate_created', $1)", strconv.Itoa(id))
+	if err != nil {
+		// These errors might largely be recoverable, so you know, deal with that
+		err = errors.Wrap(err, "Unable to notify of branch_eni_actions_disassociate_created")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Unable to commit transaction")
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"associationID": associationID,
+	}).Debug("Finished starting disassociation")
+
+	return id, nil
+}
+
+func (vpcService *vpcService) finishDisassociation(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, id int) error {
+	ctx, span := trace.StartSpan(ctx, "finishDisassociation")
+	defer span.End()
+
+	span.AddAttributes(trace.Int64Attribute("id", int64(id)))
+
+	row := tx.QueryRowContext(ctx, `
+SELECT branch_eni_actions_disassociate.token,
+       branch_eni_actions_disassociate.association_id,
+       branch_eni_actions_disassociate.state,
+       branch_eni_actions_disassociate.error_code,
+       branch_eni_actions_disassociate.error_message,
+       trunk_enis.account_id,
+       trunk_enis.region
+FROM branch_eni_actions_disassociate
+JOIN branch_eni_attachments ON branch_eni_actions_disassociate.association_id = branch_eni_attachments.association_id
+JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
+WHERE branch_eni_actions_disassociate.id = $1
+`, id)
+
+	var errorCode, errorMessage sql.NullString
+	var token, associationID, state, accountID, region string
+
+	err := row.Scan(&token, &associationID, &state, &errorCode, &errorMessage, &accountID, &region)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot scan association action")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	// Dope
+	if state == "completed" {
+		return nil
+	} else if state == "failed" {
+		if !errorCode.Valid {
+			err = errors.New("state of disassociation failed, but errorCode is null")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		if !errorMessage.Valid {
+			err = errors.New("state of disassociation failed, but errorMessage is null")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		err = fmt.Errorf("Request failed with code: %q, message: %q", errorCode.String, errorMessage.String)
+		tracehelpers.SetStatus(err, span)
+		return err
+	} else if state != "pending" {
+		err = fmt.Errorf("branch ENI disassociation in unknown state %q", state)
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	// TODO: When this version of the code is fully rolled out, we can remove this line of code, and just insert the whole branch_eni_attachments
+	// at once
+	_, err = tx.ExecContext(ctx, "SELECT FROM branch_eni_attachments WHERE association_id = $1 FOR UPDATE OF branch_eni_attachments", associationID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot select row from branch_eni_attachments to lock")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	if session == nil {
+		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: region})
+		if err != nil {
+			err = errors.Wrap(err, "Could not get session")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+	}
+
+	_, err = session.DisassociateTrunkInterface(ctx, ec2.DisassociateTrunkInterfaceInput{
+		AssociationId: aws.String(associationID),
+		ClientToken:   aws.String(token),
+	})
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Unable to disassociate trunk network interface")
+		awsErr := ec2wrapper.RetrieveEC2Error(err)
+		// This likely means that the disassociation never succeeded.
+		// Although, we should check for error codes like
+		if awsErr == nil {
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		if awsErr.Code() != "InvalidAssociationID.NotFound" {
+			logger.G(ctx).WithError(awsErr).Error("Unable to disassociate trunk network interface due to underlying AWS issue")
+			_, err2 := tx.ExecContext(ctx,
+				"UPDATE branch_eni_actions_disassociate SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
+				vpcService.hostname, awsErr.Code(), awsErr.Message(), id)
+			if err2 != nil {
+				logger.G(ctx).WithError(err2).Error("Unable to update branch_eni_actions_disassociate table to mark action as failed")
+				tracehelpers.SetStatus(err, span)
+				return ec2wrapper.HandleEC2Error(err, span)
+			}
+			return &persistentError{err: ec2wrapper.HandleEC2Error(err, span)}
+		}
+		logger.G(ctx).WithError(awsErr).Warning("association ID not found in AWS, this shouldn't happen (due to the idempotency token)")
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE branch_eni_actions_disassociate SET state = 'completed' WHERE id = $1", id)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot update branch_eni_actions_disassociate table to mark action as completed")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	// Funnily enough I think
+	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE association_id = $1", associationID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot delete from branch_eni_attachments table")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "SELECT pg_notify('branch_eni_actions_disassociate_finished', $1)", strconv.Itoa(id))
+	if err != nil {
+		// These errors might largely be recoverable, so you know, deal with that
+		err = errors.Wrap(err, "Unable to notify of branch_eni_actions_disassociate_finished")
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 

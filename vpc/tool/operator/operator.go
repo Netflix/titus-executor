@@ -78,10 +78,12 @@ func Associate(ctx context.Context, instanceIdentityProvider identity.InstanceId
 	return marshaler.Marshal(os.Stdout, ret)
 }
 
-func Disassociate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, associationID string) error {
+func Disassociate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, associationID string, force bool) error {
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	req := vpcapi.DisassociateTrunkNetworkInterfaceRequest{}
+	req := vpcapi.DisassociateTrunkNetworkInterfaceRequest{
+		Force: force,
+	}
 
 	req.Key = &vpcapi.DisassociateTrunkNetworkInterfaceRequest_AssociationId{AssociationId: associationID}
 
