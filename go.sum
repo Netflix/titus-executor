@@ -25,6 +25,8 @@ github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78/go.mod h1:LmzpDX
 github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
+github.com/DATA-DOG/go-sqlmock v1.4.1 h1:ThlnYciV1iM/V0OSF/dtkqWb6xo5qITT1TJBG1MRDJM=
+github.com/DATA-DOG/go-sqlmock v1.4.1/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/DataDog/datadog-go v2.2.0+incompatible h1:V5BKkxACZLjzHjSgBbr2gvLA2Ae49yhc6CSY7MLy5k4=
 github.com/DataDog/datadog-go v2.2.0+incompatible/go.mod h1:LButxg5PwREeZtORoXG3tL4fMGNddJ+vMq1mwgfaqoQ=
 github.com/DataDog/datadog-go v3.4.0+incompatible h1:LZ0OTmlvhCBT0VYUvhGu8Lrc7WqNCj6Zw9HnMi0V6mA=
@@ -38,8 +40,6 @@ github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07 h1:F5H05
 github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07/go.mod h1:dKY6lNcNBfC6gYy4CpGw9iQ9Qgvcn+g46Diu21Co81k=
 github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef h1:KJSUpdkLKovenA1HmmoEIPkJ4CYsMApqW2RVVEvjX5Q=
 github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef/go.mod h1:3oJNZd93I7dEODYw8RBj8v5DO8VRgZrZLFZXWkmNqmY=
-github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20191021181820-7e2e4314c840 h1:Jw3uDKHJwVames3MyOi0z203ttmZ2fLwsfhhlqYD1k8=
-github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20191021181820-7e2e4314c840/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200212222136-a4a89636720b h1:FpsO+14fnJZFWoXk+tWOaCgT2Xf9uWNr7F5QYQHheKc=
 github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200212222136-a4a89636720b/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=

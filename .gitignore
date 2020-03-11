@@ -62,6 +62,9 @@ atlassian-ide-plugin.xml
 # NetBeans specific files/directories
 .nbattrs
 
+# VSCode project settings
+.vscode
+
 # Scala build
 *.cache
 

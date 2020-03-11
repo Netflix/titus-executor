@@ -245,6 +245,29 @@ message GCLegacySetupResponse {
     repeated NetworkInterfaceAttachment networkInterfaceAttachment = 1;
 }
 
+message LockId {
+    int64 id = 1;
+}
+
+message Lock {
+    int64 id = 1;
+    string lockName = 2;
+    string heldBy = 3;
+    google.protobuf.Timestamp heldUntil = 4;
+}
+
+message GetLocksRequest {
+
+}
+
+message GetLocksResponse {
+    repeated Lock locks = 1;
+}
+
+message PreemptLockRequest {
+    string lockName = 1;
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
@@ -262,6 +285,11 @@ service TitusAgentVPCService {
     rpc GCV2 (GCRequestV2) returns (GCResponseV2);
     rpc GCV3 (GCRequestV3) returns (GCResponseV3);
 
+    // Lock Management
+    rpc GetLocks(GetLocksRequest) returns (GetLocksResponse);
+    rpc GetLock(LockId) returns (Lock);
+    rpc DeleteLock(LockId) returns (google.protobuf.Empty);
+    rpc PreemptLock(PreemptLockRequest) returns (google.protobuf.Empty);
 }
 
 message PrivateKey {
