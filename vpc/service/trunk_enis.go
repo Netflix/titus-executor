@@ -43,9 +43,9 @@ func (vpcService *vpcService) deleteTrunkInterface(ctx context.Context, session 
 	span.AddAttributes(trace.BoolAttribute("existed", existed))
 	if previousTombstone != nil {
 		span.AddAttributes(trace.StringAttribute("tombstone", previousTombstone.String()))
+		logger.G(ctx).WithField("previousTombstone", previousTombstone).Info("Trying to delete interface that was previously tombstoned")
 	}
 
-	logger.G(ctx).WithField("previousTombstone", previousTombstone).Info("Trying to delete interface that was previously tombstoned")
 	if existed {
 		_, err = session.DeleteNetworkInterface(ctx, ec2.DeleteNetworkInterfaceInput{
 			NetworkInterfaceId: aws.String(networkInterfaceID),

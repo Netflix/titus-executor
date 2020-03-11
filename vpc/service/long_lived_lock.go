@@ -7,17 +7,18 @@ import (
 	"os"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"k8s.io/apimachinery/pkg/util/sets"
-
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
+
+// TODO: Break this out into its own package
 
 const (
 	lockTime                        = 30 * time.Second
@@ -159,6 +160,10 @@ type keyedItem interface {
 type itemLister func(context.Context) ([]keyedItem, error)
 type workFunc func(context.Context, keyedItem) error
 
+func generateLockName(taskName string, item keyedItem) string {
+	return fmt.Sprintf("%s_%s", taskName, item.key())
+}
+
 func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, lister itemLister, wf workFunc) error {
 	startedLockers := sets.NewString()
 	hostname, err := os.Hostname()
@@ -180,8 +185,8 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 					ctx2 := logger.WithFields(ctx, map[string]interface{}{
 						"taskName": taskName,
 					})
+					lockName := generateLockName(taskName, item)
 					logger.G(ctx2).Info("Starting new long running function under lock")
-					lockName := fmt.Sprintf("%s_%s", taskName, item.key())
 					go vpcService.waitToAcquireLongLivedLock(ctx2, hostname, lockName, func(ctx3 context.Context) error {
 						logger.G(ctx3).Info("Work fun starting")
 						err2 := wf(ctx3, item)

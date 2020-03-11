@@ -193,7 +193,7 @@ func (vpcService *vpcService) reconcileOrphanedTrunkENI(ctx context.Context, ses
 	}
 
 	if tombstone != nil {
-		logger.G(ctx).Info("Hard deleting ENI, as tombstone is set")
+		logger.G(ctx).Info("Hard deleting ENI, as tombstone is set, meaning that (we may) have tried deleting it in the past")
 		err = vpcService.hardDeleteTrunkInterface(ctx, eni)
 		if err != nil {
 			err = errors.Wrap(err, "Could not hard delete ENI")
@@ -341,7 +341,7 @@ func (vpcService *vpcService) reconcileUnattachedTrunkENI(ctx context.Context, s
 
 	logger.G(ctx).Info("Found unattached branch ENI, attempting to delete gracefully")
 
-	if tombstone == nil {
+	if tombstone != nil {
 		logger.G(ctx).WithField("tombstone", tombstone).Info("Found tombstoned ENI on reconcilation, likely leak")
 	}
 
@@ -351,4 +351,12 @@ func (vpcService *vpcService) reconcileUnattachedTrunkENI(ctx context.Context, s
 	}
 
 	return nil
+}
+
+func (vpcService *vpcService) reconcileTrunkENIsLongLivedTask() longLivedTask {
+	return longLivedTask{
+		taskName:   "reconcile_trunk_enis",
+		itemLister: vpcService.getTrunkENIRegionAccounts,
+		workFunc:   vpcService.reconcileTrunkENIsForRegionAccountLoop,
+	}
 }

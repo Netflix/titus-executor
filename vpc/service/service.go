@@ -338,11 +338,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 			itemLister: nilItemEnumerator,
 			workFunc:   vpcService.detatchUnusedBranchENILoop,
 		},
-		{
-			taskName:   "reconcile_trunk_enis",
-			itemLister: vpcService.getTrunkENIRegionAccounts,
-			workFunc:   vpcService.reconcileTrunkENIsForRegionAccountLoop,
-		},
+		vpcService.reconcileTrunkENIsLongLivedTask(),
 		{
 			taskName:   "reconcile_branch_enis",
 			itemLister: vpcService.getBranchENIRegionAccounts,
