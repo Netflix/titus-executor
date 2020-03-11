@@ -208,18 +208,18 @@ func (vpcService *vpcService) reconcileOrphanedTrunkENI(ctx context.Context, ses
 		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	if !eniExists {
-		logger.G(ctx).Info("Hard deleting ENI, as could not find it in AWS")
-		err = vpcService.hardDeleteTrunkInterface(ctx, eni)
-		if err != nil {
-			err = errors.Wrap(err, "Could not hard delete ENI")
-			tracehelpers.SetStatus(err, span)
-		}
-		return err
+	if eniExists {
+		logger.G(ctx).Warning("ENI actually exists in AWS according to modify call")
+		return nil
+	}
+	logger.G(ctx).Info("Hard deleting ENI, as could not find it in AWS")
+	err = vpcService.hardDeleteTrunkInterface(ctx, eni)
+	if err != nil {
+		err = errors.Wrap(err, "Could not hard delete ENI")
+		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	logger.G(ctx).WithError(err).Error("Experienced unexpected AWS error")
-	return ec2wrapper.HandleEC2Error(err, span)
+	return nil
 }
 
 func (vpcService *vpcService) getDatabaseOrphanedTrunkENIs(ctx context.Context, account *regionAccount, enis sets.String) (sets.String, error) {
