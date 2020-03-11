@@ -188,6 +188,7 @@ func main() {
 	rootCmd.AddCommand(globalGCCommand(ctx, v))
 	rootCmd.AddCommand(setupContainercommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(gcCommand(ctx, v, ipr.getProvider))
+	rootCmd.AddCommand(operatorCmd(ctx, v, ipr.getProvider))
 
 	cobra.OnInitialize(func() {
 		if cfgFile != "" {

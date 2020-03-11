@@ -45,12 +45,19 @@ func insertBranchENIIntoDB(ctx context.Context, tx *sql.Tx, iface *ec2.NetworkIn
 
 // We are given the session of the trunk ENI account
 // We assume network interface permissions are already taken care of
-func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI, trunkENI string, idx int) (*string, error) {
+type association struct {
+	branchENI string
+	trunkENI  string
+}
+
+func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, association association, idx int) (*string, error) {
 	ctx, span := trace.StartSpan(ctx, "associateNetworkInterface")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, maxAssociateTime)
 	defer cancel()
 
+	branchENI := association.branchENI
+	trunkENI := association.trunkENI
 	span.AddAttributes(
 		trace.StringAttribute("branchENI", branchENI),
 		trace.StringAttribute("trunkENI", trunkENI),
@@ -72,6 +79,23 @@ func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx 
 	}
 
 	return associationID, nil
+}
+
+type persistentError struct {
+	err error
+}
+
+func (p *persistentError) Unwrap() error {
+	return p.err
+}
+
+func (p *persistentError) Error() string {
+	return p.err.Error()
+}
+
+func (p *persistentError) Is(target error) bool {
+	_, ok := target.(*persistentError)
+	return ok
 }
 
 func (vpcService *vpcService) finishAssociation(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, id int) (*string, error) {
@@ -142,7 +166,21 @@ FOR UPDATE OF branch_eni_actions
 	})
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to associate trunk network interface")
-		return nil, ec2wrapper.HandleEC2Error(err, span)
+		awsErr := ec2wrapper.RetrieveEC2Error(err)
+		// This likely means that the association never succeeded.
+		if awsErr != nil {
+			logger.G(ctx).WithError(awsErr).Error("Unable to associate trunk network interface due to underlying AWS issue")
+			_, err2 := tx.ExecContext(ctx,
+				"UPDATE branch_eni_actions SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
+				vpcService.hostname, awsErr.Code(), awsErr.Message(), id)
+			if err2 != nil {
+				logger.G(ctx).WithError(err).Error("Unable to update branch_eni_actions table to mark action as failed")
+			} else {
+				return nil, &persistentError{err: ec2wrapper.HandleEC2Error(err, span)}
+			}
+		}
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	_, err = tx.ExecContext(ctx,
@@ -203,7 +241,24 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 			tracehelpers.SetStatus(err, span)
 			return 0, err
 		}
-		err = fmt.Errorf("Conflicting association ID %q already from branch ENI %q", existingAssociationID, existingBranchENI)
+		err = fmt.Errorf("Conflicting association ID %q already from branch ENI %q on trunk ENI %q at index %d", existingAssociationID, existingBranchENI, trunkENI, idx)
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	row = tx.QueryRowContext(ctx,
+		"SELECT trunk_eni, association_id FROM branch_eni_attachments WHERE branch_eni = $1 LIMIT 1", branchENI)
+	var existingTrunkENIID string
+	err = row.Scan(&existingTrunkENIID, &existingAssociationID)
+	if err != sql.ErrNoRows {
+		_ = tx.Rollback()
+		if err != nil {
+			err = errors.Wrap(err, "error querying branch_eni_attachments to hold predicate lock")
+			tracehelpers.SetStatus(err, span)
+			return 0, err
+		}
+		err = fmt.Errorf("Conflicting association: Branch ENI %q already associated with trunk ENI %q (association: %s)",
+			branchENI, existingTrunkENIID, existingAssociationID)
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -240,4 +295,49 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 	}
 
 	return id, nil
+}
+
+func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, tx *sql.Tx, trunkENIAccountID string, branchENISession *ec2wrapper.EC2Session, eni *branchENI) error {
+	ctx, span := trace.StartSpan(ctx, "ensureBranchENIPermissionV3")
+	defer span.End()
+
+	if eni.accountID == trunkENIAccountID {
+		return nil
+	}
+
+	// This could be collapsed into a join on the above query, but for now, we wont do that
+	row := tx.QueryRowContext(ctx, "SELECT COALESCE(count(*), 0) FROM eni_permissions WHERE branch_eni = $1 AND account_id = $2", eni.id, trunkENIAccountID)
+	var permissions int
+	err := row.Scan(&permissions)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot retrieve from branch ENI permissions")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+	if permissions > 0 {
+		return nil
+	}
+
+	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", trunkENIAccountID, eni.accountID)
+	ec2client := ec2.New(branchENISession.Session)
+	_, err = ec2client.CreateNetworkInterfacePermissionWithContext(ctx, &ec2.CreateNetworkInterfacePermissionInput{
+		AwsAccountId:       aws.String(trunkENIAccountID),
+		NetworkInterfaceId: aws.String(eni.id),
+		Permission:         aws.String("INSTANCE-ATTACH"),
+	})
+
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create network interface permission")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO eni_permissions(branch_eni, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING ", eni.id, trunkENIAccountID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot insert network interface permission into database")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	return nil
 }

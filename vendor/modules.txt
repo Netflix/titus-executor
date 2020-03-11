@@ -14,7 +14,7 @@ github.com/Microsoft/go-winio
 github.com/Netflix/metrics-client-go/metrics
 # github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
 github.com/Netflix/spectator-go
-# github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200212222136-a4a89636720b
+# github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20200212222136-a4a89636720b
 github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
 # github.com/OpenPeeDeeP/depguard v1.0.1
 github.com/OpenPeeDeeP/depguard
@@ -148,8 +148,10 @@ github.com/godbus/dbus/v5
 # github.com/gofrs/flock v0.0.0-20190320160742-5135e617513b
 github.com/gofrs/flock
 # github.com/gogo/protobuf v1.3.1
+github.com/gogo/protobuf/jsonpb
 github.com/gogo/protobuf/proto
 github.com/gogo/protobuf/sortkeys
+github.com/gogo/protobuf/types
 # github.com/golang-migrate/migrate v3.5.4+incompatible
 github.com/golang-migrate/migrate
 github.com/golang-migrate/migrate/database

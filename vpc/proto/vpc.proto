@@ -268,6 +268,67 @@ message PreemptLockRequest {
     string lockName = 1;
 }
 
+message AssociateTrunkNetworkInterfaceRequest {
+    oneof trunkNetworkInterfaceIdentifier {
+        InstanceIdentity instanceIdentity = 1;
+        string trunkENI = 2;
+    }
+    string branchENI = 3;
+    uint64 vlanId = 4;
+}
+
+message AssociateTrunkNetworkInterfaceResponse {
+    string associationId = 1;
+}
+
+message DisassociateTrunkNetworkInterfaceRequest {
+    oneof key {
+        string associationId = 1;
+    }
+}
+
+message DisassociateTrunkNetworkInterfaceResponse {
+}
+
+message DescribeTrunkNetworkInterfaceRequest {
+    oneof trunkNetworkInterfaceIdentifier {
+        InstanceIdentity instanceIdentity = 1;
+        string trunkENI = 2;
+    }
+}
+
+message DescribeTrunkNetworkInterfaceResponse {
+    message TrunkENI {
+        string id = 1;
+        string accountId = 2;
+        string az = 3;
+        google.protobuf.Timestamp createdAt = 4;
+        string subnetId = 5;
+        string vpcId = 6;
+        string region = 7;
+    }
+
+    message BranchENI {
+        string id = 1;
+        google.protobuf.Timestamp createdAt = 2;
+        string accountId = 3;
+        string subnetId = 4;
+        string vpcId = 5;
+        repeated string securityGroupIds = 6;
+        google.protobuf.Timestamp modifiedAt = 7;
+        google.protobuf.Timestamp lastAssignedTo = 8;
+    }
+
+    message TrunkNetworkInterfaceAssociation {
+        uint64 vlanId = 1;
+        string associationId = 2;
+        BranchENI branchENI = 3;
+    }
+
+    TrunkENI trunkENI = 1;
+    repeated TrunkNetworkInterfaceAssociation associations = 2;
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
@@ -290,6 +351,11 @@ service TitusAgentVPCService {
     rpc GetLock(LockId) returns (Lock);
     rpc DeleteLock(LockId) returns (google.protobuf.Empty);
     rpc PreemptLock(PreemptLockRequest) returns (google.protobuf.Empty);
+    // These are internal APIs that should really only be used by operators
+    rpc AssociateTrunkNetworkInterface (AssociateTrunkNetworkInterfaceRequest) returns (AssociateTrunkNetworkInterfaceResponse);
+    rpc DisassociateTrunkNetworkInterface (DisassociateTrunkNetworkInterfaceRequest) returns (DisassociateTrunkNetworkInterfaceResponse);
+    rpc DescribeTrunkNetworkInterface (DescribeTrunkNetworkInterfaceRequest) returns (DescribeTrunkNetworkInterfaceResponse);
+
 }
 
 message PrivateKey {

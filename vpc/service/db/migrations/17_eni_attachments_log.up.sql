@@ -34,7 +34,9 @@ create table branch_eni_actions
     created_at timestamp default now(),
     completed_at timestamp,
     created_by text,
-    completed_by text
+    completed_by text,
+    error_code text,
+    error_message text
 );
 
 -- Although you should never have to disassociate two ENIs from the same trunk ENI, there's nothing
@@ -47,10 +49,5 @@ create unique index branch_eni_actions_branch_eni_uindex
 
 create unique index branch_eni_actions_token_uindex
     on branch_eni_actions (token);
-
-create unique index branch_eni_actions_attachment_id_uindex
-    on branch_eni_actions (attachment_id);
-
-
 
 COMMIT;

@@ -494,13 +494,26 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	err = vpcService.ensureBranchENIPermissionV3(ctx, tx, trunkENI, branchENISession, eni)
+	err = vpcService.ensureBranchENIPermissionV3(ctx, tx, aws.StringValue(trunkENI.OwnerId), branchENISession, eni)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-	associationID, err := vpcService.associateNetworkInterface(ctx, tx, instanceSession, eni.id, aws.StringValue(trunkENI.NetworkInterfaceId), attachmentIdx)
+	associationID, err := vpcService.associateNetworkInterface(ctx, tx, instanceSession, association{
+		branchENI: eni.id,
+		trunkENI:  aws.StringValue(trunkENI.NetworkInterfaceId),
+	}, attachmentIdx)
 	if err != nil {
+		if errors.Is(err, &persistentError{}) {
+			logger.G(ctx).WithError(err).Error("Received persistent error, committing current state, and returning error")
+			err2 := tx.Commit()
+			if err2 != nil {
+				logger.G(ctx).WithError(err2).Error("Failed to commit transaction early due to persistent AWS error")
+			}
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+
 		err = errors.Wrap(err, "Cannot associate trunk interface with branch ENI")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -555,44 +568,6 @@ WHERE branch_eni =
 	}
 
 	return idx, nil
-}
-
-func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, tx *sql.Tx, trunkENI *ec2.InstanceNetworkInterface, branchENISession *ec2wrapper.EC2Session, eni *branchENI) error {
-	ctx, span := trace.StartSpan(ctx, "ensureBranchENIPermissionV3")
-	defer span.End()
-
-	if eni.accountID == aws.StringValue(trunkENI.OwnerId) {
-		return nil
-	}
-
-	// This could be collapsed into a join on the above query, but for now, we wont do that
-	row := tx.QueryRowContext(ctx, "SELECT COALESCE(count(*), 0) FROM eni_permissions WHERE branch_eni = $1 AND account_id = $2", eni.id, eni.accountID)
-	var permissions int
-	err := row.Scan(&permissions)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot retrieve from branch ENI permissions")
-		span.SetStatus(traceStatusFromError(err))
-		return err
-	}
-	if permissions > 0 {
-		return nil
-	}
-
-	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", aws.StringValue(trunkENI.OwnerId), eni.accountID)
-	ec2client := ec2.New(branchENISession.Session)
-	_, err = ec2client.CreateNetworkInterfacePermissionWithContext(ctx, &ec2.CreateNetworkInterfacePermissionInput{
-		AwsAccountId:       trunkENI.OwnerId,
-		NetworkInterfaceId: aws.String(eni.id),
-		Permission:         aws.String("INSTANCE-ATTACH"),
-	})
-
-	if err != nil {
-		err = errors.Wrap(err, "Cannot create network interface permission")
-		span.SetStatus(traceStatusFromError(err))
-		return err
-	}
-
-	return nil
 }
 
 func (vpcService *vpcService) assignIPWithChangeSGOnENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, s *subnet, trunkENI *ec2.InstanceNetworkInterface, instance *ec2.Instance, maxIPAddresses int) (resp *vpcapi.AssignIPResponseV3, retErr error) {
