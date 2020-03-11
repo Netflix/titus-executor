@@ -262,7 +262,7 @@ WHERE assignment_id IN
 
 // This function, once invoked, is meant to run forever until context is cancelled
 // Make this adjustable so it's not done every minute?
-func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem keyedItem) {
+func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem keyedItem) error {
 	item := protoItem.(*regionAccount)
 	for {
 		err := vpcService.doGCENIs(ctx, item)
@@ -271,7 +271,7 @@ func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoIte
 		}
 		err = waitFor(ctx, timeBetweenGCs)
 		if err != nil {
-			return
+			return err
 		}
 	}
 }

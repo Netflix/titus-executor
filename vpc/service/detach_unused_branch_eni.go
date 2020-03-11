@@ -34,7 +34,7 @@ func nilItemEnumerator(ctx context.Context) ([]keyedItem, error) {
 	return []keyedItem{&nilItem{}}, nil
 }
 
-func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, protoItem keyedItem) {
+func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, protoItem keyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -45,8 +45,7 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 		}
 		err = waitFor(ctx, resetTime)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Terminating loop")
-			return
+			return err
 		}
 	}
 }

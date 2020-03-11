@@ -22,7 +22,7 @@ const (
 	timeBetweenTrunkENIReconcilation = time.Minute
 )
 
-func (vpcService *vpcService) reconcileTrunkENIsForRegionAccountLoop(ctx context.Context, protoItem keyedItem) {
+func (vpcService *vpcService) reconcileTrunkENIsForRegionAccountLoop(ctx context.Context, protoItem keyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -39,7 +39,7 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccountLoop(ctx context
 		}
 		err = waitFor(ctx, timeBetweenTrunkENIReconcilation)
 		if err != nil {
-			return
+			return err
 		}
 	}
 }

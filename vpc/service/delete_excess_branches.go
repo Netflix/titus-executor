@@ -74,7 +74,7 @@ JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets
 	return ret, nil
 }
 
-func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, protoItem keyedItem) {
+func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, protoItem keyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -92,8 +92,7 @@ func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, pro
 		}
 		err = waitFor(ctx, resetTime)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Terminating loop")
-			return
+			return err
 		}
 	}
 }

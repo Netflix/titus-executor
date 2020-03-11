@@ -78,7 +78,8 @@ type vpcService struct {
 	hostname string
 	ec2      *ec2wrapper.EC2SessionManager
 
-	db *sql.DB
+	db    *sql.DB
+	dbURL string
 
 	authoritativePublicKey ed25519.PublicKey
 	hostPublicKeySignature []byte
@@ -128,6 +129,7 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 type Config struct {
 	Listener             net.Listener
 	DB                   *sql.DB
+	DBURL                string
 	Key                  vpcapi.PrivateKey
 	MaxConcurrentRefresh int64
 	GCTimeout            time.Duration
@@ -164,6 +166,7 @@ func Run(ctx context.Context, config *Config) error {
 		hostname: hostname,
 		ec2:      ec2wrapper.NewEC2SessionManager(),
 		db:       config.DB,
+		dbURL:    config.DBURL,
 
 		gcTimeout:       config.GCTimeout,
 		refreshInterval: config.RefreshInterval,
@@ -339,6 +342,11 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 			taskName:   "reconcile_branch_enis",
 			itemLister: vpcService.getBranchENIRegionAccounts,
 			workFunc:   vpcService.reconcileBranchENILoop,
+		},
+		{
+			taskName:   "branch_eni_associate",
+			itemLister: nilItemEnumerator,
+			workFunc:   vpcService.branchENIAssociatorListener,
 		},
 	}
 }

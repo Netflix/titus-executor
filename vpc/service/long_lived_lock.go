@@ -157,7 +157,7 @@ type keyedItem interface {
 }
 
 type itemLister func(context.Context) ([]keyedItem, error)
-type workFunc func(context.Context, keyedItem)
+type workFunc func(context.Context, keyedItem) error
 
 func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, lister itemLister, wf workFunc) error {
 	startedLockers := sets.NewString()
@@ -182,10 +182,11 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 					})
 					logger.G(ctx2).Info("Starting new long running function under lock")
 					lockName := fmt.Sprintf("%s_%s", taskName, item.key())
-					go vpcService.waitToAcquireLongLivedLock(ctx2, hostname, lockName, func(ctx3 context.Context) {
+					go vpcService.waitToAcquireLongLivedLock(ctx2, hostname, lockName, func(ctx3 context.Context) error {
 						logger.G(ctx3).Info("Work fun starting")
-						wf(ctx3, item)
-						logger.G(ctx3).Info("Work fun ending")
+						err2 := wf(ctx3, item)
+						logger.G(ctx3).WithError(err2).Info("Work fun ending")
+						return err2
 					})
 				}
 			}
@@ -199,11 +200,14 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 	}
 }
 
-func (vpcService *vpcService) waitToAcquireLongLivedLock(ctx context.Context, hostname, lockName string, workFun func(context.Context)) {
+func (vpcService *vpcService) waitToAcquireLongLivedLock(ctx context.Context, hostname, lockName string, workFun func(context.Context) error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	timer := time.NewTimer(lockTime / 2)
+	if !timer.Stop() {
+		<-timer.C
+	}
 	defer timer.Stop()
 	for {
 		lockAcquired, id, err := vpcService.tryToAcquireLock(ctx, hostname, lockName)
@@ -311,11 +315,14 @@ func (vpcService *vpcService) tryToHoldLock(ctx context.Context, hostname string
 	return nil
 }
 
-func (vpcService *vpcService) holdLock(ctx context.Context, hostname string, id int, workFun func(context.Context)) error {
+func (vpcService *vpcService) holdLock(ctx context.Context, hostname string, id int, workFun func(context.Context) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go workFun(ctx)
+	errCh := make(chan error)
+	go func() {
+		errCh <- workFun(ctx)
+	}()
 
 	ticker := time.NewTicker(lockTime / 4)
 	defer ticker.Stop()
@@ -325,6 +332,9 @@ func (vpcService *vpcService) holdLock(ctx context.Context, hostname string, id 
 			return err
 		}
 		select {
+		case err = <-errCh:
+			logger.G(ctx).WithError(err).Error("Worker encountered error, releasing lock")
+			return errors.Wrap(err, "Worker encountered error")
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:

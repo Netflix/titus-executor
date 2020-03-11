@@ -23,7 +23,7 @@ const (
 	timeBetweenBranchENIReconcilation = time.Minute
 )
 
-func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoItem keyedItem) {
+func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoItem keyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -39,7 +39,7 @@ func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoI
 		}
 		err = waitFor(ctx, timeBetweenBranchENIReconcilation)
 		if err != nil {
-			return
+			return err
 		}
 	}
 }

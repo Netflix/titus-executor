@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/client-go/util/workqueue"
+
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -105,18 +107,18 @@ func (vpcService *vpcService) finishAssociation(ctx context.Context, tx *sql.Tx,
 	span.AddAttributes(trace.Int64Attribute("id", int64(id)))
 
 	row := tx.QueryRowContext(ctx, `
-SELECT branch_eni_actions.token,
-       branch_eni_actions.association_id,
-       branch_eni_actions.branch_eni,
-       branch_eni_actions.trunk_eni,
-       branch_eni_actions.idx,
+SELECT branch_eni_actions_associate.token,
+       branch_eni_actions_associate.association_id,
+       branch_eni_actions_associate.branch_eni,
+       branch_eni_actions_associate.trunk_eni,
+       branch_eni_actions_associate.idx,
        trunk_enis.account_id,
        trunk_enis.region,
-       branch_eni_actions.state
-FROM branch_eni_actions
-JOIN trunk_enis ON branch_eni_actions.trunk_eni = trunk_enis.trunk_eni
-WHERE branch_eni_actions.id = $1
-FOR UPDATE OF branch_eni_actions
+       branch_eni_actions_associate.state
+FROM branch_eni_actions_associate
+JOIN trunk_enis ON branch_eni_actions_associate.trunk_eni = trunk_enis.trunk_eni
+WHERE branch_eni_actions_associate.id = $1
+FOR NO KEY UPDATE OF branch_eni_actions_associate
 `, id)
 
 	var associationID sql.NullString
@@ -139,6 +141,28 @@ FOR UPDATE OF branch_eni_actions
 		return nil, err
 	}
 
+	if state == "failed" {
+		row = tx.QueryRowContext(ctx, `
+SELECT branch_eni_actions_associate.error_code,
+       branch_eni_actions_associate.error_message
+FROM branch_eni_actions_associate
+WHERE branch_eni_actions_associate.id = $1
+`, id)
+		var errorCode, errorMessage string
+		err = row.Scan(&errorCode, &errorMessage)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan association action for error")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+
+		err = fmt.Errorf("Request failed with code: %q, message: %q", errorCode, errorMessage)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	// TODO: When this version of the code is fully rolled out, we can remove this line of code, and just insert the whole branch_eni_attachments
+	// at once
 	row = tx.QueryRowContext(ctx, "INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, attachment_generation) VALUES ($1, $2, $3, 3) RETURNING id",
 		branchENI, trunkENI, idx)
 	var branchENIAttachmentID int
@@ -171,20 +195,29 @@ FOR UPDATE OF branch_eni_actions
 		if awsErr != nil {
 			logger.G(ctx).WithError(awsErr).Error("Unable to associate trunk network interface due to underlying AWS issue")
 			_, err2 := tx.ExecContext(ctx,
-				"UPDATE branch_eni_actions SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
+				"UPDATE branch_eni_actions_associate SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
 				vpcService.hostname, awsErr.Code(), awsErr.Message(), id)
 			if err2 != nil {
 				logger.G(ctx).WithError(err).Error("Unable to update branch_eni_actions table to mark action as failed")
-			} else {
-				return nil, &persistentError{err: ec2wrapper.HandleEC2Error(err, span)}
+				tracehelpers.SetStatus(err, span)
+				return nil, ec2wrapper.HandleEC2Error(err, span)
 			}
+
+			// We need to delete the row from branch_eni_attachments we inserted earlier
+			_, err2 = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE id = $1", branchENIAttachmentID)
+			if err2 != nil {
+				logger.G(ctx).WithError(err).Error("Unable to delete dangling entry in branch eni attachments table")
+				return nil, ec2wrapper.HandleEC2Error(err, span)
+			}
+			return nil, &persistentError{err: ec2wrapper.HandleEC2Error(err, span)}
+
 		}
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	_, err = tx.ExecContext(ctx,
-		"UPDATE branch_eni_actions SET state = 'completed', completed_by = $1, completed_at = now(), association_id = $2 WHERE id = $3",
+		"UPDATE branch_eni_actions_associate SET state = 'completed', completed_by = $1, completed_at = now(), association_id = $2 WHERE id = $3",
 		vpcService.hostname, aws.StringValue(output.InterfaceAssociation.AssociationId), id)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update branch_eni_actions table to mark action as completed")
@@ -200,10 +233,10 @@ FOR UPDATE OF branch_eni_actions
 		return nil, err
 	}
 
-	_, err = tx.ExecContext(ctx, "SELECT pg_notify('branch_eni_associate_action_finished', $1)", strconv.Itoa(id))
+	_, err = tx.ExecContext(ctx, "SELECT pg_notify('branch_eni_actions_associate_finished', $1)", strconv.Itoa(id))
 	if err != nil {
 		// These errors might largely be recoverable, so you know, deal with that
-		err = errors.Wrap(err, "Unable to notify of branch_eni_associate_action_finished")
+		err = errors.Wrap(err, "Unable to notify of branch_eni_actions_associate_finished")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -266,7 +299,7 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 	// TODO: Consider making a foreign key relationship between branch_eni_actions and branch_eni_attachments
 	clientToken := uuid.New().String()
 	row = tx.QueryRowContext(ctx,
-		"INSERT INTO branch_eni_actions(token, branch_eni, trunk_eni, idx, created_by, action) VALUES ($1, $2, $3, $4, $5, 'associate') RETURNING id",
+		"INSERT INTO branch_eni_actions_associate(token, branch_eni, trunk_eni, idx, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id",
 		clientToken, branchENI, trunkENI, idx, vpcService.hostname,
 	)
 
@@ -278,11 +311,12 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
+	span.AddAttributes(trace.Int64Attribute("id", int64(id)))
 
-	_, err = tx.ExecContext(ctx, "SELECT pg_notify('branch_eni_associate_action_created', $1)", strconv.Itoa(id))
+	_, err = tx.ExecContext(ctx, "SELECT pg_notify('branch_eni_actions_associate_created', $1)", strconv.Itoa(id))
 	if err != nil {
 		// These errors might largely be recoverable, so you know, deal with that
-		err = errors.Wrap(err, "Unable to notify of branch_eni_associate_action_created")
+		err = errors.Wrap(err, "Unable to notify of branch_eni_actions_associate_created")
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -293,6 +327,11 @@ func (vpcService *vpcService) startAssociation(ctx context.Context, branchENI, t
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
+
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"branchENI": branchENI,
+		"trunkENI":  trunkENI,
+	})
 
 	return id, nil
 }
@@ -336,6 +375,203 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 	if err != nil {
 		err = errors.Wrap(err, "Cannot insert network interface permission into database")
 		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	return nil
+}
+
+type listenerEvent struct {
+	listenerEvent pq.ListenerEventType
+	err           error
+}
+
+func (vpcService *vpcService) branchENIAssociatorListener(ctx context.Context, item keyedItem) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	listenerEventCh := make(chan listenerEvent, 10)
+	eventCallback := func(event pq.ListenerEventType, err error) {
+		listenerEventCh <- listenerEvent{listenerEvent: event, err: err}
+	}
+	pqListener := pq.NewListener(vpcService.dbURL, 10*time.Second, 2*time.Minute, eventCallback)
+	defer func() {
+		_ = pqListener.Close()
+	}()
+
+	err := pqListener.Listen("branch_eni_actions_associate_created")
+	if err != nil {
+		return errors.Wrap(err, "Cannot listen on branch_eni_actions_associate_created channel")
+	}
+	err = pqListener.Listen("branch_eni_actions_associate_finished")
+	if err != nil {
+		return errors.Wrap(err, "Cannot listen on branch_eni_actions_associate_finished channel")
+	}
+
+	pingTimer := time.NewTimer(10 * time.Second)
+	pingCh := make(chan error)
+
+	wq := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "branchENIAssociator")
+	defer wq.ShutDown()
+
+	errCh := make(chan error)
+	go func() {
+		errCh <- vpcService.branchENIAssociatorWorker(ctx, wq)
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err = <-errCh:
+			logger.G(ctx).WithError(err).Error("Worker exiting")
+			return err
+		case <-pingTimer.C:
+			go func() {
+				pingCh <- pqListener.Ping()
+			}()
+		case pingErr := <-pingCh:
+			if pingErr != nil {
+				logger.G(ctx).WithError(pingErr).Error("Could not ping database")
+			}
+			pingTimer.Reset(10 * time.Second)
+		case ev := <-pqListener.Notify:
+			// This is a reconnect event
+			if ev == nil {
+				err = vpcService.retrieveAllWorkItems(ctx, "branch_eni_actions_associate", wq)
+				if err != nil {
+					err = errors.Wrap(err, "Could not retrieve all work items after reconnecting to postgres")
+					return err
+				}
+			} else if ev.Channel == "branch_eni_actions_associate_created" {
+				logger.G(ctx).WithField("extra", ev.Extra).Debug("Received work item")
+				wq.Add(ev.Extra)
+			} else if ev.Channel == "branch_eni_actions_associate_finished" {
+				logger.G(ctx).WithField("extra", ev.Extra).Debug("Received work finished")
+				wq.Forget(ev.Extra)
+			}
+		case ev := <-listenerEventCh:
+			switch ev.listenerEvent {
+			case pq.ListenerEventConnected:
+				logger.G(ctx).Info("Connected to postgres")
+				err = vpcService.retrieveAllWorkItems(ctx, "branch_eni_actions_associate", wq)
+				if err != nil {
+					err = errors.Wrap(err, "Could not retrieve all work items")
+					return err
+				}
+			case pq.ListenerEventDisconnected:
+				wq.ShutDown()
+				logger.G(ctx).WithError(ev.err).Error("Disconnected from postgres, stopping work")
+			case pq.ListenerEventReconnected:
+				logger.G(ctx).Info("Reconnected to postgres")
+			case pq.ListenerEventConnectionAttemptFailed:
+				// Maybe this should be case for the worker bailing?
+				logger.G(ctx).WithError(ev.err).Error("Failed to reconnect to postgres")
+			}
+		}
+	}
+}
+
+func (vpcService *vpcService) branchENIAssociatorWorker(ctx context.Context, wq workqueue.RateLimitingInterface) error {
+	doWorkItem := func(item interface{}) error {
+		ctx, span := trace.StartSpan(ctx, "doWorkItem")
+		defer span.End()
+		defer wq.Done(item)
+		stringKey := item.(string)
+		id, err := strconv.Atoi(stringKey)
+		if err != nil {
+			return errors.Wrapf(err, "Unable to parse key %q into id", stringKey)
+		}
+		ctx = logger.WithField(ctx, "id", id)
+
+		logger.G(ctx).Debug("Processing work item")
+		defer logger.G(ctx).Debug("Finished processing work item")
+
+		tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			err = errors.Wrap(err, "Could not start database transaction")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		defer func() {
+			_ = tx.Rollback()
+		}()
+		_, err = vpcService.finishAssociation(ctx, tx, nil, id)
+		if errors.Is(err, &persistentError{}) {
+			logger.G(ctx).WithError(err).Error("Experienced persistent error, still committing database state")
+		} else if err != nil {
+			tracehelpers.SetStatus(err, span)
+			logger.G(ctx).WithError(err).Error("Failed to process item")
+			wq.AddRateLimited(item)
+			return nil
+		}
+		err = tx.Commit()
+		if err != nil {
+			err = errors.Wrap(err, "Could not commit database transaction")
+			tracehelpers.SetStatus(err, span)
+			wq.AddRateLimited(item)
+			return nil
+		}
+
+		wq.Forget(item)
+		return nil
+	}
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		item, shuttingDown := wq.Get()
+		if shuttingDown {
+			return nil
+		}
+		err := doWorkItem(item)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Received error from work function, exiting")
+			return err
+		}
+	}
+}
+
+func (vpcService *vpcService) retrieveAllWorkItems(ctx context.Context, table string, wq workqueue.RateLimitingInterface) error {
+	ctx, span := trace.StartSpan(ctx, "retrieveAllWorkItems")
+	defer span.End()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	span.AddAttributes(trace.StringAttribute("table", table))
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database transaction")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf("SELECT id FROM %s WHERE state = 'pending'", table)) //nolint:gosec
+	if err != nil {
+		err = errors.Wrap(err, "Could not query table for pending work items")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	for rows.Next() {
+		var id int
+		err = rows.Scan(&id)
+		if err != nil {
+			err = errors.Wrap(err, "Could not scan work item")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		wq.Add(strconv.Itoa(id))
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit transaction")
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 

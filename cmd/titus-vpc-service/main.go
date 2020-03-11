@@ -169,7 +169,7 @@ func main() {
 				return err
 			}
 
-			conn, err := newConnection(ctx, v)
+			dburl, conn, err := newConnection(ctx, v)
 			if err != nil {
 				return err
 			}
@@ -250,6 +250,7 @@ func main() {
 			return service.Run(ctx, &service.Config{
 				Listener:             listener,
 				DB:                   conn,
+				DBURL:                dburl,
 				Key:                  signingKey,
 				MaxConcurrentRefresh: v.GetInt64(maxConcurrentRefreshFlagName),
 				GCTimeout:            v.GetDuration(gcTimeoutFlagName),
@@ -288,8 +289,6 @@ func main() {
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
 	rootCmd.PersistentFlags().String(zipkinURLFlagName, "", "URL To send Zipkin spans to")
 	rootCmd.PersistentFlags().String("dburl", "postgres://localhost/titusvpcservice?sslmode=disable", "Connection String for database")
-	rootCmd.PersistentFlags().Bool("dbiam", false, "Generate IAM credentials for database")
-	rootCmd.PersistentFlags().String("region", "", "Region of the database")
 	rootCmd.PersistentFlags().Int(maxIdleConnectionsFlagName, 100, "SetMaxIdleConns sets the maximum number of connections in the idle connection pool for the database")
 	rootCmd.PersistentFlags().Int(maxOpenConnectionsFlagName, 200, "Maximum number of open connections allows to open to the database")
 	rootCmd.PersistentFlags().Int64(maxConcurrentRefreshFlagName, 10, "The number of maximum concurrent refreshes to allow")
