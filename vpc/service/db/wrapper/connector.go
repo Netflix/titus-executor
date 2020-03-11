@@ -7,15 +7,21 @@ import (
 
 var _ driver.Connector = (*connectorWrapper)(nil)
 
+type wrapper struct {
+	hostname string
+}
+
 type connectorWrapper struct {
 	realConnector driver.Connector
-	hostname      string
+	wrapper       *wrapper
 }
 
 func NewConnectorWrapper(c driver.Connector, hostname string) driver.Connector {
 	return &connectorWrapper{
 		realConnector: c,
-		hostname:      hostname,
+		wrapper: &wrapper{
+			hostname: hostname,
+		},
 	}
 }
 
@@ -26,13 +32,13 @@ func (c *connectorWrapper) Connect(ctx context.Context) (driver.Conn, error) {
 	}
 	return &connectionWrapper{
 		realConn: conn.(connectionInterface),
-		hostname: c.hostname,
+		wrapper:  c.wrapper,
 	}, err
 }
 
 func (c *connectorWrapper) Driver() driver.Driver {
 	return &driverWrapper{
 		realDriver: c.realConnector.Driver(),
-		hostname:   c.hostname,
+		wrapper:    c.wrapper,
 	}
 }

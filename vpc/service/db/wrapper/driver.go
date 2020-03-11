@@ -17,7 +17,7 @@ type driverInterface interface {
 
 type driverWrapper struct {
 	realDriver driver.Driver
-	hostname   string
+	wrapper    *wrapper
 }
 
 func (d *driverWrapper) Open(name string) (driver.Conn, error) {
@@ -27,7 +27,7 @@ func (d *driverWrapper) Open(name string) (driver.Conn, error) {
 	}
 	return &connectionWrapper{
 		realConn: conn.(connectionInterface),
-		hostname: d.hostname,
+		wrapper:  d.wrapper,
 	}, err
 }
 
@@ -38,6 +38,6 @@ func (d *driverWrapper) OpenConnector(name string) (driver.Connector, error) {
 	}
 	return &connectorWrapper{
 		realConnector: connector,
-		hostname:      d.hostname,
+		wrapper:       d.wrapper,
 	}, err
 }

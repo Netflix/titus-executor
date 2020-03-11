@@ -29,7 +29,7 @@ type connectionInterface interface {
 
 type connectionWrapper struct {
 	realConn connectionInterface
-	hostname string
+	wrapper  *wrapper
 }
 
 func (c *connectionWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
@@ -38,7 +38,14 @@ func (c *connectionWrapper) PrepareContext(ctx context.Context, query string) (d
 }
 
 func (c *connectionWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
-	return c.realConn.BeginTx(ctx, opts)
+	tx, err := c.realConn.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &txWrapper{
+		wrapper: c.wrapper,
+		realTx:  tx,
+	}, nil
 }
 
 func (c *connectionWrapper) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
@@ -74,7 +81,14 @@ func (c *connectionWrapper) Close() error {
 }
 
 func (c *connectionWrapper) Begin() (driver.Tx, error) {
-	return c.realConn.Begin() // nolint:staticcheck
+	tx, err := c.realConn.Begin() // nolint:staticcheck
+	if err != nil {
+		return nil, err
+	}
+	return &txWrapper{
+		wrapper: c.wrapper,
+		realTx:  tx,
+	}, nil
 }
 
 func (c connectionWrapper) enhanceQuery(ctx context.Context, query string) string {
@@ -84,7 +98,7 @@ func (c connectionWrapper) enhanceQuery(ctx context.Context, query string) strin
 		spanContext := span.SpanContext()
 		md.SpanID = spanContext.SpanID.String()
 	} else {
-		md.Hostname = c.hostname
+		md.Hostname = c.wrapper.hostname
 	}
 	data, err := json.Marshal(md)
 	if err != nil {
