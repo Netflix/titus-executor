@@ -54,7 +54,7 @@ func (c *connectionWrapper) QueryContext(ctx context.Context, query string, args
 }
 
 func (c *connectionWrapper) Query(query string, args []driver.Value) (driver.Rows, error) {
-	query = c.enhanceQuery(context.TODO(), query)
+	query = c.enhanceQuery(context.Background(), query)
 	return c.realConn.Query(query, args)
 }
 
@@ -68,7 +68,7 @@ func (c *connectionWrapper) ExecContext(ctx context.Context, query string, args 
 }
 
 func (c *connectionWrapper) Exec(query string, args []driver.Value) (driver.Result, error) {
-	query = c.enhanceQuery(context.TODO(), query)
+	query = c.enhanceQuery(context.Background(), query)
 	return c.realConn.Exec(query, args)
 }
 
