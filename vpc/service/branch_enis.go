@@ -102,6 +102,23 @@ func (p *persistentError) Is(target error) bool {
 	return ok
 }
 
+type irrecoverableError struct {
+	err error
+}
+
+func (p *irrecoverableError) Unwrap() error {
+	return p.err
+}
+
+func (p *irrecoverableError) Error() string {
+	return p.err.Error()
+}
+
+func (p *irrecoverableError) Is(target error) bool {
+	_, ok := target.(*irrecoverableError)
+	return ok
+}
+
 func (vpcService *vpcService) finishAssociation(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, id int) (*string, error) {
 	ctx, span := trace.StartSpan(ctx, "finishAssociation")
 	defer span.End()
@@ -130,7 +147,11 @@ FOR NO KEY UPDATE OF branch_eni_actions_associate
 	var idx int
 
 	err := row.Scan(&token, &associationID, &branchENI, &trunkENI, &idx, &errorCode, &errorMessage, &accountID, &region, &state)
-	if err != nil {
+	if err == sql.ErrNoRows {
+		err = &irrecoverableError{err: fmt.Errorf("Work item %d not found", id)}
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	} else if err != nil {
 		err = errors.Wrap(err, "Cannot scan association action")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
@@ -195,6 +216,18 @@ FOR NO KEY UPDATE OF branch_eni_actions_associate
 			return nil, err
 		}
 
+		requestFailure := ec2wrapper.RetrieveRequestFailure(err)
+		if requestFailure != nil {
+			logger.G(ctx).WithFields(map[string]interface{}{
+				"statusCode": requestFailure.StatusCode(),
+				"requestID":  requestFailure.RequestID(),
+			}).Error("Retrieved request failure error")
+			span.AddAttributes(trace.StringAttribute("requestID", requestFailure.RequestID()))
+			if requestFailure.StatusCode() >= 500 && requestFailure.StatusCode() < 600 {
+				// We should retry this error
+				return nil, ec2wrapper.HandleEC2Error(err, span)
+			}
+		}
 		logger.G(ctx).WithError(awsErr).Error("Unable to associate trunk network interface due to underlying AWS issue")
 		_, err2 := tx.ExecContext(ctx,
 			"UPDATE branch_eni_actions_associate SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
@@ -492,26 +525,8 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, association
 	}
 
 	if !force {
-		rows, err := tx.QueryContext(ctx, "SELECT assignment_id FROM assignments WHERE branch_eni_association = $1", associationID)
+		err = hasAssignments(ctx, tx, associationID)
 		if err != nil {
-			err = errors.Wrap(err, "error querying assignments to check if assignments exists")
-			tracehelpers.SetStatus(err, span)
-			return 0, err
-		}
-		assignments := []string{}
-		for rows.Next() {
-			var assignmentID string
-			err = rows.Scan(&assignmentID)
-			if err != nil {
-				err = errors.Wrap(err, "Cannot scan assignment ID")
-				tracehelpers.SetStatus(err, span)
-				return 0, err
-			}
-			assignments = append(assignments, assignmentID)
-		}
-		logger.G(ctx).WithField("assignments", assignments).Debug("Found assignments")
-		if l := len(assignments); l > 0 {
-			err = fmt.Errorf("Cannot start deletion, %d assignments still assigned to table, and force not specified: %s", l, strings.Join(assignments, ","))
 			tracehelpers.SetStatus(err, span)
 			return 0, err
 		}
@@ -519,9 +534,8 @@ func (vpcService *vpcService) startDissociation(ctx context.Context, association
 
 	clientToken := uuid.New().String()
 	row = tx.QueryRowContext(ctx,
-		"INSERT INTO branch_eni_actions_disassociate(token, association_id, created_by) VALUES ($1, $2, $3) RETURNING id",
-		clientToken, associationID, vpcService.hostname,
-	)
+		"INSERT INTO branch_eni_actions_disassociate(token, association_id, created_by, force) VALUES ($1, $2, $3, $4) RETURNING id",
+		clientToken, associationID, vpcService.hostname, force)
 
 	err = row.Scan(&id)
 	if err != nil {
@@ -566,19 +580,26 @@ SELECT branch_eni_actions_disassociate.token,
        branch_eni_actions_disassociate.state,
        branch_eni_actions_disassociate.error_code,
        branch_eni_actions_disassociate.error_message,
+       branch_eni_actions_disassociate.force,
        trunk_enis.account_id,
        trunk_enis.region
 FROM branch_eni_actions_disassociate
 JOIN branch_eni_attachments ON branch_eni_actions_disassociate.association_id = branch_eni_attachments.association_id
 JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
 WHERE branch_eni_actions_disassociate.id = $1
+FOR UPDATE OF branch_eni_attachments
 `, id)
 
 	var errorCode, errorMessage sql.NullString
 	var token, associationID, state, accountID, region string
+	var force bool
 
-	err := row.Scan(&token, &associationID, &state, &errorCode, &errorMessage, &accountID, &region)
-	if err != nil {
+	err := row.Scan(&token, &associationID, &state, &errorCode, &errorMessage, &force, &accountID, &region)
+	if err == sql.ErrNoRows {
+		err = &irrecoverableError{err: fmt.Errorf("Work item %d not found", id)}
+		tracehelpers.SetStatus(err, span)
+		return err
+	} else if err != nil {
 		err = errors.Wrap(err, "Cannot scan association action")
 		tracehelpers.SetStatus(err, span)
 		return err
@@ -616,6 +637,22 @@ WHERE branch_eni_actions_disassociate.id = $1
 		return err
 	}
 
+	if !force {
+		err = hasAssignments(ctx, tx, associationID)
+		if err != nil {
+			_, err2 := tx.ExecContext(ctx,
+				"UPDATE branch_eni_actions_disassociate SET state = 'failed', completed_by = $1, completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
+				vpcService.hostname, "hasAssignments", err.Error(), id)
+			if err2 != nil {
+				logger.G(ctx).WithError(err2).Error("Unable to update branch_eni_actions_disassociate table to mark action as failed")
+				tracehelpers.SetStatus(err, span)
+				return ec2wrapper.HandleEC2Error(err, span)
+			}
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+	}
+
 	if session == nil {
 		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: region})
 		if err != nil {
@@ -637,6 +674,18 @@ WHERE branch_eni_actions_disassociate.id = $1
 		if awsErr == nil {
 			tracehelpers.SetStatus(err, span)
 			return err
+		}
+		requestFailure := ec2wrapper.RetrieveRequestFailure(err)
+		if requestFailure != nil {
+			logger.G(ctx).WithFields(map[string]interface{}{
+				"statusCode": requestFailure.StatusCode(),
+				"requestID":  requestFailure.RequestID(),
+			}).Error("Retrieved request failure error")
+			span.AddAttributes(trace.StringAttribute("requestID", requestFailure.RequestID()))
+			if requestFailure.StatusCode() >= 500 && requestFailure.StatusCode() < 600 {
+				// We should retry this error
+				return ec2wrapper.HandleEC2Error(err, span)
+			}
 		}
 		if awsErr.Code() != "InvalidAssociationID.NotFound" {
 			logger.G(ctx).WithError(awsErr).Error("Unable to disassociate trunk network interface due to underlying AWS issue")
@@ -679,42 +728,81 @@ WHERE branch_eni_actions_disassociate.id = $1
 	return nil
 }
 
+func hasAssignments(ctx context.Context, tx *sql.Tx, associationID string) error {
+	rows, err := tx.QueryContext(ctx, "SELECT assignment_id FROM assignments WHERE branch_eni_association = $1", associationID)
+	if err != nil {
+		err = errors.Wrap(err, "error querying assignments to check if assignments exists")
+		return err
+	}
+	assignments := []string{}
+	for rows.Next() {
+		var assignmentID string
+		err = rows.Scan(&assignmentID)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan assignment ID")
+			return err
+		}
+		assignments = append(assignments, assignmentID)
+	}
+	logger.G(ctx).WithField("assignments", assignments).Debug("Found assignments")
+	if l := len(assignments); l > 0 {
+		err = fmt.Errorf("Cannot start deletion, %d assignments still assigned to table, and force not specified: %s", l, strings.Join(assignments, ","))
+		return err
+	}
+	return nil
+}
+
 type listenerEvent struct {
 	listenerEvent pq.ListenerEventType
 	err           error
 }
 
-func (vpcService *vpcService) branchENIAssociatorListener(ctx context.Context, item keyedItem) error {
+type actionWorker struct {
+	db    *sql.DB
+	dbURL string
+
+	// The sql.tx part is useful for both use cases right now, but it might make sense to remove it in the future
+	cb func(context.Context, *sql.Tx, int) error
+
+	creationChannel string
+	finishedChanel  string
+	name            string
+	table           string
+}
+
+func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	ctx = logger.WithField(ctx, "actionWorker", actionWorker.name)
 
 	listenerEventCh := make(chan listenerEvent, 10)
 	eventCallback := func(event pq.ListenerEventType, err error) {
 		listenerEventCh <- listenerEvent{listenerEvent: event, err: err}
 	}
-	pqListener := pq.NewListener(vpcService.dbURL, 10*time.Second, 2*time.Minute, eventCallback)
+	pqListener := pq.NewListener(actionWorker.dbURL, 10*time.Second, 2*time.Minute, eventCallback)
 	defer func() {
 		_ = pqListener.Close()
 	}()
 
-	err := pqListener.Listen("branch_eni_actions_associate_created")
+	err := pqListener.Listen(actionWorker.creationChannel)
 	if err != nil {
-		return errors.Wrap(err, "Cannot listen on branch_eni_actions_associate_created channel")
+		return errors.Wrapf(err, "Cannot listen on %s channel", actionWorker.creationChannel)
 	}
-	err = pqListener.Listen("branch_eni_actions_associate_finished")
+	err = pqListener.Listen(actionWorker.finishedChanel)
 	if err != nil {
-		return errors.Wrap(err, "Cannot listen on branch_eni_actions_associate_finished channel")
+		return errors.Wrapf(err, "Cannot listen on %s channel", actionWorker.finishedChanel)
 	}
 
 	pingTimer := time.NewTimer(10 * time.Second)
 	pingCh := make(chan error)
 
-	wq := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "branchENIAssociator")
+	wq := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), actionWorker.name)
 	defer wq.ShutDown()
 
 	errCh := make(chan error)
 	go func() {
-		errCh <- vpcService.branchENIAssociatorWorker(ctx, wq)
+		errCh <- actionWorker.worker(ctx, wq)
 	}()
 	for {
 		select {
@@ -731,19 +819,19 @@ func (vpcService *vpcService) branchENIAssociatorListener(ctx context.Context, i
 			if pingErr != nil {
 				logger.G(ctx).WithError(pingErr).Error("Could not ping database")
 			}
-			pingTimer.Reset(10 * time.Second)
+			pingTimer.Reset(90 * time.Second)
 		case ev := <-pqListener.Notify:
 			// This is a reconnect event
 			if ev == nil {
-				err = vpcService.retrieveAllWorkItems(ctx, "branch_eni_actions_associate", wq)
+				err = actionWorker.retrieveAllWorkItems(ctx, wq)
 				if err != nil {
 					err = errors.Wrap(err, "Could not retrieve all work items after reconnecting to postgres")
 					return err
 				}
-			} else if ev.Channel == "branch_eni_actions_associate_created" {
+			} else if ev.Channel == actionWorker.creationChannel {
 				logger.G(ctx).WithField("extra", ev.Extra).Debug("Received work item")
 				wq.Add(ev.Extra)
-			} else if ev.Channel == "branch_eni_actions_associate_finished" {
+			} else if ev.Channel == actionWorker.finishedChanel {
 				logger.G(ctx).WithField("extra", ev.Extra).Debug("Received work finished")
 				wq.Forget(ev.Extra)
 			}
@@ -751,7 +839,7 @@ func (vpcService *vpcService) branchENIAssociatorListener(ctx context.Context, i
 			switch ev.listenerEvent {
 			case pq.ListenerEventConnected:
 				logger.G(ctx).Info("Connected to postgres")
-				err = vpcService.retrieveAllWorkItems(ctx, "branch_eni_actions_associate", wq)
+				err = actionWorker.retrieveAllWorkItems(ctx, wq)
 				if err != nil {
 					err = errors.Wrap(err, "Could not retrieve all work items")
 					return err
@@ -769,7 +857,7 @@ func (vpcService *vpcService) branchENIAssociatorListener(ctx context.Context, i
 	}
 }
 
-func (vpcService *vpcService) branchENIAssociatorWorker(ctx context.Context, wq workqueue.RateLimitingInterface) error {
+func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateLimitingInterface) error {
 	doWorkItem := func(item interface{}) error {
 		ctx, span := trace.StartSpan(ctx, "doWorkItem")
 		defer span.End()
@@ -779,12 +867,17 @@ func (vpcService *vpcService) branchENIAssociatorWorker(ctx context.Context, wq 
 		if err != nil {
 			return errors.Wrapf(err, "Unable to parse key %q into id", stringKey)
 		}
+
+		span.AddAttributes(
+			trace.Int64Attribute("id", int64(id)),
+			trace.StringAttribute("actionWorker", actionWorker.name),
+		)
 		ctx = logger.WithField(ctx, "id", id)
 
 		logger.G(ctx).Debug("Processing work item")
 		defer logger.G(ctx).Debug("Finished processing work item")
 
-		tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+		tx, err := actionWorker.db.BeginTx(ctx, &sql.TxOptions{})
 		if err != nil {
 			err = errors.Wrap(err, "Could not start database transaction")
 			tracehelpers.SetStatus(err, span)
@@ -793,9 +886,14 @@ func (vpcService *vpcService) branchENIAssociatorWorker(ctx context.Context, wq 
 		defer func() {
 			_ = tx.Rollback()
 		}()
-		_, err = vpcService.finishAssociation(ctx, tx, nil, id)
+		err = actionWorker.cb(ctx, tx, id)
 		if errors.Is(err, &persistentError{}) {
 			logger.G(ctx).WithError(err).Error("Experienced persistent error, still committing database state")
+		} else if errors.Is(err, &irrecoverableError{}) {
+			logger.G(ctx).WithError(err).Errorf("Experienced irrecoverable error, rolling back")
+			_ = tx.Rollback()
+			wq.Forget(item)
+			return nil
 		} else if err != nil {
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error("Failed to process item")
@@ -830,15 +928,15 @@ func (vpcService *vpcService) branchENIAssociatorWorker(ctx context.Context, wq 
 	}
 }
 
-func (vpcService *vpcService) retrieveAllWorkItems(ctx context.Context, table string, wq workqueue.RateLimitingInterface) error {
+func (actionWorker *actionWorker) retrieveAllWorkItems(ctx context.Context, wq workqueue.RateLimitingInterface) error {
 	ctx, span := trace.StartSpan(ctx, "retrieveAllWorkItems")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	span.AddAttributes(trace.StringAttribute("table", table))
+	span.AddAttributes(trace.StringAttribute("table", actionWorker.table))
 
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := actionWorker.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
 		tracehelpers.SetStatus(err, span)
@@ -848,7 +946,7 @@ func (vpcService *vpcService) retrieveAllWorkItems(ctx context.Context, table st
 		_ = tx.Rollback()
 	}()
 
-	rows, err := tx.QueryContext(ctx, fmt.Sprintf("SELECT id FROM %s WHERE state = 'pending'", table)) //nolint:gosec
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf("SELECT id FROM %s WHERE state = 'pending'", actionWorker.table)) //nolint:gosec
 	if err != nil {
 		err = errors.Wrap(err, "Could not query table for pending work items")
 		tracehelpers.SetStatus(err, span)
@@ -874,4 +972,85 @@ func (vpcService *vpcService) retrieveAllWorkItems(ctx context.Context, table st
 	}
 
 	return nil
+}
+
+func (vpcService *vpcService) detachBranchENI(ctx context.Context, tx *sql.Tx, instanceSession *ec2wrapper.EC2Session, trunkENI string) (int, string, string, error) {
+	ctx, span := trace.StartSpan(ctx, "detachBranchENI")
+	defer span.End()
+
+	row := tx.QueryRowContext(ctx, `
+SELECT idx, branch_eni, association_id
+FROM branch_eni_attachments
+WHERE trunk_eni = $1
+  AND
+    (SELECT count(*)
+     FROM assignments
+     WHERE branch_eni_association = association_id) = 0
+ORDER BY COALESCE(
+                    (SELECT last_used
+                     FROM branch_eni_last_used
+                     WHERE branch_eni = branch_eni_attachments.branch_eni), TIMESTAMP 'EPOCH') ASC
+LIMIT 1
+FOR NO KEY
+UPDATE OF branch_eni_attachments SKIP LOCKED
+     `, trunkENI)
+
+	var idx int
+	var branchENI, associationID string
+
+	err := row.Scan(&idx, &branchENI, &associationID)
+	if err == sql.ErrNoRows {
+		span.SetStatus(traceStatusFromError(errAllENIsInUse))
+		return 0, "", "", errAllENIsInUse
+	} else if err != nil {
+		err = errors.Wrap(err, "Cannot get unused branch ENI to detach")
+		span.SetStatus(traceStatusFromError(err))
+		return 0, "", "", err
+	}
+
+	err = vpcService.disassociateNetworkInterface(ctx, tx, instanceSession, associationID, false)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot disassociate network interface")
+		tracehelpers.SetStatus(err, span)
+		return 0, "", "", err
+	}
+
+	return idx, branchENI, associationID, nil
+}
+
+func (actionWorker *actionWorker) longLivedTask() longLivedTask {
+	return longLivedTask{
+		workFunc:   actionWorker.loop,
+		itemLister: nilItemEnumerator,
+		taskName:   actionWorker.name,
+	}
+}
+
+func (vpcService *vpcService) associateActionWorker() *actionWorker {
+	return &actionWorker{
+		db:    vpcService.db,
+		dbURL: vpcService.dbURL,
+		cb: func(ctx context.Context, tx *sql.Tx, id int) error {
+			_, err := vpcService.finishAssociation(ctx, tx, nil, id)
+			return err
+		},
+		creationChannel: "branch_eni_actions_associate_created",
+		finishedChanel:  "branch_eni_actions_associate_finished",
+		name:            "associateWorker",
+		table:           "branch_eni_actions_associate",
+	}
+}
+
+func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
+	return &actionWorker{
+		db:    vpcService.db,
+		dbURL: vpcService.dbURL,
+		cb: func(ctx context.Context, tx *sql.Tx, id int) error {
+			return vpcService.finishDisassociation(ctx, tx, nil, id)
+		},
+		creationChannel: "branch_eni_actions_disassociate_created",
+		finishedChanel:  "branch_eni_actions_disassociate_finished",
+		name:            "disassociateWorker",
+		table:           "branch_eni_actions_disassociate",
+	}
 }

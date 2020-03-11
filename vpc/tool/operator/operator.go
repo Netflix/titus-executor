@@ -98,3 +98,28 @@ func Disassociate(ctx context.Context, instanceIdentityProvider identity.Instanc
 	}
 	return marshaler.Marshal(os.Stdout, ret)
 }
+
+func Detach(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn) error {
+	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
+
+	req := vpcapi.DetachBranchNetworkInterfaceRequest{}
+
+	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Cannot retrieve instance identity")
+	}
+	req.TrunkNetworkInterfaceIdentifier = &vpcapi.DetachBranchNetworkInterfaceRequest_InstanceIdentity{
+		InstanceIdentity: instanceIdentity,
+	}
+
+	ret, err := client.DetachBranchNetworkInterface(ctx, &req)
+	if err != nil {
+		return errors.Wrap(err, "Failed to describe trunk network interfaces")
+	}
+
+	marshaler := jsonpb.Marshaler{
+		EmitDefaults: true,
+		Indent:       "\t",
+	}
+	return marshaler.Marshal(os.Stdout, ret)
+}

@@ -50,6 +50,7 @@ create table branch_eni_actions_disassociate
         constraint bea_disassociate_branch_eni_attachments_association_id_fk
             references branch_eni_attachments (association_id)
             on delete cascade,
+    force bool not null,
     state action_state default 'pending' not null,
     created_at timestamp default now(),
     created_by text,

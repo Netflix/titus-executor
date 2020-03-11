@@ -467,7 +467,7 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 	unusedIndexes := allIndexes.Difference(usedIndexes)
 	var attachmentIdx int
 	if unusedIndexes.Len() == 0 {
-		attachmentIdx, err = vpcService.detachBranchENI(ctx, tx, instanceSession, trunkENI)
+		attachmentIdx, _, _, err = vpcService.detachBranchENI(ctx, tx, instanceSession, aws.StringValue(trunkENI.NetworkInterfaceId))
 		if err != nil {
 			err = errors.Wrap(err, "Could detach existing branch ENI")
 			span.SetStatus(traceStatusFromError(err))
@@ -525,51 +525,6 @@ func (vpcService *vpcService) assignIPWithAddENI(ctx context.Context, req *vpcap
 	return vpcService.assignIPsToENI(ctx, req, tx, branchENISession, s, eni, instance, trunkENI, maxIPAddresses)
 }
 
-func (vpcService *vpcService) detachBranchENI(ctx context.Context, tx *sql.Tx, instanceSession *ec2wrapper.EC2Session, trunkENI *ec2.InstanceNetworkInterface) (int, error) {
-	ctx, span := trace.StartSpan(ctx, "detachBranchENI")
-	defer span.End()
-
-	row := tx.QueryRowContext(ctx, `
-DELETE
-FROM branch_eni_attachments
-WHERE branch_eni =
-    (SELECT branch_eni
-     FROM branch_eni_attachments
-     LEFT JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
-     WHERE trunk_eni = $1
-     GROUP BY branch_eni
-     HAVING count(assignment_id) = 0
-     ORDER BY COALESCE((SELECT last_used FROM branch_eni_last_used WHERE branch_eni = branch_eni_attachments.branch_eni), TIMESTAMP 'EPOCH') ASC
-     LIMIT 1) RETURNING idx, branch_eni_attachments.association_id;
-     `, aws.StringValue(trunkENI.NetworkInterfaceId))
-
-	var idx int
-	var associationID string
-
-	err := row.Scan(&idx, &associationID)
-	if err == sql.ErrNoRows {
-		span.SetStatus(traceStatusFromError(errAllENIsInUse))
-		return 0, errAllENIsInUse
-	} else if err != nil {
-		err = errors.Wrap(err, "Cannot get unused branch ENI to detach")
-		span.SetStatus(traceStatusFromError(err))
-		return 0, err
-	}
-
-	ec2client := ec2.New(instanceSession.Session)
-	_, err = ec2client.DisassociateTrunkInterfaceWithContext(ctx, &ec2.DisassociateTrunkInterfaceInput{
-		AssociationId: aws.String(associationID),
-	})
-
-	if err != nil {
-		err = errors.Wrap(err, "Unable to disassociate ENI")
-		span.SetStatus(traceStatusFromError(err))
-		return 0, err
-	}
-
-	return idx, nil
-}
-
 func (vpcService *vpcService) assignIPWithChangeSGOnENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, s *subnet, trunkENI *ec2.InstanceNetworkInterface, instance *ec2.Instance, maxIPAddresses int) (resp *vpcapi.AssignIPResponseV3, retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -620,7 +575,7 @@ FROM
    WHERE subnet_id = $1
      AND trunk_eni = $2  FOR NO KEY UPDATE OF branch_enis, branch_eni_attachments) valid_branch_enis
 WHERE c = 0
-FOR UPDATE
+FOR NO KEY UPDATE
 LIMIT 1
 `, s.subnetID, aws.StringValue(trunkENI.NetworkInterfaceId))
 
@@ -718,10 +673,10 @@ FROM
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
      AND trunk_eni = $2
-     AND security_groups = $3 FOR UPDATE OF branch_enis, branch_eni_attachments ) valid_branch_enis
+     AND security_groups = $3 FOR NO KEY UPDATE OF branch_enis, branch_eni_attachments ) valid_branch_enis
 WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
-FOR UPDATE
+FOR NO KEY UPDATE
 LIMIT 1
 `, s.subnetID, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(securityGroupIDs), maxIPAddresses)
 

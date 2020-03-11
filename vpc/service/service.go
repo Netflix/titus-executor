@@ -343,11 +343,8 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 			itemLister: vpcService.getBranchENIRegionAccounts,
 			workFunc:   vpcService.reconcileBranchENILoop,
 		},
-		{
-			taskName:   "branch_eni_associate",
-			itemLister: nilItemEnumerator,
-			workFunc:   vpcService.branchENIAssociatorListener,
-		},
+		vpcService.associateActionWorker().longLivedTask(),
+		vpcService.disassociateActionWorker().longLivedTask(),
 	}
 }
 

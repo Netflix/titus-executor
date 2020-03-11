@@ -53,6 +53,31 @@ func RetrieveEC2Error(err error) awserr.Error {
 	return nil
 }
 
+func RetrieveRequestFailure(err error) awserr.RequestFailure {
+	if err == nil {
+		return nil
+	}
+	type causer interface {
+		Cause() error
+	}
+
+	for err != nil {
+		// Check if the cause is an aws error
+		requestFailure, ok := err.(awserr.RequestFailure)
+		if ok {
+			return requestFailure
+		}
+
+		cause, ok := err.(causer)
+		if !ok {
+			break
+		}
+
+		err = cause.Cause()
+	}
+	return nil
+}
+
 // Sets the span to the status of the EC2 errors, and converts it into a GRPC Status error,
 // It subsequently cannot be wrapped, with preservation of the awserr as the original caller
 func HandleEC2Error(err error, span *trace.Span) error {

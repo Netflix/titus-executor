@@ -49,7 +49,7 @@ func operatorCmd(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdent
 	associateCmd.Flags().IntP("idx", "i", 0, "A particular index to attach the branch ENI")
 	cmd.AddCommand(associateCmd)
 
-	disassociatecmd := &cobra.Command{
+	disassociateCmd := &cobra.Command{
 		Use:   "disassociate",
 		Short: "disassociate the trunk network interface with a branch ENI",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -60,9 +60,23 @@ func operatorCmd(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdent
 			return operator.Disassociate(ctx, iipGetter(), conn, v.GetString("association-id"), v.GetBool("force"))
 		},
 	}
-	disassociatecmd.Flags().StringP("association-id", "a", "", "Trunk network interface association")
-	disassociatecmd.Flags().BoolP("force", "f", false, "Force disassociation")
-	cmd.AddCommand(disassociatecmd)
+	disassociateCmd.Flags().StringP("association-id", "a", "", "Trunk network interface association")
+	disassociateCmd.Flags().BoolP("force", "f", false, "Force disassociation")
+	cmd.AddCommand(disassociateCmd)
+
+	detatchCmd := &cobra.Command{
+		Use:   "detach",
+		Short: "detach a branch ENI from a trunk network interface",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, conn, err := getSharedValues(ctx, v)
+			if err != nil {
+				return err
+			}
+			return operator.Detach(ctx, iipGetter(), conn)
+		},
+	}
+
+	cmd.AddCommand(detatchCmd)
 
 	addSharedFlags(cmd.PersistentFlags())
 

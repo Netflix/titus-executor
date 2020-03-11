@@ -330,6 +330,18 @@ message DescribeTrunkNetworkInterfaceResponse {
     repeated TrunkNetworkInterfaceAssociation associations = 2;
 }
 
+message DetachBranchNetworkInterfaceRequest {
+    oneof trunkNetworkInterfaceIdentifier {
+        InstanceIdentity instanceIdentity = 1;
+    }
+}
+
+message DetachBranchNetworkInterfaceResponse {
+    uint64 vlanId = 1;
+    string branchENI = 2;
+    string associationID = 3;
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
@@ -356,7 +368,7 @@ service TitusAgentVPCService {
     rpc AssociateTrunkNetworkInterface (AssociateTrunkNetworkInterfaceRequest) returns (AssociateTrunkNetworkInterfaceResponse);
     rpc DisassociateTrunkNetworkInterface (DisassociateTrunkNetworkInterfaceRequest) returns (DisassociateTrunkNetworkInterfaceResponse);
     rpc DescribeTrunkNetworkInterface (DescribeTrunkNetworkInterfaceRequest) returns (DescribeTrunkNetworkInterfaceResponse);
-
+    rpc DetachBranchNetworkInterface (DetachBranchNetworkInterfaceRequest) returns (DetachBranchNetworkInterfaceResponse);
 }
 
 message PrivateKey {

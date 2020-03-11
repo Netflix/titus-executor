@@ -341,3 +341,66 @@ WHERE trunk_eni = $1
 		Associations: associations,
 	}, nil
 }
+
+func (vpcService *vpcService) DetachBranchNetworkInterface(ctx context.Context, req *vpcapi.DetachBranchNetworkInterfaceRequest) (*vpcapi.DetachBranchNetworkInterfaceResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "DetachBranchNetworkInterface")
+	defer span.End()
+
+	switch id := (req.TrunkNetworkInterfaceIdentifier).(type) {
+	case *vpcapi.DetachBranchNetworkInterfaceRequest_InstanceIdentity:
+		if id.InstanceIdentity == nil {
+			return nil, status.Error(codes.InvalidArgument, "instance id must be specified")
+		}
+		session, _, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, id.InstanceIdentity)
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		return vpcService.doDetachBranchNetworkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId))
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "Could not determine trunk ENI")
+}
+
+func (vpcService *vpcService) doDetachBranchNetworkInterface(ctx context.Context, session *ec2wrapper.EC2Session, trunkENI string) (*vpcapi.DetachBranchNetworkInterfaceResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "doDetachBranchNetworkInterface")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot start database transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	attachmentIdx, branchENI, associationID, err := vpcService.detachBranchENI(ctx, tx, session, trunkENI)
+	if err != nil {
+		if errors.Is(err, &persistentError{}) {
+			logger.G(ctx).WithError(err).Error("Received persistent error, committing current state, and returning error")
+			err2 := tx.Commit()
+			if err2 != nil {
+				logger.G(ctx).WithError(err2).Error("Failed to commit transaction early")
+			}
+		}
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return &vpcapi.DetachBranchNetworkInterfaceResponse{
+		VlanId:        uint64(attachmentIdx),
+		BranchENI:     branchENI,
+		AssociationID: associationID,
+	}, nil
+}
