@@ -113,40 +113,6 @@ startAssociation:
 	return associationID, nil
 }
 
-type persistentError struct {
-	err error
-}
-
-func (p *persistentError) Unwrap() error {
-	return p.err
-}
-
-func (p *persistentError) Error() string {
-	return p.err.Error()
-}
-
-func (p *persistentError) Is(target error) bool {
-	_, ok := target.(*persistentError)
-	return ok
-}
-
-type irrecoverableError struct {
-	err error
-}
-
-func (p *irrecoverableError) Unwrap() error {
-	return p.err
-}
-
-func (p *irrecoverableError) Error() string {
-	return p.err.Error()
-}
-
-func (p *irrecoverableError) Is(target error) bool {
-	_, ok := target.(*irrecoverableError)
-	return ok
-}
-
 func (vpcService *vpcService) finishAssociation(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, id int) (*string, error) {
 	ctx, span := trace.StartSpan(ctx, "finishAssociation")
 	defer span.End()
