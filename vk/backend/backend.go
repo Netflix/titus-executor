@@ -36,7 +36,7 @@ func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 	case titusdriver.Failed:
 		return v1.PodFailed
 	case titusdriver.Killed:
-		return v1.PodSucceeded
+		return v1.PodFailed
 	case titusdriver.Lost:
 		return v1.PodFailed
 	default:
