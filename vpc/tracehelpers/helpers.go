@@ -16,10 +16,12 @@ func SetStatus(err error, span *trace.Span) {
 	}
 
 	if grpcStatus, ok := status.FromError(err); ok {
-		span.SetStatus(trace.Status{
+		status := trace.Status{
 			Code:    int32(grpcStatus.Code()),
 			Message: grpcStatus.Message(),
-		})
+		}
+
+		span.SetStatus(status)
 		return
 	}
 

@@ -2,9 +2,14 @@ package wrapper
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+
+	"github.com/pkg/errors"
+
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
 	"github.com/Netflix/titus-executor/logger"
 	"go.opencensus.io/trace"
@@ -38,13 +43,36 @@ func (c *connectionWrapper) PrepareContext(ctx context.Context, query string) (d
 }
 
 func (c *connectionWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	ctx, span := trace.StartSpan(ctx, "BeginTx")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("isolationLevel", sql.IsolationLevel(opts.Isolation).String()))
+
+	isSerial := (sql.IsolationLevel(opts.Isolation) == sql.LevelSerializable)
+	if isSerial {
+		err := c.wrapper.serializedConnectionSemaphore.Acquire(ctx, 1)
+		if err != nil {
+			err = errors.Wrap(err, "Could not acquire serializedConnectionSemaphore")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+	}
+
 	tx, err := c.realConn.BeginTx(ctx, opts)
 	if err != nil {
+		if isSerial {
+			c.wrapper.serializedConnectionSemaphore.Release(1)
+		}
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+
+	// TODO: Somehow figure out how to link this to all of the things.
+	_, txSpan := trace.StartSpan(ctx, "tx")
 	return &txWrapper{
-		wrapper: c.wrapper,
-		realTx:  tx,
+		span:     txSpan,
+		isSerial: isSerial,
+		wrapper:  c.wrapper,
+		realTx:   tx,
 	}, nil
 }
 

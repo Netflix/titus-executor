@@ -3,10 +3,8 @@ package service
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -133,10 +131,11 @@ func (vpcService *vpcService) reconcileOrphanedBranchENIAttachment(ctx context.C
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, "SELECT branch_eni, trunk_eni, idx FROM branch_eni_attachments WHERE association_id = $1 FOR NO KEY UPDATE", associationID)
-	var dbBranchENI, dbTrunkENI string
+	row := tx.QueryRowContext(ctx, "SELECT branch_eni, trunk_eni, idx, state, association_token FROM branch_eni_attachments WHERE association_id = $1 FOR NO KEY UPDATE", associationID)
+	var dbBranchENI, dbTrunkENI, dbState string
+	var associationToken sql.NullString
 	var idx int
-	err = row.Scan(&dbBranchENI, &dbTrunkENI, &idx)
+	err = row.Scan(&dbBranchENI, &dbTrunkENI, &idx, &dbState, &associationID, &associationToken)
 	if err == sql.ErrNoRows {
 		logger.G(ctx).Info("Association ID no longer in database, likely race condition")
 		return nil
@@ -146,91 +145,43 @@ func (vpcService *vpcService) reconcileOrphanedBranchENIAttachment(ctx context.C
 		return err
 	}
 
-	// Let's see if there is a pending intent to delete this association. If so, things should be "okay" (soon)
-	rows, err := tx.QueryContext(ctx, "SELECT state, id, error_code, error_message FROM branch_eni_actions_disassociate WHERE association_id = $1", associationID)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot query database for branch ENI disassociate actions")
+	if !associationToken.Valid {
+		err = errors.New("Association token unset, unable to reconcile")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	var result *multierror.Error
-	for rows.Next() {
-		var state string
-		var id int
-		var errorCode, errorMessage *sql.NullString
-		err = rows.Scan(&state, &id, &errorCode, &errorMessage)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot scan row from branch_eni_actions_disassociate")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
-
-		switch state {
-		case pendingState:
-			logger.G(ctx).Warning("Currently pending action to delete attachment")
-			span.SetStatus(trace.Status{
-				Code:    trace.StatusCodeOK,
-				Message: "Currently pending action to delete attachment",
-			})
-			return nil
-		case failedState:
-			msg := logger.G(ctx).WithField("id", id)
-			if errorCode.Valid {
-				msg = msg.WithField("errorCode", errorCode.String)
-			}
-			if errorMessage.Valid {
-				msg = msg.WithField("errorMessage", errorMessage.String)
-			}
-			msg.Warning("Previous attempts to delete association marked as failed")
-			result = multierror.Append(result, fmt.Errorf("Previous attempt to delete association failed (id: %d) with errorCode %q and errorMessage %q", id, errorCode.String, errorMessage.String))
-		case completedState:
-			result = multierror.Append(result, errors.New("Previous attempt to delete association marked as completed"))
-		}
-	}
-
-	// So, now we know we have an inconsistency, where an association exists according to the describe call, but does not exist
-	// according to our database. It also isn't in the
-	_, err = session.DescribeTrunkInterfaceAssociations(ctx, ec2.DescribeTrunkInterfaceAssociationsInput{
-		AssociationIds: aws.StringSlice([]string{associationID}),
-	})
-
-	if err == nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeOK,
-			Message: "pointed query returned association",
+	if dbState == "attaching" || dbState == "attached" {
+		logger.G(ctx).WithField("state", dbState).Info("branch ENI is meant to be attached, checking via associate call")
+		_, err = session.AssociateTrunkInterface(ctx, ec2.AssociateTrunkInterfaceInput{
+			BranchInterfaceId: aws.String(dbBranchENI),
+			ClientToken:       aws.String(associationToken.String),
+			TrunkInterfaceId:  aws.String(dbTrunkENI),
+			VlanId:            aws.Int64(int64(idx)),
 		})
-		logger.G(ctx).Info("pointed query returned association")
-		return nil
+		if err == nil {
+			return nil
+		}
+		logger.G(ctx).WithError(err).Warning("Associate call returned error, implying association no longer exists")
 	}
 
 	awsErr := ec2wrapper.RetrieveEC2Error(err)
-	if awsErr == nil {
-		err = errors.Wrap(err, "Experienced non-AWS error while trying to query for branch ENI association")
-		tracehelpers.SetStatus(err, span)
-	}
-	if awsErr.Code() != ec2wrapper.InvalidAssociationIDNotFound {
-		// "Something else" went wrong"
-		logger.G(ctx).WithError(awsErr).Warning("AWS returned error other than association not found")
-		return ec2wrapper.HandleEC2Error(err, span)
-	}
-
-	// This is bad because there is an association in our database that is not in AWS. We really don't want anyone
-	// to assign to it.
-
-	// We can try to do a "safe mode" deletion of it.
-	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
-	if err != nil {
-		err = errors.Wrap(err, "Unable to delete association")
-		result = multierror.Append(result, err)
+	if awsErr.Code() == "IdempotentParameterMismatch" {
+		// Mark the state of the association as not a thing
+		_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET state = 'unattached' WHERE association_id = $1", associationID)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Unable to mark database state as unattached")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		err = tx.Commit()
+		if err != nil {
+			err = errors.Wrap(err, "Cannot commit transaction")
+			tracehelpers.SetStatus(err, span)
+		}
+		return nil
 	}
 
-	err = result.ErrorOrNil()
-	err = errors.Wrap(err, "Unable to come up with safe reconcilation")
 	return err
 }
 
@@ -259,6 +210,7 @@ JOIN availability_zones on trunk_enis.account_id = availability_zones.account_id
 WHERE trunk_enis.account_id = $1
   AND availability_zones.region = $2
   AND association_id != all($3)
+  AND (state = 'attaching' OR state = 'attached') 
 `,
 		account.region, account.accountID, pq.Array(associationIDs.UnsortedList()))
 	if err != nil {
@@ -315,12 +267,12 @@ func (vpcService *vpcService) reconcileBranchENIAttachment(ctx context.Context, 
 	var idx int
 	err = row.Scan(&branchENI, &trunkENI, &idx)
 	if err == sql.ErrNoRows {
-		err = reconcileBranchENIAttachmentMissingFromDatabase(ctx, tx, association, session)
 		if err != nil {
 			// The one case where this could be a real thing is if it was an association when we did the describe
 			// but the association has been deleted while the describe loop was running. We don't really account
 			// for that.
 			err = errors.Wrapf(err, "Could not reconcile eni attachment %q not found in database", associationID)
+			logger.G(ctx).WithError(err).Error("Cannot reconcile attachment")
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
@@ -339,7 +291,6 @@ func (vpcService *vpcService) reconcileBranchENIAttachment(ctx context.Context, 
 		return err
 	}
 
-	// TODO: Consider validating the association
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Could not commit transaction")
@@ -347,146 +298,6 @@ func (vpcService *vpcService) reconcileBranchENIAttachment(ctx context.Context, 
 		return err
 	}
 	return nil
-}
-
-func reconcileBranchENIAttachmentMissingFromDatabase(ctx context.Context, tx *sql.Tx, association *ec2.TrunkInterfaceAssociation, session *ec2wrapper.EC2Session) error {
-	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIAttachmentMissingFromDatabase")
-	defer span.End()
-
-	trunkENI := aws.StringValue(association.TrunkInterfaceId)
-	branchENI := aws.StringValue(association.BranchInterfaceId)
-
-	// This could very well just be a pending (or completed) reconcilation
-	row := tx.QueryRowContext(ctx, "SELECT id FROM branch_eni_actions_associate WHERE branch_eni = $1 AND trunk_eni = $2 AND idx = $3 AND state = 'pending'",
-		branchENI, trunkENI, aws.Int64Value(association.VlanId))
-
-	var result *multierror.Error
-	var id int
-	err := row.Scan(&id)
-	if err == sql.ErrNoRows {
-		result = multierror.Append(result, errors.New("association not found as pending association in database"))
-	} else if err != nil {
-		err = errors.Wrap(err, "Could query database for association")
-		tracehelpers.SetStatus(err, span)
-		return err
-	} else {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeOK,
-			Message: "Association is in pending state",
-		})
-		logger.G(ctx).Debug("association is in pending state")
-		return nil
-	}
-
-	_, err = session.DescribeTrunkInterfaceAssociations(ctx, ec2.DescribeTrunkInterfaceAssociationsInput{
-		AssociationIds: aws.StringSlice([]string{aws.StringValue(association.AssociationId)}),
-	})
-	if err != nil {
-		awsErr := ec2wrapper.RetrieveEC2Error(err)
-		if awsErr.Code() == "InvalidAssociationID.NotFound" {
-			span.SetStatus(trace.Status{
-				Code:    trace.StatusCodeOK,
-				Message: "Association not found upon requery",
-			})
-			logger.G(ctx).Debug("Association does not really exist")
-			return nil
-		}
-
-		err = errors.Wrap(err, "Could not query for association")
-		return ec2wrapper.HandleEC2Error(err, span)
-	}
-
-	var dbHasTrunkENI bool
-	row = tx.QueryRowContext(ctx, "SELECT trunk_eni FROM trunk_enis WHERE trunk_eni = $1 FOR NO KEY UPDATE", trunkENI)
-	var dbTrunkENI string
-	err = row.Scan(&dbTrunkENI)
-	if err == nil {
-		dbHasTrunkENI = true
-	} else if err != nil && err != sql.ErrNoRows {
-		err = errors.Wrapf(err, "Could query trunk_enis for trunk ENI %s", trunkENI)
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
-	var dbHasBranchENI bool
-	row = tx.QueryRowContext(ctx, "SELECT branch_eni FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", branchENI)
-	var dbBranchENI string
-	err = row.Scan(&dbBranchENI)
-	if err == nil {
-		dbHasBranchENI = true
-		logger.G(ctx).Debug("Branch ENI not found in database")
-	} else if err != nil && err != sql.ErrNoRows {
-		err = errors.Wrapf(err, "Could query branch_enis for branch ENI %s", branchENI)
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
-	if !dbHasBranchENI && !dbHasTrunkENI {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeOK,
-			Message: "Branch ENI, nor trunk ENI belong to us",
-		})
-		logger.G(ctx).Debug("Branch ENI, nor trunk ENI belong to us")
-		return nil
-	}
-
-	var branchENIUnassociated, trunkENIUnassociated bool
-	if dbHasBranchENI {
-		logger.G(ctx).Warning("branch ENI found in database")
-		row = tx.QueryRowContext(ctx, "SELECT trunk_eni, idx, association_id FROM branch_eni_attachments WHERE branch_eni = $1", branchENI)
-		var dbTrunkENI, dbAssociationID string
-		var idx int
-		err = row.Scan(&dbTrunkENI, &idx, &dbAssociationID)
-		if err == sql.ErrNoRows {
-			result = multierror.Append(result, errors.New("branch ENI found in database, but unassociated"))
-			branchENIUnassociated = true
-		} else if err != nil {
-			err = errors.Wrapf(err, "Could not query branch_eni_attachments for branch ENI %s", branchENI)
-			tracehelpers.SetStatus(err, span)
-			return err
-		} else {
-			result = multierror.Append(result, fmt.Errorf("branch ENI found in database, and meant to be associated to trunk ENI %q at idx %d with association ID %q", dbTrunkENI, idx, dbAssociationID))
-		}
-	}
-
-	if dbHasTrunkENI {
-		logger.G(ctx).Warning("trunk ENI found in database")
-		row = tx.QueryRowContext(ctx, "SELECT branch_eni, idx, association_id FROM branch_eni_attachments WHERE trunk_eni = $1", trunkENI)
-		var dbBranchENI, dbAssociationID string
-		var idx int
-		err = row.Scan(&dbBranchENI, &idx, &dbAssociationID)
-		if err == sql.ErrNoRows {
-			result = multierror.Append(result, errors.New("trunk ENI found in database, but unassociated"))
-			trunkENIUnassociated = true
-		} else if err != nil {
-			err = errors.Wrapf(err, "Could not query branch_eni_attachments for trunk ENI %s", trunkENI)
-			tracehelpers.SetStatus(err, span)
-			return err
-		} else {
-			result = multierror.Append(result, fmt.Errorf("trunk ENI found in database, and meant to be associated to branch ENI %q at idx %d with association ID %q", dbBranchENI, idx, dbAssociationID))
-		}
-	}
-
-	if branchENIUnassociated && trunkENIUnassociated {
-		logger.G(ctx).Info("Branch ENI, and trunk ENI are both unassociated in database, disassociating in AWS")
-		_, err = session.DisassociateTrunkInterface(ctx, ec2.DisassociateTrunkInterfaceInput{
-			AssociationId: association.AssociationId,
-		})
-		awsErr := ec2wrapper.RetrieveEC2Error(err)
-		if err == nil {
-			return nil
-		}
-		err = errors.Wrap(err, "Tried to disassociate dangling association")
-		if awsErr != nil {
-			if awsErr.Code() == ec2wrapper.InvalidAssociationIDNotFound {
-				return nil
-			}
-			return ec2wrapper.HandleEC2Error(err, span)
-		}
-		result = multierror.Append(result, err)
-	}
-
-	return result.ErrorOrNil()
 }
 
 func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]keyedItem, error) {

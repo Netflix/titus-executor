@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
+
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -16,6 +18,7 @@ const (
 	timeBetweenDetaches    = 5 * time.Second
 	timeBetweenNoDetatches = time.Minute
 	minTimeUnused          = time.Hour
+	minTimeAttached        = assignTimeout
 )
 
 type nilItem struct {
@@ -52,7 +55,7 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 }
 
 func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context) (time.Duration, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "doDetatchUnusedBranchENI")
@@ -72,30 +75,22 @@ func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context) (tim
 SELECT branch_eni_attachments.branch_eni,
        association_id,
        availability_zones.region,
-       trunk_enis.account_id,
-       COALESCE(
-                  (SELECT last_used
-                   FROM branch_eni_last_used
-                   WHERE branch_eni = branch_enis.branch_eni), TIMESTAMP 'EPOCH') AS lu
+       trunk_enis.account_id
 FROM branch_eni_attachments
 JOIN branch_enis ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
 JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
 JOIN availability_zones ON trunk_enis.account_id = availability_zones.account_id
 AND trunk_enis.az = availability_zones.zone_name
 WHERE branch_eni_attachments.association_id NOT IN
-    (SELECT branch_eni_association
-     FROM assignments)
-ORDER BY COALESCE(
-                    (SELECT last_used
-                     FROM branch_eni_last_used
-                     WHERE branch_eni = branch_eni_attachments.branch_eni), TIMESTAMP 'EPOCH') ASC
+    (SELECT branch_eni_association FROM assignments)
+	AND branch_eni_attachments.attachment_completed_at < now() - ($1 * interval '1 sec')
+    AND branch_eni_attachments.state = 'attached'
+    AND branch_enis.last_assigned_to < now() - ($2 * interval '1 sec')
+ORDER BY COALESCE(branch_enis.last_assigned_to, TIMESTAMP 'EPOCH') ASC
 LIMIT 1
-FOR NO KEY
-UPDATE OF branch_eni_attachments SKIP LOCKED
-`)
+`, minTimeAttached.Seconds(), minTimeUnused.Seconds())
 	var branchENI, associationID, region, accountID string
-	var lastUsed time.Time
-	err = row.Scan(&branchENI, &associationID, &region, &accountID, &lastUsed)
+	err = row.Scan(&branchENI, &associationID, &region, &accountID)
 	if err == sql.ErrNoRows {
 		logger.G(ctx).Info("Did not find branch ENI to disassociate")
 		return timeBetweenNoDetatches, nil
@@ -104,11 +99,6 @@ UPDATE OF branch_eni_attachments SKIP LOCKED
 		err = errors.Wrap(err, "Cannot scan branch ENI to delete")
 		span.SetStatus(traceStatusFromError(err))
 		return timeBetweenErrors, err
-	}
-	timeSinceLastUsed := time.Since(lastUsed)
-	if timeSinceLastUsed < minTimeUnused {
-		waitTime := minTimeUnused - timeSinceLastUsed
-		return waitTime, nil
 	}
 	span.AddAttributes(trace.StringAttribute("eni", branchENI))
 
@@ -126,7 +116,7 @@ UPDATE OF branch_eni_attachments SKIP LOCKED
 
 	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
 	if err != nil {
-		if errors.Is(err, &irrecoverableError{}) || errors.Is(err, &persistentError{}) {
+		if errors.Is(err, &irrecoverableError{}) || vpcerrors.IsPersistentError(err) {
 			err2 := tx.Commit()
 			if err2 != nil {
 				err2 = errors.Wrap(err2, "Could not commit transaction during irrecoverableError / persistentError")

@@ -19,6 +19,8 @@ var (
 
 	beforeSelectedDisassociationFaultKey = newFaultKey()
 	afterSelectedDisassociationFaultKey  = newFaultKey()
+
+	afterAttachFaultKey = newFaultKey()
 )
 
 type fault struct {

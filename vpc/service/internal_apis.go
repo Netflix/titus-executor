@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
+
 	"github.com/Netflix/titus-executor/logger"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -131,7 +133,7 @@ func (vpcService *vpcService) doAssociateTrunkNetworkInterface(ctx context.Conte
 		},
 		vlanID)
 	if err != nil {
-		if errors.Is(err, &persistentError{}) {
+		if vpcerrors.IsPersistentError(err) {
 			logger.G(ctx).WithError(err).Error("Received persistent error, committing current state, and returning error")
 			err2 := tx.Commit()
 			if err2 != nil {
@@ -188,7 +190,7 @@ func (vpcService *vpcService) doDisassociateTrunkNetworkInterface(ctx context.Co
 
 	err = vpcService.disassociateNetworkInterface(ctx, tx, nil, associationID, force)
 	if err != nil {
-		if errors.Is(err, &persistentError{}) {
+		if vpcerrors.IsPersistentError(err) {
 			logger.G(ctx).WithError(err).Error("Received persistent error, committing current state, and returning error")
 			err2 := tx.Commit()
 			if err2 != nil {
@@ -286,7 +288,7 @@ SELECT branch_enis.branch_eni,
        branch_enis.created_at,
        branch_enis.subnet_id,
        branch_enis.vpc_id,
-       branch_enis.last_assigned_to,
+       COALESCE(branch_enis.last_assigned_to, TIMESTAMP 'EPOCH'),
        branch_enis.modified_at,
        branch_enis.security_groups
 FROM branch_eni_attachments
@@ -380,7 +382,7 @@ func (vpcService *vpcService) doDetachBranchNetworkInterface(ctx context.Context
 
 	attachmentIdx, branchENI, associationID, err := vpcService.detachBranchENI(ctx, tx, session, trunkENI)
 	if err != nil {
-		if errors.Is(err, &persistentError{}) {
+		if vpcerrors.IsPersistentError(err) {
 			logger.G(ctx).WithError(err).Error("Received persistent error, committing current state, and returning error")
 			err2 := tx.Commit()
 			if err2 != nil {

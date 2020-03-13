@@ -39,6 +39,7 @@ type EC2Session struct {
 	subnetCache             *ccache.Cache
 	batchENIDescriber       *BatchENIDescriber
 	batchInstancesDescriber *BatchInstanceDescriber
+	ec2client               *ec2.EC2
 
 	defaultSecurityGroupSingleFlight singleflight.Group
 	defaultSecurityGroupMap          sync.Map
@@ -312,11 +313,13 @@ func (s *EC2Session) ModifyNetworkInterfaceAttribute(ctx context.Context, input 
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)))
 
 	if input.SourceDestCheck != nil {
-		span.AddAttributes(trace.StringAttribute("sourceDestCheck", input.SourceDestCheck.String()))
+		span.AddAttributes(trace.BoolAttribute("sourceDestCheck", aws.BoolValue(input.SourceDestCheck.Value)))
 	} else if input.Groups != nil {
-		span.AddAttributes(trace.StringAttribute("groups", fmt.Sprintf("%+v", input.Groups)))
+		groups2 := aws.StringValueSlice(input.Groups)
+		sort.Strings(groups2)
+		span.AddAttributes(trace.StringAttribute("groups", fmt.Sprintf("%v", groups2)))
 	} else if input.Description != nil {
-		span.AddAttributes(trace.StringAttribute("description", input.Description.String()))
+		span.AddAttributes(trace.StringAttribute("description", aws.StringValue(input.Description.Value)))
 	} else if input.Attachment != nil {
 		span.AddAttributes(trace.StringAttribute("attachment", input.Attachment.String()))
 	}
@@ -421,6 +424,43 @@ func (s *EC2Session) DescribeTrunkInterfaceAssociations(ctx context.Context, inp
 
 	ec2client := ec2.New(s.Session)
 	output, err := ec2client.DescribeTrunkInterfaceAssociationsWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe trunk interface associations")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) DisassociateAddress(ctx context.Context, input ec2.DisassociateAddressInput) (*ec2.DisassociateAddressOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "DisassociateAddress")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("asssociationID", aws.StringValue(input.AssociationId)))
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DisassociateAddressWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe trunk interface associations")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) AssociateAddress(ctx context.Context, input ec2.AssociateAddressInput) (*ec2.AssociateAddressOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AssociateAddress")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("allocationID", aws.StringValue(input.AllocationId)),
+		trace.BoolAttribute("allowReassociation", aws.BoolValue(input.AllowReassociation)),
+		trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)),
+		trace.StringAttribute("privateIPAddresss", aws.StringValue(input.PrivateIpAddress)),
+	)
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.AssociateAddressWithContext(ctx, &input)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot describe trunk interface associations")
 		_ = HandleEC2Error(err, span)

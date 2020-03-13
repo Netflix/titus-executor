@@ -127,7 +127,10 @@ func newConnection(ctx context.Context, v *pkgviper.Viper) (string, *sql.DB, err
 		return "", nil, err
 	}
 
-	db := sql.OpenDB(wrapper.NewConnectorWrapper(connector, hostname))
+	db := sql.OpenDB(wrapper.NewConnectorWrapper(connector, wrapper.ConnectorWrapperConfig{
+		Hostname:                        hostname,
+		MaxConcurrentSerialTransactions: 10,
+	}))
 
 	db.SetMaxIdleConns(v.GetInt(maxIdleConnectionsFlagName))
 	db.SetMaxOpenConns(v.GetInt(maxOpenConnectionsFlagName))

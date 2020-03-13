@@ -3,12 +3,15 @@ package wrapper
 import (
 	"context"
 	"database/sql/driver"
+
+	"golang.org/x/sync/semaphore"
 )
 
 var _ driver.Connector = (*connectorWrapper)(nil)
 
 type wrapper struct {
-	hostname string
+	serializedConnectionSemaphore *semaphore.Weighted
+	hostname                      string
 }
 
 type connectorWrapper struct {
@@ -16,11 +19,20 @@ type connectorWrapper struct {
 	wrapper       *wrapper
 }
 
-func NewConnectorWrapper(c driver.Connector, hostname string) driver.Connector {
+type ConnectorWrapperConfig struct {
+	Hostname                        string
+	MaxConcurrentSerialTransactions int64
+}
+
+func NewConnectorWrapper(c driver.Connector, config ConnectorWrapperConfig) driver.Connector {
+	if config.MaxConcurrentSerialTransactions == 0 {
+		config.MaxConcurrentSerialTransactions = 5
+	}
 	return &connectorWrapper{
 		realConnector: c,
 		wrapper: &wrapper{
-			hostname: hostname,
+			serializedConnectionSemaphore: semaphore.NewWeighted(config.MaxConcurrentSerialTransactions),
+			hostname:                      config.Hostname,
 		},
 	}
 }

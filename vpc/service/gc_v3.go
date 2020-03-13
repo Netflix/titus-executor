@@ -226,7 +226,7 @@ WHERE ip_address IS NOT NULL ON CONFLICT (ip_address, vpc_id) DO
 		return nil, err
 	}
 
-	_, err = tx.ExecContext(ctx, `
+	rows, err := tx.QueryContext(ctx, `
 DELETE
 FROM assignments
 WHERE assignment_id IN
@@ -235,12 +235,28 @@ WHERE assignment_id IN
      JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
      WHERE trunk_eni = $1
      AND assignments.assignment_id NOT IN (SELECT unnest($2::text[])))
+RETURNING assignments.assignment_id
 `, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	if err != nil {
 		err = errors.Wrap(err, "Could not delete assignments")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+
+	removedAssignments := []string{}
+	for rows.Next() {
+		var assignmentID string
+		err = rows.Scan(&assignmentID)
+		if err != nil {
+			err = errors.Wrap(err, "Could not scan deleted assignment ID")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		removedAssignments = append(removedAssignments, assignmentID)
+	}
+
+	span.AddAttributes(trace.StringAttribute("removedAssignments", fmt.Sprint(removedAssignments)))
+	logger.G(ctx).WithField("removedAssignments", removedAssignments).Debug("Removed assignments")
 
 	_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET attachment_generation = 3 WHERE trunk_eni = $1", aws.StringValue(trunkENI.NetworkInterfaceId))
 	if err != nil {
@@ -481,23 +497,29 @@ func (vpcService *vpcService) doGCUnattachedENI(ctx context.Context, tx *sql.Tx,
 
 	// This verifies that the branch ENI is not attached when we do the operation
 	// Unfortunately, Postgresql doesn't support predicate locking (without SSI mode)
-	row := tx.QueryRowContext(ctx, `
-SELECT 1
+	sqlResult, err := tx.ExecContext(ctx, `
+SELECT
 FROM branch_enis
 WHERE branch_eni = $1 
-	AND branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments)
-FOR UPDATE
+	AND branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments WHERE state = 'attaching' OR state = 'attached' OR state = 'unattaching')
+FOR NO KEY UPDATE OF branch_enis
 `, aws.StringValue(iface.NetworkInterfaceId))
-	var associationID string
-	err := row.Scan(&associationID)
-	if err == sql.ErrNoRows {
-		err = fmt.Errorf("ENI %q was not found in unattached ENIs", aws.StringValue(iface.NetworkInterfaceId))
+
+	if err != nil {
+		err = errors.Wrap(err, "Cannot query branch ENI")
 		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
 
+	n, err := sqlResult.RowsAffected()
 	if err != nil {
-		err = errors.Wrap(err, "Cannot scan row")
+		err = errors.Wrap(err, "Cannot get rows affected")
+		span.SetStatus(traceStatusFromError(err))
+		return err
+	}
+
+	if n == 0 {
+		err = fmt.Errorf("ENI %q was not found in unattached ENIs", aws.StringValue(iface.NetworkInterfaceId))
 		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
@@ -544,7 +566,8 @@ FROM branch_eni_attachments
 JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
 WHERE branch_eni_attachments.branch_eni = $1
   AND attachment_generation = 3
-  FOR
+  AND branch_eni_attachments.state = 'attached'
+  FOR NO KEY
   UPDATE OF branch_enis
 `, aws.StringValue(iface.NetworkInterfaceId))
 	var associationID string

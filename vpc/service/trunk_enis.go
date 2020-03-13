@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/karlseguin/ccache"
+	"golang.org/x/sync/semaphore"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/hashicorp/go-multierror"
@@ -257,7 +259,7 @@ func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec
 	defer span.End()
 
 	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
-		Description:      aws.String(vpc.TrunkNetworkInterfaceDescription),
+		Description:      aws.String(vpcService.trunkNetworkInterfaceDescription),
 		InterfaceType:    aws.String("trunk"),
 		Ipv6AddressCount: aws.Int64(0),
 		SubnetId:         subnetID,
@@ -356,4 +358,25 @@ func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]
 
 	_ = tx.Commit()
 	return ret, nil
+}
+
+func (vpcService *vpcService) getTrunkTracker(trunk string) ccache.TrackedItem {
+	trunkTracker := vpcService.generatorTracker.Get(trunk)
+	if trunkTracker != nil {
+		return trunkTracker
+	}
+
+	_, _, _ = vpcService.generatorTrackerAdderLock.Do(trunk, func() (interface{}, error) {
+		item := vpcService.generatorTracker.Get(trunk)
+		if item != nil {
+			item.Release()
+			return nil, nil
+		}
+
+		lock := semaphore.NewWeighted(1)
+		vpcService.generatorTracker.Set(trunk, lock, 24*time.Hour)
+		return nil, nil
+	})
+
+	return vpcService.generatorTracker.Get(trunk)
 }

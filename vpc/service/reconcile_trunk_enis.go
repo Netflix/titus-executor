@@ -9,7 +9,6 @@ import (
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/lib/pq"
@@ -94,7 +93,7 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccount(ctx context.Con
 		Filters: []*ec2.Filter{
 			{
 				Name:   aws.String("description"),
-				Values: aws.StringSlice([]string{vpc.TrunkNetworkInterfaceDescription}),
+				Values: aws.StringSlice([]string{vpcService.trunkNetworkInterfaceDescription}),
 			},
 			{
 				Name:   aws.String("owner-id"),
@@ -202,7 +201,7 @@ func (vpcService *vpcService) reconcileOrphanedTrunkENI(ctx context.Context, ses
 		return err
 	}
 
-	eniExists, err := doesENIExist(ctx, session, eni, vpc.TrunkNetworkInterfaceDescription)
+	eniExists, err := doesENIExist(ctx, session, eni, vpcService.trunkNetworkInterfaceDescription)
 	if err != nil {
 		err = errors.Wrap(err, "Could not find out if branch ENI exists")
 		return ec2wrapper.HandleEC2Error(err, span)

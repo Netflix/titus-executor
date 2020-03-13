@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc"
+
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/golang/protobuf/ptypes"
 	"golang.org/x/crypto/ed25519"
@@ -24,7 +26,6 @@ func TestService(t *testing.T) {
 	defer cancel()
 	listener, err := net.Listen("tcp", "localhost:0")
 	assert.NilError(t, err)
-	serverErrCh := make(chan error, 1)
 	_, privatekey, err := ed25519.GenerateKey(nil)
 	assert.NilError(t, err)
 
@@ -39,7 +40,6 @@ func TestService(t *testing.T) {
 	}
 
 	go func() {
-		defer close(serverErrCh)
 		serverErr := Run(ctx, &Config{
 			Listener:              listener,
 			DB:                    nil,
@@ -52,9 +52,12 @@ func TestService(t *testing.T) {
 			TitusAgentCACertPool:  nil,
 			EnabledTaskLoops:      []string{},
 			EnabledLongLivedTasks: []string{},
+
+			TrunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
+			BranchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
 		})
 		if serverErr != nil && serverErr != context.Canceled {
-			serverErrCh <- serverErr
+			panic(serverErr)
 		}
 	}()
 	t.Run("Healthcheck", func(t2 *testing.T) {
@@ -63,9 +66,6 @@ func TestService(t *testing.T) {
 	t.Run("HTTPHealthcheck", func(t2 *testing.T) {
 		testHTTPHealthcheck(ctx, t2, listener.Addr().String())
 	})
-
-	cancel()
-	assert.NilError(t, <-serverErrCh)
 }
 
 func testHealthcheck(ctx context.Context, t *testing.T, addr string) {

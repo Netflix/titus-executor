@@ -10,24 +10,15 @@ import (
 	"os"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/sets"
-
-	"golang.org/x/time/rate"
-
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
-	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
-	"google.golang.org/grpc/keepalive"
-
-	"google.golang.org/grpc/credentials"
-
-	"golang.org/x/sync/semaphore"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
+	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	"github.com/karlseguin/ccache"
 	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -36,11 +27,17 @@ import (
 	"go.opencensus.io/tag"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/sync/singleflight"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 var (
@@ -94,6 +91,16 @@ type vpcService struct {
 	TitusAgentCACertPool *x509.CertPool
 
 	dbRateLimiter *rate.Limiter
+
+	trunkNetworkInterfaceDescription  string
+	branchNetworkInterfaceDescription string
+
+	generatorTracker          *ccache.Cache
+	generatorTrackerAdderLock singleflight.Group
+}
+
+func generatorTrackerCache() *ccache.Cache {
+	return ccache.New(ccache.Configure().Track())
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -140,6 +147,9 @@ type Config struct {
 
 	EnabledLongLivedTasks []string
 	EnabledTaskLoops      []string
+
+	TrunkNetworkInterfaceDescription  string
+	BranchNetworkInterfaceDescription string
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -162,6 +172,14 @@ func Run(ctx context.Context, config *Config) error {
 		return errors.Wrap(err, "Cannot get hostname")
 	}
 
+	if config.TrunkNetworkInterfaceDescription == "" {
+		return errors.New("Trunk interface description must be non-empty")
+	}
+
+	if config.BranchNetworkInterfaceDescription == "" {
+		return errors.New("Branch interface description must be non-empty")
+	}
+
 	vpc := &vpcService{
 		hostname: hostname,
 		ec2:      ec2wrapper.NewEC2SessionManager(),
@@ -176,6 +194,11 @@ func Run(ctx context.Context, config *Config) error {
 		TitusAgentCACertPool: config.TitusAgentCACertPool,
 
 		dbRateLimiter: rate.NewLimiter(1000, 1),
+
+		trunkNetworkInterfaceDescription:  config.TrunkNetworkInterfaceDescription,
+		branchNetworkInterfaceDescription: config.BranchNetworkInterfaceDescription,
+
+		generatorTracker: generatorTrackerCache(),
 	}
 
 	// TODO: actually validate this

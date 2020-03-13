@@ -7,19 +7,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/karlseguin/ccache"
-
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/arn"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/sts"
 	"github.com/Netflix/titus-executor/logger"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"github.com/karlseguin/ccache"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
+	"golang.org/x/sync/singleflight"
 )
 
 type CacheStrategy int
@@ -55,8 +56,9 @@ var (
 
 func NewEC2SessionManager() *EC2SessionManager {
 	sessionManager := &EC2SessionManager{
-		baseSession: session.Must(session.NewSession()),
-		sessions:    make(map[Key]*EC2Session),
+		baseSession:  session.Must(session.NewSession()),
+		sessions:     &sync.Map{},
+		singleflight: &singleflight.Group{},
 	}
 
 	return sessionManager
@@ -76,8 +78,8 @@ type EC2SessionManager struct {
 	callerIdentityLock sync.RWMutex
 	callerIdentity     *sts.GetCallerIdentityOutput
 
-	sessionsLock sync.RWMutex
-	sessions     map[Key]*EC2Session
+	sessions     *sync.Map
+	singleflight *singleflight.Group
 }
 
 func (sessionManager *EC2SessionManager) getCallerIdentity(ctx context.Context) (*sts.GetCallerIdentityOutput, error) {
@@ -117,86 +119,93 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 
 	// TODO: Validate the account ID is only integers.
 	// TODO: Metrics
-	sessionManager.sessionsLock.RLock()
-	instanceSession, ok := sessionManager.sessions[sessionKey]
-	sessionManager.sessionsLock.RUnlock()
-	if ok {
-		return instanceSession, nil
-	}
+	v, err, shared := sessionManager.singleflight.Do(sessionKey.String(), func() (interface{}, error) {
+		val, ok := sessionManager.sessions.Load(sessionKey.String())
+		if ok {
+			return val, nil
+		}
 
-	myIdentity, err := sessionManager.getCallerIdentity(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// This can race, but that's okay
-	instanceSession = &EC2Session{}
-	config := aws.NewConfig()
-
-	// TODO: Make behind flag
-	//  .WithLogLevel(aws.LogDebugWithHTTPBody)
-	if sessionKey.Region != "" {
-		config.Region = &sessionKey.Region
-	}
-
-	instanceSession.Session, err = session.NewSession(config)
-	if err != nil {
-		return nil, err
-	}
-	if aws.StringValue(myIdentity.Account) != sessionKey.AccountID {
-		// Gotta do the assumerole flow
-		currentARN, err := arn.Parse(aws.StringValue(myIdentity.Arn))
+		myIdentity, err := sessionManager.getCallerIdentity(ctx)
 		if err != nil {
 			return nil, err
 		}
-		newArn := arn.ARN{
-			Partition: "aws",
-			Service:   "iam",
-			AccountID: sessionKey.AccountID,
-			Resource:  "role/" + strings.Split(currentARN.Resource, "/")[1],
-		}
+		// This can race, but that's okay
+		ec2Session := &EC2Session{}
+		config := aws.NewConfig()
 
-		credentials := stscreds.NewCredentials(instanceSession.Session, newArn.String())
-		// Copy the original config
-		config2 := *config
-		config2.Credentials = credentials
+		// TODO: Make behind flag
+		//  .WithLogLevel(aws.LogDebugWithHTTPBody)
 		if sessionKey.Region != "" {
-			config2.Region = &sessionKey.Region
+			config.Region = &sessionKey.Region
 		}
-		logger.G(ctx).WithField("arn", newArn).WithField("currentARN", currentARN).Info("Setting up assume role")
-		instanceSession.Session, err = session.NewSession(&config2)
+
+		ec2Session.Session, err = session.NewSession(config)
 		if err != nil {
 			return nil, err
 		}
-		output, err := sts.New(instanceSession.Session).GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
-		if err != nil {
-			return nil, err
+		if aws.StringValue(myIdentity.Account) != sessionKey.AccountID {
+			// Gotta do the assumerole flow
+			currentARN, err := arn.Parse(aws.StringValue(myIdentity.Arn))
+			if err != nil {
+				return nil, err
+			}
+			newArn := arn.ARN{
+				Partition: "aws",
+				Service:   "iam",
+				AccountID: sessionKey.AccountID,
+				Resource:  "role/" + strings.Split(currentARN.Resource, "/")[1],
+			}
+
+			credentials := stscreds.NewCredentials(ec2Session.Session, newArn.String())
+			// Copy the original config
+			config2 := *config
+			config2.Credentials = credentials
+			if sessionKey.Region != "" {
+				config2.Region = &sessionKey.Region
+			}
+			logger.G(ctx).WithField("arn", newArn).WithField("currentARN", currentARN).Info("Setting up assume role")
+			ec2Session.Session, err = session.NewSession(&config2)
+			if err != nil {
+				return nil, err
+			}
+			output, err := sts.New(ec2Session.Session).GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
+			if err != nil {
+				return nil, err
+			}
+			logger.G(ctx).WithField("arn", aws.StringValue(output.Arn)).Info("New ARN")
+		} else {
+			logger.G(ctx).Info("Setting up session")
 		}
-		logger.G(ctx).WithField("arn", aws.StringValue(output.Arn)).Info("New ARN")
-	} else {
-		logger.G(ctx).Info("Setting up session")
+
+		ec2Session.instanceCache = ccache.New(ccache.Configure().MaxSize(10000).ItemsToPrune(10))
+		ec2Session.instanceCache.OnDelete(func(*ccache.Item) {
+			stats.Record(ctx, cachedInstancesFreed.M(1))
+		})
+		ec2Session.subnetCache = ccache.New(ccache.Configure().MaxSize(1000).ItemsToPrune(10))
+
+		go func() {
+			mutators := []tag.Mutator{tag.Upsert(keyRegion, sessionKey.Region), tag.Upsert(keyAccountID, sessionKey.AccountID)}
+			for {
+				time.Sleep(time.Second)
+				_ = stats.RecordWithTags(ctx, mutators, cachedSubnets.M(int64(ec2Session.subnetCache.ItemCount())))
+				_ = stats.RecordWithTags(ctx, mutators, cachedInstances.M(int64(ec2Session.instanceCache.ItemCount())))
+			}
+		}()
+		newCtx := logger.WithLogger(context.Background(), logger.G(ctx))
+		ec2Session.batchENIDescriber = NewBatchENIDescriber(newCtx, time.Second, 50, ec2Session.Session)
+		ec2Session.batchInstancesDescriber = NewBatchInstanceDescriber(newCtx, time.Second, 50, ec2Session.Session)
+		ec2Session.ec2client = ec2.New(ec2Session.Session)
+
+		sessionManager.sessions.Store(sessionKey.String(), ec2Session)
+		return ec2Session, nil
+	})
+
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
-	instanceSession.instanceCache = ccache.New(ccache.Configure().MaxSize(10000).ItemsToPrune(10))
-	instanceSession.instanceCache.OnDelete(func(*ccache.Item) {
-		stats.Record(ctx, cachedInstancesFreed.M(1))
-	})
-	instanceSession.subnetCache = ccache.New(ccache.Configure().MaxSize(1000).ItemsToPrune(10))
+	span.AddAttributes(trace.BoolAttribute("shared", shared))
 
-	go func() {
-		mutators := []tag.Mutator{tag.Upsert(keyRegion, sessionKey.Region), tag.Upsert(keyAccountID, sessionKey.AccountID)}
-		for {
-			time.Sleep(time.Second)
-			_ = stats.RecordWithTags(ctx, mutators, cachedSubnets.M(int64(instanceSession.subnetCache.ItemCount())))
-			_ = stats.RecordWithTags(ctx, mutators, cachedInstances.M(int64(instanceSession.instanceCache.ItemCount())))
-		}
-	}()
-	newCtx := logger.WithLogger(context.Background(), logger.G(ctx))
-	instanceSession.batchENIDescriber = NewBatchENIDescriber(newCtx, time.Second, 50, instanceSession.Session)
-	instanceSession.batchInstancesDescriber = NewBatchInstanceDescriber(newCtx, time.Second, 50, instanceSession.Session)
-
-	sessionManager.sessionsLock.Lock()
-	defer sessionManager.sessionsLock.Unlock()
-	sessionManager.sessions[sessionKey] = instanceSession
-
-	return instanceSession, nil
+	return v.(*EC2Session), nil
 }

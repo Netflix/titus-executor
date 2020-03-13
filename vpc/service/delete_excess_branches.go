@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const (
@@ -22,6 +22,7 @@ const (
 	timeBetweenNoDeletions       = 2 * time.Minute
 	timeBetweenDeletions         = 5 * time.Second
 	deleteExcessBranchENITimeout = 30 * time.Second
+	minTimeExisting              = assignTimeout
 )
 
 func (vpcService *vpcService) getSubnets(ctx context.Context) ([]keyedItem, error) {
@@ -121,43 +122,70 @@ func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet
 		return false, err
 	}
 
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	var branchENI string
+	var fastTx *sql.Tx
+	var serializationFailuresGetENI int64
+get_eni:
+	if fastTx != nil {
+		_ = fastTx.Rollback()
+	}
+	fastTx, err = vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+		ReadOnly:  true,
+	})
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback()
+	}(fastTx)
+
 	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		err = errors.Wrap(err, "Cannot start serialized, readonly database transaction")
 		span.SetStatus(traceStatusFromError(err))
 		return false, err
 	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
 
-	row := tx.QueryRowContext(ctx, `
-DELETE
-FROM branch_enis
-WHERE branch_eni IN
-    (SELECT branch_eni
+	row := fastTx.QueryRowContext(ctx, `
+     SELECT branch_eni
      FROM branch_enis
      WHERE branch_eni NOT IN
          (SELECT branch_eni
-          FROM branch_eni_attachments)
+          FROM branch_eni_attachments WHERE state = 'attached' OR state = 'attaching' OR state = 'unattaching')
        AND subnet_id = $1
+       AND created_at < now() - ($3 * interval '1 sec')
      ORDER BY id DESC
      LIMIT 1
-     OFFSET $2) RETURNING branch_eni
-`, subnet.subnetID, warmPoolPerSubnet)
-	var branchENI string
+     OFFSET $2
+`, subnet.subnetID, warmPoolPerSubnet, minTimeExisting.Seconds())
 	err = row.Scan(&branchENI)
+	if isSerializationFailure(err) {
+		serializationFailuresGetENI++
+		goto get_eni
+	}
 	if err == sql.ErrNoRows {
 		logger.G(ctx).Info("Did not find branch ENI to delete")
 		return false, nil
 	}
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan branch ENI to delete")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, err
 	}
-	ctx = logger.WithField(ctx, "eni", branchENI)
+	err = fastTx.Commit()
+	if isSerializationFailure(err) {
+		serializationFailuresGetENI++
+		goto get_eni
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Cannot commit read only transaction to get ENI to delete")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
 
+	span.AddAttributes(
+		trace.StringAttribute("eni", branchENI),
+		trace.Int64Attribute("serializationFailuresGetENI", serializationFailuresGetENI),
+	)
+
+	ctx = logger.WithField(ctx, "eni", branchENI)
 	iface, err := session.GetNetworkInterfaceByID(ctx, branchENI, 500*time.Millisecond)
 	if err != nil {
 		err = errors.Wrap(err, "Could not describe network interface")
@@ -178,10 +206,63 @@ WHERE branch_eni IN
 
 	// TODO: Handle the not found case
 	logger.G(ctx).Info("Deleting excess ENI")
-	err = tx.Commit()
+
+	var result sql.Result
+	var deleteENISerializationErrors, rowsAffected int64
+delete_eni:
+	if fastTx != nil {
+		_ = fastTx.Rollback()
+	}
+	fastTx, err = beginSerializableTx(ctx, vpcService.db)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot commit transaction")
-		span.SetStatus(traceStatusFromError(err))
+		err = errors.Wrap(err, "Unable to start transaction to delete branch ENI from table")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback()
+	}(fastTx)
+
+	result, err = fastTx.ExecContext(ctx, `
+DELETE
+FROM branch_enis
+WHERE branch_eni = $1
+  AND branch_enis.branch_eni NOT IN
+    (SELECT branch_eni
+     FROM branch_eni_attachments
+     WHERE state = 'attached'
+       OR state = 'attaching'
+       OR state = 'unattaching')
+`, branchENI)
+	if isSerializationFailure(err) {
+		deleteENISerializationErrors++
+		goto delete_eni
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Could not delete ENI from database")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+
+	rowsAffected, err = result.RowsAffected()
+	if err != nil {
+		err = errors.Wrap(err, "Cannot fetch rows affected")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+	if rowsAffected != 1 {
+		err = fmt.Errorf("Unexpected number of rows deleted %d, deleted indicative that the ENI %q was consumed", rowsAffected, branchENI)
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+	err = fastTx.Commit()
+	if isSerializationFailure(err) {
+		deleteENISerializationErrors++
+		goto delete_eni
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit transaction deleting ENIs")
+		tracehelpers.SetStatus(err, span)
 		return false, err
 	}
 

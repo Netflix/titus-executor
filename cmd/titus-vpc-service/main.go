@@ -14,6 +14,8 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc"
+
 	"contrib.go.opencensus.io/exporter/zipkin"
 	spectator "github.com/Netflix/spectator-go"
 	"github.com/Netflix/titus-executor/logger"
@@ -53,6 +55,9 @@ const (
 
 	enabledLongLivedTasksFlagName = "enabled-long-lived-tasks"
 	enabledTaskLoopsFlagName      = "enabled-task-loops"
+
+	trunkENIDescriptionFlagName  = "trunk-eni-description"
+	branchENIDescriptionFlagName = "branch-eni-description"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -261,6 +266,9 @@ func main() {
 
 				EnabledLongLivedTasks: v.GetStringSlice(enabledLongLivedTasksFlagName),
 				EnabledTaskLoops:      v.GetStringSlice(enabledTaskLoopsFlagName),
+
+				TrunkNetworkInterfaceDescription:  v.GetString(trunkENIDescriptionFlagName),
+				BranchNetworkInterfaceDescription: v.GetString(branchENIDescriptionFlagName),
 			})
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
@@ -281,6 +289,8 @@ func main() {
 	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
 	rootCmd.Flags().StringSlice(enabledTaskLoopsFlagName, service.GetTaskLoopTaskNames(), "Enabled task loops")
 	rootCmd.Flags().StringSlice(enabledLongLivedTasksFlagName, service.GetLongLivedTaskNames(), "Enabled long lived tasks")
+	rootCmd.Flags().String(trunkENIDescriptionFlagName, vpc.DefaultTrunkNetworkInterfaceDescription, "The description for trunk interfaces")
+	rootCmd.Flags().String(branchENIDescriptionFlagName, vpc.DefaultBranchNetworkInterfaceDescription, "The description for branch interfaces")
 
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
