@@ -31,6 +31,12 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 }
 
 func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.Request) {
+	forwarded := r.Header.Get("x-forwarded-for")
+	if len(forwarded) > 0 {
+		http.Error(w, "", http.StatusForbidden)
+		return
+	}
+
 	ms.signLock.RLock()
 	signer := ms.signer
 	ms.signLock.RUnlock()
