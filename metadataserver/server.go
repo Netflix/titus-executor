@@ -25,6 +25,7 @@ import (
 const defaultMacAddress = "00:00:00:00:00:00"
 
 var whitelist = set.NewSetFromSlice([]interface{}{
+	"/latest/api/token",
 	"/latest/meta-data",
 	"/latest/meta-data/network/interfaces/macs/null/vpc-id",
 	"/latest/meta-data/network/interfaces/macs/00:00:00:00:00:00/vpc-id",
@@ -59,7 +60,8 @@ type MetadataServer struct {
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
 	// Need to hold `signLock` while accessing `signer`
-	signLock sync.Mutex
+	signLock      sync.RWMutex
+	tokenRequired bool
 }
 
 func dumpRoutes(r *mux.Router) {
@@ -90,15 +92,46 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		eniID:               config.EniID,
 		container:           config.Container,
 		signer:              config.Signer,
+		tokenRequired:       config.RequireToken,
 	}
 
-	/* wire up routing */
-	apiVersion := ms.internalMux.PathPrefix("/latest").Subrouter()
-	apiVersion.NotFoundHandler = newProxy(config.BackingMetadataServer)
+	/* IMDS routes */
 
-	apiVersion.HandleFunc("/ping", ms.ping)
-	/* Wire up the routes under /{VERSION}/meta-data */
-	metaData := apiVersion.PathPrefix("/meta-data").Subrouter()
+	// v2
+	latestVersionGenToken := ms.internalMux.PathPrefix("/latest/api/token").Subrouter()
+	latestVersionGenToken.HandleFunc("", ms.createAuthTokenHandler).Methods(http.MethodPut)
+
+	latestVersion := ms.internalMux.PathPrefix("/latest").Subrouter()
+	latestVersion.Use(ms.authenticate)
+	ms.installIMDSCommonHandlers(ctx, latestVersion, config)
+
+	// v1
+	v1Version := ms.internalMux.PathPrefix("/1.0").Subrouter()
+	ms.installIMDSCommonHandlers(ctx, v1Version, config)
+
+	/* Titus routes */
+	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()
+	ms.installTItusHandlers(titusRouter, config)
+
+	/* Dump debug routes if anyone cares */
+	dumpRoutes(ms.internalMux)
+
+	return ms
+}
+
+func (ms *MetadataServer) installTItusHandlers(router *mux.Router, config types.MetadataServerConfiguration) {
+	if config.Signer != nil {
+		router.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
+		router.HandleFunc("/task-identity", ms.taskIdentity)
+	}
+}
+
+func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router *mux.Router, config types.MetadataServerConfiguration) {
+	router.NotFoundHandler = newProxy(config.BackingMetadataServer)
+
+	router.HandleFunc("/ping", ms.ping)
+
+	metaData := router.PathPrefix("/meta-data").Subrouter()
 	metaData.HandleFunc("/mac", ms.macAddr)
 	metaData.HandleFunc("/instance-id", ms.instanceID)
 	metaData.HandleFunc("/local-ipv4", ms.localIPV4)
@@ -112,18 +145,6 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 
 	/* IAM Stuffs */
 	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), config)
-
-	/* Titus-specific routes */
-	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()
-	if config.Signer != nil {
-		titusRouter.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
-		titusRouter.HandleFunc("/task-identity", ms.taskIdentity)
-	}
-
-	/* Dump debug routes if anyone cares */
-	dumpRoutes(ms.internalMux)
-
-	return ms
 }
 
 func (ms *MetadataServer) macAddr(w http.ResponseWriter, r *http.Request) {

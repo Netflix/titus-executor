@@ -38,7 +38,7 @@ func VerifyStringSig(data []byte, sig *titus.CertificateStringSignature) bool {
 		return false
 	}
 
-	return doVerify(data, sig.GetAlgorithm(), defaultHash, cert, sigBytes)
+	return doVerify(data, sig.GetAlgorithm(), defaultHash, cert.PublicKey, sigBytes)
 }
 
 // Verify verify
@@ -48,17 +48,31 @@ func Verify(data []byte, sig *titus.CertificateSignature) bool {
 		return false
 	}
 
-	return doVerify(data, sig.GetAlgorithm(), defaultHash, cert, sig.GetSignature())
+	return doVerify(data, sig.GetAlgorithm(), defaultHash, cert.PublicKey, sig.GetSignature())
 }
 
-func doVerify(data []byte, algo titus.SignatureAlgorithm, hash crypto.Hash, cert *x509.Certificate, sig []byte) bool {
+// VerifyWithPublicKey with a given public key
+func VerifyWithPublicKey(data []byte, key crypto.PublicKey, sig []byte) bool {
+
+	var algo titus.SignatureAlgorithm
+	switch key.(type) {
+	case *rsa.PublicKey:
+		algo = titus.SignatureAlgorithm_SHA512withRSAandMGF1
+	case *ecdsa.PublicKey:
+		algo = titus.SignatureAlgorithm_SHA512withECDSA
+	}
+
+	return doVerify(data, algo, defaultHash, key, sig)
+}
+
+func doVerify(data []byte, algo titus.SignatureAlgorithm, hash crypto.Hash, key crypto.PublicKey, sig []byte) bool {
 	hashed := computeHash(hash, data)
 
 	switch algo {
 	case titus.SignatureAlgorithm_SHA512withRSAandMGF1:
-		return verifyRSA(hashed, hash, cert, sig)
+		return verifyRSA(hashed, hash, key, sig)
 	case titus.SignatureAlgorithm_SHA512withECDSA:
-		return verifyECDSA(hashed, hash, cert, sig)
+		return verifyECDSA(hashed, hash, key, sig)
 	}
 
 	return false
@@ -81,8 +95,8 @@ func loadCert(certChain [][]byte) (*x509.Certificate, error) {
 	return x509.ParseCertificate(certChain[0])
 }
 
-func verifyRSA(hashed []byte, hash crypto.Hash, cert *x509.Certificate, sig []byte) bool {
-	pub, ok := cert.PublicKey.(*rsa.PublicKey)
+func verifyRSA(hashed []byte, hash crypto.Hash, key crypto.PublicKey, sig []byte) bool {
+	pub, ok := key.(*rsa.PublicKey)
 	if !ok {
 		return false
 	}
@@ -96,8 +110,8 @@ func verifyRSA(hashed []byte, hash crypto.Hash, cert *x509.Certificate, sig []by
 	return err == nil
 }
 
-func verifyECDSA(hashed []byte, hash crypto.Hash, cert *x509.Certificate, sig []byte) bool {
-	pub, ok := cert.PublicKey.(*ecdsa.PublicKey)
+func verifyECDSA(hashed []byte, hash crypto.Hash, key crypto.PublicKey, sig []byte) bool {
+	pub, ok := key.(*ecdsa.PublicKey)
 	if !ok {
 		return false
 	}

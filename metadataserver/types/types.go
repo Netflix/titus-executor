@@ -34,4 +34,5 @@ type MetadataServerConfiguration struct {
 	APIProtectEnabled     bool
 	Container             *titus.ContainerInfo
 	Signer                *identity.Signer
+	RequireToken          bool
 }

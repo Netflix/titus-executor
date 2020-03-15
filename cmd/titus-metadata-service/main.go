@@ -112,6 +112,7 @@ func main() {
 		listenerFd            int64
 		listenPort            int
 		debug                 bool
+		requireToken          bool
 		apiProtectEnabled     bool
 		backingMetadataServer string
 		metatronEnabled       bool
@@ -213,6 +214,11 @@ func main() {
 			EnvVar:      "IAM_STATE_DIR",
 			Destination: &stateDir,
 		},
+		cli.BoolFlag{
+			Name:        "require-token",
+			Usage:       "Set to true to require a token",
+			Destination: &requireToken,
+		},
 	}
 	app.Action = func(c *cli.Context) error {
 		if debug {
@@ -236,6 +242,7 @@ func main() {
 			Optimistic:          optimistic,
 			APIProtectEnabled:   apiProtectEnabled,
 			StateDir:            stateDir,
+			RequireToken:        requireToken,
 		}
 		if parsedURL, err := url.Parse(backingMetadataServer); err == nil {
 			mdscfg.BackingMetadataServer = parsedURL
@@ -255,6 +262,10 @@ func main() {
 			} else {
 				mdscfg.Container = container
 			}
+		}
+
+		if mdscfg.RequireToken && mdscfg.Signer == nil {
+			log.Fatal("A signer is required when requiring tokens")
 		}
 
 		if ipv6Addresses != "" {

@@ -1,13 +1,13 @@
 package auth
 
 import (
+	"crypto"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 )
 
@@ -48,13 +48,7 @@ func (a *Authenticator) GenerateToken(ttl time.Duration) (string, error) {
 		return "", err
 	}
 
-	sigJSON, err := json.Marshal(sig)
-	if err != nil {
-		return "", err
-	}
-	sigEnc := base64.StdEncoding.EncodeToString(sigJSON)
-
-	return envEnc + "." + sigEnc, nil
+	return envEnc + "." + sig.GetSignature(), nil
 }
 
 // VerifyToken verifies that a token is valid and not expired
@@ -65,18 +59,13 @@ func (a *Authenticator) VerifyToken(token string) bool {
 	}
 
 	envEnc, sigEnc := comps[0], comps[1]
-	sigStr, err := base64.StdEncoding.DecodeString(sigEnc)
+	sig, err := base64.StdEncoding.DecodeString(sigEnc)
 	if err != nil {
 		return false
 	}
 
-	sig := titus.CertificateStringSignature{}
-	err = json.Unmarshal([]byte(sigStr), &sig)
-	if err != nil {
-		return false
-	}
-
-	if !identity.VerifyStringSig([]byte(envEnc), &sig) {
+	pub := a.Signer.Certificate.PrivateKey.(crypto.Signer).Public()
+	if !identity.VerifyWithPublicKey([]byte(envEnc), pub, sig) {
 		return false
 	}
 

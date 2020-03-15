@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"crypto"
 	"crypto/tls"
 	"testing"
 
@@ -28,22 +29,28 @@ var sigTests = []struct {
 }
 
 func TestSignVerify(t *testing.T) {
-	for _, test := range sigTests {
-		t.Run(test.name, func(t *testing.T) {
-			cert, err := tls.X509KeyPair(test.certBytes, test.keyBytes)
+	for _, tc := range sigTests {
+		t.Run(tc.name, func(t *testing.T) {
+			cert, err := tls.X509KeyPair(tc.certBytes, tc.keyBytes)
 			assert.NilError(t, err)
 
 			signer, err := NewSigner(cert)
 			assert.NilError(t, err)
 
-			data := test.data
+			data := tc.data
 			sig, err := signer.Sign(data)
 			assert.NilError(t, err)
 
 			valid := Verify(data, sig)
 			assert.Assert(t, valid)
 
+			pub := cert.PrivateKey.(crypto.Signer).Public()
+			valid = VerifyWithPublicKey(data, pub, sig.GetSignature())
+			assert.Assert(t, valid)
+
 			stringSig, err := signer.SignString(data)
+			assert.NilError(t, err)
+
 			valid = VerifyStringSig(data, stringSig)
 			assert.Assert(t, valid)
 		})
