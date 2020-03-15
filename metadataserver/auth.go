@@ -1,11 +1,13 @@
 package metadataserver
 
 import (
+	"net"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/Netflix/titus-executor/metadataserver/auth"
+	"golang.org/x/net/ipv4"
 )
 
 func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
@@ -66,5 +68,24 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		panic(err)
 	}
 
-	_, _ = w.Write([]byte(token))
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	conn, bufrw, err := hj.Hijack()
+	if err != nil {
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	if conn.RemoteAddr().(*net.TCPAddr).IP.To4() != nil {
+		p := ipv4.NewConn(conn)
+		_ = p.SetTTL(1)
+	}
+
+	_, _ = bufrw.Write([]byte(token))
+	bufrw.Flush()
 }
