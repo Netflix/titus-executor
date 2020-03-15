@@ -75,7 +75,7 @@ func (a *Authenticator) VerifyToken(token string) bool {
 	}
 
 	env := envelope{}
-	err = json.Unmarshal([]byte(envStr), &env)
+	err = json.Unmarshal(envStr, &env)
 	if err != nil {
 		return false
 	}
