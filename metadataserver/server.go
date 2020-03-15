@@ -3,6 +3,7 @@ package metadataserver
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
@@ -26,7 +27,6 @@ import (
 const defaultMacAddress = "00:00:00:00:00:00"
 
 var whitelist = set.NewSetFromSlice([]interface{}{
-	"/latest/api/token",
 	"/latest/meta-data",
 	"/latest/meta-data/network/interfaces/macs/null/vpc-id",
 	"/latest/meta-data/network/interfaces/macs/00:00:00:00:00:00/vpc-id",
@@ -227,12 +227,14 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type proxy struct {
-	reverseProxy *httputil.ReverseProxy
+	backingMetadataServer *url.URL
+	reverseProxy          *httputil.ReverseProxy
 }
 
 func newProxy(backingMetadataServer *url.URL) *proxy {
 	p := &proxy{
-		reverseProxy: httputil.NewSingleHostReverseProxy(backingMetadataServer),
+		backingMetadataServer: backingMetadataServer,
+		reverseProxy:          httputil.NewSingleHostReverseProxy(backingMetadataServer),
 	}
 
 	return p
@@ -254,7 +256,39 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	token, err := p.fetchToken(r.Context())
+	if err != nil {
+		logging.AddField(r.Context(), "failed_fetch_token", true)
+		http.Error(w, "HTTP Proxy unable to fetch IMDS v2 token", http.StatusForbidden)
+		return
+	}
+
+	w.Header().Set("x-aws-ec2-metadata-token", token)
 	metrics.PublishIncrementCounter("api.proxy_request.success.count")
 	p.reverseProxy.ServeHTTP(w, r)
 
+}
+
+func (p *proxy) fetchToken(ctx context.Context) (string, error) {
+	client := http.Client{}
+	req, err := http.NewRequest(http.MethodPut, p.backingMetadataServer.String(), nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "20")
+	req = req.WithContext(ctx)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	tokenBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(tokenBytes), err
 }
