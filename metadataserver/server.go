@@ -111,7 +111,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 
 	/* Titus routes */
 	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()
-	ms.installTItusHandlers(titusRouter, config)
+	ms.installTitusHandlers(titusRouter, config)
 
 	/* Dump debug routes if anyone cares */
 	dumpRoutes(ms.internalMux)
@@ -119,7 +119,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	return ms
 }
 
-func (ms *MetadataServer) installTItusHandlers(router *mux.Router, config types.MetadataServerConfiguration) {
+func (ms *MetadataServer) installTitusHandlers(router *mux.Router, config types.MetadataServerConfiguration) {
 	if config.Signer != nil {
 		router.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
 		router.HandleFunc("/task-identity", ms.taskIdentity)
