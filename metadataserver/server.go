@@ -3,6 +3,7 @@ package metadataserver
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -62,6 +63,7 @@ type MetadataServer struct {
 	// Need to hold `signLock` while accessing `signer`
 	signLock      sync.RWMutex
 	tokenRequired bool
+	tokenKey      []byte
 }
 
 func dumpRoutes(r *mux.Router) {
@@ -81,7 +83,7 @@ func dumpRoutes(r *mux.Router) {
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
-func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) *MetadataServer {
+func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) (*MetadataServer, error) {
 	ms := &MetadataServer{
 		httpClient:          &http.Client{},
 		internalMux:         mux.NewRouter(),
@@ -94,6 +96,13 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		signer:              config.Signer,
 		tokenRequired:       config.RequireToken,
 	}
+
+	key := make([]byte, 16)
+	_, err := rand.Read(key)
+	if err != nil {
+		return nil, err
+	}
+	ms.tokenKey = key
 
 	/* IMDS routes */
 
@@ -116,7 +125,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	/* Dump debug routes if anyone cares */
 	dumpRoutes(ms.internalMux)
 
-	return ms
+	return ms, nil
 }
 
 func (ms *MetadataServer) installTitusHandlers(router *mux.Router, config types.MetadataServerConfiguration) {

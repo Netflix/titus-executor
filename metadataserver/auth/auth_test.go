@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/rand"
 	"crypto/tls"
 	"testing"
 	"time"
@@ -9,14 +10,12 @@ import (
 	"gotest.tools/assert"
 )
 
-func TestToken(t *testing.T) {
-	cert, err := tls.X509KeyPair(testRSACert, testRSAKey)
+func TestHMACAuthenticatorToken(t *testing.T) {
+	key := make([]byte, 16)
+	_, err := rand.Read(key)
 	assert.NilError(t, err)
 
-	signer, err := identity.NewSigner(cert)
-	assert.NilError(t, err)
-
-	auth := Authenticator{Signer: signer}
+	auth := HMACAuthenticator{Key: key}
 
 	token, err := auth.GenerateToken(60 * time.Second)
 	assert.NilError(t, err)
@@ -25,14 +24,46 @@ func TestToken(t *testing.T) {
 	assert.Assert(t, valid)
 }
 
-func TestExpiredToken(t *testing.T) {
+func TestHMACAuthenticatorExpiredToken(t *testing.T) {
+	key := make([]byte, 16)
+	_, err := rand.Read(key)
+	assert.NilError(t, err)
+
+	auth := HMACAuthenticator{Key: key}
+
+	token, err := auth.GenerateToken(0)
+	assert.NilError(t, err)
+
+	time.Sleep(10 * time.Nanosecond)
+
+	valid := auth.VerifyToken(token)
+	assert.Assert(t, !valid)
+}
+
+func TestCertificateAuthenticatorToken(t *testing.T) {
 	cert, err := tls.X509KeyPair(testRSACert, testRSAKey)
 	assert.NilError(t, err)
 
 	signer, err := identity.NewSigner(cert)
 	assert.NilError(t, err)
 
-	auth := Authenticator{Signer: signer}
+	auth := CertificateAuthenticator{Signer: signer}
+
+	token, err := auth.GenerateToken(60 * time.Second)
+	assert.NilError(t, err)
+
+	valid := auth.VerifyToken(token)
+	assert.Assert(t, valid)
+}
+
+func TestCertificateAuthenticatorExpiredToken(t *testing.T) {
+	cert, err := tls.X509KeyPair(testRSACert, testRSAKey)
+	assert.NilError(t, err)
+
+	signer, err := identity.NewSigner(cert)
+	assert.NilError(t, err)
+
+	auth := CertificateAuthenticator{Signer: signer}
 
 	token, err := auth.GenerateToken(0)
 	assert.NilError(t, err)

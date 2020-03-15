@@ -272,7 +272,11 @@ func main() {
 			parsedIPv6Address := net.ParseIP(strings.Split(ipv6Addresses, "\n")[0])
 			mdscfg.Ipv6Address = &parsedIPv6Address
 		}
-		ms := metadataserver.NewMetaDataServer(context.Background(), mdscfg)
+		ms, err := metadataserver.NewMetaDataServer(context.Background(), mdscfg)
+		if err != nil {
+			return cli.NewExitError(err.Error(), 1)
+		}
+
 		go notifySystemd()
 		go reloadSigner(ms)
 		// TODO: Wire up logic to shut down mds on signal

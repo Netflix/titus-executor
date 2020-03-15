@@ -18,12 +18,8 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		ms.signLock.RLock()
-		signer := ms.signer
-		ms.signLock.RUnlock()
-
-		auth := auth.Authenticator{Signer: signer}
-		if signer == nil || !auth.VerifyToken(token) {
+		auth := auth.HMACAuthenticator{Key: ms.tokenKey}
+		if !auth.VerifyToken(token) {
 			http.Error(w, "", http.StatusUnauthorized)
 			return
 		}
@@ -39,16 +35,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	ms.signLock.RLock()
-	signer := ms.signer
-	ms.signLock.RUnlock()
-
-	if signer == nil {
-		http.Error(w, "", http.StatusBadRequest)
-		return
-	}
-
-	auth := auth.Authenticator{Signer: signer}
+	auth := auth.HMACAuthenticator{Key: ms.tokenKey}
 	ttlStr := r.Header.Get("X-aws-ec2-metadata-token-ttl-seconds")
 
 	ttlSec, err := strconv.Atoi(ttlStr)
