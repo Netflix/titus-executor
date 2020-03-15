@@ -42,6 +42,10 @@ func TestSignVerify(t *testing.T) {
 
 			valid := Verify(data, sig)
 			assert.Assert(t, valid)
+
+			stringSig, err := signer.SignString(data)
+			valid = VerifyStringSig(data, stringSig)
+			assert.Assert(t, valid)
 		})
 	}
 }
