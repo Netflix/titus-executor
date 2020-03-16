@@ -343,7 +343,7 @@ retry:
 	}
 
 	if errors.Is(err, &methodNotPossible{}) {
-		logger.G(ctx).WithError(err).Error("Got method not possible error from getAlreadyAttachedENI, trying to get ENI and attach")
+		logger.G(ctx).WithError(err).Warning("Got method not possible error from getAlreadyAttachedENI, trying to get ENI and attach")
 		// getENIAndAttach consumes fastTx
 		err2 := vpcService.getENIAndAttach(ctx, req, fastTx, slowTx, trunkLock)
 		if err2 == nil {
