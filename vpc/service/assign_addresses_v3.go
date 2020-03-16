@@ -387,6 +387,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		}
 	}
 	if resp.Ipv4Address != nil {
+		span.AddAttributes(trace.StringAttribute("ipv4", net.ParseIP(resp.Ipv4Address.Address.Address).String()))
 		_, err = tx.ExecContext(ctx, "UPDATE assignments SET ipv4addr = $1 WHERE id = $2", resp.Ipv4Address.Address.Address, ass.assignmentID)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot update assignment with v4 addr")
@@ -424,6 +425,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	if resp.Ipv6Address != nil {
+		span.AddAttributes(trace.StringAttribute("ipv6", net.ParseIP(resp.Ipv6Address.Address.Address).String()))
 		_, err = tx.ExecContext(ctx, "UPDATE assignments SET ipv6addr = $1 WHERE id = $2", resp.Ipv6Address.Address.Address, ass.assignmentID)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot update assignment with v6 addr")
@@ -432,6 +434,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		}
 	}
 
+	span.AddAttributes(trace.StringAttribute("branch", aws.StringValue(iface.NetworkInterfaceId)))
 	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_assigned_to = now() WHERE branch_eni = $1", aws.StringValue(iface.NetworkInterfaceId))
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update last_assigned_to")
@@ -449,6 +452,11 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 	resp.TrunkNetworkInterface = instanceNetworkInterface(*instance, *trunkENI)
 	resp.VlanId = uint32(ass.branch.idx)
+
+	span.AddAttributes(
+		trace.Int64Attribute("idx", int64(ass.branch.idx)),
+		trace.StringAttribute("trunk", resp.TrunkNetworkInterface.NetworkInterfaceId),
+	)
 
 	err = tx.Commit()
 	if err != nil {
