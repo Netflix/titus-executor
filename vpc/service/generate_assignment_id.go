@@ -135,7 +135,7 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 
 	sort.Strings(req.securityGroups)
 
-	securityGroupsKey := strings.Join(req.securityGroups, ",")
+	securityGroupsKey := fmt.Sprintf("%s-%s", req.subnet.vpcID, strings.Join(req.securityGroups, ","))
 	if cachedVal := vpcService.invalidSecurityGroupCache.Get(securityGroupsKey); cachedVal != nil && !cachedVal.Expired() {
 		val := cachedVal.Value().(*invalidSecurityGroupsError)
 		invalidFor := time.Until(cachedVal.Expires())
