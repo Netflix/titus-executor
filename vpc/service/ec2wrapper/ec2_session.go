@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -40,6 +42,8 @@ type EC2Session struct {
 	batchENIDescriber       *BatchENIDescriber
 	batchInstancesDescriber *BatchInstanceDescriber
 	ec2client               *ec2.EC2
+
+	instanceDescriberSingleFlight singleflight.Group
 
 	defaultSecurityGroupSingleFlight singleflight.Group
 	defaultSecurityGroupMap          sync.Map
@@ -477,7 +481,6 @@ type EC2InstanceCacheValue struct {
 func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalidateCache bool) (*ec2.Instance, string, error) {
 	ctx, span := trace.StartSpan(ctx, "getInstance")
 	defer span.End()
-	start := time.Now()
 	stats.Record(ctx, getInstanceCount.M(1))
 
 	if invalidateCache {
@@ -487,33 +490,64 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalid
 
 	stats.Record(ctx, getInstanceFromCache.M(1))
 	if item := s.instanceCache.Get(instanceID); item != nil {
-		span.AddAttributes(trace.BoolAttribute("cached", true))
-		if !item.Expired() {
-			span.AddAttributes(trace.BoolAttribute("expired", false))
-			stats.Record(ctx, getInstanceFromCacheSuccess.M(1), getInstanceSuccess.M(1))
-			val := item.Value().(*EC2InstanceCacheValue)
-			return val.instance, val.ownerID, nil
+		span.AddAttributes(
+			trace.BoolAttribute("cached", true),
+			trace.BoolAttribute("expired", item.Expired()),
+		)
+		stats.Record(ctx, getInstanceFromCacheSuccess.M(1), getInstanceSuccess.M(1))
+		val := item.Value().(*EC2InstanceCacheValue)
+		if item.Expired() {
+			// Repopulate the cache out of band
+			go func() {
+				_, _, _ = s.instanceDescriberSingleFlight.Do(instanceID, func() (interface{}, error) {
+					return s.getInstanceAndStoreInCache(ctx, instanceID)
+				})
+			}()
 		}
-		span.AddAttributes(trace.BoolAttribute("expired", true))
-		s.instanceCache.Delete(instanceID)
-	} else {
-		span.AddAttributes(trace.BoolAttribute("cached", false))
+		return val.instance, val.ownerID, nil
 	}
+
+	span.AddAttributes(trace.BoolAttribute("cached", false))
+	val, err, _ := s.instanceDescriberSingleFlight.Do(instanceID, func() (interface{}, error) {
+		return s.getInstanceAndStoreInCache(ctx, instanceID)
+	})
+
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, "", err
+	}
+
+	ec2InstanceCacheValue := val.(*EC2InstanceCacheValue)
+	return ec2InstanceCacheValue.instance, ec2InstanceCacheValue.ownerID, nil
+}
+
+func (s *EC2Session) getInstanceAndStoreInCache(parentCtx context.Context, instanceID string) (*EC2InstanceCacheValue, error) {
+	var span *trace.Span
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	if parentSpan := trace.FromContext(parentCtx); parentSpan != nil {
+		ctx, span = trace.StartSpanWithRemoteParent(ctx, "getInstanceAndStoreInCache", parentSpan.SpanContext())
+	} else {
+		ctx, span = trace.StartSpan(ctx, "getInstanceAndStoreInCache")
+	}
+	defer span.End()
 
 	instance, ownerID, err := s.batchInstancesDescriber.DescribeInstanceWithTimeout(ctx, instanceID, 1500*time.Millisecond)
 	if err != nil {
+		// If it's a not found error, we should consider explicitly deleting it from the cache
 		logger.G(ctx).WithError(err).WithField("ec2InstanceId", instanceID).Error("Could not get EC2 Instance")
-		return nil, "", HandleEC2Error(err, span)
+		return nil, HandleEC2Error(err, span)
 	}
 
-	stats.Record(ctx, getInstanceMs.M(float64(time.Since(start).Nanoseconds())), getInstanceSuccess.M(1))
+	stats.Record(ctx, getInstanceSuccess.M(1))
 	ret := &EC2InstanceCacheValue{
 		ownerID:  ownerID,
 		instance: instance,
 	}
 
-	instanceExpirationTime := time.Nanosecond * time.Duration(minInstanceExpirationTime.Nanoseconds()+rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))
+	instanceExpirationTime := time.Duration(minInstanceExpirationTime.Nanoseconds() + rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))
 	s.instanceCache.Set(instanceID, ret, instanceExpirationTime)
 
-	return ret.instance, ret.ownerID, nil
+	return ret, nil
 }
