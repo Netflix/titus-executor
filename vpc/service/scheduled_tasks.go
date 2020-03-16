@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"time"
 
@@ -62,8 +64,16 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 		logger.G(ctx).WithError(err).Error("Unable to fetch value of last run")
 		return err
 	}
+
+	fudgeFactor := (rand.Float64()/2 + 0.75) // returns a number between 0.75 and 1.25
+	fudgedInterval := time.Duration(int64(float64(interval.Nanoseconds()) * fudgeFactor))
+
 	if t := time.Since(lastRun); t < interval {
-		logger.G(ctx).WithField("t", t).Info("Aborting task ran too recently")
+		logger.G(ctx).WithFields(map[string]interface{}{
+			"lastRun":        t,
+			"fudgeFactor":    math.Round(fudgeFactor*100.0) / 100.0,
+			"fudgedInterval": fudgedInterval,
+		}).Info("Aborting task ran too recently")
 		return nil
 	}
 	logger.G(ctx).Info("Finished task")
