@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/hashicorp/go-multierror"
 
@@ -25,7 +29,12 @@ import (
 
 const (
 	generateAssignmentIDTimeout = time.Second * 30
+	securityGroupBlockTimeout   = 15 * time.Minute
 )
+
+type invalidSecurityGroupsError struct {
+	message string
+}
 
 type eniLockWrapper struct {
 	sem      *semaphore.Weighted
@@ -126,6 +135,15 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 
 	sort.Strings(req.securityGroups)
 
+	securityGroupsKey := strings.Join(req.securityGroups, ",")
+	if cachedVal := vpcService.invalidSecurityGroupCache.Get(securityGroupsKey); cachedVal != nil && !cachedVal.Expired() {
+		val := cachedVal.Value().(*invalidSecurityGroupsError)
+		invalidFor := time.Until(cachedVal.Expires())
+		err = status.Errorf(codes.NotFound, "Security groups not found: %s, try again in %s", val.message, invalidFor)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
 	response, err = vpcService.generateAssignmentID2(ctx, &req)
 	if err != nil {
 		err = errors.Wrap(err, "Could not generate assignment ID with already attached ENI")
@@ -225,6 +243,15 @@ FOR NO KEY UPDATE OF branch_enis`, response.eni.id)
 			err2 = errors.Wrapf(err2, "Unable to perform commit, as modify security groups failed with: %s", err.Error())
 			tracehelpers.SetStatus(err2, span)
 			return nil, err2
+		}
+
+		awsErr := ec2wrapper.RetrieveEC2Error(err)
+		if awsErr.Code() == ec2wrapper.InvalidGroupNotFound {
+			val := &invalidSecurityGroupsError{
+				message: awsErr.Message(),
+			}
+			logger.G(ctx).WithField("key", securityGroupsKey).Debug("Storing invalid security groups")
+			vpcService.invalidSecurityGroupCache.Set(securityGroupsKey, val, securityGroupBlockTimeout)
 		}
 
 		return nil, ec2wrapper.HandleEC2Error(err, span)

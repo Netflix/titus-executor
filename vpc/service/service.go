@@ -97,6 +97,8 @@ type vpcService struct {
 
 	generatorTracker          *ccache.Cache
 	generatorTrackerAdderLock singleflight.Group
+
+	invalidSecurityGroupCache *ccache.Cache
 }
 
 func generatorTrackerCache() *ccache.Cache {
@@ -198,7 +200,8 @@ func Run(ctx context.Context, config *Config) error {
 		trunkNetworkInterfaceDescription:  config.TrunkNetworkInterfaceDescription,
 		branchNetworkInterfaceDescription: config.BranchNetworkInterfaceDescription,
 
-		generatorTracker: generatorTrackerCache(),
+		generatorTracker:          generatorTrackerCache(),
+		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
 	}
 
 	// TODO: actually validate this

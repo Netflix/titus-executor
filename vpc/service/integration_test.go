@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/karlseguin/ccache"
+
 	"github.com/openzipkin/zipkin-go/model"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
@@ -94,7 +96,8 @@ func newTestServiceInstance(t *testing.T) *vpcService {
 		branchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
 		trunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
 
-		generatorTracker: generatorTrackerCache(),
+		generatorTracker:          generatorTrackerCache(),
+		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
 	}
 }
 
