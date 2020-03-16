@@ -1,6 +1,7 @@
 package metadataserver
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/Netflix/titus-executor/metadataserver/auth"
 	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 )
 
 func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
@@ -18,12 +20,13 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		auth := auth.HMACAuthenticator{Key: ms.tokenKey}
-		if !auth.VerifyToken(token) {
+		auth := auth.JWTAuthenticator{Key: ms.tokenKey}
+		valid, remaining := auth.VerifyToken(token)
+		if !valid {
 			http.Error(w, "", http.StatusUnauthorized)
 			return
 		}
-
+		w.Header().Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", fmt.Sprintf("%v", remaining))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -35,7 +38,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	auth := auth.HMACAuthenticator{Key: ms.tokenKey}
+	auth := auth.JWTAuthenticator{Key: ms.tokenKey}
 	ttlStr := r.Header.Get("X-aws-ec2-metadata-token-ttl-seconds")
 
 	ttlSec, err := strconv.Atoi(ttlStr)
@@ -71,6 +74,11 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 	if conn.RemoteAddr().(*net.TCPAddr).IP.To4() != nil {
 		p := ipv4.NewConn(conn)
 		_ = p.SetTTL(1)
+	}
+
+	if conn.RemoteAddr().(*net.TCPAddr).IP.To16() != nil {
+		p := ipv6.NewConn(conn)
+		_ = p.SetHopLimit(1)
 	}
 
 	_, _ = bufrw.Write([]byte(token))

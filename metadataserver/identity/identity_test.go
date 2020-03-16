@@ -30,14 +30,15 @@ var sigTests = []struct {
 
 func TestSignVerify(t *testing.T) {
 	for _, tc := range sigTests {
-		t.Run(tc.name, func(t *testing.T) {
-			cert, err := tls.X509KeyPair(tc.certBytes, tc.keyBytes)
+		test := tc
+		t.Run(test.name, func(t *testing.T) {
+			cert, err := tls.X509KeyPair(test.certBytes, test.keyBytes)
 			assert.NilError(t, err)
 
 			signer, err := NewSigner(cert)
 			assert.NilError(t, err)
 
-			data := tc.data
+			data := test.data
 			sig, err := signer.Sign(data)
 			assert.NilError(t, err)
 

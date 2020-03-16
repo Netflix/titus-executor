@@ -16,6 +16,3 @@ run:
     - vpc/bpf/filter
     - vpc/bpf2
     - vpc/limitsold
-issues:
-  exclude:
-    - Using the variable on range scope .* in function literal

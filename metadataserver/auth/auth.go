@@ -2,15 +2,15 @@ package auth
 
 import (
 	"crypto"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/metadataserver/identity"
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 // Authenticator generates and authenticates tokens
@@ -27,73 +27,40 @@ type envelope struct {
 	Expiration int64
 }
 
-// HMACAuthenticator authenticates using hmac
-type HMACAuthenticator struct {
+// JWTAuthenticator authenticates using JWT
+type JWTAuthenticator struct {
 	Key []byte
 }
 
 // GenerateToken token
-func (a *HMACAuthenticator) GenerateToken(ttl time.Duration) (string, error) {
-	tokenBytes := make([]byte, 16)
-	_, err := rand.Read(tokenBytes)
-	if err != nil {
-		return "", err
+func (a *JWTAuthenticator) GenerateToken(ttl time.Duration) (string, error) {
+	claims := &jwt.StandardClaims{
+		ExpiresAt: time.Now().Add(ttl).Unix(),
 	}
-
-	token := base64.StdEncoding.EncodeToString(tokenBytes)
-	exp := time.Now().Add(ttl).UnixNano()
-	env := envelope{Token: token, Expiration: exp}
-	envJSON, err := json.Marshal(env)
-	if err != nil {
-		return "", err
-	}
-	envEnc := base64.StdEncoding.EncodeToString(envJSON)
-	mac := a.hmac(envEnc)
-	sig := base64.StdEncoding.EncodeToString(mac)
-
-	return envEnc + "." + sig, nil
-}
-
-func (a *HMACAuthenticator) hmac(item string) []byte {
-	hmac := hmac.New(sha512.New, a.Key)
-	hmac.Write([]byte(item))
-	return hmac.Sum(nil)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(a.Key)
 }
 
 // VerifyToken verifes a token
-func (a *HMACAuthenticator) VerifyToken(token string) bool {
-	comps := strings.Split(token, ".")
-	if len(comps) != 2 {
-		return false
-	}
+func (a *JWTAuthenticator) VerifyToken(token string) (bool, int64) {
+	var claims jwt.StandardClaims
+	jwtToken, err := jwt.ParseWithClaims(token, &claims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+		return a.Key, nil
+	})
 
-	envEnc, sigEnc := comps[0], comps[1]
-	sig, err := base64.StdEncoding.DecodeString(sigEnc)
 	if err != nil {
-		return false
-	}
-	expectedSig := a.hmac(envEnc)
-
-	if !hmac.Equal(sig, expectedSig) {
-		return false
+		return false, 0
 	}
 
-	envStr, err := base64.StdEncoding.DecodeString(envEnc)
-	if err != nil {
-		return false
+	if jwtToken.Valid && jwtToken.Claims.Valid() != nil {
+		return false, 0
 	}
 
-	env := envelope{}
-	err = json.Unmarshal(envStr, &env)
-	if err != nil {
-		return false
-	}
-
-	if time.Now().UnixNano() > env.Expiration {
-		return false
-	}
-
-	return true
+	remaining := time.Until(time.Unix(claims.ExpiresAt, 0))
+	return true, int64(remaining.Seconds())
 }
 
 // CertificateAuthenticator generates and authenticates tokens
@@ -110,7 +77,7 @@ func (a *CertificateAuthenticator) GenerateToken(ttl time.Duration) (string, err
 	}
 
 	token := base64.StdEncoding.EncodeToString(tokenBytes)
-	exp := time.Now().Add(ttl).UnixNano()
+	exp := time.Now().Add(ttl).Unix()
 	env := envelope{Token: token, Expiration: exp}
 
 	envJSON, err := json.Marshal(env)
@@ -129,37 +96,37 @@ func (a *CertificateAuthenticator) GenerateToken(ttl time.Duration) (string, err
 }
 
 // VerifyToken verifies that a token is valid and not expired
-func (a *CertificateAuthenticator) VerifyToken(token string) bool {
+func (a *CertificateAuthenticator) VerifyToken(token string) (bool, int64) {
 	comps := strings.Split(token, ".")
 	if len(comps) != 2 {
-		return false
+		return false, 0
 	}
 
 	envEnc, sigEnc := comps[0], comps[1]
 	sig, err := base64.StdEncoding.DecodeString(sigEnc)
 	if err != nil {
-		return false
+		return false, 0
 	}
 
 	pub := a.Signer.Certificate.PrivateKey.(crypto.Signer).Public()
 	if !identity.VerifyWithPublicKey([]byte(envEnc), pub, sig) {
-		return false
+		return false, 0
 	}
 
 	envStr, err := base64.StdEncoding.DecodeString(envEnc)
 	if err != nil {
-		return false
+		return false, 0
 	}
 
 	env := envelope{}
 	err = json.Unmarshal(envStr, &env)
 	if err != nil {
-		return false
+		return false, 0
 	}
 
-	if time.Now().UnixNano() > env.Expiration {
-		return false
+	if time.Now().Unix() > env.Expiration {
+		return false, 0
 	}
-
-	return true
+	remaining := time.Until(time.Unix(env.Expiration, 0))
+	return true, int64(remaining.Seconds())
 }

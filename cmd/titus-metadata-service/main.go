@@ -217,6 +217,7 @@ func main() {
 		cli.BoolFlag{
 			Name:        "require-token",
 			Usage:       "Set to true to require a token",
+			EnvVar:      "REQUIRE_TOKEN",
 			Destination: &requireToken,
 		},
 	}

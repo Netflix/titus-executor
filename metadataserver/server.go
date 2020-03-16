@@ -2,13 +2,14 @@ package metadataserver
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -105,6 +106,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	ms.tokenKey = key
 
 	/* IMDS routes */
+	ms.internalMux.Use(ms.serverHeader)
 
 	// v2
 	latestVersionGenToken := ms.internalMux.PathPrefix("/latest/api/token").Subrouter()
@@ -128,6 +130,13 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	return ms, nil
 }
 
+func (ms *MetadataServer) serverHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Server", "EC2ws")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (ms *MetadataServer) installTitusHandlers(router *mux.Router, config types.MetadataServerConfiguration) {
 	if config.Signer != nil {
 		router.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
@@ -136,8 +145,6 @@ func (ms *MetadataServer) installTitusHandlers(router *mux.Router, config types.
 }
 
 func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router *mux.Router, config types.MetadataServerConfiguration) {
-	router.NotFoundHandler = newProxy(config.BackingMetadataServer)
-
 	router.HandleFunc("/ping", ms.ping)
 
 	metaData := router.PathPrefix("/meta-data").Subrouter()
@@ -154,6 +161,9 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 
 	/* IAM Stuffs */
 	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), config)
+
+	/* Catch All */
+	router.PathPrefix("/").Handler(newProxy(config.BackingMetadataServer))
 }
 
 func (ms *MetadataServer) macAddr(w http.ResponseWriter, r *http.Request) {
@@ -259,11 +269,12 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	token, err := p.fetchToken(r.Context())
 	if err != nil {
 		logging.AddField(r.Context(), "failed_fetch_token", true)
+		log.Error("unable to fetch metadata service token: ", err)
 		http.Error(w, "HTTP Proxy unable to fetch IMDS v2 token", http.StatusForbidden)
 		return
 	}
 
-	w.Header().Set("x-aws-ec2-metadata-token", token)
+	r.Header.Set("x-aws-ec2-metadata-token", token)
 	metrics.PublishIncrementCounter("api.proxy_request.success.count")
 	p.reverseProxy.ServeHTTP(w, r)
 
@@ -271,7 +282,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (p *proxy) fetchToken(ctx context.Context) (string, error) {
 	client := http.Client{}
-	req, err := http.NewRequest(http.MethodPut, p.backingMetadataServer.String(), nil)
+
+	tokenURL := *p.backingMetadataServer
+	tokenURL.Path = path.Join(tokenURL.Path, "/latest/api/token")
+
+	req, err := http.NewRequest(http.MethodPut, tokenURL.String(), nil)
 	if err != nil {
 		return "", err
 	}

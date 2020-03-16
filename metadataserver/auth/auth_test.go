@@ -15,13 +15,14 @@ func TestHMACAuthenticatorToken(t *testing.T) {
 	_, err := rand.Read(key)
 	assert.NilError(t, err)
 
-	auth := HMACAuthenticator{Key: key}
+	auth := JWTAuthenticator{Key: key}
 
 	token, err := auth.GenerateToken(60 * time.Second)
 	assert.NilError(t, err)
 
-	valid := auth.VerifyToken(token)
+	valid, remaining := auth.VerifyToken(token)
 	assert.Assert(t, valid)
+	assert.Assert(t, remaining > 58 && remaining < 60)
 }
 
 func TestHMACAuthenticatorExpiredToken(t *testing.T) {
@@ -29,14 +30,14 @@ func TestHMACAuthenticatorExpiredToken(t *testing.T) {
 	_, err := rand.Read(key)
 	assert.NilError(t, err)
 
-	auth := HMACAuthenticator{Key: key}
+	auth := JWTAuthenticator{Key: key}
 
 	token, err := auth.GenerateToken(0)
 	assert.NilError(t, err)
 
-	time.Sleep(10 * time.Nanosecond)
+	time.Sleep(1 * time.Second)
 
-	valid := auth.VerifyToken(token)
+	valid, _ := auth.VerifyToken(token)
 	assert.Assert(t, !valid)
 }
 
@@ -52,8 +53,9 @@ func TestCertificateAuthenticatorToken(t *testing.T) {
 	token, err := auth.GenerateToken(60 * time.Second)
 	assert.NilError(t, err)
 
-	valid := auth.VerifyToken(token)
+	valid, remaining := auth.VerifyToken(token)
 	assert.Assert(t, valid)
+	assert.Assert(t, remaining > 58 && remaining < 60)
 }
 
 func TestCertificateAuthenticatorExpiredToken(t *testing.T) {
@@ -68,9 +70,9 @@ func TestCertificateAuthenticatorExpiredToken(t *testing.T) {
 	token, err := auth.GenerateToken(0)
 	assert.NilError(t, err)
 
-	time.Sleep(10 * time.Nanosecond)
+	time.Sleep(1 * time.Second)
 
-	valid := auth.VerifyToken(token)
+	valid, _ := auth.VerifyToken(token)
 	assert.Assert(t, !valid)
 }
 
