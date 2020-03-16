@@ -86,6 +86,8 @@ type Config struct { // nolint: maligned
 
 	titusIsolateBlockTime   time.Duration
 	enableTitusIsolateBlock bool
+
+	networkTeardownTimeout time.Duration
 }
 
 type volumeContainerConfig struct {
@@ -99,6 +101,12 @@ type volumeContainerConfig struct {
 func NewConfig() (*Config, []cli.Flag) {
 	cfg := &Config{}
 	flags := []cli.Flag{
+		cli.DurationFlag{
+			Name:        "titus.executor.networkTeardownTimeout",
+			EnvVar:      "NETWORK_TEARDOWN_TIMEOUT",
+			Value:       time.Second * 30,
+			Destination: &cfg.networkTeardownTimeout,
+		},
 		cli.Uint64Flag{
 			Name:        "titus.executor.cfsBandwidthPeriod",
 			EnvVar:      "CFS_BANDWIDTH_PERIOD",
@@ -1997,22 +2005,30 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error { // nolint: gocyc
 	}
 
 stopped:
+	l := log.WithField("taskId", c.TaskID)
 	if c.SetupCommand != nil && c.SetupCommand.Process != nil {
-		_ = c.SetupCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
-	}
-	if c.AllocationCommand != nil {
-		if c.AllocationCommand.Process != nil {
-			_ = c.AllocationCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
-			time.AfterFunc(5*time.Second, func() {
-				_ = c.AllocationCommand.Process.Kill() // nolint: gosec
-			})
-		}
-
-		log.WithField("taskId", c.TaskID).Info("Waiting for deallocation to finish")
-		_ = c.AllocationCommand.Wait() // nolint: gosec
-		log.WithField("taskId", c.TaskID).Info("Deallocation finished")
+		errs = multierror.Append(errs, errors.Wrap(c.SetupCommand.Process.Signal(unix.SIGTERM), "Error sending SIGTERM to Setup Command")) // nolint: gosec
+		killTimer := time.AfterFunc(r.dockerCfg.networkTeardownTimeout, func() {
+			l.WithError(c.SetupCommand.Process.Kill()).Warning("Setup command killed with SIGKILL")
+		})
+		l.Info("Waiting for network teardown to finish")
+		errs = multierror.Append(errs, errors.Wrap(c.SetupCommand.Wait(), "Error while waiting on setup command to finish")) // nolint: gosec
+		killTimer.Stop()
+		l.Info("Network teardown finished")
 	} else {
-		log.WithField("taskId", c.TaskID).Info("No need to deallocate, no allocation command")
+		l.Info("No need to teardown setup, no setup command")
+	}
+	if c.AllocationCommand != nil && c.AllocationCommand.Process != nil {
+		errs = multierror.Append(errs, errors.Wrap(c.AllocationCommand.Process.Signal(unix.SIGTERM), "Error sending SIGERM to Allocation Command")) // nolint: gosec
+		killTimer := time.AfterFunc(r.dockerCfg.networkTeardownTimeout, func() {
+			l.WithError(c.AllocationCommand.Process.Kill()).Warning("Allocation command killed with SIGKILL") // nolint: gosec
+		})
+		l.Info("Waiting for deallocation to finish")
+		errs = multierror.Append(errs, errors.Wrap(c.AllocationCommand.Wait(), "Error while waiting for allocation command to finish")) // nolint: gosec
+		killTimer.Stop()
+		l.Info("Deallocation finished")
+	} else {
+		l.Info("No need to deallocate, no allocation command")
 	}
 
 	if c.TitusInfo.GetNumGpus() > 0 && c.GPUInfo != nil {
