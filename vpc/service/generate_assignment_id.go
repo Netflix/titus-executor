@@ -230,21 +230,6 @@ FOR NO KEY UPDATE OF branch_enis`, response.eni.id)
 		Groups:             aws.StringSlice(req.securityGroups),
 	})
 	if err != nil {
-		err = errors.Wrap(err, "Unable to modify security groups")
-		tracehelpers.SetStatus(err, span)
-		_, err2 := slowTx.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", response.assignmentID)
-		if err2 != nil {
-			err2 = errors.Wrapf(err2, "Unable to delete assignment, as modify security groups failed with: %s", err.Error())
-			tracehelpers.SetStatus(err2, span)
-			return nil, err2
-		}
-		err2 = slowTx.Commit()
-		if err2 != nil {
-			err2 = errors.Wrapf(err2, "Unable to perform commit, as modify security groups failed with: %s", err.Error())
-			tracehelpers.SetStatus(err2, span)
-			return nil, err2
-		}
-
 		awsErr := ec2wrapper.RetrieveEC2Error(err)
 		if awsErr.Code() == ec2wrapper.InvalidGroupNotFound {
 			val := &invalidSecurityGroupsError{
@@ -252,6 +237,22 @@ FOR NO KEY UPDATE OF branch_enis`, response.eni.id)
 			}
 			logger.G(ctx).WithField("key", securityGroupsKey).Debug("Storing invalid security groups")
 			vpcService.invalidSecurityGroupCache.Set(securityGroupsKey, val, securityGroupBlockTimeout)
+		}
+
+		err = errors.Wrap(err, "Unable to modify security groups")
+		result := multierror.Append(err)
+		_, err2 := slowTx.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", response.assignmentID)
+		if err2 != nil {
+			err2 = errors.Wrapf(err2, "Unable to delete assignment, as modify security groups failed with: %s", err.Error())
+			tracehelpers.SetStatus(err2, span)
+			result = multierror.Append(result, err2)
+			return nil, result.ErrorOrNil()
+		}
+		err2 = slowTx.Commit()
+		if err2 != nil {
+			err2 = errors.Wrapf(err2, "Unable to perform commit, as modify security groups failed with: %s", err.Error())
+			result = multierror.Append(result, err2)
+			return nil, result.ErrorOrNil()
 		}
 
 		return nil, ec2wrapper.HandleEC2Error(err, span)
