@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
@@ -1037,6 +1039,8 @@ type actionWorker struct {
 	maxWorkTime time.Duration
 
 	pendingState string
+
+	readyCh chan struct{}
 }
 
 func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) error {
@@ -1049,7 +1053,7 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 	eventCallback := func(event pq.ListenerEventType, err error) {
 		listenerEventCh <- listenerEvent{listenerEvent: event, err: err}
 	}
-	pqListener := pq.NewListener(actionWorker.dbURL, 10*time.Second, 2*time.Minute, eventCallback)
+	pqListener := pq.NewListener(actionWorker.dbURL, 500*time.Millisecond, 2*time.Minute, eventCallback)
 	defer func() {
 		_ = pqListener.Close()
 	}()
@@ -1066,7 +1070,11 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 	pingTimer := time.NewTimer(10 * time.Second)
 	pingCh := make(chan error)
 
-	wq := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), actionWorker.name)
+	wq := workqueue.NewNamedRateLimitingQueue(workqueue.NewMaxOfRateLimiter(
+		workqueue.NewItemExponentialFailureRateLimiter(100*time.Millisecond, time.Minute),
+		// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(100), 200)},
+	), actionWorker.name)
 	defer wq.ShutDown()
 
 	errCh := make(chan error)
@@ -1113,9 +1121,9 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 					err = errors.Wrap(err, "Could not retrieve all work items")
 					return err
 				}
+				close(actionWorker.readyCh)
 			case pq.ListenerEventDisconnected:
-				wq.ShutDown()
-				logger.G(ctx).WithError(ev.err).Error("Disconnected from postgres, stopping work")
+				logger.G(ctx).WithError(ev.err).Error("Disconnected from postgres")
 			case pq.ListenerEventReconnected:
 				logger.G(ctx).Info("Reconnected to postgres")
 			case pq.ListenerEventConnectionAttemptFailed:
@@ -1174,7 +1182,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 			return nil
 		}
 
-		logger.G(ctx).Debug("Got lock?")
+		logger.G(ctx).WithField("table", actionWorker.table).Debug("Got lock on work item")
 
 		_, err = tx.ExecContext(ctx, "set lock_timeout = 0")
 		if err != nil {
@@ -1340,6 +1348,8 @@ func (vpcService *vpcService) associateActionWorker() *actionWorker {
 		maxWorkTime:     30 * time.Second,
 
 		pendingState: attaching,
+
+		readyCh: make(chan struct{}),
 	}
 }
 
@@ -1358,6 +1368,8 @@ func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
 		maxWorkTime: 30 * time.Second,
 
 		pendingState: unattaching,
+
+		readyCh: make(chan struct{}),
 	}
 }
 
