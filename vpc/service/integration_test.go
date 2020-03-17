@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -115,6 +116,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testGenerateAssignmentIDWithFault", testGenerateAssignmentIDWithFault)
 	runIntegrationTest(t, "testGenerateAssignmentIDStressTest", testGenerateAssignmentIDStressTest)
 	runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
+	runIntegrationTest(t, "testActionWorker", testActionWorker)
 
 }
 
@@ -886,4 +888,101 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	assert.Assert(t, is.Len(describeTrunkInterfaceAssociationsOutput.InterfaceAssociations, 2))
 	assert.Assert(t, is.Equal(aws.StringValue(describeTrunkInterfaceAssociationsOutput.InterfaceAssociations[0].TrunkInterfaceId), aws.StringValue(trunkENI.NetworkInterfaceId)))
 	assert.Assert(t, is.Equal(aws.StringValue(describeTrunkInterfaceAssociationsOutput.InterfaceAssociations[1].TrunkInterfaceId), aws.StringValue(trunkENI.NetworkInterfaceId)))
+}
+
+func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const workedUponSuffix = "-worked-upon"
+	doTestWork := func() int {
+		tx, err := service.db.BeginTx(ctx, nil)
+		assert.NilError(t, err)
+		defer func(t *sql.Tx) {
+			_ = t.Rollback()
+		}(tx)
+
+		row := tx.QueryRowContext(ctx, "INSERT INTO test_work(input) VALUES ($1) RETURNING id", uuid.New().String())
+		var workItemID int
+		assert.NilError(t, row.Scan(&workItemID))
+
+		_, err = tx.ExecContext(ctx, "SELECT pg_notify('test_work_created', $1)", strconv.Itoa(workItemID))
+		assert.NilError(t, err)
+		assert.NilError(t, tx.Commit())
+
+		return workItemID
+	}
+
+	itemCreatedBeforeWorkerStartupWorkitemID := doTestWork()
+
+	group, ctx := errgroup.WithContext(ctx)
+	testActionWorker := &actionWorker{
+		db:    service.db,
+		dbURL: service.dbURL,
+		cb: func(ctx context.Context, tx *sql.Tx, id int) error {
+			row := tx.QueryRowContext(ctx, "SELECT input FROM test_work WHERE id = $1", id)
+			var input string
+			if err := row.Scan(&input); err != nil {
+				return err
+			}
+			output := input + workedUponSuffix
+
+			if _, err := tx.ExecContext(ctx, "UPDATE test_work SET state = 'done', output = $1 WHERE id = $2", output, id); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(ctx, "SELECT pg_notify('test_work_finished', $1)", strconv.Itoa(id))
+			return err
+		},
+		creationChannel: "test_work_created",
+		finishedChanel:  "test_work_finished",
+		name:            "test_worker",
+		table:           "test_work",
+		maxWorkTime:     time.Minute,
+		pendingState:    "undone",
+
+		readyCh: make(chan struct{}),
+	}
+
+	group.Go(func() error {
+		return testActionWorker.loop(ctx, &nilItem{})
+	})
+
+	<-testActionWorker.readyCh
+	var listenerPid int
+	assert.NilError(t, service.db.QueryRowContext(ctx, `
+SELECT pid
+FROM pg_stat_activity
+WHERE client_addr =
+    (SELECT client_addr
+     FROM pg_stat_activity
+     WHERE pid = pg_backend_pid())
+  AND query LIKE 'LISTEN%'
+  `).Scan(&listenerPid), "Could not get listener PID")
+
+	confirmWorkDone := func(workItemID int) {
+		var state string
+		row := service.db.QueryRowContext(ctx, "SELECT state FROM test_work WHERE id = $1", workItemID)
+		assert.NilError(t, row.Scan(&state))
+		assert.Assert(t, is.Equal(state, "done"))
+	}
+
+	workItem1ID := doTestWork()
+	// Work shouldn't take longer than this
+	time.Sleep(time.Second)
+	confirmWorkDone(workItem1ID)
+	confirmWorkDone(itemCreatedBeforeWorkerStartupWorkitemID)
+
+	// Try to terminate the connection
+	_, err := service.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", listenerPid)
+	assert.NilError(t, err, "Could not terminate listener connection PID")
+	// Recovery shouldn't take longer than this
+	time.Sleep(2 * time.Second)
+
+	workItem2ID := doTestWork()
+	// Work shouldn't take longer than this
+	time.Sleep(time.Second)
+	confirmWorkDone(workItem2ID)
+
+	cancel()
+	assert.Error(t, group.Wait(), context.Canceled.Error())
 }
