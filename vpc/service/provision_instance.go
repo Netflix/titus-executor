@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
 	"github.com/Netflix/titus-executor/vpc/limitsold"
 
@@ -198,7 +199,7 @@ func (vpcService *vpcService) attachNetworkInterfaceAtIdx(ctx context.Context, e
 	return describeNetworkInterfacesOutput.NetworkInterfaces[0], nil
 }
 
-func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpcapi.ProvisionInstanceRequestV2) (_ *vpcapi.ProvisionInstanceResponseV2, retErr error) {
+func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpcapi.ProvisionInstanceRequestV2) (*vpcapi.ProvisionInstanceResponseV2, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "ProvisionInstanceV2")
@@ -206,33 +207,17 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
-	// - Add instance AZ, etc.. to logger
-	// TODO:
-	// - Check that the AWS instance is in the same account as our session object
 	// - Add timeout
-	// - Verify instance identity document
-	// - Check the server's region is our own
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	defer func() {
-		if retErr == nil {
-			retErr = tx.Commit()
-		} else {
-			_ = tx.Rollback()
-		}
-	}()
 
 	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	instance, _, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, true)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -240,109 +225,36 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	// TODO: Verify the second network interface is a trunk
 	eni := vpcService.getTrunkENI(instance)
 	if eni != nil {
-		region := azToRegionRegexp.FindString(aws.StringValue(instance.Placement.AvailabilityZone))
-		_, err = tx.ExecContext(ctx, "INSERT INTO trunk_eni_accounts(account_id, region) VALUES ($1, $2) ON CONFLICT (account_id, region) DO NOTHING", aws.StringValue(eni.OwnerId), region)
-		if err != nil {
-			return nil, errors.Wrap(err, "Cannot update trunk eni accounts")
-		}
 		return &vpcapi.ProvisionInstanceResponseV2{
 			TrunkNetworkInterface: instanceNetworkInterface(*instance, *eni),
 		}, nil
 	}
 
-	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
-		Description:      aws.String(vpc.TrunkNetworkInterfaceDescription),
-		InterfaceType:    aws.String("trunk"),
-		Ipv6AddressCount: aws.Int64(0),
-		SubnetId:         instance.SubnetId,
-	}
-
-	ec2client := ec2.New(ec2InstanceSession.Session)
-
-	// TODO: Record creation of the interface
-	createNetworkInterfaceResult, err := ec2client.CreateNetworkInterfaceWithContext(ctx, createNetworkInterfaceInput)
+	iface, err := vpcService.createNewTrunkENI(ctx, ec2InstanceSession, instance.SubnetId)
 	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not create interface")
-		return nil, ec2wrapper.HandleEC2Error(err, span)
-	}
-
-	region := azToRegionRegexp.FindString(aws.StringValue(createNetworkInterfaceResult.NetworkInterface.AvailabilityZone))
-	_, err = tx.ExecContext(ctx, "INSERT INTO trunk_eni_accounts(account_id, region) VALUES ($1, $2) ON CONFLICT (account_id, region) DO NOTHING", aws.StringValue(createNetworkInterfaceResult.NetworkInterface.OwnerId), region)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot update trunk eni accounts")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	modifyNetworkInterfaceAttributeInput := &ec2.ModifyNetworkInterfaceAttributeInput{
-		SourceDestCheck:    &ec2.AttributeBooleanValue{Value: aws.Bool(false)},
-		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
-	}
-	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
-	// This isn't actually the end of the world as long as someone comes and fixes it later
-	if err != nil {
-		logger.G(ctx).WithError(err).Warn("Could not reconfigure network interface to disable source / dest check")
-		return nil, ec2wrapper.HandleEC2Error(err, span)
-	}
-
-	// TODO: Add retries to tag the interface
-	now := time.Now()
-	createTagsInput := &ec2.CreateTagsInput{
-		Resources: aws.StringSlice([]string{*createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId}),
-		Tags: []*ec2.Tag{
-			{
-				Key:   aws.String(vpc.ENICreationTimeTag),
-				Value: aws.String(now.Format(time.RFC3339)),
-			},
-		},
-	}
-	_, err = ec2client.CreateTagsWithContext(ctx, createTagsInput)
-	if err != nil {
-		logger.G(ctx).WithError(err).Warn("Could not tag network interface")
-	}
-
-	_, err = tx.ExecContext(ctx, "INSERT INTO trunk_enis(trunk_eni, account_id, az, subnet_id, vpc_id, region) VALUES ($1, $2, $3, $4, $5, $6)",
-		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId),
-		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.OwnerId),
-		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.AvailabilityZone),
-		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.SubnetId),
-		aws.StringValue(createNetworkInterfaceResult.NetworkInterface.VpcId),
-		region,
-	)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot update trunk enis")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	attachNetworkInterfaceInput := &ec2.AttachNetworkInterfaceInput{
+	attachNetworkInterfaceInput := ec2.AttachNetworkInterfaceInput{
 		DeviceIndex:        aws.Int64(int64(1)),
 		InstanceId:         instance.InstanceId,
-		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
+		NetworkInterfaceId: iface.NetworkInterfaceId,
 	}
+
 	// TODO: Delete interface if attaching fails.
-	// TODO: Add retries to attach the interface
-	attachNetworkInterfaceResult, err := ec2client.AttachNetworkInterfaceWithContext(ctx, attachNetworkInterfaceInput)
+	_, err = ec2InstanceSession.AttachNetworkInterface(ctx, attachNetworkInterfaceInput)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not attach network interface")
-		return nil, status.Convert(err).Err()
+		err = ec2wrapper.HandleEC2Error(err, span)
+		err2 := vpcService.deleteTrunkInterface(ctx, ec2InstanceSession, aws.StringValue(iface.NetworkInterfaceId))
+		if err2 != nil {
+			logger.G(ctx).WithError(err).Error("Could not delete trunk network interface after failed attachment")
+		}
+		return nil, err
 	}
 
-	// TODO: Add retries to modify the interface
-	modifyNetworkInterfaceAttributeInput = &ec2.ModifyNetworkInterfaceAttributeInput{
-		Attachment: &ec2.NetworkInterfaceAttachmentChanges{
-			AttachmentId:        attachNetworkInterfaceResult.AttachmentId,
-			DeleteOnTermination: aws.Bool(true),
-		},
-		NetworkInterfaceId: createNetworkInterfaceResult.NetworkInterface.NetworkInterfaceId,
-	}
-	_, err = ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, modifyNetworkInterfaceAttributeInput)
-	// This isn't actually the end of the world as long as someone comes and fixes it later
-	if err != nil {
-		logger.G(ctx).WithError(err).Warn("Could not reconfigure network interface to be deleted on termination")
-	}
-
-	// TODO: Add retries to modify the interface
-
-	return &vpcapi.ProvisionInstanceResponseV2{}, nil
+	return &vpcapi.ProvisionInstanceResponseV2{
+		TrunkNetworkInterface: networkInterface(*iface),
+	}, nil
 }

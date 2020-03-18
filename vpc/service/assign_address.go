@@ -529,7 +529,7 @@ func (vpcService *vpcService) getUnattachedBranchENI(ctx context.Context, tx *sq
 	createNetworkInterfaceInput := &ec2.CreateNetworkInterfaceInput{
 		Ipv6AddressCount: aws.Int64(0),
 		SubnetId:         aws.String(subnetID),
-		Description:      aws.String(vpc.BranchNetworkInterfaceDescription),
+		Description:      aws.String(vpcService.branchNetworkInterfaceDescription),
 		Groups:           aws.StringSlice(securityGroups),
 	}
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, key)

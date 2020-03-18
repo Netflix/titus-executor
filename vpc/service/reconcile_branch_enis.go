@@ -5,24 +5,52 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"sync"
+	"time"
 
-	"github.com/lib/pq"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, protoItem keyedItem, tx *sql.Tx) error {
+const (
+	timeBetweenBranchENIReconcilation = time.Minute
+)
+
+func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoItem keyedItem) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	item := protoItem.(*regionAccount)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"region":    item.region,
+		"accountID": item.accountID,
+	})
+	for {
+		err := vpcService.reconcileBranchENIsForRegionAccount(ctx, item)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Failed to reconcile branch ENIs")
+		}
+		err = waitFor(ctx, timeBetweenBranchENIReconcilation)
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Context, account *regionAccount) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIsForRegionAccount")
 	defer span.End()
-	account := protoItem.(*regionAccount)
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
@@ -34,23 +62,13 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		return err
 	}
 
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"region":    account.region,
-		"accountID": account.accountID,
-	}).Info("Beginning reconcilation of branch ENIs")
+	logger.G(ctx).Info("Beginning reconcilation of branch ENIs")
 
-	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_enis (branch_eni TEXT PRIMARY KEY, account_id text, subnet_id text, az text, vpc_id text, state text, security_groups text array) ON COMMIT DROP ")
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return errors.Wrap(err, "Could not create temporary table for known branch enis")
-	}
-
-	ec2client := ec2.New(session.Session)
 	describeNetworkInterfacesInput := ec2.DescribeNetworkInterfacesInput{
 		Filters: []*ec2.Filter{
 			{
 				Name:   aws.String("description"),
-				Values: aws.StringSlice([]string{vpc.BranchNetworkInterfaceDescription}),
+				Values: aws.StringSlice([]string{vpcService.branchNetworkInterfaceDescription}),
 			},
 			{
 				Name:   aws.String("owner-id"),
@@ -60,227 +78,489 @@ func (vpcService *vpcService) reconcileBranchENIsForRegionAccount(ctx context.Co
 		MaxResults: aws.Int64(1000),
 	}
 
+	errGroup, groupCtx := errgroup.WithContext(ctx)
+	networkInterfacesToCheckChan := make(chan *ec2.NetworkInterface, 1000)
+	enis := sets.NewString()
+
+	lock := &sync.Mutex{}
+	networkInterfacesToRecheck := []*ec2.NetworkInterface{}
+
+	for i := 0; i < 10; i++ {
+		errGroup.Go(func() error {
+			for {
+				select {
+				case ni, ok := <-networkInterfacesToCheckChan:
+					if !ok {
+						return nil
+					}
+					ctx2 := logger.WithField(groupCtx, "eni", aws.StringValue(ni.NetworkInterfaceId))
+					recheck, err := vpcService.reconcileBranchENI(ctx2, session, ni)
+					if err != nil {
+						logger.G(ctx2).WithError(err).Error("Was unable to reconcile branch ENI")
+					} else if recheck {
+						lock.Lock()
+						networkInterfacesToRecheck = append(networkInterfacesToRecheck, ni)
+						lock.Unlock()
+					}
+				case <-groupCtx.Done():
+					return groupCtx.Err()
+				}
+			}
+		})
+	}
+
 	for {
-		output, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
+		describeNetworkInterfacesOutput, err := session.DescribeNetworkInterfaces(groupCtx, describeNetworkInterfacesInput)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Could not describe network interfaces")
+			close(networkInterfacesToCheckChan)
+			logger.G(groupCtx).WithError(err).Error("Could not describe network interfaces")
 			return ec2wrapper.HandleEC2Error(err, span)
 		}
-		for _, branchENI := range output.NetworkInterfaces {
-			securityGroups := make([]string, len(branchENI.Groups))
-			for idx := range branchENI.Groups {
-				group := branchENI.Groups[idx]
-				securityGroups[idx] = aws.StringValue(group.GroupId)
-			}
-			sort.Strings(securityGroups)
-			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, state, security_groups) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-				aws.StringValue(branchENI.NetworkInterfaceId),
-				aws.StringValue(branchENI.OwnerId),
-				aws.StringValue(branchENI.SubnetId),
-				aws.StringValue(branchENI.AvailabilityZone),
-				aws.StringValue(branchENI.VpcId),
-				aws.StringValue(branchENI.Status),
-				pq.Array(securityGroups),
-			)
-			if err != nil {
-				err = errors.Wrap(err, "Could not update known_branch_enis")
-				span.SetStatus(traceStatusFromError(err))
-				return err
-			}
+
+		for idx := range describeNetworkInterfacesOutput.NetworkInterfaces {
+			ni := describeNetworkInterfacesOutput.NetworkInterfaces[idx]
+			networkInterfaceID := aws.StringValue(ni.NetworkInterfaceId)
+			enis.Insert(networkInterfaceID)
+			networkInterfacesToCheckChan <- ni
 		}
-		if output.NextToken == nil {
+
+		if describeNetworkInterfacesOutput.NextToken == nil {
 			break
 		}
-		describeNetworkInterfacesInput.NextToken = output.NextToken
+		describeNetworkInterfacesInput.NextToken = describeNetworkInterfacesOutput.NextToken
 	}
-	_, err = tx.ExecContext(ctx, `
-	INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id, security_groups, modified_at)
-	SELECT branch_eni,
-		   account_id,
-		   subnet_id,
-		   az,
-		   vpc_id,
-		   security_groups,
-	       transaction_timestamp()
-	FROM known_branch_enis ON CONFLICT (branch_eni) DO
-	UPDATE
-	SET security_groups = excluded.security_groups,
-		modified_at = transaction_timestamp()
-	WHERE branch_enis.modified_at < transaction_timestamp()
-	  AND (branch_enis.security_groups != excluded.security_groups)
-	  `)
+	close(networkInterfacesToCheckChan)
+
+	err = errGroup.Wait()
 	if err != nil {
-		err = errors.Wrap(err, "Could not insert new branch ENIs")
-		span.SetStatus(traceStatusFromError(err))
+		err = errors.Wrap(err, "Unable to check network interfaces")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	lock.Lock()
+
+	recheckTime := time.NewTimer(deleteExcessBranchENITimeout + time.Second)
+	defer recheckTime.Stop()
+
+	orphanedENIs, err := vpcService.getDatabaseOrphanedBranchENIs(ctx, account, enis)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	// there are two race conditions here. Listing all the ENIs in the account takes ~5 minutes. If the branch ENI was not associated / existed
-	// at the beginning of the reconciliation, then we can act upon stale data.
+	for _, eni := range orphanedENIs.UnsortedList() {
+		ctx2 := logger.WithField(ctx, "eni", eni)
+		err = vpcService.reconcileOrphanedBranchENI(ctx2, session, eni)
+		if err != nil {
+			logger.G(ctx2).WithError(err).Error("Could not reconcile orphaned branch ENI")
+		}
+	}
 
-	// Populate branch eni attachments with ENIs that are not in use
-	_, err = tx.ExecContext(ctx, "DELETE FROM branch_eni_attachments WHERE branch_eni IN (SELECT branch_eni FROM known_branch_enis WHERE state = 'available') AND created_at < transaction_timestamp()")
+	if l := len(networkInterfacesToRecheck); l > 0 {
+		logger.G(ctx).Infof("Have %d interface to recheck", l)
+		select {
+		case <-recheckTime.C:
+		case <-ctx.Done():
+			tracehelpers.SetStatus(ctx.Err(), span)
+			return ctx.Err()
+		}
+		logger.G(ctx).Info("Rechecking interfaces")
+		for idx := range networkInterfacesToRecheck {
+			ni := networkInterfacesToRecheck[idx]
+			networkInterfaceID := aws.StringValue(ni.NetworkInterfaceId)
+			ctx2 := logger.WithField(ctx, "eni", networkInterfaceID)
+			err = vpcService.reconcileBranchENIMissingInDatabase(ctx2, session, ni)
+			if err != nil {
+				logger.G(ctx2).WithError(err).Error("Was unable to recheck branch ENI")
+			}
+		}
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) reconcileOrphanedBranchENI(ctx context.Context, session *ec2wrapper.EC2Session, eni string) error {
+	ctx, span := trace.StartSpan(ctx, "reconcileOrphanedBranchENI")
+	defer span.End()
+
+	eniExists, err := doesENIExist(ctx, session, eni, vpcService.branchNetworkInterfaceDescription)
 	if err != nil {
-		err = errors.Wrap(err, "Could not delete unattached branch eni attachments")
-		span.SetStatus(traceStatusFromError(err))
+		err = errors.Wrap(err, "Could not find out if branch ENI exists")
+		return ec2wrapper.HandleEC2Error(err, span)
+	}
+	if eniExists {
+		logger.G(ctx).Info("ENI exists in AWS, but didn't exist in describe call")
+		return nil
+	}
+
+	logger.G(ctx).Warning("Deleting Branch ENI from database, as could not find it in AWS")
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database transaction")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	_, err = tx.ExecContext(ctx, "DELETE FROM branch_enis WHERE branch_eni = $1", eni)
+	if err != nil {
+		err = errors.Wrap(err, "Could not delete branch ENI from database")
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, `
-	DELETE
-	FROM branch_enis
-	WHERE account_id = $1
-	  AND (regexp_match(az, '[a-z]+-[a-z]+-[0-9]+'))[1] = $2
-	  AND branch_eni NOT IN
-		(SELECT branch_eni
-		 FROM known_branch_enis)
-	  AND created_at < transaction_timestamp()
-	`, account.accountID, account.region)
+	err = tx.Commit()
 	if err != nil {
-		err = errors.Wrap(err, "Cannot delete removed branch ENIs")
-		span.SetStatus(traceStatusFromError(err))
+		err = errors.Wrap(err, "Could commit transaction")
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	return nil
 }
 
-func (vpcService *vpcService) reconcileBranchENIAttachmentsForRegionAccount(ctx context.Context, protoAccount keyedItem, tx *sql.Tx) (retErr error) {
-	ctx, cancel := context.WithCancel(ctx)
+func (vpcService *vpcService) getDatabaseOrphanedBranchENIs(ctx context.Context, account *regionAccount, enis sets.String) (sets.String, error) { //nolint:dupl
+	ctx, span := trace.StartSpan(ctx, "getDatabaseOrphanedBranchENIs")
+	defer span.End()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIAttachmentsForRegionAccount")
-	defer span.End()
-	account := protoAccount.(*regionAccount)
-	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
-		AccountID: account.accountID,
-		Region:    account.region,
-	})
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not get session")
-		span.SetStatus(traceStatusFromError(err))
-		return err
-	}
-
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"region":    account.region,
-		"accountID": account.accountID,
-	}).Info("Beginning reconcilation of branch ENI attachments")
-
-	ec2client := ec2.New(session.Session)
-
-	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_branch_eni_attachments (branch_eni TEXT PRIMARY KEY, trunk_eni text, idx int, association_id text) ON COMMIT DROP")
-	if err != nil {
-		return errors.Wrap(err, "Could not create temporary table for known branch enis")
-	}
-
-	describeTrunkInterfaceAssociationsInput := ec2.DescribeTrunkInterfaceAssociationsInput{
-		MaxResults: aws.Int64(255),
-	}
-
-	for {
-		output, err := ec2client.DescribeTrunkInterfaceAssociationsWithContext(ctx, &describeTrunkInterfaceAssociationsInput)
-		if err != nil {
-			logger.G(ctx).WithError(err).Error()
-			return ec2wrapper.HandleEC2Error(err, span)
-		}
-		for _, assoc := range output.InterfaceAssociations {
-			_, err = tx.ExecContext(ctx, "INSERT INTO known_branch_eni_attachments(branch_eni, trunk_eni, idx, association_id) VALUES ($1, $2, $3, $4)",
-				aws.StringValue(assoc.BranchInterfaceId),
-				aws.StringValue(assoc.TrunkInterfaceId),
-				aws.Int64Value(assoc.VlanId),
-				aws.StringValue(assoc.AssociationId),
-			)
-			if err != nil {
-				return errors.Wrap(err, "Could not update known_branch_enis")
-			}
-		}
-		if output.NextToken == nil {
-			break
-		}
-		describeTrunkInterfaceAssociationsInput.NextToken = output.NextToken
-	}
-
-	_, err = tx.ExecContext(ctx, `
-	DELETE
-	FROM branch_eni_attachments
-	WHERE branch_eni IN
-		(SELECT branch_eni_attachments.branch_eni
-		 FROM branch_eni_attachments
-		 JOIN known_branch_eni_attachments ON branch_eni_attachments.branch_eni = known_branch_eni_attachments.branch_eni
-		 WHERE branch_eni_attachments.association_id != known_branch_eni_attachments.association_id
-		   AND created_at < transaction_timestamp())
-	`)
-	if err != nil {
-		return errors.Wrap(err, "Cannot delete old (bad) branch ENI attachments")
-	}
-	_, err = tx.ExecContext(ctx, `
-	INSERT INTO branch_eni_attachments(branch_eni, trunk_eni, idx, association_id, created_at)
-	SELECT branch_eni,
-		   trunk_eni,
-		   idx,
-		   association_id,
-		   transaction_timestamp()
-	FROM known_branch_eni_attachments WHERE branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments)
-`)
-	if err != nil {
-		return errors.Wrap(err, "Could not insert new branch eni attachments")
-	}
-
-	return nil
-}
-
-type regionAccount struct {
-	accountID string
-	region    string
-}
-
-func (ra *regionAccount) key() string {
-	return fmt.Sprintf("%s_%s", ra.region, ra.accountID)
-}
-
-func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]keyedItem, error) {
-	ctx, span := trace.StartSpan(ctx, "getBranchENIRegionAccounts")
-	defer span.End()
-
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		ReadOnly: true,
-	})
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not start database transaction")
+		err = errors.Wrap(err, "Could not start database transaction")
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	defer func() {
 		_ = tx.Rollback()
 	}()
 
-	// TODO: Fix and extract from branch_eni table
-	rows, err := tx.QueryContext(ctx, `
-SELECT availability_zones.region, branch_enis.account_id FROM branch_enis
-JOIN subnets ON branch_enis.subnet_id = subnets.subnet_id
-JOIN availability_zones ON subnets.account_id = availability_zones.account_id AND subnets.az = availability_zones.zone_name
-GROUP BY availability_zones.region, branch_enis.account_id
-`)
+	rows, err := tx.QueryContext(ctx,
+		`
+SELECT branch_eni
+FROM branch_enis
+WHERE
+    (SELECT region
+     FROM availability_zones
+     WHERE zone_name = branch_enis.az
+       AND account_id = branch_enis.account_id) = $1
+  AND account_id = $2
+  AND branch_eni != all($3)
+`,
+		account.region, account.accountID, pq.Array(enis.UnsortedList()))
 	if err != nil {
+		err = errors.Wrap(err, "Could not query for orphaned branch ENIs")
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	ret := []keyedItem{}
+	orphanedENIs := sets.NewString()
 	for rows.Next() {
-		var ra regionAccount
-		err = rows.Scan(&ra.region, &ra.accountID)
+		var branchENI string
+		err = rows.Scan(&branchENI)
 		if err != nil {
+			err = errors.Wrap(err, "Cannot scan branch ENI")
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
-		ret = append(ret, &ra)
+		orphanedENIs.Insert(branchENI)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		err = errors.Wrap(err, "Cannot commit transaction")
-		span.SetStatus(traceStatusFromError(err))
+		err = errors.Wrap(err, "Could commit transaction")
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	return ret, nil
+	return orphanedENIs, nil
+}
+
+func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *ec2wrapper.EC2Session, networkInterface *ec2.NetworkInterface) (bool, error) {
+	ctx, span := trace.StartSpan(ctx, "reconcileBranchENI")
+	defer span.End()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	branch := aws.StringValue(networkInterface.NetworkInterfaceId)
+	span.AddAttributes(trace.StringAttribute("branch", branch))
+
+	var fastTx *sql.Tx
+	var err error
+	var serializationErrors int64
+	var rows *sql.Rows
+	var assignments []string
+	var state, associationID string
+
+retry:
+	assignments = []string{}
+	if fastTx != nil {
+		_ = fastTx.Rollback()
+	}
+	fastTx, err = beginSerializableTx(ctx, vpcService.db)
+	if err != nil {
+		err = errors.Wrap(err, "Could not start database transaction")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback()
+	}(fastTx)
+
+	row := fastTx.QueryRowContext(ctx, "SELECT security_groups, dirty_security_groups FROM branch_enis WHERE branch_eni = $1", branch)
+	var dbSecurityGroups []string
+	var dirtySecurityGroups bool
+	err = row.Scan(pq.Array(&dbSecurityGroups), &dirtySecurityGroups)
+	if isSerializationFailure(err) {
+		serializationErrors++
+		goto retry
+	}
+
+	if err == sql.ErrNoRows {
+		// This means the branch ENI was in AWS, but not in the database
+		// This could mean:
+		// 1. The interface is being deleted by the deleter
+		// 2. The interface was "orphaned" (created, but the txn didn't commit successfully)
+		//
+		// Without the "complicated" tombstoning behaviour we do for trunk ENIs, we just check again if it exists in a little bit.
+		logger.G(ctx).Info("ENI not found in database, marking ENI to be rechecked, and potentially inserted into the database")
+		err = fastTx.Commit()
+		if isSerializationFailure(err) {
+			goto retry
+		}
+		if err != nil {
+			err = errors.Wrap(err, "Could not commit transaction")
+			tracehelpers.SetStatus(err, span)
+			return false, err
+		}
+		return true, nil
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Could not scan row")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+
+	networkInterfaceSecurityGroups := make([]string, len(networkInterface.Groups))
+	for idx := range networkInterface.Groups {
+		networkInterfaceSecurityGroups[idx] = aws.StringValue(networkInterface.Groups[idx].GroupId)
+	}
+	sort.Strings(networkInterfaceSecurityGroups)
+
+	span.AddAttributes(trace.StringAttribute("networkInterfaceSecurityGroups", fmt.Sprintf("%+v", networkInterfaceSecurityGroups)))
+
+	// We need to update the security groups in the database
+	if len(dbSecurityGroups) == 0 {
+		logger.G(ctx).Info("Security groups empty in database, updating from AWS")
+		_, err = fastTx.ExecContext(ctx,
+			"UPDATE branch_enis SET security_groups = $1, dirty_security_groups = true WHERE branch_eni = $2",
+			pq.Array(networkInterfaceSecurityGroups), branch)
+		if err != nil {
+			err = errors.Wrap(err, "Could not update security groups in database")
+			tracehelpers.SetStatus(err, span)
+			return false, err
+		}
+		err = fastTx.Commit()
+		if isSerializationFailure(err) {
+			serializationErrors++
+			goto retry
+		}
+		if err != nil {
+			err = errors.Wrap(err, "Cannot commit transaction")
+			tracehelpers.SetStatus(err, span)
+			return false, err
+		}
+
+		return false, nil
+	}
+
+	// Should we try to update the security groups from the database to the network interface in AWS. NO.
+	securityGroupsMatch := sets.NewString(dbSecurityGroups...).Equal(sets.NewString(networkInterfaceSecurityGroups...))
+	if securityGroupsMatch {
+		err = fastTx.Commit()
+		if isSerializationFailure(err) {
+			serializationErrors++
+			goto retry
+		}
+		if err != nil {
+			err = errors.Wrap(err, "Cannot commit transaction")
+			tracehelpers.SetStatus(err, span)
+			return false, err
+		}
+		return false, nil
+	} else if !dirtySecurityGroups {
+		_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = true WHERE branch_eni = $1", branch)
+		if isSerializationFailure(err) {
+			goto retry
+		}
+		if err != nil {
+			err = errors.Wrap(err, "Cannot mark current security groups as dirty")
+			tracehelpers.SetStatus(err, span)
+			return false, err
+		}
+	}
+
+	row = fastTx.QueryRowContext(ctx, "SELECT state, association_id FROM branch_eni_attachments WHERE branch_eni = $1 AND (state = 'attaching' OR state = 'attached' OR state = 'unattaching')", branch)
+	err = row.Scan(&state, &associationID)
+	if isSerializationFailure(err) {
+		goto retry
+	}
+	if err == sql.ErrNoRows {
+		state = ""
+	} else if err != nil {
+		err = errors.Wrap(err, "Cannot query state of branchENI")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	} else {
+		ctx = logger.WithField(ctx, "state", state)
+		rows, err = fastTx.QueryContext(ctx, "SELECT assignment_id FROM assignments WHERE branch_eni_association = $1", associationID)
+		if isSerializationFailure(err) {
+			goto retry
+		}
+		if err != nil {
+			err = errors.Wrap(err, "Cannot fetch current assignments on branch ENI")
+			tracehelpers.SetStatus(err, span)
+			return false, err
+		}
+		for rows.Next() {
+			var assignmentID string
+			err = rows.Scan(&assignmentID)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot scan assignment ID")
+				tracehelpers.SetStatus(err, span)
+				return false, err
+			}
+			assignments = append(assignments, assignmentID)
+		}
+	}
+
+	err = fastTx.Commit()
+	if isSerializationFailure(err) {
+		goto retry
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Cannot commit current transaction")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
+
+	networkInterfaceStatus := aws.StringValue(networkInterface.Status)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"networkInterfaceStatus":         networkInterfaceStatus,
+		"branch":                         branch,
+		"dirtySecurityGroups":            dirtySecurityGroups,
+		"networkInterfaceSecurityGroups": networkInterfaceSecurityGroups,
+		"dbSecurityGroups":               dbSecurityGroups,
+		"assignments":                    assignments,
+		// Turns out counting is hard for some databases
+		"assignmentCount": len(assignments),
+	})
+
+	span.AddAttributes(
+		trace.StringAttribute("networkInterfaceStatus", networkInterfaceStatus),
+		trace.StringAttribute("branch", networkInterfaceStatus),
+		trace.BoolAttribute("dirtySecurityGroups", dirtySecurityGroups),
+		trace.StringAttribute("networkInterfaceSecurityGroups", fmt.Sprint(networkInterfaceSecurityGroups)),
+		trace.StringAttribute("dbSecurityGroups", fmt.Sprint(networkInterfaceSecurityGroups)),
+		trace.Int64Attribute("assignmentCount", int64(len(assignments))),
+	)
+
+	// If it's not used, then it doesn't really matter. The code which does the allocations will "fix it"
+	if len(assignments) == 0 {
+		return false, nil
+	}
+
+	err = errors.New("Interface has different network and db security groups, and assignments")
+	tracehelpers.SetStatus(err, span)
+	logger.G(ctx).WithError(err).Error("Interface has different network and db security groups")
+	return false, nil
+}
+
+func (vpcService *vpcService) reconcileBranchENIMissingInDatabase(ctx context.Context, session *ec2wrapper.EC2Session, networkInterface *ec2.NetworkInterface) error {
+	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIMissingInDatabase")
+	defer span.End()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	logger.G(ctx).WithField("networkInterface", networkInterface)
+	ctx = logger.WithField(ctx, "eni", aws.StringValue(networkInterface.NetworkInterfaceId))
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(networkInterface.NetworkInterfaceId)))
+
+	// Does it exist in the database now?
+	var err error
+	var fastTx *sql.Tx
+	var row *sql.Row
+	var count int
+retry:
+	if fastTx != nil {
+		_ = fastTx.Rollback()
+	}
+	fastTx, err = vpcService.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelSerializable})
+	if err != nil {
+		err = errors.Wrap(err, "Unable to start serializable transaction")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	defer func() {
+		_ = fastTx.Rollback()
+	}()
+
+	row = fastTx.QueryRowContext(ctx, "SELECT count(*) FROM branch_enis WHERE branch_eni = $1", aws.StringValue(networkInterface.NetworkInterfaceId))
+	err = row.Scan(&count)
+	if isSerializationFailure(err) {
+		goto retry
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Cannot query count of branch ENIs")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	err = fastTx.Commit()
+	if isSerializationFailure(err) {
+		goto retry
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Cannot not commit read-only transaction to reconcile missing ENI in database")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	if count == 1 {
+		return nil
+	}
+
+	if aws.StringValue(networkInterface.Status) == inUse {
+		err = fmt.Errorf("Wanted to delete interface %q from EC2, but describe call says it is in use", aws.StringValue(networkInterface.NetworkInterfaceId))
+		logger.G(ctx).WithError(err).Warning()
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	logger.G(ctx).Warning("Deleting ENI from AWS, as we didn't create it (as far as we can tell)")
+	_, err = session.DeleteNetworkInterface(ctx, ec2.DeleteNetworkInterfaceInput{
+		NetworkInterfaceId: networkInterface.NetworkInterfaceId,
+	})
+	if err == nil {
+		return nil
+	}
+	awsErr := ec2wrapper.RetrieveEC2Error(err)
+	if awsErr != nil {
+		if awsErr.Code() == ec2wrapper.InvalidNetworkInterfaceIDNotFound {
+			return nil
+		}
+		return ec2wrapper.HandleEC2Error(err, span)
+	}
+
+	err = errors.Wrap(err, "Received 'generic' (non-AWS) error")
+	tracehelpers.SetStatus(err, span)
+	return err
+}
+
+func (vpcService *vpcService) reconcileBranchENIsLongLivedTask() longLivedTask {
+	return longLivedTask{
+		taskName:   "reconcile_branch_enis",
+		itemLister: vpcService.getBranchENIRegionAccounts,
+		workFunc:   vpcService.reconcileBranchENILoop,
+	}
 }

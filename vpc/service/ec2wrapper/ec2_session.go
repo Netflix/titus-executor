@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
+
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
@@ -15,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/status"
 )
 
@@ -37,6 +41,12 @@ type EC2Session struct {
 	subnetCache             *ccache.Cache
 	batchENIDescriber       *BatchENIDescriber
 	batchInstancesDescriber *BatchInstanceDescriber
+	ec2client               *ec2.EC2
+
+	instanceDescriberSingleFlight singleflight.Group
+
+	defaultSecurityGroupSingleFlight singleflight.Group
+	defaultSecurityGroupMap          sync.Map
 }
 
 func (s *EC2Session) Region(ctx context.Context) (string, error) {
@@ -138,34 +148,54 @@ func (s *EC2Session) GetNetworkInterfaceByID(ctx context.Context, networkInterfa
 
 func (s *EC2Session) GetDefaultSecurityGroups(ctx context.Context, vpcID string) ([]*string, error) {
 	// TODO: Cache
-	ctx, span := trace.StartSpan(ctx, "getDefaultSecurityGroups")
+	ctx, span := trace.StartSpan(ctx, "GetDefaultSecurityGroups")
 	defer span.End()
-	ec2client := ec2.New(s.Session)
 
-	vpcFilter := &ec2.Filter{
-		Name:   aws.String("vpc-id"),
-		Values: aws.StringSlice([]string{vpcID}),
-	}
-	groupNameFilter := &ec2.Filter{
-		Name:   aws.String("group-name"),
-		Values: aws.StringSlice([]string{"default"}),
-	}
-	describeSecurityGroupsInput := &ec2.DescribeSecurityGroupsInput{
-		Filters: []*ec2.Filter{vpcFilter, groupNameFilter},
-	}
-	// TODO: Cache this
-	describeSecurityGroupsOutput, err := ec2client.DescribeSecurityGroupsWithContext(ctx, describeSecurityGroupsInput)
+	val, err, _ := s.defaultSecurityGroupSingleFlight.Do(vpcID, func() (interface{}, error) {
+		sg, ok := s.defaultSecurityGroupMap.Load(vpcID)
+		if ok {
+			return sg, nil
+		}
+
+		ec2client := ec2.New(s.Session)
+
+		vpcFilter := &ec2.Filter{
+			Name:   aws.String("vpc-id"),
+			Values: aws.StringSlice([]string{vpcID}),
+		}
+		groupNameFilter := &ec2.Filter{
+			Name:   aws.String("group-name"),
+			Values: aws.StringSlice([]string{"default"}),
+		}
+		describeSecurityGroupsInput := &ec2.DescribeSecurityGroupsInput{
+			Filters: []*ec2.Filter{vpcFilter, groupNameFilter},
+		}
+		// TODO: Cache this
+		describeSecurityGroupsOutput, err := ec2client.DescribeSecurityGroupsWithContext(ctx, describeSecurityGroupsInput)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not describe security groups")
+		}
+
+		if l := len(describeSecurityGroupsOutput.SecurityGroups); l != 1 {
+			return nil, fmt.Errorf("Describe call returned unexpected number of security groups: %d", l)
+		}
+
+		sgID := aws.StringValue(describeSecurityGroupsOutput.SecurityGroups[0].GroupId)
+		s.defaultSecurityGroupMap.Store(vpcID, sgID)
+
+		return sgID, nil
+	})
+
 	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Could not describe security groups")).Err()
+		_ = HandleEC2Error(err, span)
+		return nil, err
 	}
 
-	result := make([]*string, len(describeSecurityGroupsOutput.SecurityGroups))
-	for idx := range describeSecurityGroupsOutput.SecurityGroups {
-		result[idx] = describeSecurityGroupsOutput.SecurityGroups[idx].GroupId
-	}
-	return result, nil
+	sg := val.(string)
+	return []*string{&sg}, nil
 }
 
+// Deprecated
 func (s *EC2Session) ModifySecurityGroups(ctx context.Context, networkInterfaceID string, groupIds []*string) error {
 	ctx, span := trace.StartSpan(ctx, "modifySecurityGroups")
 	defer span.End()
@@ -193,6 +223,7 @@ func (s *EC2Session) ModifySecurityGroups(ctx context.Context, networkInterfaceI
 func (s *EC2Session) UnassignPrivateIPAddresses(ctx context.Context, unassignPrivateIPAddressesInput ec2.UnassignPrivateIpAddressesInput) (*ec2.UnassignPrivateIpAddressesOutput, error) {
 	ctx, span := trace.StartSpan(ctx, "unassignPrivateIpAddresses")
 	defer span.End()
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(unassignPrivateIPAddressesInput.NetworkInterfaceId)))
 	ec2client := ec2.New(s.Session)
 	unassignPrivateIPAddressesOutput, err := ec2client.UnassignPrivateIpAddressesWithContext(ctx, &unassignPrivateIPAddressesInput)
 	if err != nil {
@@ -204,6 +235,8 @@ func (s *EC2Session) UnassignPrivateIPAddresses(ctx context.Context, unassignPri
 func (s *EC2Session) UnassignIpv6Addresses(ctx context.Context, unassignIpv6AddressesInput ec2.UnassignIpv6AddressesInput) (*ec2.UnassignIpv6AddressesOutput, error) {
 	ctx, span := trace.StartSpan(ctx, "UnassignIpv6Addresses")
 	defer span.End()
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(unassignIpv6AddressesInput.NetworkInterfaceId)))
+
 	ec2client := ec2.New(s.Session)
 	unassignPrivateIPAddressesOutput, err := ec2client.UnassignIpv6AddressesWithContext(ctx, &unassignIpv6AddressesInput)
 	if err != nil {
@@ -215,6 +248,8 @@ func (s *EC2Session) UnassignIpv6Addresses(ctx context.Context, unassignIpv6Addr
 func (s *EC2Session) AssignPrivateIPAddresses(ctx context.Context, assignPrivateIPAddressesInput ec2.AssignPrivateIpAddressesInput) (*ec2.AssignPrivateIpAddressesOutput, error) {
 	ctx, span := trace.StartSpan(ctx, "assignPrivateIpAddresses")
 	defer span.End()
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(assignPrivateIPAddressesInput.NetworkInterfaceId)))
+
 	span.AddAttributes(trace.Int64Attribute("secondaryPrivateIpAddressCount", aws.Int64Value(assignPrivateIPAddressesInput.SecondaryPrivateIpAddressCount)))
 	ec2client := ec2.New(s.Session)
 	assignPrivateIPAddressesOutput, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, &assignPrivateIPAddressesInput)
@@ -228,6 +263,8 @@ func (s *EC2Session) AssignPrivateIPAddresses(ctx context.Context, assignPrivate
 func (s *EC2Session) AssignIPv6Addresses(ctx context.Context, assignIpv6AddressesInput ec2.AssignIpv6AddressesInput) (*ec2.AssignIpv6AddressesOutput, error) {
 	ctx, span := trace.StartSpan(ctx, "assignIpv6Addresses")
 	defer span.End()
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(assignIpv6AddressesInput.NetworkInterfaceId)))
+
 	span.AddAttributes(trace.Int64Attribute("ipv6AddressCount", aws.Int64Value(assignIpv6AddressesInput.Ipv6AddressCount)))
 	ec2client := ec2.New(s.Session)
 	assignIpv6AddressesOutput, err := ec2client.AssignIpv6AddressesWithContext(ctx, &assignIpv6AddressesInput)
@@ -238,6 +275,204 @@ func (s *EC2Session) AssignIPv6Addresses(ctx context.Context, assignIpv6Addresse
 	return assignIpv6AddressesOutput, nil
 }
 
+func (s *EC2Session) DeleteNetworkInterface(ctx context.Context, input ec2.DeleteNetworkInterfaceInput) (*ec2.DeleteNetworkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "DeleteNetworkInterface")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)))
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DeleteNetworkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot delete network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) CreateNetworkInterface(ctx context.Context, input ec2.CreateNetworkInterfaceInput) (*ec2.CreateNetworkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "CreateNetworkInterface")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("subnet", aws.StringValue(input.SubnetId)))
+	if input.Groups != nil {
+		trace.StringAttribute("securityGroups", fmt.Sprintf("%+v", aws.StringValueSlice(input.Groups)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.CreateNetworkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(output.NetworkInterface.NetworkInterfaceId)))
+	return output, nil
+}
+
+func (s *EC2Session) ModifyNetworkInterfaceAttribute(ctx context.Context, input ec2.ModifyNetworkInterfaceAttributeInput) (*ec2.ModifyNetworkInterfaceAttributeOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "ModifyNetworkInterfaceAttribute")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)))
+
+	if input.SourceDestCheck != nil {
+		span.AddAttributes(trace.BoolAttribute("sourceDestCheck", aws.BoolValue(input.SourceDestCheck.Value)))
+	} else if input.Groups != nil {
+		groups2 := aws.StringValueSlice(input.Groups)
+		sort.Strings(groups2)
+		span.AddAttributes(trace.StringAttribute("groups", fmt.Sprintf("%v", groups2)))
+	} else if input.Description != nil {
+		span.AddAttributes(trace.StringAttribute("description", aws.StringValue(input.Description.Value)))
+	} else if input.Attachment != nil {
+		span.AddAttributes(trace.StringAttribute("attachment", input.Attachment.String()))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.ModifyNetworkInterfaceAttributeWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot modify network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) AttachNetworkInterface(ctx context.Context, input ec2.AttachNetworkInterfaceInput) (*ec2.AttachNetworkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AttachNetworkInterface")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)),
+		trace.StringAttribute("instance", aws.StringValue(input.InstanceId)),
+	)
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.AttachNetworkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot attach network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) DescribeNetworkInterfaces(ctx context.Context, input ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AttachNetworkInterface")
+	defer span.End()
+
+	// Presumably there are filters here?
+	if input.Filters != nil {
+		span.AddAttributes(trace.StringAttribute("filters", fmt.Sprintf("%v", input.Filters)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe network interfaces")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) AssociateTrunkInterface(ctx context.Context, input ec2.AssociateTrunkInterfaceInput) (*ec2.AssociateTrunkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AssociateTrunkInterface")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("trunk", aws.StringValue(input.TrunkInterfaceId)),
+		trace.StringAttribute("branch", aws.StringValue(input.BranchInterfaceId)),
+		trace.Int64Attribute("idx", aws.Int64Value(input.VlanId)),
+	)
+
+	if input.ClientToken != nil {
+		span.AddAttributes(trace.StringAttribute("token", aws.StringValue(input.ClientToken)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot associate trunk network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) DisassociateTrunkInterface(ctx context.Context, input ec2.DisassociateTrunkInterfaceInput) (*ec2.DisassociateTrunkInterfaceOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AssociateTrunkInterface")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("associationID", aws.StringValue(input.AssociationId)))
+	if input.ClientToken != nil {
+		span.AddAttributes(trace.StringAttribute("token", aws.StringValue(input.ClientToken)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DisassociateTrunkInterfaceWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot disassociate network interface")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) DescribeTrunkInterfaceAssociations(ctx context.Context, input ec2.DescribeTrunkInterfaceAssociationsInput) (*ec2.DescribeTrunkInterfaceAssociationsOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "DescribeTrunkInterfaceAssociations")
+	defer span.End()
+
+	if input.Filters != nil {
+		span.AddAttributes(trace.StringAttribute("filters", fmt.Sprintf("%v", input.Filters)))
+	}
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DescribeTrunkInterfaceAssociationsWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe trunk interface associations")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) DisassociateAddress(ctx context.Context, input ec2.DisassociateAddressInput) (*ec2.DisassociateAddressOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "DisassociateAddress")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("asssociationID", aws.StringValue(input.AssociationId)))
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DisassociateAddressWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe trunk interface associations")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
+func (s *EC2Session) AssociateAddress(ctx context.Context, input ec2.AssociateAddressInput) (*ec2.AssociateAddressOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "AssociateAddress")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("allocationID", aws.StringValue(input.AllocationId)),
+		trace.BoolAttribute("allowReassociation", aws.BoolValue(input.AllowReassociation)),
+		trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)),
+		trace.StringAttribute("privateIPAddresss", aws.StringValue(input.PrivateIpAddress)),
+	)
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.AssociateAddressWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot describe trunk interface associations")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
 type EC2InstanceCacheValue struct {
 	ownerID  string
 	instance *ec2.Instance
@@ -246,7 +481,6 @@ type EC2InstanceCacheValue struct {
 func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalidateCache bool) (*ec2.Instance, string, error) {
 	ctx, span := trace.StartSpan(ctx, "getInstance")
 	defer span.End()
-	start := time.Now()
 	stats.Record(ctx, getInstanceCount.M(1))
 
 	if invalidateCache {
@@ -256,33 +490,64 @@ func (s *EC2Session) GetInstance(ctx context.Context, instanceID string, invalid
 
 	stats.Record(ctx, getInstanceFromCache.M(1))
 	if item := s.instanceCache.Get(instanceID); item != nil {
-		span.AddAttributes(trace.BoolAttribute("cached", true))
-		if !item.Expired() {
-			span.AddAttributes(trace.BoolAttribute("expired", false))
-			stats.Record(ctx, getInstanceFromCacheSuccess.M(1), getInstanceSuccess.M(1))
-			val := item.Value().(*EC2InstanceCacheValue)
-			return val.instance, val.ownerID, nil
+		span.AddAttributes(
+			trace.BoolAttribute("cached", true),
+			trace.BoolAttribute("expired", item.Expired()),
+		)
+		stats.Record(ctx, getInstanceFromCacheSuccess.M(1), getInstanceSuccess.M(1))
+		val := item.Value().(*EC2InstanceCacheValue)
+		if item.Expired() {
+			// Repopulate the cache out of band
+			go func() {
+				_, _, _ = s.instanceDescriberSingleFlight.Do(instanceID, func() (interface{}, error) {
+					return s.getInstanceAndStoreInCache(ctx, instanceID)
+				})
+			}()
 		}
-		span.AddAttributes(trace.BoolAttribute("expired", true))
-		s.instanceCache.Delete(instanceID)
-	} else {
-		span.AddAttributes(trace.BoolAttribute("cached", false))
+		return val.instance, val.ownerID, nil
 	}
+
+	span.AddAttributes(trace.BoolAttribute("cached", false))
+	val, err, _ := s.instanceDescriberSingleFlight.Do(instanceID, func() (interface{}, error) {
+		return s.getInstanceAndStoreInCache(ctx, instanceID)
+	})
+
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, "", err
+	}
+
+	ec2InstanceCacheValue := val.(*EC2InstanceCacheValue)
+	return ec2InstanceCacheValue.instance, ec2InstanceCacheValue.ownerID, nil
+}
+
+func (s *EC2Session) getInstanceAndStoreInCache(parentCtx context.Context, instanceID string) (*EC2InstanceCacheValue, error) {
+	var span *trace.Span
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	if parentSpan := trace.FromContext(parentCtx); parentSpan != nil {
+		ctx, span = trace.StartSpanWithRemoteParent(ctx, "getInstanceAndStoreInCache", parentSpan.SpanContext())
+	} else {
+		ctx, span = trace.StartSpan(ctx, "getInstanceAndStoreInCache")
+	}
+	defer span.End()
 
 	instance, ownerID, err := s.batchInstancesDescriber.DescribeInstanceWithTimeout(ctx, instanceID, 1500*time.Millisecond)
 	if err != nil {
+		// If it's a not found error, we should consider explicitly deleting it from the cache
 		logger.G(ctx).WithError(err).WithField("ec2InstanceId", instanceID).Error("Could not get EC2 Instance")
-		return nil, "", HandleEC2Error(err, span)
+		return nil, HandleEC2Error(err, span)
 	}
 
-	stats.Record(ctx, getInstanceMs.M(float64(time.Since(start).Nanoseconds())), getInstanceSuccess.M(1))
+	stats.Record(ctx, getInstanceSuccess.M(1))
 	ret := &EC2InstanceCacheValue{
 		ownerID:  ownerID,
 		instance: instance,
 	}
 
-	instanceExpirationTime := time.Nanosecond * time.Duration(minInstanceExpirationTime.Nanoseconds()+rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))
+	instanceExpirationTime := time.Duration(minInstanceExpirationTime.Nanoseconds() + rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))
 	s.instanceCache.Set(instanceID, ret, instanceExpirationTime)
 
-	return ret.instance, ret.ownerID, nil
+	return ret, nil
 }

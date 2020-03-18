@@ -10,22 +10,15 @@ import (
 	"os"
 	"time"
 
-	"golang.org/x/time/rate"
-
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
-	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
-	"google.golang.org/grpc/keepalive"
-
-	"google.golang.org/grpc/credentials"
-
-	"golang.org/x/sync/semaphore"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
+	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	"github.com/karlseguin/ccache"
 	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -34,11 +27,17 @@ import (
 	"go.opencensus.io/tag"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/sync/singleflight"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 var (
@@ -76,7 +75,8 @@ type vpcService struct {
 	hostname string
 	ec2      *ec2wrapper.EC2SessionManager
 
-	db *sql.DB
+	db    *sql.DB
+	dbURL string
 
 	authoritativePublicKey ed25519.PublicKey
 	hostPublicKeySignature []byte
@@ -91,6 +91,18 @@ type vpcService struct {
 	TitusAgentCACertPool *x509.CertPool
 
 	dbRateLimiter *rate.Limiter
+
+	trunkNetworkInterfaceDescription  string
+	branchNetworkInterfaceDescription string
+
+	generatorTracker          *ccache.Cache
+	generatorTrackerAdderLock singleflight.Group
+
+	invalidSecurityGroupCache *ccache.Cache
+}
+
+func generatorTrackerCache() *ccache.Cache {
+	return ccache.New(ccache.Configure().Track())
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -124,16 +136,22 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 }
 
 type Config struct {
-	Listener              net.Listener
-	DB                    *sql.DB
-	Key                   vpcapi.PrivateKey
-	MaxConcurrentRefresh  int64
-	GCTimeout             time.Duration
-	ReconcileInterval     time.Duration
-	RefreshInterval       time.Duration
-	TLSConfig             *tls.Config
-	TitusAgentCACertPool  *x509.CertPool
-	DisableLongLivedTasks bool
+	Listener             net.Listener
+	DB                   *sql.DB
+	DBURL                string
+	Key                  vpcapi.PrivateKey
+	MaxConcurrentRefresh int64
+	GCTimeout            time.Duration
+	ReconcileInterval    time.Duration
+	RefreshInterval      time.Duration
+	TLSConfig            *tls.Config
+	TitusAgentCACertPool *x509.CertPool
+
+	EnabledLongLivedTasks []string
+	EnabledTaskLoops      []string
+
+	TrunkNetworkInterfaceDescription  string
+	BranchNetworkInterfaceDescription string
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -156,10 +174,19 @@ func Run(ctx context.Context, config *Config) error {
 		return errors.Wrap(err, "Cannot get hostname")
 	}
 
+	if config.TrunkNetworkInterfaceDescription == "" {
+		return errors.New("Trunk interface description must be non-empty")
+	}
+
+	if config.BranchNetworkInterfaceDescription == "" {
+		return errors.New("Branch interface description must be non-empty")
+	}
+
 	vpc := &vpcService{
 		hostname: hostname,
 		ec2:      ec2wrapper.NewEC2SessionManager(),
 		db:       config.DB,
+		dbURL:    config.DBURL,
 
 		gcTimeout:       config.GCTimeout,
 		refreshInterval: config.RefreshInterval,
@@ -169,6 +196,12 @@ func Run(ctx context.Context, config *Config) error {
 		TitusAgentCACertPool: config.TitusAgentCACertPool,
 
 		dbRateLimiter: rate.NewLimiter(1000, 1),
+
+		trunkNetworkInterfaceDescription:  config.TrunkNetworkInterfaceDescription,
+		branchNetworkInterfaceDescription: config.BranchNetworkInterfaceDescription,
+
+		generatorTracker:          generatorTrackerCache(),
+		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
 	}
 
 	// TODO: actually validate this
@@ -267,48 +300,113 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error { return serve(anyListener, false) })
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_enis", vpc.getBranchENIRegionAccounts, vpc.reconcileBranchENIsForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "delete_dangling_trunks", vpc.getTrunkENIRegionAccounts, vpc.deleteDanglingTrunksForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_branch_eni_attachments", vpc.getTrunkENIRegionAccounts, vpc.reconcileBranchENIAttachmentsForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "reconcile_trunk_enis", vpc.getTrunkENIRegionAccounts, vpc.reconcileTrunkENIsForRegionAccount)
-	})
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "subnets", vpc.getRegionAccounts, vpc.reconcileSubnetsForRegionAccount)
-	})
 
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "elastic_ip", vpc.getRegionAccounts, vpc.reconcileEIPsForRegionAccount)
-	})
-
-	group.Go(func() error {
-		return vpc.taskLoop(ctx, config.ReconcileInterval, "availability_zone", vpc.getRegionAccounts, vpc.reconcileAvailabilityZonesRegionAccount)
-	})
-
-	if !config.DisableLongLivedTasks {
-		group.Go(func() error {
-			return vpc.runFunctionUnderLongLivedLock(ctx, "gc_enis", vpc.getBranchENIRegionAccounts, vpc.doGCAttachedENIsLoop)
-		})
-
-		group.Go(func() error {
-			return vpc.runFunctionUnderLongLivedLock(ctx, "delete_excess_branches", vpc.getSubnets, vpc.deleteExccessBranchesLoop)
-		})
-
-		group.Go(func() error {
-			return vpc.runFunctionUnderLongLivedLock(ctx, "detach_unused_branch_eni", nilItemEnumerator, vpc.detatchUnusedBranchENILoop)
-		})
+	taskLoops := vpc.getTaskLoops()
+	enabledTaskLoops := sets.NewString(config.EnabledTaskLoops...)
+	for idx := range taskLoops {
+		task := taskLoops[idx]
+		if enabledTaskLoops.Has(task.taskName) {
+			logger.G(ctx).WithField("task", task.taskName).Info("Starting task loop")
+			group.Go(func() error {
+				return vpc.taskLoop(ctx, config.ReconcileInterval, task.taskName, task.itemLister, task.workFunc)
+			})
+		} else {
+			logger.G(ctx).WithField("task", task.taskName).Info("Task loop disabled")
+		}
 	}
+
+	longLivedTasks := vpc.getLongLivedTasks()
+	enabledLongLivedTasks := sets.NewString(config.EnabledLongLivedTasks...)
+	for idx := range longLivedTasks {
+		task := longLivedTasks[idx]
+		if enabledLongLivedTasks.Has(task.taskName) {
+			logger.G(ctx).WithField("task", task.taskName).Info("Starting task")
+			group.Go(func() error {
+				return vpc.runFunctionUnderLongLivedLock(ctx, task.taskName, task.itemLister, task.workFunc)
+			})
+		} else {
+			logger.G(ctx).WithField("task", task.taskName).Info("Task disabled")
+		}
+	}
+
 	err = group.Wait()
 	if ctx.Err() != nil {
 		return nil
 	}
 	return err
+}
+
+type longLivedTask struct {
+	taskName   string
+	workFunc   workFunc
+	itemLister itemLister
+}
+
+func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
+	return []longLivedTask{
+		vpcService.reconcileBranchENIAttachmentsLongLivedTask(),
+		{
+			taskName:   "gc_enis",
+			itemLister: vpcService.getBranchENIRegionAccounts,
+			workFunc:   vpcService.doGCAttachedENIsLoop,
+		},
+		vpcService.deleteExcessBranchesLongLivedTask(),
+		{
+			taskName:   "detach_unused_branch_eni",
+			itemLister: nilItemEnumerator,
+			workFunc:   vpcService.detatchUnusedBranchENILoop,
+		},
+		vpcService.reconcileBranchENIsLongLivedTask(),
+		vpcService.associateActionWorker().longLivedTask(),
+		vpcService.disassociateActionWorker().longLivedTask(),
+		vpcService.reconcileTrunkENIsLongLivedTask(),
+	}
+}
+
+func GetLongLivedTaskNames() []string {
+	s := &vpcService{}
+	tasks := s.getLongLivedTasks()
+	ret := make([]string, len(tasks))
+	for idx := range tasks {
+		ret[idx] = tasks[idx].taskName
+	}
+	return ret
+}
+
+type taskLoop struct {
+	taskName   string
+	workFunc   taskLoopWorkFunc
+	itemLister itemLister
+}
+
+func (vpcService *vpcService) getTaskLoops() []taskLoop {
+	return []taskLoop{
+		{
+			taskName:   "subnets",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.reconcileSubnetsForRegionAccount,
+		},
+		{
+			taskName:   "elastic_ip",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.reconcileEIPsForRegionAccount,
+		},
+		{
+			taskName:   "availability_zone",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.reconcileAvailabilityZonesRegionAccount,
+		},
+	}
+}
+
+func GetTaskLoopTaskNames() []string {
+	s := &vpcService{}
+	tasks := s.getTaskLoops()
+	ret := make([]string, len(tasks))
+	for idx := range tasks {
+		ret[idx] = tasks[idx].taskName
+	}
+	return ret
 }
 
 type healthcheck struct {

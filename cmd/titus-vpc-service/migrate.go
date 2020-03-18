@@ -3,17 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"net"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/db"
-	"github.com/aws/aws-sdk-go/aws/defaults"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/rds/rdsutils"
+	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
@@ -72,9 +69,15 @@ func migrateCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 			if err := v.BindPFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			conn, err := newConnection(ctx, v)
+			_, conn, err := newConnection(ctx, v)
 			if err != nil {
 				return err
+			}
+
+			to := v.GetUint("to")
+			check := v.GetBool("check")
+			if to > 0 {
+				return db.MigrateTo(ctx, conn, to, check)
 			}
 			needsMigration, err := db.NeedsMigration(ctx, conn)
 			if err != nil {
@@ -84,78 +87,55 @@ func migrateCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 				logger.G(ctx).Info("No migration needed")
 				return nil
 			}
-			if v.GetBool("check") {
+			if check {
 				logger.G(ctx).Fatal("Migration needed, but check set to true")
 			}
 
 			return db.Migrate(ctx, conn)
+
 		},
 	}
 
 	cmd.Flags().Bool("check", true, "Do not perform migration, but check if migration is neccessary")
+	cmd.Flags().Uint("to", 0, "Migrate to a specific version")
 	return cmd
 }
 
-type connectorWrapper struct {
-	url    *url.URL
-	region string
-}
-
-func (cw *connectorWrapper) Connect(context.Context) (driver.Conn, error) {
-	// Copy the URL struct, so we don't cause concurrency problems
-	rawurl := *cw.url
-
-	authtoken, err := rdsutils.BuildAuthToken(rawurl.Host, cw.region, rawurl.User.Username(), defaults.Get().Config.Credentials)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not build auth token")
-	}
-	rawurl.User = url.UserPassword(rawurl.User.Username(), authtoken)
-	return pq.Open(rawurl.String())
-}
-
-func (cw *connectorWrapper) Driver() driver.Driver {
-	panic("Should not be called")
-}
-
-func newConnection(ctx context.Context, v *pkgviper.Viper) (*sql.DB, error) {
+func newConnection(ctx context.Context, v *pkgviper.Viper) (string, *sql.DB, error) {
 	dburl := v.GetString("dburl")
-	if !v.GetBool("dbiam") {
-		logger.G(ctx).WithField("url", dburl).Debug("Connecting to database via URL")
-		connector, err := pq.NewConnector(dburl)
-		if err != nil {
-			return nil, err
-		}
 
-		return sql.OpenDB(connector), nil
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", nil, errors.Wrap(err, "Unable to get hostname")
 	}
 
 	rawurl, err := url.Parse(dburl)
 	if err != nil {
-		return nil, err
+		err = errors.Wrap(err, "Cannot parse dburl")
+		return "", nil, err
 	}
 
 	if rawurl.Port() == "" {
 		rawurl.Host = net.JoinHostPort(rawurl.Host, "5432")
 	}
 
-	region := v.GetString("region")
-	if region == "" {
-		md := ec2metadata.New(session.Must(session.NewSession()))
-		region, err = md.Region()
-		if err != nil {
-			return nil, errors.Wrap(err, "Unable to retrieve region from IMDS")
-		}
+	fullDBURL := rawurl.String()
+
+	connector, err := pq.NewConnector(fullDBURL)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create connector")
+		return "", nil, err
 	}
 
-	db := sql.OpenDB(&connectorWrapper{
-		url:    rawurl,
-		region: region,
-	})
+	db := sql.OpenDB(wrapper.NewConnectorWrapper(connector, wrapper.ConnectorWrapperConfig{
+		Hostname:                        hostname,
+		MaxConcurrentSerialTransactions: 10,
+	}))
 
 	db.SetMaxIdleConns(v.GetInt(maxIdleConnectionsFlagName))
 	db.SetMaxOpenConns(v.GetInt(maxOpenConnectionsFlagName))
 
-	return db, nil
+	return fullDBURL, db, nil
 }
 
 func collectDBMetrics(ctx context.Context, db *sql.DB) {

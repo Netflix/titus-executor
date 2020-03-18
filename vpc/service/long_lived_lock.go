@@ -7,17 +7,18 @@ import (
 	"os"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"k8s.io/apimachinery/pkg/util/sets"
-
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
+
+// TODO: Break this out into its own package
 
 const (
 	lockTime                        = 30 * time.Second
@@ -153,9 +154,17 @@ func (vpcService *vpcService) PreemptLock(ctx context.Context, req *vpcapi.Preem
 
 type keyedItem interface {
 	key() string
+	String() string
 }
 
-func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, itemLister func(context.Context) ([]keyedItem, error), workFunc func(context.Context, keyedItem)) error {
+type itemLister func(context.Context) ([]keyedItem, error)
+type workFunc func(context.Context, keyedItem) error
+
+func generateLockName(taskName string, item keyedItem) string {
+	return fmt.Sprintf("%s_%s", taskName, item.key())
+}
+
+func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, lister itemLister, wf workFunc) error {
 	startedLockers := sets.NewString()
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -165,7 +174,7 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 	t := time.NewTimer(timeBetweenTryingToAcquireLocks)
 	defer t.Stop()
 	for {
-		items, err := itemLister(ctx)
+		items, err := lister(ctx)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Cannot list items")
 		} else {
@@ -173,16 +182,16 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 				item := items[idx]
 				if !startedLockers.Has(item.key()) {
 					startedLockers.Insert(item.key())
-					ctx := logger.WithFields(ctx, map[string]interface{}{
-						"key":      item.key(),
+					ctx2 := logger.WithFields(ctx, map[string]interface{}{
 						"taskName": taskName,
 					})
-					logger.G(ctx).Info("Starting new long running function under lock")
-					lockName := fmt.Sprintf("%s_%s", taskName, item.key())
-					go vpcService.waitToAcquireLongLivedLock(ctx, hostname, lockName, func(ctx2 context.Context) {
-						logger.G(ctx2).Debug("Work fun starting")
-						workFunc(ctx2, item)
-						logger.G(ctx2).Debug("Work fun ending")
+					lockName := generateLockName(taskName, item)
+					logger.G(ctx2).Info("Starting new long running function under lock")
+					go vpcService.waitToAcquireLongLivedLock(ctx2, hostname, lockName, func(ctx3 context.Context) error {
+						logger.G(ctx3).Info("Work fun starting")
+						err2 := wf(ctx3, item)
+						logger.G(ctx3).WithError(err2).Info("Work fun ending")
+						return err2
 					})
 				}
 			}
@@ -196,11 +205,14 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 	}
 }
 
-func (vpcService *vpcService) waitToAcquireLongLivedLock(ctx context.Context, hostname, lockName string, workFun func(context.Context)) {
+func (vpcService *vpcService) waitToAcquireLongLivedLock(ctx context.Context, hostname, lockName string, workFun func(context.Context) error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	timer := time.NewTimer(lockTime / 2)
+	if !timer.Stop() {
+		<-timer.C
+	}
 	defer timer.Stop()
 	for {
 		lockAcquired, id, err := vpcService.tryToAcquireLock(ctx, hostname, lockName)
@@ -239,7 +251,14 @@ func (vpcService *vpcService) tryToAcquireLock(ctx context.Context, hostname, lo
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, "INSERT INTO long_lived_locks(lock_name, held_by, held_until) VALUES ($1, $2, now() + ($3 * interval '1 sec')) ON CONFLICT (lock_name) DO UPDATE SET held_by = $2, held_until = now() + ($3 * interval '1 sec') WHERE long_lived_locks.held_until < now() RETURNING id", lockName, hostname, lockTime.Seconds())
+	row := tx.QueryRowContext(ctx, `
+INSERT INTO long_lived_locks(lock_name, held_by, held_until)
+VALUES ($1, $2, now() + ($3 * interval '1 sec')) ON CONFLICT (lock_name) DO
+UPDATE
+SET held_by = $2,
+    held_until = now() + ($3 * interval '1 sec')
+WHERE long_lived_locks.held_until < now() RETURNING id
+`, lockName, hostname, lockTime.Seconds())
 	var id int
 	err = row.Scan(&id)
 	if err == sql.ErrNoRows {
@@ -308,11 +327,14 @@ func (vpcService *vpcService) tryToHoldLock(ctx context.Context, hostname string
 	return nil
 }
 
-func (vpcService *vpcService) holdLock(ctx context.Context, hostname string, id int, workFun func(context.Context)) error {
+func (vpcService *vpcService) holdLock(ctx context.Context, hostname string, id int, workFun func(context.Context) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go workFun(ctx)
+	errCh := make(chan error)
+	go func() {
+		errCh <- workFun(ctx)
+	}()
 
 	ticker := time.NewTicker(lockTime / 4)
 	defer ticker.Stop()
@@ -322,6 +344,9 @@ func (vpcService *vpcService) holdLock(ctx context.Context, hostname string, id 
 			return err
 		}
 		select {
+		case err = <-errCh:
+			logger.G(ctx).WithError(err).Error("Worker encountered error, releasing lock")
+			return errors.Wrap(err, "Worker encountered error")
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:

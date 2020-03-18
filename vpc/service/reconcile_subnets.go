@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -77,31 +78,35 @@ func (vpcService *vpcService) reconcileSubnetsForRegionAccount(ctx context.Conte
 		},
 	}
 
+	subnets := []*ec2.Subnet{}
+
 	for {
 		output, err := ec2client.DescribeSubnetsWithContext(ctx, &describeSubnetsInput)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error()
 			return ec2wrapper.HandleEC2Error(err, span)
 		}
-		for _, subnet := range output.Subnets {
-			_, err = tx.ExecContext(ctx, "INSERT INTO subnets(az, az_id, vpc_id, account_id, subnet_id, cidr) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (subnet_id) DO NOTHING",
-				aws.StringValue(subnet.AvailabilityZone),
-				aws.StringValue(subnet.AvailabilityZoneId),
-				aws.StringValue(subnet.VpcId),
-				aws.StringValue(subnet.OwnerId),
-				aws.StringValue(subnet.SubnetId),
-				aws.StringValue(subnet.CidrBlock))
-			if err != nil {
-				err = ec2wrapper.HandleEC2Error(err, span)
-				err = errors.Wrap(err, "Cannot insert subnets")
-				return err
-			}
-		}
+		subnets = append(subnets, output.Subnets...)
 
 		if output.NextToken == nil {
 			break
 		}
 		describeSubnetsInput.NextToken = output.NextToken
+	}
+
+	for _, subnet := range subnets {
+		_, err = tx.ExecContext(ctx, "INSERT INTO subnets(az, az_id, vpc_id, account_id, subnet_id, cidr) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (subnet_id) DO NOTHING",
+			aws.StringValue(subnet.AvailabilityZone),
+			aws.StringValue(subnet.AvailabilityZoneId),
+			aws.StringValue(subnet.VpcId),
+			aws.StringValue(subnet.OwnerId),
+			aws.StringValue(subnet.SubnetId),
+			aws.StringValue(subnet.CidrBlock))
+		if err != nil {
+			err = errors.Wrap(err, "Cannot insert subnets")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
 	}
 
 	return nil

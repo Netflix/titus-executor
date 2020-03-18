@@ -5,13 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/pkg/errors"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/db/migrations"
 	migrate "github.com/golang-migrate/migrate"
 	"github.com/golang-migrate/migrate/database/postgres"
 	bindata "github.com/golang-migrate/migrate/source/go_bindata"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -58,10 +57,44 @@ func NeedsMigration(ctx context.Context, db *sql.DB) (bool, error) {
 	if err == migrate.ErrNilVersion {
 		return true, nil
 	}
+	if err != nil {
+		return false, err
+	}
 	if dirty {
 		return true, fmt.Errorf("Database is dirty at version: %d", version)
 	}
-	return version < 15, err
+	return version < 19, err
+}
+
+func MigrateTo(ctx context.Context, db *sql.DB, to uint, check bool) error {
+	m, err := newMigrator(ctx, db)
+	if err != nil {
+		return err
+	}
+	version, dirty, err := m.Version()
+	if err != nil && err != migrate.ErrNilVersion {
+		return err
+	}
+	logger.G(ctx).WithField("version", version).Info("Current version")
+	if dirty {
+		return fmt.Errorf("Database is dirty at version: %d", version)
+	}
+
+	if version == to {
+		logger.G(ctx).Info("Already at version")
+		return nil
+	}
+
+	if check {
+		logger.G(ctx).Infof("It is possible to perform this migration from %d -> %d", version, to)
+		return nil
+	}
+
+	err = m.Migrate(to)
+	if err != nil {
+		return errors.Wrapf(err, "Could not migrate to version %d", to)
+	}
+	return nil
 }
 
 func Migrate(ctx context.Context, db *sql.DB) error {

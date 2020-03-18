@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
@@ -39,8 +41,7 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 	describeAvailabilityZonesOutput, err := ec2client.DescribeAvailabilityZonesWithContext(ctx, &ec2.DescribeAvailabilityZonesInput{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not describe availability zones")
-		span.SetStatus(traceStatusFromError(err))
-		return err
+		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
 	for _, az := range describeAvailabilityZonesOutput.AvailabilityZones {
@@ -56,7 +57,7 @@ VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING
 			aws.StringValue(az.ZoneName))
 		if err != nil {
 			err = errors.Wrap(err, "Could insert AZ")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 	}

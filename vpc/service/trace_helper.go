@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Converts GRPC Errors to opencensus statuses (or tries to)
+// Deprecated: Use tracehelpers.SetStatus
 func traceStatusFromError(err error) trace.Status {
 	if err == context.Canceled {
 		return trace.Status{

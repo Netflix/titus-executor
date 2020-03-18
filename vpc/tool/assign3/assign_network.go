@@ -73,6 +73,9 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 		args.TaskID = uuid.New()
 		logger.G(ctx).WithField("taskId", args.TaskID).Info("Setting task ID")
 	}
+
+	// The lock must be taken before we begin any of the calls to the server, otherwise we can get into a race condition
+	// in which GC runs and deletes the entry from the server
 	lock, err := locker.ExclusiveLock(ctx, filepath.Join(utilities.GetTasksLockPath(), args.TaskID), &optimisticLockTimeout)
 	if err != nil {
 		return errors.Wrap(err, "Cannot lock assignv3 task lock file")

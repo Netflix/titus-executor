@@ -14,7 +14,7 @@ const (
 	// NetworkInterfaceDescription is what interfaces are named
 	NetworkInterfaceDescription = "titus-managed"
 	// ENICreationTimeTag is an EC2 tag that indicates when this network interface was created (in RFC3339 time)
-	ENICreationTimeTag                = "eni-creation-time"
-	TrunkNetworkInterfaceDescription  = "titus-managed-trunk"
-	BranchNetworkInterfaceDescription = "titus-managed-branch"
+	ENICreationTimeTag                       = "eni-creation-time"
+	DefaultTrunkNetworkInterfaceDescription  = "titus-managed-trunk"
+	DefaultBranchNetworkInterfaceDescription = "titus-managed-branch"
 )

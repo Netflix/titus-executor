@@ -1,0 +1,4 @@
+START TRANSACTION ;
+DROP TABLE test_work;
+DROP TYPE test_work_state;
+COMMIT;

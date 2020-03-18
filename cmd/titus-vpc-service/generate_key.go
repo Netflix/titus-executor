@@ -32,7 +32,7 @@ func generateKeyCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 				return errors.Wrap(err, "Could not format protobuf timestamp")
 			}
 
-			db, err := newConnection(ctx, v)
+			_, db, err := newConnection(ctx, v)
 			if err != nil {
 				return errors.Wrap(err, "Could not connect to database")
 			}
