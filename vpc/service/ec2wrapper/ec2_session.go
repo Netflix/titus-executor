@@ -223,10 +223,16 @@ func (s *EC2Session) ModifySecurityGroups(ctx context.Context, networkInterfaceI
 func (s *EC2Session) UnassignPrivateIPAddresses(ctx context.Context, unassignPrivateIPAddressesInput ec2.UnassignPrivateIpAddressesInput) (*ec2.UnassignPrivateIpAddressesOutput, error) {
 	ctx, span := trace.StartSpan(ctx, "unassignPrivateIpAddresses")
 	defer span.End()
-	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(unassignPrivateIPAddressesInput.NetworkInterfaceId)))
+	span.AddAttributes(
+		trace.StringAttribute("eni", aws.StringValue(unassignPrivateIPAddressesInput.NetworkInterfaceId)),
+		trace.StringAttribute("addresses", fmt.Sprint(aws.StringValueSlice(unassignPrivateIPAddressesInput.PrivateIpAddresses))),
+	)
+
 	ec2client := ec2.New(s.Session)
 	unassignPrivateIPAddressesOutput, err := ec2client.UnassignPrivateIpAddressesWithContext(ctx, &unassignPrivateIPAddressesInput)
 	if err != nil {
+		err = errors.Wrap(err, "Cannot unassign IPv4 addresses")
+		_ = HandleEC2Error(err, span)
 		return nil, err
 	}
 	return unassignPrivateIPAddressesOutput, nil
@@ -240,6 +246,8 @@ func (s *EC2Session) UnassignIpv6Addresses(ctx context.Context, unassignIpv6Addr
 	ec2client := ec2.New(s.Session)
 	unassignPrivateIPAddressesOutput, err := ec2client.UnassignIpv6AddressesWithContext(ctx, &unassignIpv6AddressesInput)
 	if err != nil {
+		err = errors.Wrap(err, "Cannot unassign IPv6 addresses")
+		_ = HandleEC2Error(err, span)
 		return nil, err
 	}
 	return unassignPrivateIPAddressesOutput, nil
@@ -254,8 +262,15 @@ func (s *EC2Session) AssignPrivateIPAddresses(ctx context.Context, assignPrivate
 	ec2client := ec2.New(s.Session)
 	assignPrivateIPAddressesOutput, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, &assignPrivateIPAddressesInput)
 	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv4 addresses")).Err()
+		err = errors.Wrap(err, "Cannot assign IPv4 addresses")
+		_ = HandleEC2Error(err, span)
+		return nil, status.Convert(err).Err()
 	}
+	addresses := make([]string, len(assignPrivateIPAddressesOutput.AssignedPrivateIpAddresses))
+	for idx := range assignPrivateIPAddressesOutput.AssignedPrivateIpAddresses {
+		addresses[idx] = aws.StringValue(assignPrivateIPAddressesOutput.AssignedPrivateIpAddresses[idx].PrivateIpAddress)
+	}
+	span.AddAttributes(trace.StringAttribute("addresses", fmt.Sprint(addresses)))
 
 	return assignPrivateIPAddressesOutput, nil
 }
@@ -400,7 +415,7 @@ func (s *EC2Session) AssociateTrunkInterface(ctx context.Context, input ec2.Asso
 }
 
 func (s *EC2Session) DisassociateTrunkInterface(ctx context.Context, input ec2.DisassociateTrunkInterfaceInput) (*ec2.DisassociateTrunkInterfaceOutput, error) {
-	ctx, span := trace.StartSpan(ctx, "AssociateTrunkInterface")
+	ctx, span := trace.StartSpan(ctx, "DisassociateTrunkInterface")
 	defer span.End()
 
 	span.AddAttributes(trace.StringAttribute("associationID", aws.StringValue(input.AssociationId)))
