@@ -400,7 +400,7 @@ func (s *EC2Session) AssociateTrunkInterface(ctx context.Context, input ec2.Asso
 }
 
 func (s *EC2Session) DisassociateTrunkInterface(ctx context.Context, input ec2.DisassociateTrunkInterfaceInput) (*ec2.DisassociateTrunkInterfaceOutput, error) {
-	ctx, span := trace.StartSpan(ctx, "AssociateTrunkInterface")
+	ctx, span := trace.StartSpan(ctx, "DisassociateTrunkInterface")
 	defer span.End()
 
 	span.AddAttributes(trace.StringAttribute("associationID", aws.StringValue(input.AssociationId)))
