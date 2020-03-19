@@ -223,7 +223,7 @@ func trunkENITests(ctx context.Context, t *testing.T, md integrationTestMetadata
 	assert.NilError(t, service.preemptLock(ctx, item, reconcileTrunkENILongLivedTask))
 
 	// Create dangling ENIs
-	eni, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
+	eni, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
 	assert.NilError(t, err)
 	logger.G(ctx).WithField("eni", eni.String()).Debug("Created test trunk ENI")
 
@@ -400,7 +400,7 @@ func startAssociationAndDisassociationWorkers(ctx context.Context, t *testing.T,
 }
 
 func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
-	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
 	assert.NilError(t, err)
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
@@ -451,7 +451,7 @@ func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata
 }
 
 func testReconcileBranchENIAttachments(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
-	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
 	assert.NilError(t, err)
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
@@ -560,7 +560,7 @@ func testGenerateAssignmentIDBranchENIsStress(ctx context.Context, t *testing.T,
 	const numberOfBranchesToGenerate = 120
 	trunks := make([]*ec2.NetworkInterface, (numberOfBranchesToGenerate/req.maxBranchENIs)+1)
 	for idx := range trunks {
-		trunkENI, err := service.createNewTrunkENI(ctx, session, &subnet.subnetID)
+		trunkENI, err := service.createNewTrunkENI(ctx, session, &subnet.subnetID, 3)
 		assert.NilError(t, err)
 		defer func() {
 			assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
@@ -638,7 +638,7 @@ func testGenerateAssignmentIDStressTest(ctx context.Context, t *testing.T, md in
 	trunkENIs := make([]*ec2.NetworkInterface, len(md.subnetIDs))
 	subnets := make([]*subnet, len(md.subnetIDs))
 	for idx := range trunkENIs {
-		trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetIDs[idx])
+		trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetIDs[idx], 3)
 		assert.NilError(t, err)
 		defer func() {
 			assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
@@ -717,7 +717,7 @@ func testGenerateAssignmentIDWithFault(ctx context.Context, t *testing.T, md int
 	g1, g2 := startAssociationAndDisassociationWorkers(workerCtx, t, service)
 	assert.NilError(t, g1.Wait())
 
-	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
 	assert.NilError(t, err)
 	defer func() {
 		assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
@@ -797,7 +797,7 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	reconcileTrunkENILongLivedTask := service.reconcileTrunkENIsLongLivedTask()
 	assert.NilError(t, service.preemptLock(ctx, item, reconcileTrunkENILongLivedTask))
 
-	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID)
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
 	assert.NilError(t, err)
 	defer func() {
 		assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))

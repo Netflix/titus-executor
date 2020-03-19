@@ -278,7 +278,7 @@ WHERE
 	return orphanedENIs, nil
 }
 
-func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *ec2wrapper.EC2Session, networkInterface *ec2.NetworkInterface) (bool, error) {
+func (vpcService *vpcService) reconcileBranchENI(ctx context.Context, session *ec2wrapper.EC2Session, networkInterface *ec2.NetworkInterface) (bool, error) { // nolint:gocyclo
 	ctx, span := trace.StartSpan(ctx, "reconcileBranchENI")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -350,6 +350,18 @@ retry:
 	sort.Strings(networkInterfaceSecurityGroups)
 
 	span.AddAttributes(trace.StringAttribute("networkInterfaceSecurityGroups", fmt.Sprintf("%+v", networkInterfaceSecurityGroups)))
+
+	_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET mac = $1 WHERE branch_eni = $2 AND mac IS NULL",
+		aws.StringValue(networkInterface.MacAddress), branch)
+	if isSerializationFailure(err) {
+		serializationErrors++
+		goto retry
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Cannot update branch ENI MAC address")
+		tracehelpers.SetStatus(err, span)
+		return false, err
+	}
 
 	// We need to update the security groups in the database
 	if len(dbSecurityGroups) == 0 {

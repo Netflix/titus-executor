@@ -207,15 +207,49 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
-	// - Add timeout
-
-	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
+	networkInterface, err := vpcService.provisionInstanceShared(ctx, req.InstanceIdentity, 2)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	instance, _, err := ec2InstanceSession.GetInstance(ctx, req.InstanceIdentity.InstanceID, true)
+	return &vpcapi.ProvisionInstanceResponseV2{
+		TrunkNetworkInterface: networkInterface,
+	}, nil
+}
+
+func (vpcService *vpcService) ProvisionInstanceV3(ctx context.Context, req *vpcapi.ProvisionInstanceRequestV3) (*vpcapi.ProvisionInstanceResponseV3, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "ProvisionInstanceV3")
+	defer span.End()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+
+	networkInterface, err := vpcService.provisionInstanceShared(ctx, req.InstanceIdentity, 3)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return &vpcapi.ProvisionInstanceResponseV3{
+		TrunkNetworkInterface: networkInterface,
+	}, nil
+}
+
+func (vpcService *vpcService) provisionInstanceShared(ctx context.Context, instanceIdentity *vpcapi.InstanceIdentity, generation int) (*vpcapi.NetworkInterface, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "provisionInstanceShared")
+	defer span.End()
+
+	ec2InstanceSession, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, instanceIdentity)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	instance, _, err := ec2InstanceSession.GetInstance(ctx, instanceIdentity.InstanceID, true)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
@@ -225,12 +259,10 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	// TODO: Verify the second network interface is a trunk
 	eni := vpcService.getTrunkENI(instance)
 	if eni != nil {
-		return &vpcapi.ProvisionInstanceResponseV2{
-			TrunkNetworkInterface: instanceNetworkInterface(*instance, *eni),
-		}, nil
+		return instanceNetworkInterface(*instance, *eni), nil
 	}
 
-	iface, err := vpcService.createNewTrunkENI(ctx, ec2InstanceSession, instance.SubnetId)
+	iface, err := vpcService.createNewTrunkENI(ctx, ec2InstanceSession, instance.SubnetId, generation)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
@@ -246,15 +278,8 @@ func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpca
 	_, err = ec2InstanceSession.AttachNetworkInterface(ctx, attachNetworkInterfaceInput)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not attach network interface")
-		err = ec2wrapper.HandleEC2Error(err, span)
-		err2 := vpcService.deleteTrunkInterface(ctx, ec2InstanceSession, aws.StringValue(iface.NetworkInterfaceId))
-		if err2 != nil {
-			logger.G(ctx).WithError(err).Error("Could not delete trunk network interface after failed attachment")
-		}
-		return nil, err
+		return nil, ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	return &vpcapi.ProvisionInstanceResponseV2{
-		TrunkNetworkInterface: networkInterface(*iface),
-	}, nil
+	return networkInterface(*iface), nil
 }
