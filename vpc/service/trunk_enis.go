@@ -251,7 +251,7 @@ func (vpcService *vpcService) tombstoneTrunkNetworkInterface(ctx context.Context
 	return true, nil, nil
 }
 
-func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec2wrapper.EC2Session, subnetID *string) (*ec2.NetworkInterface, error) {
+func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec2wrapper.EC2Session, subnetID *string, generation int) (*ec2.NetworkInterface, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -292,11 +292,20 @@ func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	err = insertTrunkENIIntoDB(ctx, tx, createNetworkInterfaceResult.NetworkInterface)
+	id, err := insertTrunkENIIntoDB(ctx, tx, createNetworkInterfaceResult.NetworkInterface, generation)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update trunk enis")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
+	}
+
+	if generation == 3 {
+		_, err = tx.ExecContext(ctx, "INSERT INTO htb_classid(trunk_eni, class_id) SELECT $1, generate_series(10010, 15000)", id)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot get generate HTB class ID slots")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
 	}
 
 	err = tx.Commit()
@@ -310,15 +319,16 @@ func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec
 }
 
 // inserts an ENI into the database in a non-conflicting way, and tombstones it
-func insertTrunkENIIntoDB(ctx context.Context, tx *sql.Tx, eni *ec2.NetworkInterface) error {
+func insertTrunkENIIntoDB(ctx context.Context, tx *sql.Tx, eni *ec2.NetworkInterface, generation int) (int, error) {
 	// TODO: Use the availability_zones table
 	region := azToRegionRegexp.FindString(aws.StringValue(eni.AvailabilityZone))
 
-	_, err := tx.ExecContext(ctx, `
-INSERT INTO trunk_enis(trunk_eni, account_id, az, subnet_id, vpc_id, region)
-VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (trunk_eni) DO
+	row := tx.QueryRowContext(ctx, `
+INSERT INTO trunk_enis(trunk_eni, account_id, az, subnet_id, vpc_id, region, mac, generation)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (trunk_eni) DO
 UPDATE 
-SET deleted_at = NULL
+SET deleted_at = NULL, mac = $7
+RETURNING id
 `,
 		aws.StringValue(eni.NetworkInterfaceId),
 		aws.StringValue(eni.OwnerId),
@@ -326,8 +336,13 @@ SET deleted_at = NULL
 		aws.StringValue(eni.SubnetId),
 		aws.StringValue(eni.VpcId),
 		region,
+		aws.StringValue(eni.MacAddress),
+		generation,
 	)
-	return err
+
+	var id int
+	err := row.Scan(&id)
+	return id, err
 }
 
 func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]keyedItem, error) {

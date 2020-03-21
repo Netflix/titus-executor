@@ -202,6 +202,177 @@ func (vpcService *vpcService) getStaticAllocation(ctx context.Context, alloc *vp
 	return &retAlloc, nil
 }
 
+func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, assignmentID string, deleteUnfinishedAssignment bool) (*vpcapi.AssignIPResponseV3, error) {
+	ctx, span := trace.StartSpan(ctx, "fetchIdempotentAssignment")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot start transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	row := tx.QueryRowContext(ctx, `
+SELECT assignments.id,
+       branch_eni,
+       trunk_eni,
+       idx,
+       branch_eni_association,
+       ipv4addr,
+       ipv6addr,
+       completed
+FROM assignments
+JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+WHERE assignment_id = $1
+  FOR NO KEY
+  UPDATE OF assignments`, assignmentID)
+	var branchENI, trunkENI, associationID string
+	var ipv4addr, ipv6addr sql.NullString
+	var idx, assignmentRowID int
+	var completed bool
+	err = row.Scan(&assignmentRowID, &branchENI, &trunkENI, &idx, &associationID, &ipv4addr, &ipv6addr, &completed)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	if !completed {
+		if deleteUnfinishedAssignment {
+			// Delete the assignment
+			_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1", assignmentID)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot delete incomplete assignment")
+				tracehelpers.SetStatus(err, span)
+				return nil, err
+			}
+			err = tx.Commit()
+			if err != nil {
+				err = errors.Wrap(err, "Cannot commit transaction after deleting assignment")
+				tracehelpers.SetStatus(err, span)
+				return nil, err
+			}
+		}
+		return nil, nil
+	}
+
+	_, err = tx.ExecContext(ctx, "SET TRANSACTION READ ONLY")
+	if err != nil {
+		err = errors.Wrap(err, "Could not set transaction read only")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	resp := vpcapi.AssignIPResponseV3{
+		BranchNetworkInterface: &vpcapi.NetworkInterface{
+			// NetworkInterfaceAttachment is not used in assignipv3
+			NetworkInterfaceAttachment: nil,
+		},
+		TrunkNetworkInterface: &vpcapi.NetworkInterface{
+			// NetworkInterfaceAttachment is not used in assignipv3
+			NetworkInterfaceAttachment: nil,
+		},
+		VlanId: uint32(idx),
+	}
+	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1", branchENI)
+	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
+		&resp.BranchNetworkInterface.AvailabilityZone,
+		&resp.BranchNetworkInterface.MacAddress,
+		&resp.BranchNetworkInterface.NetworkInterfaceId,
+		&resp.BranchNetworkInterface.OwnerAccountId,
+		&resp.BranchNetworkInterface.VpcId)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot select branch_eni")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1", trunkENI)
+	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
+		&resp.TrunkNetworkInterface.AvailabilityZone,
+		&resp.TrunkNetworkInterface.MacAddress,
+		&resp.TrunkNetworkInterface.NetworkInterfaceId,
+		&resp.TrunkNetworkInterface.OwnerAccountId,
+		&resp.TrunkNetworkInterface.VpcId)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot select trunk_eni")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	if ipv4addr.Valid {
+		var subnetCIDR string
+		row = tx.QueryRowContext(ctx, "SELECT cidr FROM subnets WHERE subnet_id = $1", resp.BranchNetworkInterface.SubnetId)
+		err = row.Scan(&subnetCIDR)
+		if err != nil {
+			err = errors.Wrap(err, "Could not scan subnet CIDR")
+			tracehelpers.SetStatus(err, span)
+		}
+		_, ipnet, err := net.ParseCIDR(subnetCIDR)
+		if err != nil {
+			err = errors.Wrapf(err, "Could not parse subnet CIDR: %s", subnetCIDR)
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		ones, _ := ipnet.Mask.Size()
+		resp.Ipv4Address = &vpcapi.UsableAddress{
+			Address: &vpcapi.Address{
+				Address: ipv4addr.String,
+			},
+			PrefixLength: uint32(ones),
+		}
+	}
+
+	if ipv6addr.Valid {
+		resp.Ipv6Address = &vpcapi.UsableAddress{
+			Address: &vpcapi.Address{
+				Address: ipv6addr.String,
+			},
+			PrefixLength: 128,
+		}
+	}
+
+	row = tx.QueryRowContext(ctx, `
+SELECT elastic_ip_attachments.elastic_ip_allocation_id,
+       association_id,
+       public_ip
+FROM elastic_ip_attachments
+JOIN elastic_ips ON elastic_ip_attachments.elastic_ip_allocation_id = elastic_ips.allocation_id
+WHERE assignment_id = $1`, assignmentID)
+	var elasticIPAllocationID, elasticIPAssociationID, publicIP string
+	err = row.Scan(&elasticIPAllocationID, &elasticIPAssociationID, &publicIP)
+	if err == nil {
+		resp.ElasticAddress = &vpcapi.ElasticAddress{
+			Ip:             publicIP,
+			AllocationId:   elasticIPAllocationID,
+			AssociationdId: elasticIPAssociationID,
+		}
+	} else if err != sql.ErrNoRows {
+		err = errors.Wrap(err, "Could not select from elastic IP allocations table")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	row = tx.QueryRowContext(ctx, "SELECT class_id FROM htb_classid WHERE assignment_id = $1", assignmentRowID)
+	err = row.Scan(&resp.ClassId)
+	if err != nil {
+		err = errors.Wrapf(err, "Cannot get HTB class ID for assignment %d", assignmentRowID)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Cannot commit transaction after reading assignment")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
 func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.AssignIPRequestV3) (*vpcapi.AssignIPResponseV3, error) {
 	// 1. Get the trunk ENI
 	// 2. Choose the subnet we're "scheduling" into
@@ -215,7 +386,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
-	if req.InstanceIdentity == nil {
+	if req.InstanceIdentity == nil || req.InstanceIdentity.InstanceID == "" {
 		err := status.Error(codes.InvalidArgument, "Instance ID is not specified")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
@@ -244,6 +415,18 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	})
 	span.AddAttributes(
 		trace.StringAttribute("taskID", req.TaskId))
+
+	if req.Idempotent {
+		val, err := vpcService.fetchIdempotentAssignment(ctx, req.TaskId, true)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot fetch idempotent assignment")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		if val != nil {
+			return val, nil
+		}
+	}
 
 	instanceSession, instance, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
 	if err != nil {
@@ -312,6 +495,27 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	return vpcService.assignIPsToENI(ctx, req, ass, maxIPAddresses, instance, trunkENI)
 }
 
+func lockAssignment(ctx context.Context, tx *sql.Tx, assignmentID int) error {
+	result, err := tx.ExecContext(ctx, "SELECT FROM assignments WHERE id = $1 FOR NO KEY UPDATE", assignmentID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot select assignment for no key update")
+		return err
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get rows affected by select assignment for no key update")
+		return err
+	}
+
+	if n != 1 {
+		err = fmt.Errorf("Unexpected number of rows affected by select assignment for no key update: %d", n)
+		return err
+	}
+
+	return nil
+}
+
 func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *assignment, maxIPAddresses int, instance *ec2.Instance, trunkENI *ec2.InstanceNetworkInterface) (*vpcapi.AssignIPResponseV3, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -328,6 +532,13 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	defer func() {
 		_ = tx.Rollback()
 	}()
+
+	err = lockAssignment(ctx, tx, ass.assignmentID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot lock assignment")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
 
 	// This locks the branch ENI making this whole process "exclusive"
 	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", ass.branch.id)
@@ -452,11 +663,37 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 	resp.TrunkNetworkInterface = instanceNetworkInterface(*instance, *trunkENI)
 	resp.VlanId = uint32(ass.branch.idx)
-
 	span.AddAttributes(
 		trace.Int64Attribute("idx", int64(ass.branch.idx)),
 		trace.StringAttribute("trunk", resp.TrunkNetworkInterface.NetworkInterfaceId),
 	)
+
+	row = tx.QueryRowContext(ctx, `
+UPDATE htb_classid
+SET assignment_id = $1
+WHERE id=
+    (SELECT id
+     FROM htb_classid
+     WHERE trunk_eni =
+         (SELECT id
+          FROM trunk_enis
+          WHERE trunk_eni = $2)
+       AND assignment_id IS NULL
+     ORDER BY RANDOM()
+     LIMIT 1) RETURNING class_id`, ass.assignmentID, aws.StringValue(trunkENI.NetworkInterfaceId))
+	err = row.Scan(&resp.ClassId)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to update / set class id for allocation")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE assignments SET completed = true WHERE id = $1", ass.assignmentID)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot update completed")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
 
 	err = tx.Commit()
 	if err != nil {
@@ -1053,7 +1290,7 @@ WHERE elastic_ip_attachments.assignment_id = $1
 	return nil
 }
 
-func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.UnassignIPRequestV3) (resp *vpcapi.UnassignIPResponseV3, retErr error) {
+func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.UnassignIPRequestV3) (*vpcapi.UnassignIPResponseV3, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "UnassignIPV3")
@@ -1061,6 +1298,24 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
+
+	resp := vpcapi.UnassignIPResponseV3{}
+
+	if req.IncludeAssignment {
+		assignment, err := vpcService.fetchIdempotentAssignment(ctx, req.TaskId, false)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot fetch previous assignment")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+
+		if assignment == nil {
+			err = status.Errorf(codes.NotFound, "Could not find previous assignment")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		resp.Assignment = assignment
+	}
 
 	if unassigned, err := vpcService.unassignStaticAddress(ctx, req.TaskId); err != nil {
 		span.SetStatus(traceStatusFromError(err))
@@ -1139,7 +1394,7 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		return nil, err
 	}
 
-	return &vpcapi.UnassignIPResponseV3{}, nil
+	return &resp, nil
 }
 
 func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2.NetworkInterface, maxIPAddresses int, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation, ass *assignment) (*vpcapi.UsableAddress, error) {

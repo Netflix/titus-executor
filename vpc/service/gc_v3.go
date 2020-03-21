@@ -258,7 +258,7 @@ RETURNING assignments.assignment_id
 	span.AddAttributes(trace.StringAttribute("removedAssignments", fmt.Sprint(removedAssignments)))
 	logger.G(ctx).WithField("removedAssignments", removedAssignments).Debug("Removed assignments")
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_eni_attachments SET attachment_generation = 3 WHERE trunk_eni = $1", aws.StringValue(trunkENI.NetworkInterfaceId))
+	_, err = tx.ExecContext(ctx, "UPDATE trunk_enis SET generation = 3 WHERE trunk_eni = $1 AND generation != 3", aws.StringValue(trunkENI.NetworkInterfaceId))
 	if err != nil {
 		err = errors.Wrap(err, "Could not update attachment generations")
 		span.SetStatus(traceStatusFromError(err))
@@ -361,14 +361,29 @@ func (vpcService *vpcService) getGCableENIs(ctx context.Context, region, account
 		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
-
 	rows, err := tx.QueryContext(ctx, `
+WITH attached_enis AS
+  (SELECT branch_eni,
+          trunk_eni
+   FROM branch_eni_attachments
+   WHERE state = 'attaching'
+     OR state = 'attached'
+     OR state = 'unattaching')
 SELECT branch_enis.branch_eni
 FROM branch_enis
 JOIN subnets ON branch_enis.subnet_id = subnets.subnet_id
-JOIN availability_zones ON subnets.account_id = availability_zones.account_id AND subnets.az = availability_zones.zone_name
-LEFT JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
-WHERE (attachment_generation = 3 OR branch_eni_attachments.association_id IS NULL)
+JOIN availability_zones ON subnets.account_id = availability_zones.account_id
+AND subnets.az = availability_zones.zone_name
+WHERE (branch_enis.branch_eni NOT IN
+         (SELECT branch_eni
+          FROM attached_enis)
+       OR
+         (SELECT generation
+          FROM trunk_enis
+          WHERE trunk_eni =
+              (SELECT trunk_eni
+               FROM attached_enis
+               WHERE branch_eni = branch_enis.branch_eni)) = 3)
   AND branch_enis.account_id = $1
   AND availability_zones.region = $2
 ORDER BY RANDOM()
