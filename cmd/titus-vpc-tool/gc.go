@@ -23,7 +23,7 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 			}
 			defer conn.Close()
 			switch generation := strings.ToLower(v.GetString(generationFlagName)); (generation) {
-			case "v1", "v2":
+			case "v1":
 				logger.G(ctx).Warnf("Generation %s does not support GC")
 				return nil
 			case "v3":

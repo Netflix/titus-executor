@@ -9,7 +9,6 @@ import (
 
 	"github.com/Netflix/titus-executor/vpc/tool/allocate"
 
-	"github.com/Netflix/titus-executor/vpc/tool/assign2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
@@ -34,17 +33,6 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					v.GetInt("device-idx"),
 					v.GetBool("assign-ipv6-address"),
 					v.GetString("ipv4-allocation-uuid"),
-				)
-			case "v2":
-				return assign2.Assign(ctx,
-					iipGetter(),
-					locker,
-					conn,
-					v.GetStringSlice("security-groups"),
-					v.GetInt("device-idx"),
-					v.GetBool("assign-ipv6-address"),
-					v.GetString("ipv4-allocation-uuid"),
-					v.GetString(interfaceAccount),
 				)
 			case "v3":
 				return assign3.Assign(ctx,
