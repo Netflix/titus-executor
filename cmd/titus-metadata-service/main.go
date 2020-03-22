@@ -224,7 +224,7 @@ func main() {
 		cli.StringFlag{
 			Name:        "token-key-salt",
 			Value:       "",
-			Usage:       "Salt to used for key used to generate tokens",
+			Usage:       "Salt used for token generation key",
 			EnvVar:      "TOKEN_KEY_SALT",
 			Destination: &tokenSalt,
 		},
