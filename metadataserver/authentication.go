@@ -26,7 +26,7 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 		auth := auth.JWTAuthenticator{Key: ms.tokenKey, Audience: ms.titusTaskInstanceID}
 		remaining, err := auth.VerifyToken(token)
 		if err != nil {
-			log.Error("Token invalid: ", err)
+			log.WithError(err).Error("Token invalid")
 			metrics.PublishIncrementCounter("auth.failed.count")
 			http.Error(w, "", http.StatusUnauthorized)
 			return
@@ -43,7 +43,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 
 	forwarded := r.Header.Get("x-forwarded-for")
 	if len(forwarded) > 0 {
-		log.Error("`x-forwarded-for` header present, blocking request`")
+		log.WithField("xForwardedFor", forwarded).Error("x-forwarded-for header present, blocking request")
 		http.Error(w, "", http.StatusForbidden)
 		return
 	}
@@ -53,20 +53,20 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 
 	ttlSec, err := strconv.Atoi(ttlStr)
 	if err != nil {
-		log.Error("Could not decode ttl: ", err)
+		log.WithError(err).Error("Could not decode ttl")
 		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
 
-	if ttlSec < 0 || ttlSec > 21600 {
-		log.Error("Invalid ttl: ", ttlSec)
+	if ttlSec < 0 || ttlSec > int((6*time.Hour).Seconds()) {
+		log.WithField("tokenTTL", ttlSec).Error("Invalid ttl")
 		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
 
 	token, err := auth.GenerateToken(time.Duration(ttlSec) * time.Second)
 	if err != nil {
-		log.Error("Could not generate token: ", err)
+		log.WithError(err).Error("Could not generate token")
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
@@ -75,14 +75,14 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 	if !ok {
 		// Not a Hijacker, just treat it as a normal ResponseWriter
 		if _, err := fmt.Fprint(w, token); err != nil {
-			log.Error("Unable to write token: ", err)
+			log.WithError(err).Error("Unable to write token")
 		}
 		return
 	}
 
 	conn, bufrw, err := hj.Hijack()
 	if err != nil {
-		log.Error("Unable to hijack connection: ", err)
+		log.WithError(err).Error("Unable to hijack connection")
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
@@ -91,16 +91,16 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 	if conn.RemoteAddr().(*net.TCPAddr).IP.To4() != nil {
 		p := ipv4.NewConn(conn)
 		_ = p.SetTTL(1)
-	}
-
-	if conn.RemoteAddr().(*net.TCPAddr).IP.To16() != nil {
+	} else if conn.RemoteAddr().(*net.TCPAddr).IP.To16() != nil {
 		p := ipv6.NewConn(conn)
 		_ = p.SetHopLimit(1)
+	} else {
+		log.Warn("Could not determine connection protocol type to set packet TTL")
 	}
 
 	_, err = bufrw.Write([]byte(token))
 	if err != nil {
-		log.Error("Unable to write token: ", err)
+		log.WithError(err).Error("Unable to write token")
 	}
 
 	bufrw.Flush()

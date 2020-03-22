@@ -47,7 +47,7 @@ func (a *JWTAuthenticator) VerifyToken(token string) (int64, error) {
 	}
 
 	if !claims.VerifyAudience(a.Audience, false) {
-		return 0, fmt.Errorf("Claims invalid, audience does not match")
+		return 0, fmt.Errorf("Claims invalid, expected audience %q but got %q", a.Audience, claims.Audience)
 	}
 
 	remaining := time.Until(time.Unix(claims.ExpiresAt, 0))

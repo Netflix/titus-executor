@@ -274,6 +274,10 @@ func main() {
 			}
 		}
 
+		if len(tokenSalt) == 0 {
+			log.Warn("Salt used for token key is empty. This is potentially insecure.")
+		}
+
 		if ipv6Addresses != "" {
 			parsedIPv6Address := net.ParseIP(strings.Split(ipv6Addresses, "\n")[0])
 			mdscfg.Ipv6Address = &parsedIPv6Address
