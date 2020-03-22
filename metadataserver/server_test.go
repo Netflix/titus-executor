@@ -650,7 +650,7 @@ func TestTokenWorksWithAWSSDK(t *testing.T) {
 
 	url := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest")
 	endpointConfig := &aws.Config{Endpoint: &url}
-	client := ec2metadata.New(session.New(endpointConfig))
+	client := ec2metadata.New(session.Must(session.NewSession(endpointConfig)))
 
 	got, err := client.GetMetadata("instance-id")
 	assert.Nil(t, err)
