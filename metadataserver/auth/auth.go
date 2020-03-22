@@ -15,13 +15,15 @@ type Authenticator interface {
 
 // JWTAuthenticator authenticates using JWT
 type JWTAuthenticator struct {
-	Key []byte
+	Key      []byte
+	Audience string
 }
 
 // GenerateToken token
 func (a *JWTAuthenticator) GenerateToken(ttl time.Duration) (string, error) {
 	claims := &jwt.StandardClaims{
 		ExpiresAt: time.Now().Add(ttl).Unix(),
+		Audience:  a.Audience,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(a.Key)
@@ -41,7 +43,15 @@ func (a *JWTAuthenticator) VerifyToken(token string) (bool, int64) {
 		return false, 0
 	}
 
-	if jwtToken.Valid && jwtToken.Claims.Valid() != nil {
+	if !jwtToken.Valid {
+		return false, 0
+	}
+
+	if claims.Valid() != nil {
+		return false, 0
+	}
+
+	if !claims.VerifyAudience(a.Audience, false) {
 		return false, 0
 	}
 

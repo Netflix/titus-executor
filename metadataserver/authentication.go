@@ -20,7 +20,7 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		auth := auth.JWTAuthenticator{Key: ms.tokenKey}
+		auth := auth.JWTAuthenticator{Key: ms.tokenKey, Audience: ms.titusTaskInstanceID}
 		valid, remaining := auth.VerifyToken(token)
 		if !valid {
 			http.Error(w, "", http.StatusUnauthorized)
@@ -38,7 +38,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	auth := auth.JWTAuthenticator{Key: ms.tokenKey}
+	auth := auth.JWTAuthenticator{Key: ms.tokenKey, Audience: ms.titusTaskInstanceID}
 	ttlStr := r.Header.Get(ec2MetadataTokenTTLHeader)
 
 	ttlSec, err := strconv.Atoi(ttlStr)
