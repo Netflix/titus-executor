@@ -100,6 +100,10 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 
 	httpResHeader := fmt.Sprintf(tokenHTTPResponseHeaderFormatString, ttlStr, len([]byte(token)))
 	_, err = bufrw.Write([]byte(httpResHeader))
+	if err != nil {
+		log.WithError(err).Error("Unable to write token HTTP response headers")
+	}
+
 	_, err = bufrw.Write([]byte(token))
 	if err != nil {
 		log.WithError(err).Error("Unable to write token")
