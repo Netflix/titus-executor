@@ -20,6 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
+
 	"github.com/Netflix/titus-executor/metadataserver/types"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -634,6 +638,25 @@ func TestTaskIdentityWithECDSA(t *testing.T) {
 			{makeGetRequestWithHeader(ess, "/nflx/v1/task-identity", "Accept", "application/json"), validateTaskIdentityJSONRequest(t)},
 		}
 	play(t, ess, tapes)
+}
+
+func TestTokenWorksWithAWSSDK(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	url := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest")
+	endpointConfig := &aws.Config{Endpoint: &url}
+	client := ec2metadata.New(session.New(endpointConfig))
+
+	got, err := client.GetMetadata("instance-id")
+	assert.Nil(t, err)
+
+	expected := fakeTaskIdentity().GetTask().GetTaskId()
+	assert.Equal(t, expected, got)
 }
 
 func TestRequireToken(t *testing.T) {
