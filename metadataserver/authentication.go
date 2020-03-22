@@ -14,7 +14,7 @@ import (
 
 func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("X-aws-ec2-metadata-token")
+		token := r.Header.Get(ec2MetadataTokenHeader)
 		if !ms.tokenRequired && len(token) == 0 {
 			next.ServeHTTP(w, r)
 			return
@@ -26,7 +26,7 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 			http.Error(w, "", http.StatusUnauthorized)
 			return
 		}
-		w.Header().Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", fmt.Sprintf("%v", remaining))
+		w.Header().Add(ec2MetadataTokenTTLHeader, fmt.Sprintf("%v", remaining))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -39,7 +39,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 	}
 
 	auth := auth.JWTAuthenticator{Key: ms.tokenKey}
-	ttlStr := r.Header.Get("X-aws-ec2-metadata-token-ttl-seconds")
+	ttlStr := r.Header.Get(ec2MetadataTokenTTLHeader)
 
 	ttlSec, err := strconv.Atoi(ttlStr)
 	if err != nil {
