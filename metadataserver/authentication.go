@@ -2,6 +2,7 @@ package metadataserver
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/Netflix/titus-executor/metadataserver/auth"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 )
 
 func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
@@ -68,8 +71,48 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	w.Header().Add("X-aws-ec2-metadata-token-ttl-seconds", ttlStr)
-	if _, err := fmt.Fprint(w, token); err != nil {
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		// Not a Hijacker, just treat it as a normal ResponseWriter
+		if _, err := fmt.Fprint(w, token); err != nil {
+			log.WithError(err).Error("Unable to write token")
+		}
+		return
+	}
+
+	conn, bufrw, err := hj.Hijack()
+	if err != nil {
+		log.WithError(err).Error("Unable to hijack connection")
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	if conn.RemoteAddr().(*net.TCPAddr).IP.To4() != nil {
+		p := ipv4.NewConn(conn)
+		_ = p.SetTTL(1)
+	} else if conn.RemoteAddr().(*net.TCPAddr).IP.To16() != nil {
+		p := ipv6.NewConn(conn)
+		_ = p.SetHopLimit(1)
+	} else {
+		log.Warn("Could not determine connection protocol type to set packet TTL")
+	}
+
+	httpResHeader := fmt.Sprintf(tokenHTTPResponseHeaderFormatString, ttlStr, len([]byte(token)))
+	_, err = bufrw.Write([]byte(httpResHeader))
+	_, err = bufrw.Write([]byte(token))
+	if err != nil {
 		log.WithError(err).Error("Unable to write token")
 	}
+
+	bufrw.Flush()
 }
+
+const tokenHTTPResponseHeaderFormatString = `HTTP/1.1 200 OK
+Accept-Ranges: none
+Server: EC2ws
+Connection: close
+X-aws-ec2-metadata-token-ttl-seconds: %v
+Content-Length: %v
+
+`
