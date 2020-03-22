@@ -529,8 +529,7 @@ func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair, requ
 		mdsCfg.Signer = signerFromTestKeyPair(keyPair)
 	}
 
-	ms, err := NewMetaDataServer(context.Background(), mdsCfg)
-	assert.Nil(t, err)
+	ms := NewMetaDataServer(context.Background(), mdsCfg)
 
 	// Leaks connections, but this is okay in the time of testing
 	go func() {

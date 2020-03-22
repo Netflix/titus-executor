@@ -81,7 +81,7 @@ func dumpRoutes(r *mux.Router) {
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
-func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) (*MetadataServer, error) {
+func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) *MetadataServer {
 	ms := &MetadataServer{
 		httpClient:          &http.Client{},
 		internalMux:         mux.NewRouter(),
@@ -119,7 +119,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	/* Dump debug routes if anyone cares */
 	dumpRoutes(ms.internalMux)
 
-	return ms, nil
+	return ms
 }
 
 func (ms *MetadataServer) serverHeader(next http.Handler) http.Handler {
