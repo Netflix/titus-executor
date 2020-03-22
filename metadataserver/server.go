@@ -2,7 +2,6 @@ package metadataserver
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"net"
 	"net/http"
@@ -96,12 +95,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		tokenRequired:       config.RequireToken,
 	}
 
-	key := make([]byte, 16)
-	_, err := rand.Read(key)
-	if err != nil {
-		return nil, err
-	}
-	ms.tokenKey = key
+	ms.tokenKey = []byte(config.TokenKey)
 
 	/* IMDS routes */
 	ms.internalMux.Use(ms.serverHeader)

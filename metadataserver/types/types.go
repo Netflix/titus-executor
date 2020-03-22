@@ -35,4 +35,5 @@ type MetadataServerConfiguration struct {
 	Container             *titus.ContainerInfo
 	Signer                *identity.Signer
 	RequireToken          bool
+	TokenKey              string
 }

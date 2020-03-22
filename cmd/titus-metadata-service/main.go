@@ -113,6 +113,7 @@ func main() {
 		listenPort            int
 		debug                 bool
 		requireToken          bool
+		tokenSalt             string
 		apiProtectEnabled     bool
 		backingMetadataServer string
 		metatronEnabled       bool
@@ -220,6 +221,13 @@ func main() {
 			EnvVar:      "REQUIRE_TOKEN",
 			Destination: &requireToken,
 		},
+		cli.StringFlag{
+			Name:        "token-key-salt",
+			Value:       "",
+			Usage:       "Salt to used for key used to generate tokens",
+			EnvVar:      "TOKEN_KEY_SALT",
+			Destination: &tokenSalt,
+		},
 	}
 	app.Action = func(c *cli.Context) error {
 		if debug {
@@ -244,6 +252,7 @@ func main() {
 			APIProtectEnabled:   apiProtectEnabled,
 			StateDir:            stateDir,
 			RequireToken:        requireToken,
+			TokenKey:            titusTaskInstanceID + tokenSalt,
 		}
 		if parsedURL, err := url.Parse(backingMetadataServer); err == nil {
 			mdscfg.BackingMetadataServer = parsedURL
@@ -263,10 +272,6 @@ func main() {
 			} else {
 				mdscfg.Container = container
 			}
-		}
-
-		if mdscfg.RequireToken && mdscfg.Signer == nil {
-			log.Fatal("A signer is required when requiring tokens")
 		}
 
 		if ipv6Addresses != "" {

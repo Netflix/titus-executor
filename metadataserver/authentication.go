@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/metadataserver/auth"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 )
@@ -21,11 +22,16 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 		}
 
 		auth := auth.JWTAuthenticator{Key: ms.tokenKey, Audience: ms.titusTaskInstanceID}
-		valid, remaining := auth.VerifyToken(token)
+		valid, remaining, err := auth.VerifyToken(token)
 		if !valid {
+			if err != nil {
+				log.Error("Token invalid: ", err)
+			}
+
 			http.Error(w, "", http.StatusUnauthorized)
 			return
 		}
+
 		w.Header().Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", fmt.Sprintf("%v", remaining))
 		next.ServeHTTP(w, r)
 	})
@@ -34,6 +40,7 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.Request) {
 	forwarded := r.Header.Get("x-forwarded-for")
 	if len(forwarded) > 0 {
+		log.Error("`x-forwarded-for` header present, blocking request`")
 		http.Error(w, "", http.StatusForbidden)
 		return
 	}
@@ -43,29 +50,36 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 
 	ttlSec, err := strconv.Atoi(ttlStr)
 	if err != nil {
+		log.Error("Could not decode ttl: ", err)
 		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
 
 	if ttlSec < 0 || ttlSec > 21600 {
+		log.Error("Invalid ttl: ", ttlSec)
 		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
 
 	token, err := auth.GenerateToken(time.Duration(ttlSec) * time.Second)
 	if err != nil {
-		// handle me
-		panic(err)
+		log.Error("Could not generate token: ", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
 	}
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {
-		http.Error(w, "", http.StatusInternalServerError)
+		// Not a Hijacker, just treat it as a normal ResponseWriter
+		if _, err := fmt.Fprint(w, token); err != nil {
+			log.Error("Unable to write token: ", err)
+		}
 		return
 	}
 
 	conn, bufrw, err := hj.Hijack()
 	if err != nil {
+		log.Error("Unable to hijack connection: ", err)
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
@@ -81,6 +95,10 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		_ = p.SetHopLimit(1)
 	}
 
-	_, _ = bufrw.Write([]byte(token))
+	_, err = bufrw.Write([]byte(token))
+	if err != nil {
+		log.Error("Unable to write token: ", err)
+	}
+
 	bufrw.Flush()
 }
