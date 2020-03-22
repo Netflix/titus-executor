@@ -665,7 +665,7 @@ func TestRequireToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestRequireTokenReturns401(t *testing.T) {
+func TestNoTokenReturns401(t *testing.T) {
 	ess, err := setupStubServer(t)
 	if err != nil {
 		t.Fatal("Could not get stub server: ", err)
@@ -676,6 +676,25 @@ func TestRequireTokenReturns401(t *testing.T) {
 	fullPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
 	req, err := http.NewRequest("GET", fullPath, nil)
 	assert.Nil(t, err)
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestInvalidTokenReturns401(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	fullPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
+	req, err := http.NewRequest("GET", fullPath, nil)
+	assert.Nil(t, err)
+	req.Header.Add("X-aws-ec2-metadata-token", "invalid-token")
 
 	w := httptest.NewRecorder()
 	ms.ServeHTTP(w, req)

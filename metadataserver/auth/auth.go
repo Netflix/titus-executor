@@ -25,7 +25,7 @@ func (a *JWTAuthenticator) GenerateToken(ttl time.Duration) (string, error) {
 }
 
 // VerifyToken verifes a token
-func (a *JWTAuthenticator) VerifyToken(token string) (bool, int64, error) {
+func (a *JWTAuthenticator) VerifyToken(token string) (int64, error) {
 	var claims jwt.StandardClaims
 	jwtToken, err := jwt.ParseWithClaims(token, &claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -35,21 +35,21 @@ func (a *JWTAuthenticator) VerifyToken(token string) (bool, int64, error) {
 	})
 
 	if err != nil {
-		return false, 0, errors.Wrap(err, "Token invalid")
+		return 0, errors.Wrap(err, "Token could not be parsed")
 	}
 
 	if !jwtToken.Valid {
-		return false, 0, errors.Wrap(err, "Token invalid")
+		return 0, fmt.Errorf("Token invalid")
 	}
 
-	if claims.Valid() != nil {
-		return false, 0, errors.Wrap(err, "Token invalid")
+	if err := claims.Valid(); err != nil {
+		return 0, errors.Wrap(err, "Claims invalid")
 	}
 
 	if !claims.VerifyAudience(a.Audience, false) {
-		return false, 0, errors.Wrap(err, "Token invalid")
+		return 0, fmt.Errorf("Claims invalid, audience does not match")
 	}
 
 	remaining := time.Until(time.Unix(claims.ExpiresAt, 0))
-	return true, int64(remaining.Seconds()), nil
+	return int64(remaining.Seconds()), nil
 }

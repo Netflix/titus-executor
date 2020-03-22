@@ -24,11 +24,9 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 		}
 
 		auth := auth.JWTAuthenticator{Key: ms.tokenKey, Audience: ms.titusTaskInstanceID}
-		valid, remaining, err := auth.VerifyToken(token)
-		if !valid {
-			if err != nil {
-				log.Error("Token invalid: ", err)
-			}
+		remaining, err := auth.VerifyToken(token)
+		if err != nil {
+			log.Error("Token invalid: ", err)
 			metrics.PublishIncrementCounter("auth.failed.count")
 			http.Error(w, "", http.StatusUnauthorized)
 			return

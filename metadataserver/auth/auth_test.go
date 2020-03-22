@@ -20,8 +20,8 @@ func TestJWTAuthenticatorToken(t *testing.T) {
 	token, err := auth.GenerateToken(60 * time.Second)
 	assert.NilError(t, err)
 
-	valid, remaining, _ := auth.VerifyToken(token)
-	assert.Assert(t, valid)
+	remaining, err := auth.VerifyToken(token)
+	assert.NilError(t, err)
 	assert.Assert(t, remaining > 58 && remaining < 60)
 }
 
@@ -37,8 +37,8 @@ func TestJWTAuthenticatorExpiredToken(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	valid, _, _ := auth.VerifyToken(token)
-	assert.Assert(t, !valid)
+	_, err = auth.VerifyToken(token)
+	assert.Assert(t, err != nil)
 }
 
 func TestJWTAuthenticatorSetsAudience(t *testing.T) {
@@ -73,6 +73,6 @@ func TestJWTAuthenticatorVerifiesAudience(t *testing.T) {
 	token, err := auth.GenerateToken(60 * time.Second)
 	assert.NilError(t, err)
 
-	valid, _, _ := otherAuth.VerifyToken(token)
-	assert.Assert(t, valid == false)
+	_, err = otherAuth.VerifyToken(token)
+	assert.Assert(t, err != nil)
 }
