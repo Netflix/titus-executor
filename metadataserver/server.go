@@ -4,16 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
-	"path"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -48,27 +44,10 @@ var whitelist = set.NewSetFromSlice([]interface{}{
  * 3. Proxy!
  */
 
-const (
-	ec2MetadataTokenHeader    = "x-aws-ec2-metadata-token"
-	ec2MetadataTokenTTLHeader = "X-aws-ec2-metadata-token-ttl-seconds"
-	ec2MetadataDefaultTTL     = "21600"
-)
-
-type ec2Token struct {
-	token      string
-	expiration time.Time
-}
-
-func (t ec2Token) IsExpired() bool {
-	return time.Now().After(t.expiration)
-}
-
 // MetadataServer implements http.Handler, it can be passed to a real, or fake HTTP server for testing
 type MetadataServer struct {
-	httpClient            *http.Client
-	internalMux           *mux.Router
-	backingMetadataServer *url.URL
-	backingToken          atomic.Value
+	httpClient  *http.Client
+	internalMux *mux.Router
 	/*
 		The below stuff could be called *instance specific metadata*
 		I'd rather not break it into owns struct
@@ -105,17 +84,16 @@ func dumpRoutes(r *mux.Router) {
 // NewMetaDataServer which can be used as an HTTP server's handler
 func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) (*MetadataServer, error) {
 	ms := &MetadataServer{
-		httpClient:            &http.Client{},
-		internalMux:           mux.NewRouter(),
-		backingMetadataServer: config.BackingMetadataServer,
-		titusTaskInstanceID:   config.TitusTaskInstanceID,
-		ipv4Address:           config.Ipv4Address,
-		ipv6Address:           config.Ipv6Address,
-		vpcID:                 config.VpcID,
-		eniID:                 config.EniID,
-		container:             config.Container,
-		signer:                config.Signer,
-		tokenRequired:         config.RequireToken,
+		httpClient:          &http.Client{},
+		internalMux:         mux.NewRouter(),
+		titusTaskInstanceID: config.TitusTaskInstanceID,
+		ipv4Address:         config.Ipv4Address,
+		ipv6Address:         config.Ipv6Address,
+		vpcID:               config.VpcID,
+		eniID:               config.EniID,
+		container:           config.Container,
+		signer:              config.Signer,
+		tokenRequired:       config.RequireToken,
 	}
 
 	key := make([]byte, 16)
@@ -183,7 +161,7 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), config)
 
 	/* Catch All */
-	router.PathPrefix("/").HandlerFunc(ms.proxy)
+	router.PathPrefix("/").Handler(newProxy(config.BackingMetadataServer))
 }
 
 func (ms *MetadataServer) macAddr(w http.ResponseWriter, r *http.Request) {
@@ -238,114 +216,6 @@ func (ms *MetadataServer) ping(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (ms *MetadataServer) proxy(w http.ResponseWriter, r *http.Request) {
-	logging.AddField(r.Context(), "proxied", true)
-	metrics.PublishIncrementCounter("api.proxy_request.count")
-
-	// Because the proxy should be mounted in the version
-	if !ms.checkProxyAllowed(r.URL.Path) {
-		logging.AddField(r.Context(), "blocked", true)
-		metrics.PublishIncrementCounter("api.proxy_request.blacklist.count")
-		http.Error(w, "HTTP Proxy denied due to Netflix AWS Metdata proxy whitelist failure", http.StatusForbidden)
-		return
-	}
-
-	token, err := ms.loadToken(r.Context())
-	if err != nil {
-		logging.AddField(r.Context(), "failed_fetch_token", true)
-		log.Error("unable to load metadata service token: ", err)
-		http.Error(w, "HTTP Proxy unable to load IMDS v2 token", http.StatusForbidden)
-		return
-	}
-
-	ms.doProxy(token.token, w, r)
-}
-
-func (ms *MetadataServer) doProxy(token string, w http.ResponseWriter, r *http.Request) {
-	proxyURL := *ms.backingMetadataServer
-	proxyURL.Path = r.URL.Path
-
-	proxyReq, err := http.NewRequest(r.Method, proxyURL.String(), r.Body)
-	proxyReq = proxyReq.WithContext(r.Context())
-	proxyReq.Header = r.Header.Clone()
-	proxyReq.Header.Set(ec2MetadataTokenHeader, token)
-
-	client := http.Client{}
-	resp, err := client.Do(proxyReq)
-
-	if err != nil {
-		metrics.PublishIncrementCounter("api.proxy_request.fail.count")
-		log.Error("unable to fetch from AWS Metadata Service: ", err)
-		http.Error(w, "HTTP Proxy failed to fetch from AWS Metadata Service", http.StatusBadRequest)
-		return
-	}
-	defer resp.Body.Close()
-
-	w.WriteHeader(resp.StatusCode)
-	for key, values := range resp.Header {
-		if len(values) == 0 {
-			continue
-		}
-		w.Header().Add(key, values[0])
-	}
-
-	io.Copy(w, resp.Body)
-	metrics.PublishIncrementCounter("api.proxy_request.success.count")
-}
-
-func (ms *MetadataServer) checkProxyAllowed(path string) bool {
-	return whitelist.Contains(strings.TrimSuffix(path, "/"))
-}
-
-func (ms *MetadataServer) loadToken(ctx context.Context) (ec2Token, error) {
-	token, ok := ms.backingToken.Load().(ec2Token)
-	if !ok || token.IsExpired() {
-		var err error
-		token, err = ms.fetchToken(ctx)
-		if err != nil {
-			return ec2Token{}, nil
-		}
-		ms.backingToken.Store(token)
-	}
-
-	return token, nil
-}
-
-func (ms *MetadataServer) fetchToken(ctx context.Context) (ec2Token, error) {
-	client := http.Client{}
-
-	tokenURL := *ms.backingMetadataServer
-	tokenURL.Path = path.Join(tokenURL.Path, "/latest/api/token")
-
-	req, err := http.NewRequest(http.MethodPut, tokenURL.String(), nil)
-	if err != nil {
-		return ec2Token{}, err
-	}
-
-	req.Header.Set(ec2MetadataTokenTTLHeader, ec2MetadataDefaultTTL)
-	req = req.WithContext(ctx)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return ec2Token{}, err
-	}
-	defer resp.Body.Close()
-
-	tokenBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return ec2Token{}, err
-	}
-
-	ttlStr := resp.Header.Get(ec2MetadataTokenTTLHeader)
-	ttl, err := strconv.ParseInt(ttlStr, 10, 64)
-	if err != nil {
-		return ec2Token{}, err
-	}
-
-	token := ec2Token{token: string(tokenBytes), expiration: time.Now().Add(time.Duration(ttl) * time.Second)}
-	return token, nil
-}
-
 func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	/* Ensure no request lasts longer than 10 seconds */
 	ctx, cancel := context.WithTimeout(logging.WithConcurrentFields(r.Context()), 10*time.Second)
@@ -362,4 +232,40 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ms.internalMux.ServeHTTP(w, r2)
+}
+
+type proxy struct {
+	backingMetadataServer *url.URL
+	reverseProxy          *httputil.ReverseProxy
+}
+
+func newProxy(backingMetadataServer *url.URL) *proxy {
+	p := &proxy{
+		backingMetadataServer: backingMetadataServer,
+		reverseProxy:          httputil.NewSingleHostReverseProxy(backingMetadataServer),
+	}
+
+	return p
+}
+
+func (p *proxy) checkProxyAllowed(path string) bool {
+	return whitelist.Contains(strings.TrimSuffix(path, "/"))
+}
+
+func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	logging.AddField(r.Context(), "proxied", true)
+	metrics.PublishIncrementCounter("api.proxy_request.count")
+
+	// Because the proxy should be mounted in the version
+	if !p.checkProxyAllowed(r.URL.Path) {
+		logging.AddField(r.Context(), "blocked", true)
+		metrics.PublishIncrementCounter("api.proxy_request.blacklist.count")
+		http.Error(w, "HTTP Proxy denied due to Netflix AWS Metdata proxy whitelist failure", http.StatusForbidden)
+		return
+	}
+
+	r.Header.Del("x-aws-ec2-metadata-token")
+	metrics.PublishIncrementCounter("api.proxy_request.success.count")
+	p.reverseProxy.ServeHTTP(w, r)
+
 }
