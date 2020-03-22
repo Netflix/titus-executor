@@ -70,6 +70,7 @@ func Allocate(ctx context.Context, instanceIdentityProvider identity.InstanceIde
 				ENI:         allocation.networkInterface.NetworkInterfaceId,
 				VPC:         allocation.networkInterface.VpcId,
 				MAC:         allocation.networkInterface.MacAddress,
+				Generation: types.GenerationPointer(types.V2),
 			})
 	if err != nil {
 		return errors.Wrap(err, "Unable to write allocation record")

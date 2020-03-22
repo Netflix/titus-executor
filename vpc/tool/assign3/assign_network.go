@@ -113,6 +113,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 				TrunkENIVPC:     allocation.trunkNetworkInterface.VpcId,
 				AllocationIndex: allocationIndex,
 				DeviceIndex:     allocation.vlanID,
+				Generation:      types.GenerationPointer(types.V3),
 			})
 	if err != nil {
 		return errors.Wrap(err, "Unable to write allocation record")
