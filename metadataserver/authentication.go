@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/metadataserver/auth"
+	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -17,6 +18,7 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("X-aws-ec2-metadata-token")
 		if !ms.tokenRequired && len(token) == 0 {
+			metrics.PublishIncrementCounter("auth.skipped.count")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -27,17 +29,20 @@ func (ms *MetadataServer) authenticate(next http.Handler) http.Handler {
 			if err != nil {
 				log.Error("Token invalid: ", err)
 			}
-
+			metrics.PublishIncrementCounter("auth.failed.count")
 			http.Error(w, "", http.StatusUnauthorized)
 			return
 		}
 
+		metrics.PublishIncrementCounter("auth.success.count")
 		w.Header().Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", fmt.Sprintf("%v", remaining))
 		next.ServeHTTP(w, r)
 	})
 }
 
 func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.Request) {
+	metrics.PublishIncrementCounter("handler.createToken.count")
+
 	forwarded := r.Header.Get("x-forwarded-for")
 	if len(forwarded) > 0 {
 		log.Error("`x-forwarded-for` header present, blocking request`")
