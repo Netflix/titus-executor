@@ -7,10 +7,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/tool/gc3"
-
-	"github.com/Netflix/titus-executor/vpc/tool/gc"
-
-	"github.com/Netflix/titus-executor/vpc/tool/gc2"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
@@ -25,21 +22,10 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 				return err
 			}
 			defer conn.Close()
-			switch strings.ToLower(v.GetString(generationFlagName)) {
-			case "v1":
-				return gc.GC(ctx,
-					v.GetDuration("timeout"),
-					iipGetter(),
-					locker,
-					conn,
-				)
-			case "v2":
-				return gc2.GC(ctx,
-					v.GetDuration("timeout"),
-					iipGetter(),
-					locker,
-					conn,
-				)
+			switch generation := strings.ToLower(v.GetString(generationFlagName)); (generation) {
+			case "v1", "v2":
+				logger.G(ctx).Warnf("Generation %s does not support GC")
+				return nil
 			case "v3":
 				return gc3.GC(ctx,
 					v.GetDuration("timeout"),
@@ -50,7 +36,6 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}
-
 		},
 	}
 
