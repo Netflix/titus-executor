@@ -231,7 +231,7 @@ func main() {
 		},
 		cli.BoolFlag{
 			Name:        "x-forwarded-for-blocking-mode",
-			Usage:       "Set to true to require a token",
+			Usage:       "Set to true to block token requests if x-forwarded-for header is present",
 			EnvVar:      "X_FORWARDED_FOR_BLOCKING_MODE",
 			Destination: &xFordwardedForBlockingMode,
 		},
