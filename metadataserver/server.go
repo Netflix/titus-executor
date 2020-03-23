@@ -59,9 +59,10 @@ type MetadataServer struct {
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
 	// Need to hold `signLock` while accessing `signer`
-	signLock      sync.RWMutex
-	tokenRequired bool
-	tokenKey      []byte
+	signLock                  sync.RWMutex
+	tokenRequired             bool
+	tokenKey                  []byte
+	xForwardedForBlockingMode bool
 }
 
 func dumpRoutes(r *mux.Router) {

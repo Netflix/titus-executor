@@ -109,21 +109,22 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "titus-metadata-service"
 	var (
-		listenerFd            int64
-		listenPort            int
-		debug                 bool
-		requireToken          bool
-		tokenSalt             string
-		apiProtectEnabled     bool
-		backingMetadataServer string
-		metatronEnabled       bool
-		optimistic            bool
-		region                string
-		iamARN                string
-		titusTaskInstanceID   string
-		ipv4Address           string
-		ipv6Addresses         string
-		stateDir              string
+		listenerFd                 int64
+		listenPort                 int
+		debug                      bool
+		requireToken               bool
+		tokenSalt                  string
+		apiProtectEnabled          bool
+		backingMetadataServer      string
+		metatronEnabled            bool
+		optimistic                 bool
+		region                     string
+		iamARN                     string
+		titusTaskInstanceID        string
+		ipv4Address                string
+		ipv6Addresses              string
+		stateDir                   string
+		xFordwardedForBlockingMode bool
 
 		vpcID string
 		eniID string
@@ -228,6 +229,12 @@ func main() {
 			EnvVar:      "TOKEN_KEY_SALT",
 			Destination: &tokenSalt,
 		},
+		cli.BoolFlag{
+			Name:        "x-forwarded-for-blocking-mode",
+			Usage:       "Set to true to require a token",
+			EnvVar:      "X_FORWARDED_FOR_BLOCKING_MODE",
+			Destination: &xFordwardedForBlockingMode,
+		},
 	}
 	app.Action = func(c *cli.Context) error {
 		if debug {
@@ -242,17 +249,18 @@ func main() {
 		listener := getListener(listenPort, listenerFd)
 
 		mdscfg := types.MetadataServerConfiguration{
-			IAMARN:              iamARN,
-			TitusTaskInstanceID: titusTaskInstanceID,
-			Ipv4Address:         net.ParseIP(ipv4Address),
-			VpcID:               vpcID,
-			EniID:               eniID,
-			Region:              region,
-			Optimistic:          optimistic,
-			APIProtectEnabled:   apiProtectEnabled,
-			StateDir:            stateDir,
-			RequireToken:        requireToken,
-			TokenKey:            titusTaskInstanceID + tokenSalt,
+			IAMARN:                     iamARN,
+			TitusTaskInstanceID:        titusTaskInstanceID,
+			Ipv4Address:                net.ParseIP(ipv4Address),
+			VpcID:                      vpcID,
+			EniID:                      eniID,
+			Region:                     region,
+			Optimistic:                 optimistic,
+			APIProtectEnabled:          apiProtectEnabled,
+			StateDir:                   stateDir,
+			RequireToken:               requireToken,
+			TokenKey:                   titusTaskInstanceID + tokenSalt,
+			XFordwardedForBlockingMode: xFordwardedForBlockingMode,
 		}
 		if parsedURL, err := url.Parse(backingMetadataServer); err == nil {
 			mdscfg.BackingMetadataServer = parsedURL

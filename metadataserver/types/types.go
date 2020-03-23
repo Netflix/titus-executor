@@ -21,19 +21,20 @@ const (
 // MetadataServerConfiguration is a configuration for metadata service + IAM Proxy
 // optional fields are pointers
 type MetadataServerConfiguration struct {
-	BackingMetadataServer *url.URL
-	StateDir              string
-	IAMARN                string
-	TitusTaskInstanceID   string
-	Ipv4Address           net.IP
-	Ipv6Address           *net.IP
-	VpcID                 string
-	EniID                 string
-	Region                string
-	Optimistic            bool
-	APIProtectEnabled     bool
-	Container             *titus.ContainerInfo
-	Signer                *identity.Signer
-	RequireToken          bool
-	TokenKey              string
+	BackingMetadataServer      *url.URL
+	StateDir                   string
+	IAMARN                     string
+	TitusTaskInstanceID        string
+	Ipv4Address                net.IP
+	Ipv6Address                *net.IP
+	VpcID                      string
+	EniID                      string
+	Region                     string
+	Optimistic                 bool
+	APIProtectEnabled          bool
+	Container                  *titus.ContainerInfo
+	Signer                     *identity.Signer
+	RequireToken               bool
+	TokenKey                   string
+	XFordwardedForBlockingMode bool
 }

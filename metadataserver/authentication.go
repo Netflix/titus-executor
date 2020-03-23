@@ -43,9 +43,13 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 
 	forwarded := r.Header.Get("x-forwarded-for")
 	if len(forwarded) > 0 {
-		log.WithField("xForwardedFor", forwarded).Error("x-forwarded-for header present, blocking request")
-		http.Error(w, "", http.StatusForbidden)
-		return
+		if ms.xForwardedForBlockingMode {
+			log.WithField("xForwardedFor", forwarded).Error("x-forwarded-for header present, blocking request")
+			http.Error(w, "", http.StatusForbidden)
+			return
+		}
+
+		log.WithField("xForwardedFor", forwarded).Warn("x-forwarded-for header present, would have blocked request")
 	}
 
 	auth := auth.JWTAuthenticator{Key: ms.tokenKey, Audience: ms.titusTaskInstanceID}

@@ -724,3 +724,47 @@ func TestInvalidTokenReturns401(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
+
+func TestXForwardedForAllowedByDefault(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	// Get Token
+	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
+	assert.Nil(t, err)
+	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
+	req.Header.Add("X-Forwarded-For", "someone")
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+	token := w.Body.String()
+
+	assert.Greater(t, len(token), 0)
+}
+
+func TestXForwardedForBlockingMode(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	ms.xForwardedForBlockingMode = true
+
+	// Get Token
+	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
+	assert.Nil(t, err)
+	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
+	req.Header.Add("X-Forwarded-For", "someone")
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+
+	assert.Equal(t, w.Code, http.StatusForbidden)
+}
