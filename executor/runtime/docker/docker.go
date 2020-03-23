@@ -1281,7 +1281,7 @@ func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountI
 			cleanMountPoint:            filepath.Clean(configInfo.GetMountPoint()),
 			cleanEfsFsRelativeMntPoint: filepath.Clean(configInfo.GetEfsFsRelativeMntPoint()),
 		}
-		isRealEfsId := strings.HasPrefix(emi.efsFsID, "fs-")
+		isRealEfsID := strings.HasPrefix(emi.efsFsID, "fs-")
 
 		if emi.cleanEfsFsRelativeMntPoint == "" {
 			emi.cleanMountPoint = "/"
@@ -1300,7 +1300,7 @@ func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountI
 
 		// Non-EFS: pass in the hostname for the NFS server
 		emi.hostname = emi.efsFsID
-		if isRealEfsId {
+		if isRealEfsID {
 			if r.awsRegion == "" {
 				// We don't validate at client creation time, because we don't get this during testing.
 				return nil, errors.New("Could not retrieve EC2 region")
