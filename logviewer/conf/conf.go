@@ -11,6 +11,7 @@ var (
 	ContainersHome     = "/var/lib/docker/containers/"
 	ContainerID        = ""
 	RunningInContainer = false
+	ProxyMode          = true
 )
 
 func init() {
@@ -26,5 +27,11 @@ func init() {
 		ContainerID = cID
 		RunningInContainer = true
 		ContainersHome = "/"
+	}
+
+	proxyMode := os.Getenv("DISABLE_PROXY_MODE")
+	if proxyMode != "" {
+		log.Println("DISABLE_PROXY_MODE set")
+		ProxyMode = false
 	}
 }
