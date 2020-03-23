@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -19,24 +18,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var logsExp = regexp.MustCompile(`/logs/(.*)`)
-var listLogsExp = regexp.MustCompile(`/listlogs/(.*)`)
-
 // LogHandler is an HTTP handler that handles the /logs/:containerid/... endpoint, and fetches a file on the client's behalf
 func LogHandler(w http.ResponseWriter, r *http.Request) {
+	containerID, err := containerIDFromURL(r.URL.Path, logsExp)
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
 
 	fileName := r.URL.Query().Get("f")
 	if fileName == "" {
 		fileName = "stdout"
 	}
-	matchResult := logsExp.FindStringSubmatch(r.URL.Path)
 
-	if len(matchResult) < 1 {
-		http.Error(w, "Invalid URI", 404)
-		return
-	}
-
-	logHandler(w, r, matchResult[1], fileName)
+	logHandler(w, r, containerID, fileName)
 }
 
 func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string) {
@@ -158,22 +153,16 @@ func stdioLogHandlerWithFile(w http.ResponseWriter, r *http.Request, fout *os.Fi
 
 // ListLogsHandler handles the /listlogs/:containerid/... endpoint and enumerates the files, and subdirectories of /logs for a given container
 func ListLogsHandler(w http.ResponseWriter, r *http.Request) {
-	matchResult := listLogsExp.FindStringSubmatch(r.URL.Path)
-
-	if len(matchResult) < 2 || matchResult[1] == "" {
-		http.Error(w, "Invalid URI", 404)
+	containerID, err := containerIDFromURL(r.URL.Path, listLogsExp)
+	if err != nil {
+		http.Error(w, err.Error(), 404)
 		return
 	}
 
-	containerID := matchResult[1]
-	if conf.RunningInContainer && containerID != conf.ContainerID {
-		http.Error(w, "Unknown container", 404)
-		return
-	}
 	dirName := buildLogLocationBase(containerID)
 
 	fileList := []string{}
-	err := filepath.Walk(dirName, func(path string, f os.FileInfo, err error) error {
+	err = filepath.Walk(dirName, func(path string, f os.FileInfo, err error) error {
 		if f != nil && !f.IsDir() {
 			fileList = append(fileList, path)
 		}
@@ -274,4 +263,9 @@ func shouldClose(file *os.File) {
 	if err := file.Close(); err != nil {
 		log.Errorf("Could not close %s because %v", name, err)
 	}
+}
+
+func RegisterHandlers(r *http.ServeMux) {
+	r.HandleFunc("/logs/", LogHandler)
+	r.HandleFunc("/listlogs/", ListLogsHandler)
 }

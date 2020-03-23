@@ -5,6 +5,8 @@ import (
 
 	"github.com/Netflix/titus-executor/logsutil"
 	"github.com/Netflix/titus-executor/logviewer/api"
+	"github.com/Netflix/titus-executor/logviewer/conf"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -25,8 +27,14 @@ func main() {
 
 func newMux() *http.ServeMux {
 	r := http.NewServeMux()
+
 	r.HandleFunc("/ping", pingHandler)
-	r.HandleFunc("/logs/", api.LogHandler)
-	r.HandleFunc("/listlogs/", api.ListLogsHandler)
+
+	if conf.ProxyMode {
+		api.RegisterProxyHandlers(r)
+		return r
+	}
+
+	api.RegisterHandlers(r)
 	return r
 }
