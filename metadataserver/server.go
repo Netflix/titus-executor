@@ -84,16 +84,17 @@ func dumpRoutes(r *mux.Router) {
 // NewMetaDataServer which can be used as an HTTP server's handler
 func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) *MetadataServer {
 	ms := &MetadataServer{
-		httpClient:          &http.Client{},
-		internalMux:         mux.NewRouter(),
-		titusTaskInstanceID: config.TitusTaskInstanceID,
-		ipv4Address:         config.Ipv4Address,
-		ipv6Address:         config.Ipv6Address,
-		vpcID:               config.VpcID,
-		eniID:               config.EniID,
-		container:           config.Container,
-		signer:              config.Signer,
-		tokenRequired:       config.RequireToken,
+		httpClient:                &http.Client{},
+		internalMux:               mux.NewRouter(),
+		titusTaskInstanceID:       config.TitusTaskInstanceID,
+		ipv4Address:               config.Ipv4Address,
+		ipv6Address:               config.Ipv6Address,
+		vpcID:                     config.VpcID,
+		eniID:                     config.EniID,
+		container:                 config.Container,
+		signer:                    config.Signer,
+		tokenRequired:             config.RequireToken,
+		xForwardedForBlockingMode: config.XFordwardedForBlockingMode,
 	}
 
 	ms.tokenKey = []byte(config.TokenKey)
