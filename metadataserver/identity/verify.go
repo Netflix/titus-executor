@@ -1,3 +1,5 @@
+// Package identity contains helper functions for signing data and
+// verifying signatures
 package identity
 
 import (

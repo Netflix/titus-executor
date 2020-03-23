@@ -98,6 +98,8 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		log.Warn("Could not determine connection protocol type to set packet TTL")
 	}
 
+	// Since the conneciton has been hijacked, we're responsible for writing
+	// the HTTP status and headers and what not
 	httpResHeader := fmt.Sprintf(tokenHTTPResponseHeaderFormatString, ttlStr, len([]byte(token)))
 	_, err = bufrw.Write([]byte(httpResHeader))
 	if err != nil {
