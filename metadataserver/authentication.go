@@ -72,7 +72,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	w.Header().Add("X-aws-ec2-metadata-token-ttl-seconds", ttlStr)
+	w.Header().Add("X-aws-ec2-metadata-token-ttl-seconds", fmt.Sprintf("%d", ttlSec))
 	if _, err := fmt.Fprint(w, token); err != nil {
 		log.WithError(err).Error("Unable to write token")
 	}

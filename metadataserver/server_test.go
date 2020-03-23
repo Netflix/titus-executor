@@ -675,6 +675,7 @@ func TestRequireToken(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	ms.ServeHTTP(w, req)
+	assert.Equal(t, w.Header().Get("X-Aws-Ec2-Metadata-Token-Ttl-Seconds"), "20")
 	token := w.Body.String()
 
 	instancePath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
