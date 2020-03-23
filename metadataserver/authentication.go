@@ -74,6 +74,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		// Not a Hijacker, just treat it as a normal ResponseWriter
+		w.Header().Add("X-aws-ec2-metadata-token-ttl-seconds", fmt.Sprintf("%d", ttlSec))
 		if _, err := fmt.Fprint(w, token); err != nil {
 			log.WithError(err).Error("Unable to write token")
 		}
@@ -100,7 +101,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 
 	// Since the conneciton has been hijacked, we're responsible for writing
 	// the HTTP status and headers and what not
-	httpResHeader := fmt.Sprintf(tokenHTTPResponseHeaderFormatString, ttlStr, len([]byte(token)))
+	httpResHeader := fmt.Sprintf(tokenHTTPResponseHeaderFormatString, ttlSec, len([]byte(token)))
 	_, err = bufrw.Write([]byte(httpResHeader))
 	if err != nil {
 		log.WithError(err).Error("Unable to write token HTTP response headers")
@@ -119,7 +120,7 @@ const tokenHTTPResponseHeaderFormatString = `HTTP/1.1 200 OK
 Accept-Ranges: none
 Server: EC2ws
 Connection: close
-X-aws-ec2-metadata-token-ttl-seconds: %v
+X-aws-ec2-metadata-token-ttl-seconds: %d
 Content-Length: %v
 
 `
