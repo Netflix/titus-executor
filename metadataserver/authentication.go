@@ -112,6 +112,7 @@ func (ms *MetadataServer) createAuthTokenHandler(w http.ResponseWriter, r *http.
 	bufrw.Flush()
 }
 
+// nolint: gosec
 const tokenHTTPResponseHeaderFormatString = `HTTP/1.1 200 OK
 Accept-Ranges: none
 Server: EC2ws
