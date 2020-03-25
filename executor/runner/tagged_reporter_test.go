@@ -54,10 +54,12 @@ type mockReporter struct {
 	gaugeCount   int
 }
 
-func (r *mockReporter) Flush()                                                         {}
-func (r *mockReporter) Counter(name string, value int, tags map[string]string)         { r.counterCount++ }
-func (r *mockReporter) Gauge(name string, value int, tags map[string]string)           { r.gaugeCount++ }
-func (r *mockReporter) Timer(name string, value time.Duration, tags map[string]string) { r.timerCount++ }
+func (r *mockReporter) Flush()                                                 {}
+func (r *mockReporter) Counter(name string, value int, tags map[string]string) { r.counterCount++ }
+func (r *mockReporter) Gauge(name string, value int, tags map[string]string)   { r.gaugeCount++ }
+func (r *mockReporter) Timer(name string, value time.Duration, tags map[string]string) {
+	r.timerCount++
+}
 
 // TestDelegate verifies that the embedded delegate is invoked
 func TestDelegate(t *testing.T) {

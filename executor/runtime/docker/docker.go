@@ -360,7 +360,7 @@ func maybeSetCFSBandwidth(cfsBandwidthPeriod uint64, c *runtimeTypes.Container, 
 		return
 	}
 
-	//setCFSBandwidth(logEntry, cfsBandwidthPeriod, c, hostCfg)
+	setCFSBandwidth(logEntry, cfsBandwidthPeriod, c, hostCfg)
 }
 
 func setCFSBandwidth(logEntry *log.Entry, cfsBandwidthPeriod uint64, c *runtimeTypes.Container, hostCfg *container.HostConfig) {

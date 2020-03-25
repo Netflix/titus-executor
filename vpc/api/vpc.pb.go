@@ -2563,8 +2563,10 @@ type DisassociateTrunkNetworkInterfaceResponse struct {
 func (m *DisassociateTrunkNetworkInterfaceResponse) Reset() {
 	*m = DisassociateTrunkNetworkInterfaceResponse{}
 }
-func (m *DisassociateTrunkNetworkInterfaceResponse) String() string { return proto.CompactTextString(m) }
-func (*DisassociateTrunkNetworkInterfaceResponse) ProtoMessage()    {}
+func (m *DisassociateTrunkNetworkInterfaceResponse) String() string {
+	return proto.CompactTextString(m)
+}
+func (*DisassociateTrunkNetworkInterfaceResponse) ProtoMessage() {}
 func (*DisassociateTrunkNetworkInterfaceResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_95d23e4d548ba1d7, []int{43}
 }
