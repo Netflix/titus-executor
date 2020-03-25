@@ -105,7 +105,7 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
 	disk, _ := resource.ParseQuantity("2G")
-	for _, k := range []v1.ResourceName{"titus/disk", v1.ResourceEphemeralStorage, v1.ResourceStorage} {
+	for _, k := range []v1.ResourceName{v1.ResourceEphemeralStorage, v1.ResourceStorage, "titus/disk"} {
 		if v, ok := requests[k]; ok {
 			disk = v
 			break
