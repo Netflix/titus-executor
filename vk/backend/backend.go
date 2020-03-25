@@ -104,8 +104,7 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 	requests := pod.Spec.Containers[0].Resources.Requests
 
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	var disk resource.Quantity
-
+	disk, _ := resource.ParseQuantity("2G")
 	for _, k := range []v1.ResourceName{"titus/disk", v1.ResourceEphemeralStorage, v1.ResourceStorage} {
 		if v, ok := requests[k]; ok {
 			disk = v
@@ -117,8 +116,7 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 	memory := requests[v1.ResourceMemory]
 
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	var gpu resource.Quantity
-
+	gpu, _ := resource.ParseQuantity("0")
 	for _, k := range []v1.ResourceName{"nvidia.com/gpu", "gpu"} {
 		if v, ok := requests[k]; ok {
 			gpu = v
