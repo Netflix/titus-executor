@@ -117,7 +117,7 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
 	gpu, _ := resource.ParseQuantity("0")
-	for _, k := range []v1.ResourceName{"nvidia.com/gpu", "gpu"} {
+	for _, k := range []v1.ResourceName{"nvidia.com/gpu", "titus/gpu"} {
 		if v, ok := requests[k]; ok {
 			gpu = v
 			break
