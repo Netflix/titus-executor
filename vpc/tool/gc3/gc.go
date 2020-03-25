@@ -2,59 +2,34 @@ package gc3
 
 import (
 	"context"
-	"path/filepath"
+	"encoding/json"
+	"fmt"
 	"time"
 
-	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/tool/container2"
+	"github.com/hashicorp/go-multierror"
 
-	"github.com/Netflix/titus-executor/fslocker"
+	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
-	"github.com/Netflix/titus-executor/vpc/utilities"
+	"github.com/Netflix/titus-executor/vpc/tool/shared"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
-	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 )
 
-func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+type Args struct {
+	KubernetesPodsURL string
+	MesosStateURL     string
+	SourceOfTruth     string
+}
+
+func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, args Args) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "GC")
 	defer span.End()
-
-	optimisticTimeout := time.Duration(0)
-	files, err := locker.ListFiles(utilities.GetTasksLockPath())
-	if err != nil {
-		err = errors.Wrap(err, "Cannot list files under tasks lock path")
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: err.Error(),
-		})
-		return err
-	}
-
-	runningTaskIDs := []string{}
-	for idx := range files {
-		taskID := files[idx].Name
-		lockPath := filepath.Join(utilities.GetTasksLockPath(), taskID)
-		lock, err := locker.ExclusiveLock(ctx, lockPath, &optimisticTimeout)
-		if err == nil {
-			_ = locker.RemovePath(lockPath)
-			lock.Unlock()
-		} else if err == unix.EWOULDBLOCK {
-			runningTaskIDs = append(runningTaskIDs, taskID)
-		} else {
-			err = errors.Wrap(err, "Unexpected error while enumerating running tasks")
-			span.SetStatus(trace.Status{
-				Code:    trace.StatusCodeUnknown,
-				Message: err.Error(),
-			})
-			return err
-		}
-	}
-
-	logger.G(ctx).WithField("runningTasks", runningTaskIDs).Debug("Found running tasks")
 
 	instanceIdentity, err := instanceIdentityProvider.GetIdentity(ctx)
 	if err != nil {
@@ -68,19 +43,146 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 
 	req := vpcapi.GCRequestV3{
 		InstanceIdentity: instanceIdentity,
-		RunningTaskIDs:   runningTaskIDs,
+		Soft:             true,
 	}
+
+	switch args.SourceOfTruth {
+	case "kubernetes":
+		req.RunningTaskIDs, err = kubernetesTasks(ctx, args.KubernetesPodsURL)
+	case "mesos":
+		req.RunningTaskIDs, err = mesosTasks(ctx, args.MesosStateURL)
+	default:
+		err = fmt.Errorf("Source of truth %q unknown", args.SourceOfTruth)
+	}
+
+	if err != nil {
+		err = errors.Wrap(err, "Could not fetch running tasks")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	logger.G(ctx).WithField("runningTasks", req.RunningTaskIDs).Debug("Found running tasks")
+
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	_, err = client.GCV3(ctx, &req)
+	resp, err := client.GCV3(ctx, &req)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot call API to perform GC")
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: err.Error(),
-		})
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
+	if len(resp.RemovedAssignments) > 0 {
+		logger.G(ctx).WithField("removedAssignments", resp.RemovedAssignments).Info("Recieved assignments to remove")
+	}
+	var result *multierror.Error
+	for _, taskID := range resp.RemovedAssignments {
+		logger.G(ctx).WithField("assignment", taskID).Info("Removing assignment")
+		assignment, err := client.GetAssignment(ctx, &vpcapi.GetAssignmentRequest{
+			TaskId: taskID,
+		})
+		if err != nil {
+			result = multierror.Append(result, errors.Wrapf(err, "Unable to get assignment %s", taskID))
+			continue
+		}
+		allocation := shared.AssignmentToAllocation(assignment.Assignment)
+		err = container2.TeardownNetwork(ctx, allocation)
+		if err != nil {
+			result = multierror.Append(result, errors.Wrapf(err, "Unable to tear down network %s", taskID))
+			continue
+		}
+		_, err = client.UnassignIPV3(ctx, &vpcapi.UnassignIPRequestV3{
+			TaskId: taskID,
+		})
+		if err != nil {
+			result = multierror.Append(result, errors.Wrapf(err, "Unable to unassign from vpc service %s", taskID))
+		}
+		logger.G(ctx).WithField("assignment", taskID).Info("Successfully removed assignment")
+
+	}
+
+	err = result.ErrorOrNil()
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Error removing assignments")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
 	return nil
+}
+
+func kubernetesTasks(ctx context.Context, url string) ([]string, error) {
+	ctx, span := trace.StartSpan(ctx, "kubernetesTasks")
+	defer span.End()
+	body, err := shared.Get(ctx, url)
+	if err != nil {
+		err = errors.Wrap(err, "Could not fetch task body from Kubelet")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	tasks, err := parseKubernetesTasksBody(body)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return tasks, nil
+}
+
+func parseKubernetesTasksBody(body []byte) ([]string, error) {
+	podList, err := shared.ToPodList(body)
+	if err != nil {
+		err = errors.Wrap(err, "Could not decode body to podlist")
+		return nil, err
+	}
+
+	ret := make([]string, len(podList.Items))
+	for idx := range podList.Items {
+		pod := podList.Items[idx]
+		ret[idx] = shared.PodKey(&pod)
+	}
+	return ret, nil
+}
+
+func mesosTasks(ctx context.Context, url string) ([]string, error) {
+	ctx, span := trace.StartSpan(ctx, "mesosTasks")
+	defer span.End()
+	body, err := shared.Get(ctx, url)
+	if err != nil {
+		err = errors.Wrap(err, "Could not fetch task body from Kubelet")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	tasks, err := parseMesosTasksBody(body)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return tasks, nil
+}
+
+func parseMesosTasksBody(body []byte) ([]string, error) {
+	var state State
+	err := json.Unmarshal(body, &state)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to unmarshal state")
+		return nil, err
+	}
+
+	tasks := []string{}
+	for _, framework := range state.Frameworks {
+		for _, executor := range framework.Executors {
+			for _, task := range executor.Tasks {
+				// We consider all tasks by all running executors to be alive, even if they are in a terminal state
+				// That is because the executor can hang on the task's network resources until it itself is terminated
+				if task.Name == "" {
+					return nil, fmt.Errorf("Invalid task: %v", task)
+				}
+				tasks = append(tasks, task.Name)
+			}
+		}
+	}
+
+	return tasks, nil
 }

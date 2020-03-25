@@ -9,7 +9,6 @@ import (
 
 	"github.com/Netflix/titus-executor/vpc/tool/allocate"
 
-	"github.com/Netflix/titus-executor/vpc/tool/assign2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
@@ -35,21 +34,9 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					v.GetBool("assign-ipv6-address"),
 					v.GetString("ipv4-allocation-uuid"),
 				)
-			case "v2":
-				return assign2.Assign(ctx,
-					iipGetter(),
-					locker,
-					conn,
-					v.GetStringSlice("security-groups"),
-					v.GetInt("device-idx"),
-					v.GetBool("assign-ipv6-address"),
-					v.GetString("ipv4-allocation-uuid"),
-					v.GetString(interfaceAccount),
-				)
 			case "v3":
 				return assign3.Assign(ctx,
 					iipGetter(),
-					locker,
 					conn,
 					assign3.Arguments{
 						SecurityGroups:     v.GetStringSlice("security-groups"),
@@ -58,9 +45,9 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						IPv4AllocationUUID: v.GetString("ipv4-allocation-uuid"),
 						InterfaceAccount:   v.GetString(interfaceAccount),
 						TaskID:             v.GetString("task-id"),
-						Oneshot:            v.GetBool("oneshot"),
 						ElasticIPPool:      v.GetString("elastic-ip-pool"),
 						ElasticIPs:         v.GetStringSlice("elastic-ips"),
+						Idempotent:         v.GetBool("idempotent"),
 					},
 				)
 			default:
@@ -78,7 +65,8 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().StringSlice("subnet-ids", []string{}, "The subnet IDs for the allocation")
 	cmd.Flags().StringSlice("elastic-ips", []string{}, "One of the elastic IPs to use for attachment to the interface")
 	cmd.Flags().String("elastic-ip-pool", "", "The elastic IP pool to allocate from")
-	cmd.Flags().Bool("oneshot", false, "Whether or not to assign the address, and then exit")
+	cmd.Flags().Bool("idempotent", false, "Try to allocate the assignment idempotently")
+
 	addSharedFlags(cmd.Flags())
 
 	return cmd

@@ -114,7 +114,7 @@ filename=$(ls -t ${outdir}/*.deb | grep -v latest | head -n 1)
 
 # TODO: only run the linter on the file above
 # see: nebula/src/main/groovy/netflix/nebula/ospackage/NebulaOsPackageDebRepositoryPublish.groovy
-lintian --suppress-tags statically-linked-binary,unstripped-binary-or-object,debian-changelog-file-missing-or-wrong-name,no-copyright-file,extended-description-is-empty,python-script-but-no-python-dep,non-standard-toplevel-dir,maintainer-name-missing,maintainer-address-malformed,maintainer-script-should-not-use-adduser-system-without-home \
+lintian --suppress-tags dir-or-file-in-opt,statically-linked-binary,unstripped-binary-or-object,debian-changelog-file-missing-or-wrong-name,no-copyright-file,extended-description-is-empty,python-script-but-no-python-dep,non-standard-toplevel-dir,maintainer-name-missing,maintainer-address-malformed,maintainer-script-should-not-use-adduser-system-without-home \
   --no-tag-display-limit ${filename}
 
 mkdir -p build/distributions

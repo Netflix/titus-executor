@@ -3,7 +3,6 @@ package types
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -150,11 +149,6 @@ type Container struct {
 	GPUInfo GPUContainer
 	// Set if using a non-runc runtime to run system service init commands
 	Runtime string
-
-	AllocationCommand       *exec.Cmd
-	AllocationCommandStatus chan error
-	SetupCommand            *exec.Cmd
-	SetupCommandStatus      chan error
 
 	Config config.Config
 }

@@ -9,20 +9,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/types"
 )
 
-func configureQdiscs(ctx context.Context, provisionInstanceResponse *vpcapi.ProvisionInstanceResponseV2, instanceType string) error {
+func configureQdiscs(ctx context.Context, trunkNetworkInterface *vpcapi.NetworkInterface, instanceType string) error {
 	return types.ErrUnsupported
 }
-
-/*
-import (
-	"context"
-
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/Netflix/titus-executor/vpc/types"
-)
-
-
-func setupIFBs(ctx context.Context, instanceType string) error {
-	return types.ErrUnsupported
-}
-*/

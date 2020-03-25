@@ -1,0 +1,108 @@
+{
+  "apiVersion": "v1",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "annotations": {
+          "EniId": "eni-0109c89fb802e40f9",
+          "EniIpAddress": "192.168.116.152",
+          "IpAddress": "192.168.116.152",
+          "IsRoutableIp": "true",
+          "ResourceId": "resource-eni-37",
+          "containerInfo": "",
+          "titus.agent.jobType": "SERVICE",
+          "titus.agent.ownerEmail": "nopes@netflix.com"
+        },
+        "creationTimestamp": "2020-03-12T19:29:33Z",
+        "name": "a0874a5c-f4c1-4817-b12d-6a28335070ab",
+        "namespace": "default",
+        "resourceVersion": "24167927",
+        "selfLink": "/api/v1/namespaces/default/pods/a0874a5c-f4c1-4817-b12d-6a28335070ab",
+        "uid": "f4e56477-963e-4536-a636-7a5a6bb6bf99"
+      },
+      "spec": {
+        "containers": [
+          {
+            "image": "imageIsInContainerInfo",
+            "imagePullPolicy": "IfNotPresent",
+            "name": "a0874a5c-f4c1-4817-b12d-6a28335070ab",
+            "resources": {
+              "limits": {
+                "cpu": "1",
+                "memory": "512",
+                "titus/disk": "10k",
+                "titus/gpu": "0",
+                "titus/network": "128"
+              },
+              "requests": {
+                "cpu": "1",
+                "memory": "512",
+                "titus/disk": "10k",
+                "titus/gpu": "0",
+                "titus/network": "128"
+              }
+            },
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File"
+          }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "enableServiceLinks": true,
+        "nodeName": "i-lolno",
+        "priority": 0,
+        "restartPolicy": "Never",
+        "schedulerName": "default-scheduler",
+        "securityContext": {},
+        "terminationGracePeriodSeconds": 600,
+        "tolerations": [
+          {
+            "effect": "NoExecute",
+            "key": "node.kubernetes.io/not-ready",
+            "operator": "Exists",
+            "tolerationSeconds": 300
+          },
+          {
+            "effect": "NoExecute",
+            "key": "node.kubernetes.io/unreachable",
+            "operator": "Exists",
+            "tolerationSeconds": 300
+          }
+        ]
+      },
+      "status": {
+        "containerStatuses": [
+          {
+            "image": "",
+            "imageID": "",
+            "lastState": {},
+            "name": "a0874a5c-f4c1-4817-b12d-6a28335070ab",
+            "ready": true,
+            "restartCount": 0,
+            "state": {
+              "running": {
+                "startedAt": "2020-03-12T19:29:41Z"
+              }
+            }
+          }
+        ],
+        "message": "running",
+        "phase": "Running",
+        "podIP": "192.168.116.152",
+        "podIPs": [
+          {
+            "ip": "192.168.116.152"
+          }
+        ],
+        "qosClass": "Guaranteed",
+        "reason": "TASK_RUNNING"
+      }
+    }
+  ],
+  "kind": "List",
+  "metadata": {
+    "resourceVersion": "",
+    "selfLink": ""
+  }
+}

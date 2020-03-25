@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -146,33 +148,62 @@ func (vpcService *vpcService) reallocateStaticAssignments(ctx context.Context, r
 	}
 }
 
-func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3) (*vpcapi.GCResponseV3, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "GCV3")
+func (vpcService *vpcService) softGC(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) ([]string, error) {
+	ctx, span := trace.StartSpan(ctx, "softGC")
 	defer span.End()
 
-	log := ctxlogrus.Extract(ctx)
-	ctx = logger.WithLogger(ctx, log)
-	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"instance": req.InstanceIdentity.InstanceID,
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
 	})
-	span.AddAttributes(
-		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID))
+	if err != nil {
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
-	_, _, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
+	rows, err := tx.QueryContext(ctx, `
+SELECT assignment_id
+FROM branch_eni_attachments
+JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
+WHERE trunk_eni = $1
+AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
+`, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
+	if err != nil {
+		err = errors.Wrap(err, "Could not fetch assignments")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	removedAssignments := []string{}
+	for rows.Next() {
+		var assignmentID string
+		err = rows.Scan(&assignmentID)
+		if err != nil {
+			err = errors.Wrap(err, "Could not scan assignment ID")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		removedAssignments = append(removedAssignments, assignmentID)
+	}
+
+	return removedAssignments, nil
+}
+
+func (vpcService *vpcService) hardGC(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) ([]string, error) {
+	ctx, span := trace.StartSpan(ctx, "hardGC")
+	defer span.End()
+
+	err := vpcService.reallocateStaticAssignments(ctx, req, trunkENI)
 	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-
-	err = vpcService.reallocateStaticAssignments(ctx, req, trunkENI)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	logger.G(ctx).WithField("taskIds", req.RunningTaskIDs).Debug("GCing for running task IDs")
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -242,6 +273,9 @@ RETURNING assignments.assignment_id
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	removedAssignments := []string{}
 	for rows.Next() {
@@ -272,8 +306,48 @@ RETURNING assignments.assignment_id
 		return nil, err
 	}
 
-	return &vpcapi.GCResponseV3{}, nil
+	return removedAssignments, nil
+}
 
+func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3) (*vpcapi.GCResponseV3, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GCV3")
+	defer span.End()
+
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"instance": req.InstanceIdentity.InstanceID,
+		"soft":     req.Soft,
+	})
+	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
+		trace.BoolAttribute("soft", req.Soft),
+	)
+
+	_, _, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	logger.G(ctx).WithField("taskIds", req.RunningTaskIDs).Debug("GCing for running task IDs")
+
+	resp := vpcapi.GCResponseV3{}
+	if req.Soft {
+		resp.RemovedAssignments, err = vpcService.softGC(ctx, req, trunkENI)
+	} else {
+		resp.RemovedAssignments, err = vpcService.hardGC(ctx, req, trunkENI)
+	}
+	if err == nil {
+		span.AddAttributes(trace.StringAttribute("removedAssignments", fmt.Sprint(resp.RemovedAssignments)))
+		logger.G(ctx).WithField("removedAssignments", resp.RemovedAssignments).Debug("Removed assignments")
+	} else {
+		tracehelpers.SetStatus(err, span)
+	}
+
+	return &resp, err
 }
 
 // This function, once invoked, is meant to run forever until context is cancelled

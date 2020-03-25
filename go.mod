@@ -20,6 +20,7 @@ require (
 	github.com/apparentlymart/go-cidr v1.0.0
 	github.com/aws/aws-sdk-go v1.29.8
 	github.com/bombsimon/wsl/v2 v2.1.0 // indirect
+	github.com/containernetworking/cni v0.7.1
 	github.com/coreos/go-systemd v0.0.0-20200109085637-d657f9650837
 	github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1
 	github.com/deckarep/golang-set v1.7.1
@@ -79,7 +80,7 @@ require (
 	github.com/tommy-muehle/go-mnd v1.2.0 // indirect
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
-	github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0
+	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 	github.com/wsxiaoys/terminal v0.0.0-20160513160801-0940f3fc43a0 // indirect
 	go.opencensus.io v0.22.3

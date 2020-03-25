@@ -19,7 +19,7 @@ const (
 	maxSetupTime = 2 * time.Minute
 )
 
-func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn) error {
+func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, locker *fslocker.FSLocker, conn *grpc.ClientConn, generation int) error {
 	ctx, cancel := context.WithTimeout(ctx, maxSetupTime)
 	defer cancel()
 
@@ -37,38 +37,37 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 	}
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	provisionInstanceRequest := &vpcapi.ProvisionInstanceRequestV2{
-		InstanceIdentity: instanceIdentity,
+	var trunkENI *vpcapi.NetworkInterface
+	switch generation {
+	case 2:
+		provisionInstanceRequest := &vpcapi.ProvisionInstanceRequestV2{
+			InstanceIdentity: instanceIdentity,
+		}
+		provisionInstanceResponse, err := client.ProvisionInstanceV2(ctx, provisionInstanceRequest)
+		if err != nil {
+			return err
+		}
+		trunkENI = provisionInstanceResponse.TrunkNetworkInterface
+	case 3:
+		provisionInstanceRequest := &vpcapi.ProvisionInstanceRequestV3{
+			InstanceIdentity: instanceIdentity,
+		}
+		provisionInstanceResponse, err := client.ProvisionInstanceV3(ctx, provisionInstanceRequest)
+		if err != nil {
+			return err
+		}
+		trunkENI = provisionInstanceResponse.TrunkNetworkInterface
 	}
 
-	provisionInstanceResponse, err := client.ProvisionInstanceV2(ctx, provisionInstanceRequest)
+	err = waitForInterfaceUp(ctx, trunkENI)
 	if err != nil {
 		return err
 	}
-
-	err = waitForInterfaceUp(ctx, provisionInstanceResponse.TrunkNetworkInterface)
-	if err != nil {
-		return err
-	}
-	err = configureQdiscs(ctx, provisionInstanceResponse, instanceIdentity.InstanceType)
+	err = configureQdiscs(ctx, trunkENI, instanceIdentity.InstanceType)
 	if err != nil {
 		return errors.Wrap(err, "Unable to setup QDiscs")
 	}
 
-	/*
-		err = waitForInterfacesUp(ctx, provisionInstanceResponse.NetworkInterfaces)
-		if err != nil {
-			return err
-		}
-
-
-
-		// Setup qdiscs on ENI interfaces
-		err = configureQdiscs(ctx, provisionInstanceResponse.NetworkInterfaces, instanceIdentity.InstanceType)
-		if err != nil {
-			return errors.Wrap(err, "Unable to setup qdiscs")
-		}
-	*/
 	return nil
 }
 
