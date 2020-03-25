@@ -5,16 +5,21 @@ package api
 import (
 	"context"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"net"
 	"os"
 	"runtime"
 	"time"
 
+	"golang.org/x/sys/unix"
+
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
-const titusInits = "/var/lib/titus-inits"
+const (
+	titusInits      = "/var/lib/titus-inits"
+	curThreadNsPath = "/proc/thread-self/ns/net"
+)
 
 // nsDialer is a net.Dialer that does a Setns() into a container's network namespace before doing a connect
 type nsDialer struct {
@@ -24,27 +29,26 @@ type nsDialer struct {
 
 func (d *nsDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	log.Debugf("nsDialer: DialContext: %s", d.containerNetNsPath)
-	curThreadNsPath := fmt.Sprintf("/proc/%d/task/%d/ns/net", os.Getpid(), unix.Gettid())
 
 	// Make sure that this code executes only in this thread, since `Setns()` changes the thread's namespace
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	// Get the FD for the host namespace, so we can switch back into it after doing the connect
-	prevNsFile, err := os.Open(curThreadNsPath)
+	prevNsFd, err := unix.Open(curThreadNsPath, os.O_RDONLY, 0)
 	if err != nil {
-		return nil, fmt.Errorf("error opening ns file %v: %v", curThreadNsPath, err)
+		return nil, errors.Wrapf(err, "error opening ns file %s", curThreadNsPath)
 	}
-	defer prevNsFile.Close()
+	defer unix.Close(prevNsFd)
 
-	nsFile, err := os.Open(d.containerNetNsPath)
+	nsFd, err := unix.Open(d.containerNetNsPath, os.O_RDONLY, 0)
 	if err != nil {
-		return nil, fmt.Errorf("error opening ns file %v: %v", d.containerNetNsPath, err)
+		return nil, errors.Wrapf(err, "error opening ns %s", d.containerNetNsPath)
 	}
-	defer nsFile.Close()
+	defer unix.Close(nsFd)
 
-	if err = unix.Setns(int(nsFile.Fd()), unix.CLONE_NEWNET); err != nil {
-		return nil, fmt.Errorf("error switching to ns %v: %v", nsFile.Name(), err)
+	if err = unix.Setns(nsFd, unix.CLONE_NEWNET); err != nil {
+		return nil, errors.Wrapf(err, "error switching to ns %s", d.containerNetNsPath)
 	}
 
 	// Call the system dialer - since we're calling a single URL, the dial will run in this thread, and will
@@ -52,8 +56,8 @@ func (d *nsDialer) DialContext(ctx context.Context, network, address string) (ne
 	conn, connErr := d.systemDialer.DialContext(ctx, network, address)
 
 	// Switch back to the host namespace now that we're done
-	if err = unix.Setns(int(prevNsFile.Fd()), unix.CLONE_NEWNET); err != nil {
-		return nil, fmt.Errorf("error switching to ns %v: %v", prevNsFile.Name(), err)
+	if err = unix.Setns(prevNsFd, unix.CLONE_NEWNET); err != nil {
+		return nil, errors.Wrapf(err, "error switching to ns %s", curThreadNsPath)
 	}
 
 	return conn, connErr
