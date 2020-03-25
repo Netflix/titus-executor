@@ -3,26 +3,13 @@
 package api
 
 import (
-	"context"
 	"net"
-	"time"
 )
 
-type nsDialer struct {
-	systemDialer net.Dialer
-}
-
-func (d *nsDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	// Use the system dialer - doing a Setns() is only doable on Linux
-	return d.systemDialer.DialContext(ctx, network, address)
-}
+// Non-Linux OSes can't do a Setns(), so use the system dialer instead
+type nsDialer = net.Dialer
 
 func newDialer(containerID string) (*nsDialer, error) {
-	return &nsDialer{
-		systemDialer: net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			DualStack: false,
-		},
-	}, nil
+	var d nsDialer
+	return &d, nil
 }
