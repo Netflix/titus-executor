@@ -18,6 +18,7 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -101,7 +102,16 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 	}
 
 	requests := pod.Spec.Containers[0].Resources.Requests
-	disk := requests["titus/disk"]
+
+	var disk resource.Quantity
+
+	for _, k := range []v1.ResourceName{"titus/disk", v1.ResourceEphemeralStorage, v1.ResourceStorage} {
+		if v, ok := requests[k]; ok {
+			disk = v
+			break
+		}
+	}
+
 	cpu := requests["cpu"]
 	memory := requests["memory"]
 
