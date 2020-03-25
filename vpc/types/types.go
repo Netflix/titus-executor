@@ -9,19 +9,22 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 )
 
+const (
+	SecurityGroupsAnnotation   = "network.titus.netflix.com/securityGroups"
+	IngressBandwidthAnnotation = "kubernetes.io/ingress-bandwidth"
+	EgressBandwidthAnnotation  = "kubernetes.io/egress-bandwidth"
+)
+
 type Generation string
 
 const (
 	V1 Generation = "v1"
-	V2 Generation = "v2"
 	V3 Generation = "v3"
 )
 
 var (
-	v1  = V1
-	v2  = V1
-	v3  = V1
-
+	v1 = V1
+	v3 = V3
 )
 
 func (s Generation) MarshalJSON() ([]byte, error) {
@@ -38,7 +41,7 @@ func (s *Generation) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	switch str {
-	case "v1", "v2", "v3":
+	case "v1", "v3":
 		*s = Generation(str)
 		return nil
 	default:
@@ -47,11 +50,9 @@ func (s *Generation) UnmarshalJSON(b []byte) error {
 }
 
 func GenerationPointer(g Generation) *Generation {
-	switch (g) {
+	switch g {
 	case V1:
 		return &v1
-	case V2:
-		return &v2
 	case V3:
 		return &v3
 	default:
@@ -97,7 +98,7 @@ type LegacyAllocation struct {
 	ENI         string                `json:"eni"`
 	VPC         string                `json:"vpc"`
 	MAC         string                `json:"mac"`
-	Generation      *Generation           `json:"generation"`
+	Generation  *Generation           `json:"generation"`
 }
 
 type HybridAllocation struct {

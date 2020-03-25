@@ -2,15 +2,13 @@ package cni
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
-	"net/http"
 	"os"
 	"strings"
-	"time"
+
+	"github.com/Netflix/titus-executor/vpc/tool/shared"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -30,16 +28,7 @@ import (
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	//	"github.com/containernetworking/plugins/pkg/utils/sysctl"
-)
-
-// These are the names of the annotations we use on the pod to configure
-const (
-	securityGroupsAnnotation   = "com.netflix.titus.network/securityGroups"
-	ingressBandwidthAnnotation = "kubernetes.io/ingress-bandwidth"
-	egressBandwidthAnnotation  = "kubernetes.io/egress-bandwidth"
 )
 
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
@@ -90,36 +79,6 @@ type TitusCNIConfig struct {
 	KubeletAPIURL string `json:"KubeletAPIURL"`
 }
 
-func assignmentToAllocation(assignment *vpcapi.AssignIPResponseV3) vpctypes.Allocation {
-	alloc := vpctypes.Allocation{
-		Success:         true,
-		BranchENIID:     assignment.BranchNetworkInterface.NetworkInterfaceId,
-		BranchENIMAC:    assignment.BranchNetworkInterface.MacAddress,
-		BranchENIVPC:    assignment.BranchNetworkInterface.VpcId,
-		BranchENISubnet: assignment.BranchNetworkInterface.SubnetId,
-		VlanID:          int(assignment.VlanId),
-		TrunkENIID:      assignment.TrunkNetworkInterface.NetworkInterfaceId,
-		TrunkENIMAC:     assignment.TrunkNetworkInterface.MacAddress,
-		TrunkENIVPC:     assignment.TrunkNetworkInterface.VpcId,
-		DeviceIndex:     int(assignment.VlanId),
-		AllocationIndex: uint16(assignment.ClassId),
-	}
-
-	if assignment.Ipv6Address != nil {
-		alloc.IPV6Address = assignment.Ipv6Address
-	}
-
-	if assignment.Ipv4Address != nil {
-		alloc.IPV4Address = assignment.Ipv4Address
-	}
-
-	return alloc
-}
-
-func getKey(args K8sArgs) string {
-	return fmt.Sprintf("%s/%s", args.K8S_POD_NAMESPACE, args.K8S_POD_NAME)
-}
-
 func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error) {
 	ctx, span := trace.StartSpan(ctx, "load")
 	defer span.End()
@@ -160,54 +119,16 @@ func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error)
 func getPod(ctx context.Context, cfg *config) (*corev1.Pod, error) {
 	ctx, span := trace.StartSpan(ctx, "getPod")
 	defer span.End()
-	// Borrowed from: https://gist.github.com/nownabe/4345d9b68f323ba30905c9dfe3460006
 
-	// https://godoc.org/k8s.io/apimachinery/pkg/runtime#Scheme
-	scheme := runtime.NewScheme()
-
-	// https://godoc.org/k8s.io/apimachinery/pkg/runtime/serializer#CodecFactory
-	codecFactory := serializer.NewCodecFactory(scheme)
-
-	// https://godoc.org/k8s.io/apimachinery/pkg/runtime#Decoder
-	deserializer := codecFactory.UniversalDeserializer()
-
-	// Borrowed from: https://stackoverflow.com/questions/12122159/how-to-do-a-https-request-with-bad-certificate
-	customTransport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // nolint:gosec
-	}
-
-	client := &http.Client{Transport: customTransport}
-	req, err := http.NewRequestWithContext(ctx, "GET", cfg.cfg.KubeletAPIURL, nil)
+	body, err := shared.Get(ctx, cfg.cfg.KubeletAPIURL)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot create HTTP request to fetch pods at %s", cfg.cfg.KubeletAPIURL)
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return nil, errors.Wrap(err, "Unable to fetch from Kubernetes URL")
 	}
 
-	ret, err := client.Do(req)
+	podList, err := shared.ToPodList(body)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot fetch pod pod list from kubelet at %s", cfg.cfg.KubeletAPIURL)
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return nil, errors.Wrap(err, "Unable deserialize pods body from kubelet")
 	}
-	defer ret.Body.Close()
-
-	body, err := ioutil.ReadAll(ret.Body)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot read body from Kubelet")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	podListObject, _, err := deserializer.Decode(body, nil, &corev1.PodList{})
-	if err != nil {
-		err = errors.Wrap(err, "Cannot deserialize podlist from kubelet")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	// I think this works?
-	podList := podListObject.(*corev1.PodList)
 
 	namespace := string(cfg.k8sArgs.K8S_POD_NAMESPACE)
 	name := string(cfg.k8sArgs.K8S_POD_NAME)
@@ -235,6 +156,8 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
+	logger.G(ctx).WithField("args", args).WithField("cfg", cfg).Info("CNI Add Networking")
+
 	// TODO:
 	// 1. Add sysctls
 	// 2. Add "extrahosts"
@@ -252,33 +175,45 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
-	securityGroups, ok := pod.Annotations[securityGroupsAnnotation]
+	securityGroups, ok := pod.Annotations[vpctypes.SecurityGroupsAnnotation]
 	if !ok {
-		return fmt.Errorf("Security groups must be specified on the pod via the annotation %s", securityGroupsAnnotation)
+		err = fmt.Errorf("Security groups must be specified on the pod via the annotation %s", vpctypes.SecurityGroupsAnnotation)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 	span.AddAttributes(trace.StringAttribute("securityGroups", securityGroups))
 	securityGroupsList := strings.Split(securityGroups, ",")
 
-	ingressBandwidth, ok := pod.Annotations[ingressBandwidthAnnotation]
+	ingressBandwidth, ok := pod.Annotations[vpctypes.IngressBandwidthAnnotation]
 	if !ok {
-		return fmt.Errorf("Ingress must be specified on the pod via the annotation %s", ingressBandwidthAnnotation)
+		err = fmt.Errorf("Ingress must be specified on the pod via the annotation %s", vpctypes.IngressBandwidthAnnotation)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 	ingressBandwidthValue, err := resource.ParseQuantity(ingressBandwidth)
 	if err != nil {
-		return errors.Wrapf(err, "Cannot parse ingress bandwidth resource quantity %s", ingressBandwidth)
+		err = errors.Wrapf(err, "Cannot parse ingress bandwidth resource quantity %s", ingressBandwidth)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 
-	egressBandwidth, ok := pod.Annotations[egressBandwidthAnnotation]
+	egressBandwidth, ok := pod.Annotations[vpctypes.EgressBandwidthAnnotation]
 	if !ok {
-		return fmt.Errorf("Egress must be specified on the pod via the annotation %s", ingressBandwidthAnnotation)
+		err = fmt.Errorf("Egress must be specified on the pod via the annotation %s", vpctypes.EgressBandwidthAnnotation)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 	egressBandwidthValue, err := resource.ParseQuantity(egressBandwidth)
 	if err != nil {
-		return errors.Wrapf(err, "Cannot parse ingress bandwidth resource quantity %s", egressBandwidth)
+		err = errors.Wrapf(err, "Cannot parse ingress bandwidth resource quantity %s", egressBandwidth)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 
 	if ingressBandwidthValue.Cmp(egressBandwidthValue) != 0 {
-		return fmt.Errorf("Titus does not support differing ingress (%s) and egress (%s) bandwidth values", ingressBandwidthValue.String(), egressBandwidthValue.String())
+		err = fmt.Errorf("Titus does not support differing ingress (%s) and egress (%s) bandwidth values", ingressBandwidthValue.String(), egressBandwidthValue.String())
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 
 	kbps := uint64(ingressBandwidthValue.Value() / 1000)
@@ -286,14 +221,23 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	ns, err := os.Open(args.Netns)
 	if err != nil {
 		err = errors.Wrapf(err, "Cannot open container netns: %s", args.Netns)
+		logger.G(ctx).WithError(err).Error()
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 	defer ns.Close()
 
+	podName := cfg.k8sArgs.K8S_POD_NAME
+	podKey := shared.PodKey(pod)
+	if string(podName) != podKey {
+		err = fmt.Errorf("Pod key (%s) is not pod name (%s)", podKey, podName)
+		logger.G(ctx).WithError(err).Error()
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
 	assignIPRequest := &vpcapi.AssignIPRequestV3{
 		InstanceIdentity: cfg.instanceIdentity,
-		TaskId:           getKey(cfg.k8sArgs),
+		TaskId:           podKey,
 		SecurityGroupIds: securityGroupsList,
 		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true},
 		Idempotent:       true,
@@ -308,7 +252,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
-	alloc := assignmentToAllocation(response)
+	alloc := shared.AssignmentToAllocation(response)
 
 	logger.G(ctx).WithField("response", response.String()).WithField("allocation", fmt.Sprintf("%+v", alloc)).Info("Allocated IP")
 
@@ -319,8 +263,9 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	gateway := cidr.Inc(ip.Mask(mask))
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
 
-	_, err = container2.DoSetupContainer(ctx, int(ns.Fd()), kbps, kbps, false, alloc)
+	err = container2.DoSetupContainer(ctx, int(ns.Fd()), kbps, kbps, false, alloc)
 	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not setup network")
 		err = errors.Wrap(err, "Cannot not setup network")
 		tracehelpers.SetStatus(err, span)
 		return err
@@ -361,6 +306,8 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		},
 	}
 
+	logger.G(ctx).WithField("result", result).Debug("Created CNI allocation")
+
 	return types.PrintResult(&result, cfg.cfg.CNIVersion)
 }
 
@@ -369,7 +316,6 @@ func (c *Command) Check(_ *skel.CmdArgs) error {
 }
 
 func (c *Command) Del(args *skel.CmdArgs) (e error) {
-	defer time.Sleep(5 * time.Second) // This is so logs can get out, because CNI silently swallows deletion failures
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
 	defer func() {
@@ -380,39 +326,37 @@ func (c *Command) Del(args *skel.CmdArgs) (e error) {
 
 	ctx, span := trace.StartSpan(ctx, "Del")
 	defer span.End()
-	logger.G(ctx).WithField("args", args).Info("CNI Delete Networking")
 
 	cfg, err := c.load(ctx, args)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+	logger.G(ctx).WithField("args", args).WithField("cfg", cfg).Info("CNI Delete Networking")
 
+	client := vpcapi.NewTitusAgentVPCServiceClient(cfg.conn)
+	assignment, err := client.GetAssignment(ctx, &vpcapi.GetAssignmentRequest{
+		TaskId: string(cfg.k8sArgs.K8S_POD_NAME),
+	})
+
+	if err != nil {
+		// TODO: Technically, we can still delete the network interface in the container
+		logger.G(ctx).WithField("taskId", string(cfg.k8sArgs.K8S_POD_NAME)).
+			WithError(err).Error("Could not fetch existing assignment from VPC Service")
+		err = errors.Wrap(err, "Could not fetch existing assignment from VPC Service")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	alloc := shared.AssignmentToAllocation(assignment.Assignment)
 	ns, err := os.Open(args.Netns)
 	if err != nil {
 		err = errors.Wrapf(err, "Cannot open container netns: %s", args.Netns)
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
-	defer ns.Close()
-
-	unassignIPRequest := &vpcapi.UnassignIPRequestV3{
-		TaskId:            getKey(cfg.k8sArgs),
-		IncludeAssignment: true,
-	}
-
-	client := vpcapi.NewTitusAgentVPCServiceClient(cfg.conn)
-	unassignIPResponse, err := client.UnassignIPV3(ctx, unassignIPRequest)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Cannot unassign address")
-		err = errors.Wrap(err, "Cannot unassign address")
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
-	alloc := assignmentToAllocation(unassignIPResponse.Assignment)
-	logger.G(ctx).WithField("alloc", alloc).Info("Unassigned IP from VPC Service")
 	err = container2.DoTeardownContainer(ctx, alloc, int(ns.Fd()))
+	_ = ns.Close()
 	if err != nil {
 		err = errors.Wrap(err, "Could not tear down container state")
 		tracehelpers.SetStatus(err, span)
@@ -421,5 +365,15 @@ func (c *Command) Del(args *skel.CmdArgs) (e error) {
 
 	logger.G(ctx).Info("Successfully tore down networking")
 
+	_, err = client.UnassignIPV3(ctx, &vpcapi.UnassignIPRequestV3{
+		TaskId: string(cfg.k8sArgs.K8S_POD_NAME),
+	})
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Cannot unassign address")
+		err = errors.Wrap(err, "Cannot unassign address")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	logger.G(ctx).Info("Unassigned IP from VPC Service")
 	return nil
 }

@@ -180,6 +180,9 @@ func main() {
 	if err := v.BindEnv(sslCertFlagName, "VPC_SSL_CERT"); err != nil {
 		panic(err)
 	}
+	if err := v.BindEnv(sourceOfTruthFlagName, "SOURCE_OF_TRUTH"); err != nil {
+		panic(err)
+	}
 
 	rootCmd.AddCommand(assignNetworkCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(genConfCommand(ctx, v, ipr.getProvider))
@@ -187,9 +190,11 @@ func main() {
 	rootCmd.AddCommand(backfilleniCommand(ctx, v))
 	rootCmd.AddCommand(globalGCCommand(ctx, v))
 	rootCmd.AddCommand(setupContainercommand(ctx, v, ipr.getProvider))
+	rootCmd.AddCommand(teardownContainercommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(gcCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(operatorCmd(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(cniCommand(ctx, v, ipr.getProvider))
+	rootCmd.AddCommand(unassignNetworkCommand(ctx, v, ipr.getProvider))
 
 	cobra.OnInitialize(func() {
 		if cfgFile != "" {

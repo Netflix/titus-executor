@@ -37,7 +37,6 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 			case "v3":
 				return assign3.Assign(ctx,
 					iipGetter(),
-					locker,
 					conn,
 					assign3.Arguments{
 						SecurityGroups:     v.GetStringSlice("security-groups"),
@@ -46,7 +45,6 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						IPv4AllocationUUID: v.GetString("ipv4-allocation-uuid"),
 						InterfaceAccount:   v.GetString(interfaceAccount),
 						TaskID:             v.GetString("task-id"),
-						Oneshot:            v.GetBool("oneshot"),
 						ElasticIPPool:      v.GetString("elastic-ip-pool"),
 						ElasticIPs:         v.GetStringSlice("elastic-ips"),
 						Idempotent:         v.GetBool("idempotent"),
@@ -67,7 +65,6 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().StringSlice("subnet-ids", []string{}, "The subnet IDs for the allocation")
 	cmd.Flags().StringSlice("elastic-ips", []string{}, "One of the elastic IPs to use for attachment to the interface")
 	cmd.Flags().String("elastic-ip-pool", "", "The elastic IP pool to allocate from")
-	cmd.Flags().Bool("oneshot", false, "Whether or not to assign the address, and then exit")
 	cmd.Flags().Bool("idempotent", false, "Try to allocate the assignment idempotently")
 
 	addSharedFlags(cmd.Flags())

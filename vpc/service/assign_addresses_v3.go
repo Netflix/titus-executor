@@ -206,6 +206,11 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, ass
 	ctx, span := trace.StartSpan(ctx, "fetchIdempotentAssignment")
 	defer span.End()
 
+	span.AddAttributes(
+		trace.StringAttribute("assignmentID", assignmentID),
+		trace.BoolAttribute("deleteUnfinishedAssignment", deleteUnfinishedAssignment),
+	)
+
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot start transaction")
@@ -237,6 +242,10 @@ WHERE assignment_id = $1
 	err = row.Scan(&assignmentRowID, &branchENI, &trunkENI, &idx, &associationID, &ipv4addr, &ipv6addr, &completed)
 	if err == sql.ErrNoRows {
 		return nil, nil
+	} else if err != nil {
+		err = errors.Wrap(err, "Unable to query assignments")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	if !completed {
@@ -371,6 +380,32 @@ WHERE assignment_id = $1`, assignmentID)
 	}
 
 	return &resp, nil
+}
+
+func (vpcService *vpcService) GetAssignment(ctx context.Context, req *vpcapi.GetAssignmentRequest) (*vpcapi.GetAssignmentResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, assignTimeout)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GetAssignment")
+	defer span.End()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+
+	var err error
+	ret := vpcapi.GetAssignmentResponse{}
+	ret.Assignment, err = vpcService.fetchIdempotentAssignment(ctx, req.TaskId, false)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot fetch previous assignment")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	if ret.Assignment == nil {
+		err = status.Errorf(codes.NotFound, "Could not find previous assignment")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return &ret, nil
 }
 
 func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.AssignIPRequestV3) (*vpcapi.AssignIPResponseV3, error) {
@@ -1300,22 +1335,6 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 	ctx = logger.WithLogger(ctx, log)
 
 	resp := vpcapi.UnassignIPResponseV3{}
-
-	if req.IncludeAssignment {
-		assignment, err := vpcService.fetchIdempotentAssignment(ctx, req.TaskId, false)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot fetch previous assignment")
-			tracehelpers.SetStatus(err, span)
-			return nil, err
-		}
-
-		if assignment == nil {
-			err = status.Errorf(codes.NotFound, "Could not find previous assignment")
-			tracehelpers.SetStatus(err, span)
-			return nil, err
-		}
-		resp.Assignment = assignment
-	}
 
 	if unassigned, err := vpcService.unassignStaticAddress(ctx, req.TaskId); err != nil {
 		span.SetStatus(traceStatusFromError(err))

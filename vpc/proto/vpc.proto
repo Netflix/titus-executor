@@ -178,12 +178,9 @@ message AssignIPResponseV3 {
 
 message UnassignIPRequestV3 {
     string taskId = 1;
-    bool includeAssignment = 2;
 };
 
 message UnassignIPResponseV3 {
-    string taskId = 1;
-    AssignIPResponseV3 assignment = 2;
 };
 
 message UsableAddress {
@@ -229,10 +226,12 @@ message GCResponseV2 {
 message GCRequestV3 {
     InstanceIdentity instanceIdentity = 1;
     repeated string runningTaskIDs = 2;
+    // Soft indicates that do not perform the actual GC, only return the task IDs that would be GC'd
+    bool soft = 3;
 }
 
 message GCResponseV3 {
-
+    repeated string removedAssignments = 1;
 }
 
 message RefreshIPRequest {
@@ -357,6 +356,14 @@ message DetachBranchNetworkInterfaceResponse {
     string associationID = 3;
 }
 
+message GetAssignmentRequest {
+    string taskId = 1;
+}
+
+message GetAssignmentResponse {
+    AssignIPResponseV3 assignment = 1;
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
@@ -367,6 +374,7 @@ service TitusAgentVPCService {
     rpc AssignIPV2   (AssignIPRequestV2) returns (AssignIPResponseV2);
     rpc AssignIPV3 (AssignIPRequestV3) returns (AssignIPResponseV3);
     rpc UnassignIPV3 (UnassignIPRequestV3) returns (UnassignIPResponseV3);
+    rpc GetAssignment (GetAssignmentRequest) returns (GetAssignmentResponse);
     rpc RefreshIP (RefreshIPRequest) returns (RefreshIPResponse);
     // GC extra IPs
     rpc GCSetupLegacy (GCLegacySetupRequest) returns (GCLegacySetupResponse);

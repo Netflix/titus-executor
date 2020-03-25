@@ -80,15 +80,15 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 	return vlanLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) (netlink.Link, error) {
+func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) error {
 	branchLink, err := getBranchLink(ctx, allocation)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer nsHandle.Delete()
 
@@ -107,7 +107,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 	err = netlink.LinkAdd(&ipvlan)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not add link")
-		return nil, errors.Wrapf(err, "Cannot create link with name %s", containerInterfaceName)
+		return errors.Wrapf(err, "Cannot create link with name %s", containerInterfaceName)
 	}
 	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
 	// what it's index is, so there's no point returning it.
@@ -115,7 +115,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 	newLink, err := nsHandle.LinkByName(containerInterfaceName)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not find after adding link")
-		return nil, errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
+		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 	}
 
 	var mtu *int
@@ -124,7 +124,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 		mtu = &nonJumboMTU
 	}
 
-	return newLink, configureLink(ctx, nsHandle, newLink, bandwidth, ceil, mtu, allocation)
+	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, mtu, allocation)
 }
 
 func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, mtu *int, address *vpcapi.UsableAddress) error {
@@ -464,18 +464,21 @@ func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netns
 		nsHandle.Delete()
 	}
 
-	result = multierror.Append(result, teardownNetwork(ctx, allocation))
+	result = multierror.Append(result, TeardownNetwork(ctx, allocation))
 
 	return result.ErrorOrNil()
 }
 
-func teardownNetwork(ctx context.Context, allocation types.Allocation) error {
+func TeardownNetwork(ctx context.Context, allocation types.Allocation) error {
 	var result *multierror.Error
 	// Removing the classes automatically removes the qdiscs
 	trunkENI, err := shared.GetLinkByMac(allocation.TrunkENIMAC)
 	if err == nil {
-		err = errors.Wrap(removeClass(ctx, allocation.AllocationIndex, trunkENI), "Cannot remove class from trunk ENI")
-		result = multierror.Append(result, err)
+		err = removeClass(ctx, allocation.AllocationIndex, trunkENI)
+		if err != nil && !isClassNotFound(err) {
+			err = errors.Wrap(err, "Cannot remove class from trunk ENI")
+			result = multierror.Append(result, err)
+		}
 	} else {
 		err = errors.Wrap(err, "Unable to find trunk ENI")
 		result = multierror.Append(result, err)
@@ -484,8 +487,11 @@ func teardownNetwork(ctx context.Context, allocation types.Allocation) error {
 
 	ifbIngress, err := netlink.LinkByName(vpc.IngressIFB)
 	if err == nil {
-		err = errors.Wrap(removeClass(ctx, allocation.AllocationIndex, ifbIngress), "Cannot remove class from ingress IFB")
-		result = multierror.Append(result, err)
+		err = removeClass(ctx, allocation.AllocationIndex, ifbIngress)
+		if err != nil && !isClassNotFound(err) {
+			err = errors.Wrap(err, "Cannot remove class from ingress IFB")
+			result = multierror.Append(result, err)
+		}
 	} else {
 		err = errors.Wrap(err, "Unable to find ifb ingress ENI")
 		result = multierror.Append(result, err)
@@ -543,7 +549,7 @@ func deleteFromIPv4BPFMap(ctx context.Context, allocation types.Allocation) erro
 		uintptr(unsafe.Pointer(&uba)),
 		unsafe.Sizeof(uba),
 	)
-	if err != 0 {
+	if err != unix.ENOENT && err != 0 {
 		logger.G(ctx).WithError(err).Errorf("Unable to delete element for ipv4 map with file descriptor %d", fd)
 		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
 		return err2
@@ -594,7 +600,7 @@ func deleteFromIPv6BPFMap(ctx context.Context, allocation types.Allocation) erro
 		uintptr(unsafe.Pointer(&uba)),
 		unsafe.Sizeof(uba),
 	)
-	if err != 0 {
+	if err != unix.ENOENT && err != 0 {
 		logger.G(ctx).WithError(errors.Wrapf(err, "Unable to delete element for map with file descriptor %d", fd)).Error()
 		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
 		return err2
@@ -603,21 +609,22 @@ func deleteFromIPv6BPFMap(ctx context.Context, allocation types.Allocation) erro
 	return nil
 }
 
-func deleteLink(ctx context.Context, link netlink.Link, netnsfd int) {
-	if link == nil {
-		logger.G(ctx).Debug("Link not setup, not deleting link")
-		return
-	}
-	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
-	if err != nil {
-		logger.G(ctx).Warning("Unable to get handle")
-		return
-	}
-	defer nsHandle.Delete()
-	err = nsHandle.LinkDel(link)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to delete link")
-	}
+type classNotFound struct {
+	handle uint16
+	link   netlink.Link
+}
+
+func (c *classNotFound) Error() string {
+	return fmt.Sprintf("Unable to find class %d on link %v", c.handle, c.link)
+}
+
+func (c *classNotFound) Is(target error) bool {
+	_, ok := target.(*classNotFound)
+	return ok
+}
+
+func isClassNotFound(err error) bool {
+	return errors.Is(err, &classNotFound{})
 }
 
 func removeClass(ctx context.Context, handle uint16, link netlink.Link) error {
@@ -644,5 +651,5 @@ func removeClass(ctx context.Context, handle uint16, link netlink.Link) error {
 	}
 
 	logger.G(ctx).Warning("Unable to find class for container")
-	return fmt.Errorf("Unable to find class %d on link %v", handle, link)
+	return &classNotFound{handle: handle, link: link}
 }

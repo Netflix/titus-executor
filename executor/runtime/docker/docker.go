@@ -759,83 +759,85 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		args = append(args, "--assign-ipv6-address=true")
 	}
 
-	// This channel indicates when allocation is done, successful or not
-	allocateDone := false
-
-	// This ctx should only be cancelled when prepare is interrupted
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		<-parentCtx.Done()
-		if !allocateDone {
-			log.Error("Terminating allocate-network prematurely due to context cancellation")
-			cancel()
-		}
-	}()
 	// We intentionally don't use context here, because context only KILLs.
 	// Instead we rely on the idea of the cleanup function below.
 
-	c.AllocationCommand = exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gosec
-	c.AllocationCommandStatus = make(chan error)
-
-	c.AllocationCommand.Stderr = os.Stderr
-	stdoutPipe, err := c.AllocationCommand.StdoutPipe()
+	allocationCommand := exec.Command(vpcToolPath(), args...) // nolint: gosec
+	allocationCommand.Stderr = os.Stderr
+	stdoutPipe, err := allocationCommand.StdoutPipe()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "Could not setup stdout pipe for allocation command")
 	}
 
-	err = c.AllocationCommand.Start()
+	err = allocationCommand.Start()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "Could not start allocation command")
 	}
 
-	err = json.NewDecoder(stdoutPipe).Decode(&c.Allocation)
-	if err != nil {
-		// This should kill the process
-		cancel()
-		log.Error("Unable to read JSON from allocate command: ", err)
-		return fmt.Errorf("Unable to read json from pipe: %+v", err) // nolint: gosec
-	}
+	// errCh
+	errCh := make(chan error, 1)
 
-	c.RegisterRuntimeCleanup(func() error {
-		_ = c.AllocationCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
-		time.AfterFunc(5*time.Minute, cancel)
-		defer cancel()
-		select {
-		case e, ok := <-c.AllocationCommandStatus:
-			if !ok {
-				return nil
-			}
-			return e
-		case <-ctx.Done():
-			return fmt.Errorf("allocate command: %s", ctx.Err().Error())
-		}
-	})
+	// if you write to killCh, it will start to try to kill the allocation command
+	killCh := make(chan struct{}, 10)
 
+	// doneCh is closed once the allocation command exits
+	doneCh := make(chan struct{})
 	go func() {
-		defer close(c.AllocationCommandStatus)
-		allocateCommandError := c.AllocationCommand.Wait()
-		if allocateCommandError == nil {
-			log.Info("Allocate command exited with no error")
+		defer close(doneCh)
+		errCh <- allocationCommand.Wait()
+	}()
+	go func() {
+		select {
+		case <-killCh:
+			log.Info("Terminating allocation command")
+		case <-doneCh:
+			// The command exited, no need to stand at our perch ready to terminate it.
 			return
 		}
-		e := ctx.Err()
-		if e != nil {
-			log.WithError(e).Info("Allocate command canceled")
+		err2 := allocationCommand.Process.Signal(unix.SIGTERM)
+		if err2 != nil {
+			log.WithError(err2).Error("Unable to send SIGTERM to allocation command")
+		}
+		timer := time.NewTimer(30 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-doneCh:
+			// The command successfully exited
 			return
 		}
-
-		log.WithError(allocateCommandError).Error("Allocate command exited with error")
-
-		if exitErr, ok := allocateCommandError.(*exec.ExitError); ok {
-			c.AllocationCommandStatus <- exitErr
-		} else {
-			log.WithError(allocateCommandError).Error("Could not handle exit error of allocation command")
-			c.AllocationCommandStatus <- allocateCommandError
+		// The timer fired, and it's time to send the kill signal
+		log.Warn("Sending kill signal to allocation command")
+		err2 = allocationCommand.Process.Kill()
+		if err2 != nil {
+			log.WithError(err2).Error("Unable to send SIGKILL to allocation command")
 		}
 	}()
 
+	killTimer := time.AfterFunc(time.Minute, func() {
+		killCh <- struct{}{}
+	})
+	err = json.NewDecoder(stdoutPipe).Decode(&c.Allocation)
+	if err != nil {
+		log.WithError(err).Error("Unable to read JSON from allocate command")
+		return fmt.Errorf("Unable to read json from pipe: %+v", err) // nolint: gosec
+	}
+	if c.Allocation.Generation == nil {
+		err = errors.New("Unable to determine allocation generation")
+		log.WithError(err).Warn("Could not process allocation")
+		killCh <- struct{}{}
+		return err
+	}
+	if !killTimer.Stop() {
+		err = errors.New("Kill timer fired. Race condition")
+		log.WithError(err).Error("Accidentally killed the allocation command, leaving us in a 'unknown' state")
+		return err
+	}
+
 	if !c.Allocation.Success {
-		_ = c.AllocationCommand.Process.Kill() // nolint: gosec
+		// Kill the thing
+		killCh <- struct{}{}
+		log.WithField("error", c.Allocation.Error).Error("VPC Configuration error")
 		if (strings.Contains(c.Allocation.Error, "invalid security groups requested for vpc id")) ||
 			(strings.Contains(c.Allocation.Error, "InvalidGroup.NotFound") ||
 				(strings.Contains(c.Allocation.Error, "InvalidSecurityGroupID.NotFound"))) {
@@ -846,10 +848,49 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		return fmt.Errorf("vpc network configuration error: %s", c.Allocation.Error)
 	}
 
-	allocateDone = true
-	log.WithField("allocation", c.Allocation).Info("vpc network configuration obtained")
+	switch g := (*c.Allocation.Generation); g {
+	case vpcTypes.V1:
+		c.RegisterRuntimeCleanup(func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
 
-	return nil
+			killCh <- struct{}{}
+			var err2 error
+			select {
+			case err2 = <-errCh:
+			case <-ctx.Done():
+				return errors.Wrap(ctx.Err(), "Error waiting for v1 assignment command to exit")
+			}
+			if err2 != nil {
+				log.WithError(err2).Error("Received error on termination of assignment command")
+				return errors.Wrap(err2, "Could not unassign task IP address")
+			}
+			return nil
+		})
+		return nil
+	case vpcTypes.V3:
+		err = <-errCh
+		if err != nil {
+			return errors.Wrap(err, "Error experienced when running V3 allocate command")
+		}
+		c.RegisterRuntimeCleanup(func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			unassignCommand := exec.CommandContext(ctx, vpcToolPath(), "unassign", "--task-id", c.TaskID) // nolint: gosec
+			err2 := unassignCommand.Run()
+			if err2 != nil {
+				log.WithError(err2).Error("Experienced error unassigning v3 allocation")
+				return errors.Wrap(err2, "Could not unassign task IP address")
+			}
+			return nil
+		})
+		return nil
+	default:
+		err = fmt.Errorf("Unknown generation: %s", g)
+		killCh <- struct{}{}
+		log.WithError(err).Error("Received allocation with unknown generation")
+		return err
+	}
 }
 
 // cleanContainerName creates a "clean" container name that adheres to docker's allowed character list
@@ -1860,84 +1901,133 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	}
 	defer shouldClose(netnsFile)
 
-	// This ctx isn't directly descendant from the parent context. It'll be called iff the command successfully starts
-	// in the runtime cleanup function, or in
-	ctx, cancel := context.WithCancel(context.Background()) // nolint: vet
-
-	c.SetupCommand = exec.CommandContext(ctx, vpcToolPath(), setupNetworkingArgs(burst, c)...) // nolint: gosec
-	c.SetupCommandStatus = make(chan error)
-	stdin, err := c.SetupCommand.StdinPipe()
+	setupCommand := exec.Command(vpcToolPath(), setupNetworkingArgs(burst, c)...) // nolint: gosec
+	stdin, err := setupCommand.StdinPipe()
 	if err != nil {
 		return err // nolint: vet
 	}
-	stdout, err := c.SetupCommand.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	c.SetupCommand.Stderr = os.Stderr
-	c.SetupCommand.ExtraFiles = []*os.File{netnsFile}
-
-	err = c.SetupCommand.Start()
+	stdout, err := setupCommand.StdoutPipe()
 	if err != nil {
 		return err
 	}
 
-	c.RegisterRuntimeCleanup(func() error {
-		defer cancel()
-		_ = c.SetupCommand.Process.Signal(unix.SIGTERM) // nolint: gosec
-		time.AfterFunc(1*time.Minute, cancel)
-		select {
-		case e, ok := <-c.SetupCommandStatus:
-			if !ok {
-				return nil
-			}
-			return e
-		case <-ctx.Done():
-			return fmt.Errorf("Setup Command: %s", ctx.Err().Error())
-		}
-	})
+	setupCommand.Stderr = os.Stderr
+	setupCommand.ExtraFiles = []*os.File{netnsFile}
 
+	// errCh
+	errCh := make(chan error, 1)
+
+	// if you write to killCh, it will start to try to kill the allocation command
+	killCh := make(chan struct{}, 10)
+
+	// doneCh is closed once the allocation command exits
+	doneCh := make(chan struct{})
 	go func() {
-		defer close(c.SetupCommandStatus)
-		setupCommandError := c.SetupCommand.Wait()
-		if setupCommandError == nil {
+		defer close(doneCh)
+		errCh <- setupCommand.Wait()
+	}()
+	go func() {
+		select {
+		case <-killCh:
+			log.Info("Terminating setup command")
+		case <-doneCh:
+			// The command exited, no need to stand at our perch ready to terminate it.
 			return
 		}
-		e := ctx.Err()
-		if e != nil {
-			log.WithError(e).Info("Setup command canceled")
+		err2 := setupCommand.Process.Signal(unix.SIGTERM)
+		if err2 != nil {
+			log.WithError(err2).Error("Unable to send SIGTERM to setup command")
+		}
+		timer := time.NewTimer(30 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-doneCh:
+			// The command successfully exited
 			return
 		}
-
-		if exitErr, ok := setupCommandError.(*exec.ExitError); ok {
-			c.SetupCommandStatus <- exitErr
-		} else {
-			log.Error("Could not handle exit error of setup command: ", e)
-			c.SetupCommandStatus <- setupCommandError
+		// The timer fired, and it's time to send the kill signal
+		log.Warn("Sending kill signal to setup command")
+		err2 = setupCommand.Process.Kill()
+		if err2 != nil {
+			log.WithError(err2).Error("Unable to send SIGKILL to allocation command")
 		}
 	}()
 
-	cancelTimer := time.AfterFunc(5*time.Minute, func() {
-		log.Warning("timed out trying to setup container network")
-		cancel()
+	killTimer := time.AfterFunc(time.Minute, func() {
+		killCh <- struct{}{}
 	})
+
+	err = setupCommand.Start()
+	if err != nil {
+		return err
+	}
+
 	if err := json.NewEncoder(stdin).Encode(c.Allocation); err != nil {
-		cancel()
 		return err
 	}
 	if err := json.NewDecoder(stdout).Decode(&result); err != nil {
-		cancel()
+		killCh <- struct{}{}
 		return fmt.Errorf("Unable to read json from pipe during setup-container: %+v", err)
 	}
-	if !cancelTimer.Stop() {
-		return errors.New("Race condition experienced with container network setup")
+
+	if !killTimer.Stop() {
+		err = errors.New("Kill timer fired. Race condition")
+		log.WithError(err).Error("Accidentally killed the setup command, leaving us in a 'unknown' state")
+		return err
 	}
+
 	if !result.Success {
-		cancel()
+		killCh <- struct{}{}
 		return fmt.Errorf("Network setup error: %s", result.Error)
 	}
 
-	return nil
+	switch g := (*c.Allocation.Generation); g {
+	case vpcTypes.V1:
+		c.RegisterRuntimeCleanup(func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+
+			killCh <- struct{}{}
+			var err2 error
+			select {
+			case err2 = <-errCh:
+			case <-ctx.Done():
+				return errors.Wrap(ctx.Err(), "Error waiting for v1 setup command to exit")
+			}
+			if err2 != nil {
+				log.WithError(err2).Error("Received error on termination of setup command")
+				return errors.Wrap(err2, "Could not teardown container networking")
+			}
+			return nil
+		})
+		return nil
+	case vpcTypes.V3:
+		// No one should have read off errCh before us.
+		err = <-errCh
+		if err != nil {
+			killCh <- struct{}{}
+			return errors.Wrap(err, "Error experienced when running V3 setup command")
+		}
+		c.RegisterRuntimeCleanup(func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			unassignCommand := exec.CommandContext(ctx, vpcToolPath(), "unassign", "--task-id", c.TaskID) // nolint: gosec
+			err2 := unassignCommand.Run()
+			if err2 != nil {
+				log.WithError(err2).Error("Experienced error unassigning v3 allocation")
+				return errors.Wrap(err2, "Could not unassign task IP address")
+			}
+			return nil
+		})
+		return nil
+	default:
+		err = fmt.Errorf("Unknown generation: %s", g)
+		killCh <- struct{}{}
+		log.WithError(err).Error("Received allocation with unknown generation")
+		return err
+	}
+
 }
 
 func launchTini(conn *net.UnixConn) error {
@@ -2005,31 +2095,6 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error { // nolint: gocyc
 	}
 
 stopped:
-	l := log.WithField("taskId", c.TaskID)
-	if c.SetupCommand != nil && c.SetupCommand.Process != nil {
-		errs = multierror.Append(errs, errors.Wrap(c.SetupCommand.Process.Signal(unix.SIGTERM), "Error sending SIGTERM to Setup Command")) // nolint: gosec
-		killTimer := time.AfterFunc(r.dockerCfg.networkTeardownTimeout, func() {
-			l.WithError(c.SetupCommand.Process.Kill()).Warning("Setup command killed with SIGKILL")
-		})
-		l.Info("Waiting for network teardown to finish")
-		errs = multierror.Append(errs, errors.Wrap(c.SetupCommand.Wait(), "Error while waiting on setup command to finish")) // nolint: gosec
-		killTimer.Stop()
-		l.Info("Network teardown finished")
-	} else {
-		l.Info("No need to teardown setup, no setup command")
-	}
-	if c.AllocationCommand != nil && c.AllocationCommand.Process != nil {
-		errs = multierror.Append(errs, errors.Wrap(c.AllocationCommand.Process.Signal(unix.SIGTERM), "Error sending SIGERM to Allocation Command")) // nolint: gosec
-		killTimer := time.AfterFunc(r.dockerCfg.networkTeardownTimeout, func() {
-			l.WithError(c.AllocationCommand.Process.Kill()).Warning("Allocation command killed with SIGKILL") // nolint: gosec
-		})
-		l.Info("Waiting for deallocation to finish")
-		errs = multierror.Append(errs, errors.Wrap(c.AllocationCommand.Wait(), "Error while waiting for allocation command to finish")) // nolint: gosec
-		killTimer.Stop()
-		l.Info("Deallocation finished")
-	} else {
-		l.Info("No need to deallocate, no allocation command")
-	}
 
 	if c.TitusInfo.GetNumGpus() > 0 && c.GPUInfo != nil {
 		numDealloc := c.GPUInfo.Deallocate()
