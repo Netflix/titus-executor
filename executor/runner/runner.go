@@ -38,6 +38,7 @@ type task struct {
 	titusInfo *titus.ContainerInfo
 	mem       int64
 	cpu       int64
+	gpu       int64
 	disk      uint64
 }
 
@@ -103,13 +104,14 @@ func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, cf
 }
 
 // StartTask can be called once to start a task, by a given Runner
-func (r *Runner) StartTask(taskID string, titusInfo *titus.ContainerInfo, mem int64, cpu int64, disk uint64) error {
+func (r *Runner) StartTask(taskID string, titusInfo *titus.ContainerInfo, mem int64, cpu int64, gpu int64, disk uint64) error {
 	// This can only be called once!
 	t := task{
 		taskID:    taskID,
 		titusInfo: titusInfo,
 		mem:       mem,
 		cpu:       cpu,
+		gpu:       gpu,
 		disk:      disk,
 	}
 	select {
@@ -171,6 +173,7 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	resources := &runtimeTypes.Resources{
 		Mem:  taskConfig.mem,
 		CPU:  taskConfig.cpu,
+		GPU:  taskConfig.gpu,
 		Disk: taskConfig.disk,
 	}
 	r.container = runtime.NewContainer(taskConfig.taskID, taskConfig.titusInfo, resources, labels, r.config)

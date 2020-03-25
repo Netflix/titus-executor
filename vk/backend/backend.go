@@ -113,10 +113,20 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 		}
 	}
 
-	cpu := requests["cpu"]
-	memory := requests["memory"]
+	cpu := requests[v1.ResourceCPU]
+	memory := requests[v1.ResourceMemory]
 
-	err = runner.StartTask(pod.GetName(), &containerInfo, memory.Value(), cpu.Value(), uint64(disk.Value()))
+	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
+	var gpu resource.Quantity
+
+	for _, k := range []v1.ResourceName{"nvidia.com/gpu", "gpu"} {
+		if v, ok := requests[k]; ok {
+			gpu = v
+			break
+		}
+	}
+
+	err = runner.StartTask(pod.GetName(), &containerInfo, memory.Value(), cpu.Value(), gpu.Value(), uint64(disk.Value()))
 	if err != nil {
 		return errors.Wrap(err, "Could not start task")
 	}

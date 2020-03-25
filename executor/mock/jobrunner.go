@@ -66,6 +66,8 @@ type JobInput struct {
 	CPUBursting bool
 	// CPU sets the CPU count resource attribute
 	CPU *int64
+	// GPU sets the GPU count resource attribute
+	GPU *int64
 	// StopTimeoutSeconds is the duration we wait after SIGTERM for the container to exit
 	KillWaitSeconds uint32
 	// Tty attaches a tty to the container via a passthrough attribute
@@ -401,12 +403,16 @@ func (jobRunner *JobRunner) StartJob(t *testing.T, jobInput *JobInput) *JobRunRe
 	if jobInput.Mem != nil {
 		memMiB = *jobInput.Mem
 	}
+	gpu := int64(0)
+	if jobInput.GPU != nil {
+		gpu = *jobInput.GPU
+	}
 	diskMiB := uint64(100)
 
 	// Get a reference to the executor and somewhere to stash results
 
 	// Start the task and wait for it to complete
-	err := jobRunner.runner.StartTask(taskID, ci, memMiB, cpu, diskMiB)
+	err := jobRunner.runner.StartTask(taskID, ci, memMiB, cpu, gpu, diskMiB)
 	if err != nil {
 		log.Printf("Failed to start task %s: %s", taskID, err)
 	}

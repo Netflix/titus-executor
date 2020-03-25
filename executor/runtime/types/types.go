@@ -500,6 +500,7 @@ func (c *Container) SetID(id string) {
 type Resources struct {
 	Mem       int64 // in MiB
 	CPU       int64
+	GPU       int64
 	Disk      uint64
 	HostPorts []uint16
 }
