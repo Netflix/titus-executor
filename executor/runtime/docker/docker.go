@@ -2033,7 +2033,7 @@ func teardownCommand(netnsFile *os.File, allocation vpcTypes.HybridAllocation) e
 	defer cancel()
 	defer shouldClose(netnsFile)
 
-	teardownCommand := exec.CommandContext(ctx, vpcToolPath(), "teardown-containers", "--netns", "3") // nolint: gosec
+	teardownCommand := exec.CommandContext(ctx, vpcToolPath(), "teardown-container", "--netns", "3") // nolint: gosec
 	stdin, err := teardownCommand.StdinPipe()
 	if err != nil {
 		return errors.Wrap(err, "Cannot get teardown stdin")
