@@ -292,13 +292,6 @@ RETURNING assignments.assignment_id
 	span.AddAttributes(trace.StringAttribute("removedAssignments", fmt.Sprint(removedAssignments)))
 	logger.G(ctx).WithField("removedAssignments", removedAssignments).Debug("Removed assignments")
 
-	_, err = tx.ExecContext(ctx, "UPDATE trunk_enis SET generation = 3 WHERE trunk_eni = $1 AND generation != 3", aws.StringValue(trunkENI.NetworkInterfaceId))
-	if err != nil {
-		err = errors.Wrap(err, "Could not update attachment generations")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Unable to commit transaction")
@@ -333,6 +326,30 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 	}
 
 	logger.G(ctx).WithField("taskIds", req.RunningTaskIDs).Debug("GCing for running task IDs")
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = errors.Wrap(err, "Could not start transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	_, err = tx.ExecContext(ctx, "UPDATE trunk_enis SET generation = 3 WHERE trunk_eni = $1", aws.StringValue(trunkENI.NetworkInterfaceId))
+	if err != nil {
+		err = errors.Wrap(err, "Could not update attachment generations")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit update to attachment generation")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
 
 	resp := vpcapi.GCResponseV3{}
 	if req.Soft {
@@ -653,8 +670,9 @@ func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, tx *sql.Tx, e
 SELECT association_id
 FROM branch_eni_attachments
 JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
+JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
 WHERE branch_eni_attachments.branch_eni = $1
-  AND attachment_generation = 3
+  AND trunk_enis.generation = 3
   AND branch_eni_attachments.state = 'attached'
   FOR NO KEY
   UPDATE OF branch_enis
