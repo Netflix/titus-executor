@@ -153,7 +153,7 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 	}, config.Config{})
 
 	require.NoError(t, err)
-	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 0, 1))
 
 	defer time.Sleep(1 * time.Second)
 	timeout := time.NewTimer(30 * time.Second)
@@ -224,7 +224,7 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	}, config.Config{})
 
 	require.NoError(t, err)
-	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 0, 1))
 
 	testFailed := make(chan struct{})
 	time.AfterFunc(30*time.Second, func() {
@@ -307,7 +307,7 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	}, config.Config{})
 
 	require.NoError(t, err)
-	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 1))
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 0, 1))
 
 	killTimeout := time.NewTimer(15 * time.Second)
 	defer killTimeout.Stop()

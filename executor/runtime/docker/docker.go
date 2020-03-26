@@ -1141,9 +1141,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		goto error
 	}
 
-	err = r.setupGPU(ctx, c, dockerCfg, hostCfg)
-	if err != nil {
-		goto error
+	if c.Resources.GPU > 0 {
+		err = r.setupGPU(ctx, c, dockerCfg, hostCfg)
+		if err != nil {
+			goto error
+		}
 	}
 
 	l.Infof("create with Docker config %#v and Host config: %#v", *dockerCfg, *hostCfg)
@@ -2038,10 +2040,6 @@ func launchTini(conn *net.UnixConn) error {
 
 func (r *DockerRuntime) setupGPU(ctx context.Context, c *runtimeTypes.Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
 	logger := log.WithField("taskID", c.TaskID)
-
-	if c.TitusInfo.GetNumGpus() <= 0 {
-		return nil
-	}
 
 	gpuInfo, err := nvidia.NewNvidiaInfo(ctx)
 	if err != nil {

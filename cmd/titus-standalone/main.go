@@ -27,6 +27,7 @@ type cliOptions struct {
 	taskID        string
 	mem           int64
 	cpu           int64
+	gpu           int64
 	disk          uint64
 	logLevel      string
 }
@@ -59,6 +60,11 @@ func main() {
 			Name:        "cpu",
 			Value:       1,
 			Destination: &options.cpu,
+		},
+		cli.Int64Flag{
+			Name:        "gpu",
+			Value:       0,
+			Destination: &options.gpu,
 		},
 		cli.Uint64Flag{
 			Name:        "disk",
@@ -134,7 +140,7 @@ func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config,
 		runner.Kill()
 	}()
 	log.Info("Starting task")
-	err = runner.StartTask(options.taskID, &containerInfo, options.mem, options.cpu, options.disk)
+	err = runner.StartTask(options.taskID, &containerInfo, options.mem, options.cpu, options.gpu, options.disk)
 	if err != nil {
 		return err
 	}

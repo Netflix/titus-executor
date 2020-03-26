@@ -165,7 +165,7 @@ func (driver *TitusMesosDriver) LaunchTask(exec mesosExecutor.ExecutorDriver, ta
 	}
 	// Get basic container dimensions from Mesos
 	// TODO(Andrew L): We should move this info to the protobuf
-	var mem, cpu int64
+	var mem, cpu, gpu int64
 	var disk uint64
 	for _, r := range taskInfo.GetResources() {
 		if r.GetName() == "mem" {
@@ -174,10 +174,12 @@ func (driver *TitusMesosDriver) LaunchTask(exec mesosExecutor.ExecutorDriver, ta
 			cpu = int64(r.GetScalar().GetValue())
 		} else if r.GetName() == "disk" {
 			disk = uint64(r.GetScalar().GetValue())
+		} else if r.GetName() == "gpu" {
+			gpu = int64(r.GetScalar().GetValue())
 		}
 	}
 
-	if err := driver.runner.StartTask(taskID, titusInfo, mem, cpu, disk); err != nil {
+	if err := driver.runner.StartTask(taskID, titusInfo, mem, cpu, gpu, disk); err != nil {
 		log.Printf("Failed to start task %s: %s", taskID, err)
 	}
 }
