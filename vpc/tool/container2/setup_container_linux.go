@@ -252,10 +252,18 @@ func isIPv6Ready(nsHandle *netlink.Handle, link netlink.Link) (bool, error) {
 	}
 	for _, addr := range addrs {
 		if addr.Scope == int(netlink.SCOPE_UNIVERSE) && addr.Flags&unix.IFA_F_TENTATIVE == 0 {
-			return true, nil
+			goto addr_found
 		}
 	}
 	return false, nil
+addr_found:
+	_, err = nsHandle.RouteGet(net.ParseIP("2001::1"))
+	if err == unix.ENETUNREACH {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func waitForAddressUp(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link) error {
