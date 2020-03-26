@@ -409,15 +409,6 @@ func stableSecret() string {
 	return net.IP(ipBuf).String()
 }
 
-func maybeAddOptimisticDad(sysctl map[string]string) {
-	if unix.Access("/proc/sys/net/ipv6/conf/default/use_optimistic", 0) == nil {
-		sysctl["net.ipv6.conf.default.use_optimistic"] = "1"
-	}
-	if unix.Access("/proc/sys/net/ipv6/conf/default/optimistic_dad", 0) == nil {
-		sysctl["net.ipv6.conf.default.optimistic_dad"] = "1"
-	}
-}
-
 func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint from the proto. If the proto is empty, pass
 	// an empty entrypoint and let Docker extract it from the image.
@@ -473,6 +464,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv6.conf.default.stable_secret": stableSecret(), // This is to ensure each container sets their addresses differently
 			"net.ipv6.conf.all.use_tempaddr":      "0",
 			"net.ipv6.conf.default.use_tempaddr":  "0",
+			"net.ipv6.conf.default.accept_dad":    "0",
+			"net.ipv6.conf.all.accept_dad":        "0",
 		},
 		Init: &useInit,
 	}
@@ -486,7 +479,6 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		log.Infof("Setting up VolumesFrom from container %s", containerName)
 		hostCfg.VolumesFrom = append(hostCfg.VolumesFrom, fmt.Sprintf("%s:ro", containerName))
 	}
-	maybeAddOptimisticDad(hostCfg.Sysctls)
 	hostCfg.CgroupParent = r.pidCgroupPath
 	c.RegisterRuntimeCleanup(func() error {
 		return cleanupCgroups(r.pidCgroupPath)
