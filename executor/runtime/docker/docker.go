@@ -1897,7 +1897,8 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	log.Info("Setting up container network")
 	var result vpcTypes.WiringStatus
 
-	netnsFile, err := os.Open(filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "ns", "net"))
+	netnsPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "ns", "net")
+	netnsFile, err := os.Open(netnsPath)
 	if err != nil {
 		return err
 	}
@@ -1916,6 +1917,10 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	setupCommand.Stderr = os.Stderr
 	setupCommand.ExtraFiles = []*os.File{netnsFile}
 
+	err = setupCommand.Start()
+	if err != nil {
+		return errors.Wrap(err, "Could not start setup command")
+	}
 	// errCh
 	errCh := make(chan error, 1)
 
@@ -1959,11 +1964,6 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	killTimer := time.AfterFunc(time.Minute, func() {
 		killCh <- struct{}{}
 	})
-
-	err = setupCommand.Start()
-	if err != nil {
-		return err
-	}
 
 	if err := json.NewEncoder(stdin).Encode(c.Allocation); err != nil {
 		return err
@@ -2011,16 +2011,12 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 			killCh <- struct{}{}
 			return errors.Wrap(err, "Error experienced when running V3 setup command")
 		}
+		f2, err := os.Open(netnsPath)
+		if err != nil {
+			return errors.Wrap(err, "Unable to open container network namespace file")
+		}
 		c.RegisterRuntimeCleanup(func() error {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-			unassignCommand := exec.CommandContext(ctx, vpcToolPath(), "unassign", "--task-id", c.TaskID) // nolint: gosec
-			err2 := unassignCommand.Run()
-			if err2 != nil {
-				log.WithError(err2).Error("Experienced error unassigning v3 allocation")
-				return errors.Wrap(err2, "Could not unassign task IP address")
-			}
-			return nil
+			return teardownCommand(f2, c.Allocation)
 		})
 		return nil
 	default:
@@ -2030,6 +2026,39 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 		return err
 	}
 
+}
+
+func teardownCommand(netnsFile *os.File, allocation vpcTypes.HybridAllocation) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	defer shouldClose(netnsFile)
+
+	teardownCommand := exec.CommandContext(ctx, vpcToolPath(), "teardown-containers", "--netns", "3") // nolint: gosec
+	stdin, err := teardownCommand.StdinPipe()
+	if err != nil {
+		return errors.Wrap(err, "Cannot get teardown stdin")
+	}
+	encoder := json.NewEncoder(stdin)
+
+	teardownCommand.Stdout = os.Stdout
+	teardownCommand.Stderr = os.Stderr
+	teardownCommand.ExtraFiles = []*os.File{netnsFile}
+	err = teardownCommand.Start()
+	if err != nil {
+		log.WithError(err).Error("Experienced error tearing down container")
+		return errors.Wrap(err, "Could not start teardown command")
+	}
+
+	err = encoder.Encode(allocation)
+	if err != nil {
+		return errors.Wrap(err, "Unable to encode allocation for teardown command")
+	}
+
+	err = teardownCommand.Wait()
+	if err != nil {
+		return errors.Wrap(err, "Unable to run teardown command")
+	}
+	return nil
 }
 
 func launchTini(conn *net.UnixConn) error {
