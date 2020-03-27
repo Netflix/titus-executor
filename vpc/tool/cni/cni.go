@@ -8,7 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Netflix/titus-executor/vpc/tool/shared"
+	"github.com/Netflix/titus-executor/utils"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -27,7 +29,6 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
-	corev1 "k8s.io/api/core/v1"
 	//	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 )
 
@@ -41,7 +42,7 @@ type Command struct {
 }
 
 type config struct {
-	k8sArgs K8sArgs
+	k8sArgs utils.K8sArgs
 	cfg     TitusCNIConfig
 
 	instanceIdentity *vpcapi.InstanceIdentity
@@ -59,23 +60,8 @@ func MakeCommand(ctx context.Context, instanceIdentityProvider identity.Instance
 	}
 }
 
-// Borrowed from: https://github.com/Tanujparihar/aws/blob/87052b192d468fab20bbf4c10590dc2a39885680/plugins/routed-eni/cni.go
-type K8sArgs struct {
-	types.CommonArgs
-
-	// K8S_POD_NAME is pod's name
-	K8S_POD_NAME types.UnmarshallableString // nolint:golint
-
-	// K8S_POD_NAMESPACE is pod's namespace
-	K8S_POD_NAMESPACE types.UnmarshallableString // nolint:golint
-
-	// K8S_POD_INFRA_CONTAINER_ID is pod's container id
-	K8S_POD_INFRA_CONTAINER_ID types.UnmarshallableString // nolint:golint
-}
-
 type TitusCNIConfig struct {
 	types.NetConf
-
 	KubeletAPIURL string `json:"KubeletAPIURL"`
 }
 
@@ -116,32 +102,13 @@ func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error)
 	return retCfg, nil
 }
 
-func getPod(ctx context.Context, cfg *config) (*corev1.Pod, error) {
+func (c *Command) getPod(ctx context.Context, cfg *config) (*corev1.Pod, error) {
 	ctx, span := trace.StartSpan(ctx, "getPod")
 	defer span.End()
 
-	body, err := shared.Get(ctx, cfg.cfg.KubeletAPIURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "Unable to fetch from Kubernetes URL")
-	}
-
-	podList, err := shared.ToPodList(body)
-	if err != nil {
-		return nil, errors.Wrap(err, "Unable deserialize pods body from kubelet")
-	}
-
-	namespace := string(cfg.k8sArgs.K8S_POD_NAMESPACE)
-	name := string(cfg.k8sArgs.K8S_POD_NAME)
-	for idx := range podList.Items {
-		pod := podList.Items[idx]
-		if pod.Namespace == namespace && pod.Name == name {
-			return &pod, nil
-		}
-	}
-
-	err = fmt.Errorf("Could not find pod %s, in namespace %s", name, namespace)
+	pod, err := utils.GetPod(ctx, cfg.cfg.KubeletAPIURL, cfg.k8sArgs)
 	tracehelpers.SetStatus(err, span)
-	return nil, err
+	return pod, err
 }
 
 func (c *Command) Add(args *skel.CmdArgs) error {
@@ -169,12 +136,13 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	// Subnets
 	// Account ID
 
-	pod, err := getPod(ctx, cfg)
+	pod, err := c.getPod(ctx, cfg)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to get pod")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+
 	securityGroups, ok := pod.Annotations[vpctypes.SecurityGroupsAnnotation]
 	if !ok {
 		err = fmt.Errorf("Security groups must be specified on the pod via the annotation %s", vpctypes.SecurityGroupsAnnotation)
@@ -227,8 +195,9 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	}
 	defer ns.Close()
 
+	// FIXME(manas) This check seems redundant?
 	podName := cfg.k8sArgs.K8S_POD_NAME
-	podKey := shared.PodKey(pod)
+	podKey := utils.PodKey(pod)
 	if string(podName) != podKey {
 		err = fmt.Errorf("Pod key (%s) is not pod name (%s)", podKey, podName)
 		logger.G(ctx).WithError(err).Error()
@@ -252,7 +221,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
-	alloc := shared.AssignmentToAllocation(response)
+	alloc := vpctypes.AssignmentToAllocation(response)
 
 	logger.G(ctx).WithField("response", response.String()).WithField("allocation", fmt.Sprintf("%+v", alloc)).Info("Allocated IP")
 
@@ -348,7 +317,7 @@ func (c *Command) Del(args *skel.CmdArgs) (e error) {
 		return err
 	}
 
-	alloc := shared.AssignmentToAllocation(assignment.Assignment)
+	alloc := vpctypes.AssignmentToAllocation(assignment.Assignment)
 	ns, err := os.Open(args.Netns)
 	if err != nil {
 		err = errors.Wrapf(err, "Cannot open container netns: %s", args.Netns)

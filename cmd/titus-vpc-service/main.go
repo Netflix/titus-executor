@@ -14,12 +14,13 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/Netflix/titus-executor/utils"
+
 	"github.com/Netflix/titus-executor/vpc"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	spectator "github.com/Netflix/spectator-go"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/logsutil"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service"
 	"github.com/Netflix/titus-executor/vpc/service/db"
@@ -127,7 +128,7 @@ func main() {
 				logrusLogger.SetLevel(logrus.DebugLevel)
 			}
 			if v.GetBool("journald") {
-				logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
+				utils.MaybeSetupLoggerIfOnJournaldAvailable()
 			}
 			view.SetReportingPeriod(time.Second * 1)
 

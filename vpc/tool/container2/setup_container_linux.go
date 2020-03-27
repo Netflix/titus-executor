@@ -13,9 +13,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/hashicorp/go-multierror"
+	"github.com/Netflix/titus-executor/vpc/tool/setup2"
 
-	"github.com/Netflix/titus-executor/vpc/tool/shared"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -37,7 +37,7 @@ var (
 )
 
 func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.Link, error) {
-	trunkLink, err := shared.GetLinkByMac(allocations.TrunkENIMAC)
+	trunkLink, err := setup2.GetLinkByMac(allocations.TrunkENIMAC)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot find trunk link")
 	}
@@ -370,7 +370,7 @@ func updateBPFMaps(ctx context.Context, allocation types.Allocation) error {
 }
 
 func setupHTBClasses(ctx context.Context, bandwidth, ceil, mtu uint64, allocationIndex uint16, trunkENIMac string) error {
-	trunkENI, err := shared.GetLinkByMac(trunkENIMac)
+	trunkENI, err := setup2.GetLinkByMac(trunkENIMac)
 	if err != nil {
 		return err
 	}
@@ -480,7 +480,7 @@ func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netns
 func TeardownNetwork(ctx context.Context, allocation types.Allocation) error {
 	var result *multierror.Error
 	// Removing the classes automatically removes the qdiscs
-	trunkENI, err := shared.GetLinkByMac(allocation.TrunkENIMAC)
+	trunkENI, err := setup2.GetLinkByMac(allocation.TrunkENIMAC)
 	if err == nil {
 		err = removeClass(ctx, allocation.AllocationIndex, trunkENI)
 		if err != nil && !isClassNotFound(err) {

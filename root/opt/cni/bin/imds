@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [[ -e /etc/profile.d/netflix_environment.sh ]]; then
+  . /etc/profile.d/netflix_environment.sh
+fi
+
+###############################################################################
+# Resolve Titus environment
+###############################################################################
+
+if [[ -e /etc/profile.d/titus_environment.sh ]]; then
+  . /etc/profile.d/titus_environment.sh
+fi
+
+# This might break if the user always intended to have allexport set
+if [[ -e /etc/titus-executor/config.sh ]]; then
+  set -o allexport
+  . /etc/titus-executor/config.sh
+  set +o allexport
+fi
+
+exec /apps/titus-executor/bin/titus-imds-cni

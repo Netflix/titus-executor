@@ -28,7 +28,6 @@ type MetadataServerConfiguration struct {
 	Ipv4Address                net.IP
 	Ipv6Address                *net.IP
 	VpcID                      string
-	EniID                      string
 	Region                     string
 	Optimistic                 bool
 	APIProtectEnabled          bool

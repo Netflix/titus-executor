@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/tool/shared"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -153,6 +151,6 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 
 	logger.G(ctx).WithField("assignIPResponse", response).Info("AssignIP request suceeded")
 
-	alloc := shared.AssignmentToAllocation(response)
+	alloc := types.AssignmentToAllocation(response)
 	return &alloc, nil
 }

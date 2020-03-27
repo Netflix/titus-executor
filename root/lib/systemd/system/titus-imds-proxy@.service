@@ -1,0 +1,26 @@
+[Unit]
+Description=Titus IMDS proxy for kubelet
+ConditionPathExists=/run/is_kubernetes
+
+StartLimitIntervalSec=30
+StartLimitBurst=10
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
+
+Restart=on-failure
+KillMode=mixed
+
+User=www-data
+Group=www-data
+
+LimitNOFILE=8384
+PrivateTmp=yes
+
+EnvironmentFile=/var/lib/titus-environments/%i/imds-proxy.env
+ExecStart=/apps/titus-executor/bin/titus-metadata-service
+
+[Install]
+WantedBy=multi-user.target

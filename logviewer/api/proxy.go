@@ -1,18 +1,27 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"time"
+
+	"github.com/Netflix/titus-executor/utils"
 )
 
 // The URL to connect to once we've done a Setns() into the container
 const inContainerURL = "http://127.0.0.1:8004"
 
+func getNetNsPath(containerID string) string {
+	return fmt.Sprintf("%s/%s/ns/net", utils.TitusInits, containerID)
+}
+
 func doProxy(w http.ResponseWriter, r *http.Request, containerID string, proxy *httputil.ReverseProxy) {
 	proxyURL, _ := url.Parse(inContainerURL)
-	containerDialer, err := newDialer(containerID)
+
+	nsPath := getNetNsPath(containerID)
+	nsDialer, err := utils.NewNsDialer(nsPath)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -21,7 +30,7 @@ func doProxy(w http.ResponseWriter, r *http.Request, containerID string, proxy *
 	// These values were taken from http.DefaultTransport
 	proxyTransport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           containerDialer.DialContext,
+		DialContext:           nsDialer.DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,

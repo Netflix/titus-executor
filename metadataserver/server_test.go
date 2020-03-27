@@ -520,7 +520,6 @@ func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair, requ
 		TitusTaskInstanceID: *fakeTaskIdent.Container.RunState.TaskId,
 		Ipv4Address:         net.ParseIP(fakeTitusTaskInstanceIPAddress),
 		VpcID:               "vpc-1234",
-		EniID:               "eni-1234",
 		BackingMetadataServer: &url.URL{
 			Scheme: "http",
 			Host:   ss.fakeEC2MetdataServiceListener.Addr().String(),

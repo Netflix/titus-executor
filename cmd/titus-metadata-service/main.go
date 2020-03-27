@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Netflix/titus-executor/logsutil"
+	"github.com/Netflix/titus-executor/utils"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -125,9 +125,9 @@ func main() {
 		ipv6Addresses              string
 		stateDir                   string
 		xFordwardedForBlockingMode bool
+		peerNs                     string
 
 		vpcID string
-		eniID string
 	)
 
 	app.Flags = []cli.Flag{
@@ -152,6 +152,7 @@ func main() {
 			Name:        "listener-port",
 			Value:       defaultListeningPort,
 			Usage:       "Use specific port to listen on",
+			EnvVar:      "LISTEN_PORT",
 			Destination: &listenPort,
 		},
 		cli.BoolFlag{
@@ -200,11 +201,6 @@ func main() {
 			Destination: &vpcID,
 		},
 		cli.StringFlag{
-			Name:        "eni-id",
-			EnvVar:      "EC2_INTERFACE_ID",
-			Destination: &eniID,
-		},
-		cli.StringFlag{
 			Name:        "ipv6-address",
 			EnvVar:      "EC2_IPV6S",
 			Destination: &ipv6Addresses,
@@ -235,25 +231,44 @@ func main() {
 			EnvVar:      "X_FORWARDED_FOR_BLOCKING_MODE",
 			Destination: &xFordwardedForBlockingMode,
 		},
+		cli.StringFlag{
+			Name:        "peer-namespace",
+			Usage:       "When set, the proxy will bind inside the namespace specified",
+			EnvVar:      "PEER_NAMESPACE",
+			Destination: &peerNs,
+		},
 	}
+
 	app.Action = func(c *cli.Context) error {
 		if debug {
 			log.SetLevel(log.DebugLevel)
 		} else {
 			log.SetLevel(log.InfoLevel)
 		}
-		// This needs to be if journald available, because titus executors are started by mesos agent, and in order
-		// for logs to get from the tasks starts by titus tasks to
-		logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
+
+		utils.MaybeSetupLoggerIfOnJournaldAvailable()
+
 		/* Get the requisite configuration from environment variables */
-		listener := getListener(listenPort, listenerFd)
+		var listener net.Listener
+
+		if len(peerNs) > 0 {
+			// We were launched by a CNI. Bind inside peer namespace.
+			log.Infof("Launched with PEER_NS %s, LISTEN_PORT %d", peerNs, listenPort)
+			nsListener, err := utils.GetNsListener(peerNs, listenPort)
+			if err != nil {
+				log.Fatalf("Error getting listener %s", err)
+			}
+
+			listener = nsListener
+		} else {
+			listener = getListener(listenPort, listenerFd)
+		}
 
 		mdscfg := types.MetadataServerConfiguration{
 			IAMARN:                     iamARN,
 			TitusTaskInstanceID:        titusTaskInstanceID,
 			Ipv4Address:                net.ParseIP(ipv4Address),
 			VpcID:                      vpcID,
-			EniID:                      eniID,
 			Region:                     region,
 			Optimistic:                 optimistic,
 			APIProtectEnabled:          apiProtectEnabled,
@@ -292,7 +307,11 @@ func main() {
 		}
 		ms := metadataserver.NewMetaDataServer(context.Background(), mdscfg)
 		go notifySystemd()
-		go reloadSigner(ms)
+
+		if metatronEnabled {
+			go reloadSigner(ms)
+		}
+
 		// TODO: Wire up logic to shut down mds on signal
 		if err := http.Serve(listener, ms); err != nil {
 			return cli.NewExitError(err.Error(), 1)

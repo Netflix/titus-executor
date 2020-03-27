@@ -4,7 +4,7 @@ import (
 	"context"
 	"io/ioutil"
 
-	"github.com/Netflix/titus-executor/logsutil"
+	"github.com/Netflix/titus-executor/utils"
 
 	"github.com/Netflix/titus-executor/tag"
 
@@ -28,7 +28,7 @@ import (
 
 func init() {
 	logrus.SetOutput(ioutil.Discard)
-	logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
+	utils.MaybeSetupLoggerIfOnJournaldAvailable()
 }
 
 func main() {
