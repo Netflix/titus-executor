@@ -59,7 +59,10 @@ type MetadataServer struct {
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
 	// Need to hold `signLock` while accessing `signer`
-	signLock sync.Mutex
+	signLock                  sync.RWMutex
+	tokenRequired             bool
+	tokenKey                  []byte
+	xForwardedForBlockingMode bool
 }
 
 func dumpRoutes(r *mux.Router) {
@@ -81,24 +84,64 @@ func dumpRoutes(r *mux.Router) {
 // NewMetaDataServer which can be used as an HTTP server's handler
 func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) *MetadataServer {
 	ms := &MetadataServer{
-		httpClient:          &http.Client{},
-		internalMux:         mux.NewRouter(),
-		titusTaskInstanceID: config.TitusTaskInstanceID,
-		ipv4Address:         config.Ipv4Address,
-		ipv6Address:         config.Ipv6Address,
-		vpcID:               config.VpcID,
-		eniID:               config.EniID,
-		container:           config.Container,
-		signer:              config.Signer,
+		httpClient:                &http.Client{},
+		internalMux:               mux.NewRouter(),
+		titusTaskInstanceID:       config.TitusTaskInstanceID,
+		ipv4Address:               config.Ipv4Address,
+		ipv6Address:               config.Ipv6Address,
+		vpcID:                     config.VpcID,
+		eniID:                     config.EniID,
+		container:                 config.Container,
+		signer:                    config.Signer,
+		tokenRequired:             config.RequireToken,
+		xForwardedForBlockingMode: config.XFordwardedForBlockingMode,
 	}
 
-	/* wire up routing */
-	apiVersion := ms.internalMux.PathPrefix("/latest").Subrouter()
-	apiVersion.NotFoundHandler = newProxy(config.BackingMetadataServer)
+	ms.tokenKey = []byte(config.TokenKey)
 
-	apiVersion.HandleFunc("/ping", ms.ping)
-	/* Wire up the routes under /{VERSION}/meta-data */
-	metaData := apiVersion.PathPrefix("/meta-data").Subrouter()
+	/* IMDS routes */
+	ms.internalMux.Use(ms.serverHeader)
+
+	// v2
+	latestVersionGenToken := ms.internalMux.PathPrefix("/latest/api/token").Subrouter()
+	latestVersionGenToken.HandleFunc("", ms.createAuthTokenHandler).Methods(http.MethodPut)
+
+	latestVersion := ms.internalMux.PathPrefix("/latest").Subrouter()
+	latestVersion.Use(ms.authenticate)
+	ms.installIMDSCommonHandlers(ctx, latestVersion, config)
+
+	// v1
+	v1Version := ms.internalMux.PathPrefix("/1.0").Subrouter()
+	ms.installIMDSCommonHandlers(ctx, v1Version, config)
+
+	/* Titus routes */
+	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()
+	ms.installTitusHandlers(titusRouter, config)
+
+	/* Dump debug routes if anyone cares */
+	dumpRoutes(ms.internalMux)
+
+	return ms
+}
+
+func (ms *MetadataServer) serverHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Server", "EC2ws")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (ms *MetadataServer) installTitusHandlers(router *mux.Router, config types.MetadataServerConfiguration) {
+	if config.Signer != nil {
+		router.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
+		router.HandleFunc("/task-identity", ms.taskIdentity)
+	}
+}
+
+func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router *mux.Router, config types.MetadataServerConfiguration) {
+	router.HandleFunc("/ping", ms.ping)
+
+	metaData := router.PathPrefix("/meta-data").Subrouter()
 	metaData.HandleFunc("/mac", ms.macAddr)
 	metaData.HandleFunc("/instance-id", ms.instanceID)
 	metaData.HandleFunc("/local-ipv4", ms.localIPV4)
@@ -113,17 +156,8 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	/* IAM Stuffs */
 	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), config)
 
-	/* Titus-specific routes */
-	titusRouter := ms.internalMux.PathPrefix("/nflx/v1").Subrouter()
-	if config.Signer != nil {
-		titusRouter.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
-		titusRouter.HandleFunc("/task-identity", ms.taskIdentity)
-	}
-
-	/* Dump debug routes if anyone cares */
-	dumpRoutes(ms.internalMux)
-
-	return ms
+	/* Catch All */
+	router.PathPrefix("/").Handler(newProxy(config.BackingMetadataServer))
 }
 
 func (ms *MetadataServer) macAddr(w http.ResponseWriter, r *http.Request) {
@@ -197,12 +231,14 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type proxy struct {
-	reverseProxy *httputil.ReverseProxy
+	backingMetadataServer *url.URL
+	reverseProxy          *httputil.ReverseProxy
 }
 
 func newProxy(backingMetadataServer *url.URL) *proxy {
 	p := &proxy{
-		reverseProxy: httputil.NewSingleHostReverseProxy(backingMetadataServer),
+		backingMetadataServer: backingMetadataServer,
+		reverseProxy:          httputil.NewSingleHostReverseProxy(backingMetadataServer),
 	}
 
 	return p
@@ -224,6 +260,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Header.Del("x-aws-ec2-metadata-token")
 	metrics.PublishIncrementCounter("api.proxy_request.success.count")
 	p.reverseProxy.ServeHTTP(w, r)
 

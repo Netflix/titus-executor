@@ -24,6 +24,7 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20200109085637-d657f9650837
 	github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1
 	github.com/deckarep/golang-set v1.7.1
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/docker/distribution v2.7.0+incompatible // indirect
 	github.com/docker/docker v0.7.3-0.20190108045446-77df18c24acf
 	github.com/docker/go-connections v0.4.0 // indirect

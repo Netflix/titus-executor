@@ -86,9 +86,9 @@ func (ms *MetadataServer) taskIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ms.signLock.Lock()
+	ms.signLock.RLock()
 	sig, err := ms.signer.Sign(identData)
-	ms.signLock.Unlock()
+	ms.signLock.RUnlock()
 	if err != nil {
 		log.WithError(err).Error("Error signing data")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -126,9 +126,9 @@ func (ms *MetadataServer) taskIdentityJSON(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	ms.signLock.Lock()
+	ms.signLock.RLock()
 	sig, err := ms.signer.SignString(identData)
-	ms.signLock.Unlock()
+	ms.signLock.RUnlock()
 	if err != nil {
 		log.WithError(err).Error("Error signing data")
 		w.WriteHeader(http.StatusInternalServerError)

@@ -14,10 +14,15 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
 
 	"github.com/Netflix/titus-executor/metadataserver/types"
 
@@ -504,7 +509,7 @@ func signerFromTestKeyPair(keyPair testKeyPair) *identity.Signer {
 	return signer
 }
 
-func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair) *MetadataServer {
+func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair, requireToken bool) *MetadataServer {
 	// 8675309 is a fake account ID
 	fakeARN := "arn:aws:iam::8675309:role/thisIsAFakeRole"
 	fakeTitusTaskInstanceIPAddress := "1.2.3.4"
@@ -520,7 +525,8 @@ func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair) *Met
 			Scheme: "http",
 			Host:   ss.fakeEC2MetdataServiceListener.Addr().String(),
 		},
-		Container: fakeTaskIdent.Container,
+		Container:    fakeTaskIdent.Container,
+		RequireToken: requireToken,
 	}
 
 	if keyPair.certType != "" {
@@ -558,7 +564,7 @@ func TestVCR(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	setupMetadataServer(t, ss, testKeyPair{})
+	setupMetadataServer(t, ss, testKeyPair{}, false)
 
 	tapes :=
 		[]vcrTape{
@@ -590,7 +596,7 @@ func TestTaskIdentityWithRSA(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, rss, rsaCerts[0])
+	ms := setupMetadataServer(t, rss, rsaCerts[0], false)
 	tapes :=
 		[]vcrTape{
 			{makeGetRequest(rss, "/nflx/v1/task-identity"), validateTaskIdentityRequest(t, rsaCerts[0])},
@@ -615,7 +621,7 @@ func TestTaskIdentityWithECDSA(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, ess, ecdsaCerts[0])
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], false)
 	tapes :=
 		[]vcrTape{
 			{makeGetRequest(ess, "/nflx/v1/task-identity"), validateTaskIdentityRequest(t, ecdsaCerts[0])},
@@ -632,4 +638,134 @@ func TestTaskIdentityWithECDSA(t *testing.T) {
 			{makeGetRequestWithHeader(ess, "/nflx/v1/task-identity", "Accept", "application/json"), validateTaskIdentityJSONRequest(t)},
 		}
 	play(t, ess, tapes)
+}
+
+func TestTokenWorksWithAWSSDK(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	url := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest")
+	endpointConfig := &aws.Config{Endpoint: &url}
+	client := ec2metadata.New(session.Must(session.NewSession(endpointConfig)))
+
+	got, err := client.GetMetadata("instance-id")
+	assert.Nil(t, err)
+
+	expected := fakeTaskIdentity().GetTask().GetTaskId()
+	assert.Equal(t, expected, got)
+}
+
+func TestRequireToken(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	// Get Token
+	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
+	assert.Nil(t, err)
+	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+	assert.Equal(t, w.Header().Get("X-Aws-Ec2-Metadata-Token-Ttl-Seconds"), "20")
+	token := w.Body.String()
+
+	instancePath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
+	req, err = http.NewRequest("GET", instancePath, nil)
+	assert.Nil(t, err)
+	req.Header.Add("X-aws-ec2-metadata-token", token)
+
+	w = httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestNoTokenReturns401(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	fullPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
+	req, err := http.NewRequest("GET", fullPath, nil)
+	assert.Nil(t, err)
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestInvalidTokenReturns401(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	fullPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
+	req, err := http.NewRequest("GET", fullPath, nil)
+	assert.Nil(t, err)
+	req.Header.Add("X-aws-ec2-metadata-token", "invalid-token")
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestXForwardedForAllowedByDefault(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	// Get Token
+	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
+	assert.Nil(t, err)
+	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
+	req.Header.Add("X-Forwarded-For", "someone")
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+	token := w.Body.String()
+
+	assert.Greater(t, len(token), 0)
+}
+
+func TestXForwardedForBlockingMode(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	ms.xForwardedForBlockingMode = true
+
+	// Get Token
+	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
+	assert.Nil(t, err)
+	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
+	req.Header.Add("X-Forwarded-For", "someone")
+
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+
+	assert.Equal(t, w.Code, http.StatusForbidden)
 }
