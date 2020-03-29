@@ -13,4 +13,5 @@ if [[ -e /etc/titus-executor/metadata-proxy-config.sh ]]; then
   set +o allexport
 fi
 
+export TOKEN_KEY_SALT=$(hostname)
 exec /apps/titus-executor/bin/titus-inject-metadataproxy /apps/titus-executor/bin/titus-metadata-service --listener-fd=169
