@@ -147,6 +147,7 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 	metaData.HandleFunc("/local-ipv4", ms.localIPV4)
 	metaData.HandleFunc("/public-ipv4", ms.publicIPV4)
 	metaData.HandleFunc("/local-hostname", ms.localHostname)
+	metaData.HandleFunc("/hostname", ms.hostname)
 	metaData.HandleFunc("/public-hostname", ms.publicHostname)
 
 	/* Specifically return 404 on these endpoints */
@@ -189,12 +190,24 @@ func (ms *MetadataServer) publicIPV4(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-categories.html
+// The private IPv4 DNS hostname of the instance. In cases where multiple network interfaces are present,
+// this refers to the eth0 device (the device for which the device number is 0).
 func (ms *MetadataServer) localHostname(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.localIPV4.count")
 	if _, err := fmt.Fprint(w, ms.ipv4Address); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 
+}
+
+// The private IPv4 DNS hostname of the instance. In cases where multiple network interfaces are present,
+// this refers to the eth0 device (the device for which the device number is 0).
+func (ms *MetadataServer) hostname(w http.ResponseWriter, r *http.Request) {
+	metrics.PublishIncrementCounter("handler.hostname.count")
+	if _, err := fmt.Fprint(w, ms.ipv4Address); err != nil {
+		log.WithError(err).Error("Unable to write output")
+	}
 }
 
 func (ms *MetadataServer) publicHostname(w http.ResponseWriter, r *http.Request) {
