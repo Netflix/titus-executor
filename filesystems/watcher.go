@@ -63,6 +63,7 @@ var defaultUploadRegexpList = []*regexp.Regexp{
 	regexp.MustCompile(`stdout.[\d_\.]+$`),
 	regexp.MustCompile(`stderr.[\d_\.]+$`),
 	regexp.MustCompile(`[\d-_]+.log`),
+	regexp.MustCompile(`[\d-_]+.out`),
 	regexp.MustCompile(`[\S]+\.core\.[\d]+\.[\d]+`),
 }
 
