@@ -204,51 +204,38 @@ func TestDoubleUpload(t *testing.T) { // nolint: gocyclo
 	}
 }
 
-func TestRotateRegexp(t *testing.T) { // nolint: gocyclo
-	shouldRotate := CheckFileForRotation("stdout", nil)
-	assert.False(t, shouldRotate, "stdout should not rotate")
-
-	shouldRotate = CheckFileForRotation("stdout.2", nil)
-	assert.True(t, shouldRotate, "stdout.2 should rotate")
-
-	shouldRotate = CheckFileForRotation("stout.2", nil)
-	assert.False(t, shouldRotate, "stout.2 should not rotate")
-
-	shouldRotate = CheckFileForRotation("stdout.30092016_151555.073", nil)
-	assert.True(t, shouldRotate, "stdout.30092016_151555.073 should rotate")
-
-	shouldRotate = CheckFileForRotation("stderr.70092016_151555.07888", nil)
-	assert.True(t, shouldRotate, "stderr.70092016_151555.07888 should rotate")
-
-	shouldRotate = CheckFileForRotation("stderr.foobar.4555.", nil)
-	assert.False(t, shouldRotate, "stderr.foobar.4555 should not rotate")
-
-	shouldRotate = CheckFileForRotation("stderr.70092016_151555.07888.backup", nil)
-	assert.False(t, shouldRotate, "stderr.70092016_151555.07888.backup should not rotate")
-
+func TestRotateRegexp(t *testing.T) {
 	allLogsRegexp := regexp.MustCompile(`^[\w \d \. _ -]*log$`)
-	shouldRotate = CheckFileForRotation("propsapi_i-4a7ec3d1_tomcat_catalina.out_20160329_1352.log", allLogsRegexp)
-	assert.True(t, shouldRotate, "propsapi_i-4a7ec3d1_tomcat_catalina.out_20160329_1352.log should rotate")
 
-	shouldRotate = CheckFileForRotation("stderr.20", allLogsRegexp)
-	assert.True(t, shouldRotate, "stderr.20 should rotate")
+	var testData = []struct {
+		filename string
+		result   bool
+		regexp   *regexp.Regexp
+	}{
+		{"stdout", false, nil},
+		{"stdout.2", true, nil},
+		{"stout.2", false, nil},
+		{"stdout.30092016_151555.073", true, nil},
+		{"stderr.70092016_151555.07888", true, nil},
+		{"stderr.foobar.4555.", false, nil},
+		{"stderr.70092016_151555.07888.backup", false, nil},
+		{"tomcat-startup.log", false, nil},
+		{"nodequark.core.13213.3213", true, nil},
+		{"nodequark.core.13213.abb.3213", false, nil},
+		{"propsapi_i-4a7ec3d1_tomcat_catalina.out_20160329_1352.log", true, allLogsRegexp},
+		{"stderr.20", true, allLogsRegexp},
+		{"propsapi_i-0827338c_tomcat_catalina.out_20160414_0124.log", true, allLogsRegexp},
+		{"catalina_20200330_21.out", true, nil},
+	}
 
-	shouldRotate = CheckFileForRotation("propsapi_i-0827338c_tomcat_catalina.out_20160414_0124.log", nil)
-	assert.True(t, shouldRotate, "propsapi_i-0827338c_tomcat_catalina.out_20160414_0124.log should rotate")
-
-	shouldRotate = CheckFileForRotation("tomcat-startup.log", nil)
-	assert.False(t, shouldRotate, "tomcat-startup should not rotate")
-
-	nqCore := "nodequark.core.13213.3213"
-	shouldRotate = CheckFileForRotation(nqCore, nil)
-	assert.True(t, shouldRotate, "%s should rotate", nqCore)
-
-	nqBadCore := "nodequark.core.13213.abb.3213"
-	shouldRotate = CheckFileForRotation(nqBadCore, nil)
-	assert.False(t, shouldRotate, "%s should not rotate", nqBadCore)
-
-	shouldRotate = CheckFileForRotation("catalina_20200330_21.out", nil)
-	assert.True(t, shouldRotate, "catalina_20200330_21.out should rotate")
+	for _, td := range testData {
+		shouldRotate := CheckFileForRotation(td.filename, td.regexp)
+		if td.result {
+			assert.True(t, shouldRotate, "%s should rotate", td.filename)
+		} else {
+			assert.False(t, shouldRotate, "%s should not rotate", td.filename)
+		}
+	}
 }
 
 // The logfile to use during the testing of log rotate code
