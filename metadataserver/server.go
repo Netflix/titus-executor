@@ -274,6 +274,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Header.Del("x-aws-ec2-metadata-token")
+	w.Header().Del("Server")
 	metrics.PublishIncrementCounter("api.proxy_request.success.count")
 	p.reverseProxy.ServeHTTP(w, r)
 
