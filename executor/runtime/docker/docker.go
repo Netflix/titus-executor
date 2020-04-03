@@ -814,12 +814,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		log.WithError(err).Error("Unable to read JSON from allocate command")
 		return fmt.Errorf("Unable to read json from pipe: %+v", err) // nolint: gosec
 	}
-	if c.Allocation.Generation == nil {
-		err = errors.New("Unable to determine allocation generation")
-		log.WithError(err).Warn("Could not process allocation")
-		killCh <- struct{}{}
-		return err
-	}
+
 	if !killTimer.Stop() {
 		err = errors.New("Kill timer fired. Race condition")
 		log.WithError(err).Error("Accidentally killed the allocation command, leaving us in a 'unknown' state")
@@ -838,6 +833,13 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 			return &invalidSg
 		}
 		return fmt.Errorf("vpc network configuration error: %s", c.Allocation.Error)
+	}
+
+	if c.Allocation.Generation == nil {
+		err = errors.New("Unable to determine allocation generation")
+		log.WithError(err).Warn("Could not process allocation")
+		killCh <- struct{}{}
+		return err
 	}
 
 	switch g := (*c.Allocation.Generation); g {
