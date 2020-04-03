@@ -827,7 +827,8 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		log.WithField("error", c.Allocation.Error).Error("VPC Configuration error")
 		if (strings.Contains(c.Allocation.Error, "invalid security groups requested for vpc id")) ||
 			(strings.Contains(c.Allocation.Error, "InvalidGroup.NotFound") ||
-				(strings.Contains(c.Allocation.Error, "InvalidSecurityGroupID.NotFound"))) {
+				(strings.Contains(c.Allocation.Error, "InvalidSecurityGroupID.NotFound")) ||
+				(strings.Contains(c.Allocation.Error, "Security groups not found"))) {
 			var invalidSg runtimeTypes.InvalidSecurityGroupError
 			invalidSg.Reason = errors.New(c.Allocation.Error)
 			return &invalidSg
