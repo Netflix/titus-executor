@@ -195,6 +195,7 @@ func main() {
 	rootCmd.AddCommand(operatorCmd(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(cniCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(unassignNetworkCommand(ctx, v, ipr.getProvider))
+	rootCmd.AddCommand(eniResourceSetCommand(ctx, v, ipr.getProvider))
 
 	cobra.OnInitialize(func() {
 		if cfgFile != "" {
