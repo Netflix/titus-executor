@@ -4,7 +4,7 @@ Description=Write salt for Titus IMDS
 [Service]
 Type=oneshot
 RemainAfterExit=true
-ExecStart=/bin/bash -cx 'echo -n TOKEN_KEY_SALT=\" > /run/titus-metadata-proxy.salt && /bin/cat /proc/sys/kernel/random/uuid | tr -d "\n" >> /run/titus-metdata-proxy.salt && echo \" >> /run/titus-metdata-proxy.salt'
+ExecStart=/bin/bash -xc 'echo -n TOKEN_KEY_SALT= > /run/titus-metadata-proxy.salt && /bin/cat /proc/sys/kernel/random/uuid >> /run/titus-metadata-proxy.salt'
 LimitCORE=infinity
 
 [Install]

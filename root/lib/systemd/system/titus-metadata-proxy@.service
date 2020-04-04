@@ -15,7 +15,7 @@ NotifyAccess=all
 WatchdogSec=30
 
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
-EnvironmentFile=/run/titus-metadata-proxy.salt
+EnvironmentFile=-/run/titus-metadata-proxy.salt
 EnvironmentFile=/var/lib/titus-environments/%i.env
 ExecStart=/apps/titus-executor/bin/run-titus-metadata-proxy.sh
 LimitNOFILE=65535
