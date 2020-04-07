@@ -170,6 +170,7 @@ FROM branch_eni_attachments
 JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
 WHERE trunk_eni = $1
 AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
+AND created_at < now() - INTERVAL '5 minutes'
 `, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	if err != nil {
 		err = errors.Wrap(err, "Could not fetch assignments")
@@ -266,6 +267,7 @@ WHERE assignment_id IN
      JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
      WHERE trunk_eni = $1
      AND assignments.assignment_id NOT IN (SELECT unnest($2::text[])))
+	 AND created_at < now() - INTERVAL '5 minutes'
 RETURNING assignments.assignment_id
 `, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	if err != nil {
