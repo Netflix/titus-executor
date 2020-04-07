@@ -1925,10 +1925,6 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	// doneCh is closed once the allocation command exits
 	doneCh := make(chan struct{})
 	go func() {
-		defer close(doneCh)
-		errCh <- setupCommand.Wait()
-	}()
-	go func() {
 		select {
 		case <-killCh:
 			log.Info("Terminating setup command")
@@ -1960,13 +1956,23 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 		killCh <- struct{}{}
 	})
 
+	waitForKill := func() {
+		defer close(doneCh)
+		errCh <- setupCommand.Wait()
+	}
+
 	if err := json.NewEncoder(stdin).Encode(c.Allocation); err != nil {
+		go waitForKill()
+		killCh <- struct{}{}
 		return err
 	}
 	if err := json.NewDecoder(stdout).Decode(&result); err != nil {
+		go waitForKill()
 		killCh <- struct{}{}
 		return fmt.Errorf("Unable to read json from pipe during setup-container: %+v", err)
 	}
+
+	go waitForKill()
 
 	if !killTimer.Stop() {
 		err = errors.New("Kill timer fired. Race condition")
