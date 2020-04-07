@@ -1,5 +1,7 @@
 alter table assignments
     add completed bool default false not null;
+UPDATE assignments SET completed = 'true';
+
 alter table branch_enis
     add mac macaddr;
 alter table trunk_enis
