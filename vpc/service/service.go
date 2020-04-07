@@ -356,6 +356,11 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 			itemLister: nilItemEnumerator,
 			workFunc:   vpcService.detatchUnusedBranchENILoop,
 		},
+		{
+			taskName:   "delete_failed_assignments",
+			itemLister: nilItemEnumerator,
+			workFunc:   vpcService.deleteFailedAssignments,
+		},
 		vpcService.reconcileBranchENIsLongLivedTask(),
 		vpcService.associateActionWorker().longLivedTask(),
 		vpcService.disassociateActionWorker().longLivedTask(),
