@@ -576,7 +576,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	}
 
 	if requireToken, ok := c.TitusInfo.GetPassthroughAttributes()[imdsRequireToken]; ok {
-		c.Env["REQUIRE_TOKEN"] = requireToken
+		c.Env["TITUS_IMDS_REQUIRE_TOKEN"] = requireToken
 	}
 
 	// This must got after all setup
