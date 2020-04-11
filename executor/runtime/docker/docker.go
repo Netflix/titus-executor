@@ -69,6 +69,7 @@ const (
 	subnets                 = "titusParameter.agent.subnets"
 	elasticIPPool           = "titusParameter.agent.elasticIPPool"
 	elasticIPs              = "titusParameter.agent.elasticIPs"
+	imdsRequireToken        = "titusParameter.agent.imds.requireToken"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
@@ -572,6 +573,10 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
 		c.Env["EC2_OWNER_ID"] = vpcAccountID
+	}
+
+	if requireToken, ok := c.TitusInfo.GetPassthroughAttributes()[imdsRequireToken]; ok {
+		c.Env["TITUS_IMDS_REQUIRE_TOKEN"] = requireToken
 	}
 
 	// This must got after all setup
