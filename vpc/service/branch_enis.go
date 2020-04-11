@@ -1180,7 +1180,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		if err != nil {
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error()
-			return nil
+			return err
 		}
 
 		logger.G(ctx).WithField("table", actionWorker.table).Debug("Got lock on work item")
