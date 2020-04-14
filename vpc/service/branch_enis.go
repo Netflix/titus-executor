@@ -571,8 +571,7 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 
 	if err != nil {
 		err = errors.Wrap(err, "Cannot create network interface permission")
-		span.SetStatus(traceStatusFromError(err))
-		return err
+		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
 	_, err = tx.ExecContext(ctx, "INSERT INTO eni_permissions(branch_eni, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING ", eni.id, trunkENIAccountID)
