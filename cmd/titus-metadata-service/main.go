@@ -114,20 +114,15 @@ func main() {
 		debug                      bool
 		requireToken               bool
 		tokenSalt                  string
-		apiProtectEnabled          bool
 		backingMetadataServer      string
 		metatronEnabled            bool
-		optimistic                 bool
 		region                     string
 		iamARN                     string
 		titusTaskInstanceID        string
 		ipv4Address                string
 		ipv6Addresses              string
-		stateDir                   string
 		xFordwardedForBlockingMode bool
 		peerNs                     string
-
-		vpcID string
 	)
 
 	app.Flags = []cli.Flag{
@@ -154,18 +149,6 @@ func main() {
 			Usage:       "Use specific port to listen on",
 			EnvVar:      "LISTEN_PORT",
 			Destination: &listenPort,
-		},
-		cli.BoolFlag{
-			Name:        "optimistic",
-			Usage:       "If you set this to to true, the IAM service will optimistically fetch IAM credentials",
-			Destination: &optimistic,
-			EnvVar:      types.TitusOptimisticIAMVariableName,
-		},
-		cli.BoolFlag{
-			Name:        "api-protect",
-			Usage:       "Enable API protect",
-			Destination: &apiProtectEnabled,
-			EnvVar:      types.TitusAPIProtectEnabledVariableName,
 		},
 		cli.StringFlag{
 			Name:        "region",
@@ -196,21 +179,9 @@ func main() {
 			Destination: &metatronEnabled,
 		},
 		cli.StringFlag{
-			Name:        "vpc-id",
-			EnvVar:      "EC2_VPC_ID",
-			Destination: &vpcID,
-		},
-		cli.StringFlag{
 			Name:        "ipv6-address",
 			EnvVar:      "EC2_IPV6S",
 			Destination: &ipv6Addresses,
-		},
-		cli.StringFlag{
-			Name:        "state-dir",
-			Value:       "/run/titus-metadata-service",
-			Usage:       "Where to store the state, and locker state -- creates directory",
-			EnvVar:      "IAM_STATE_DIR",
-			Destination: &stateDir,
 		},
 		cli.BoolFlag{
 			Name:        "require-token",
@@ -268,11 +239,7 @@ func main() {
 			IAMARN:                     iamARN,
 			TitusTaskInstanceID:        titusTaskInstanceID,
 			Ipv4Address:                net.ParseIP(ipv4Address),
-			VpcID:                      vpcID,
 			Region:                     region,
-			Optimistic:                 optimistic,
-			APIProtectEnabled:          apiProtectEnabled,
-			StateDir:                   stateDir,
 			RequireToken:               requireToken,
 			TokenKey:                   titusTaskInstanceID + tokenSalt,
 			XFordwardedForBlockingMode: xFordwardedForBlockingMode,

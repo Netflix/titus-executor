@@ -139,13 +139,6 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	// FIXME(manas) extract this annotation in the admission webhook
 	env[mt.TitusMetatronVariableName] = pod.Annotations[mt.MetatronEnabledAnnotation]
 
-	// TODO(manas) remove this from metadata proxy
-	env["TITUS_OPTIMISTIC_IAM"] = "true"
-	env["TITUS_API_PROTECT_ENABLED"] = "false"
-	env["EC2_VPC_ID"] = "vpc-removeapiprotect" // only used by api-protect
-
-	env["IAM_STATE_DIR"] = "/run/titus-metadata-service"
-
 	return env, nil
 }
 
