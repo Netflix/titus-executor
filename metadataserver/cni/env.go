@@ -4,12 +4,16 @@ package cni
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/gogo/protobuf/proto"
 
 	"github.com/containernetworking/cni/pkg/version"
 
@@ -113,13 +117,21 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	env["PEER_NAMESPACE"] = getPeerNsPath(pod.Name)
 	env["EC2_REGION"] = os.Getenv("EC2_REGION")
 
+	var ok bool
+
 	for _, ip := range prev.IPs {
 		switch ip.Version {
 		case "4":
 			env["EC2_LOCAL_IPV4"] = ip.Address.String()
+			ok = true
 		case "6":
 			env["EC2_IPV6S"] = ip.Address.String()
+			ok = true
 		}
+	}
+
+	if !ok {
+		return nil, errors.New("No IP information in chained CNI result")
 	}
 
 	// pod specific configuration
@@ -136,10 +148,43 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	env["TITUS_IAM_ROLE"] = pod.Annotations[mt.IamRoleArnAnnotation]
 	env["X_FORWARDED_FOR_BLOCKING_MODE"] = pod.Annotations[mt.XForwardedForBlockingModeAnnotation]
 
-	// FIXME(manas) extract this annotation in the admission webhook
-	env[mt.TitusMetatronVariableName] = pod.Annotations[mt.MetatronEnabledAnnotation]
+	// assume we are on a metatron enabled host if we find /metatron
+	_, err = os.Stat("/metatron")
+	if os.IsNotExist(err) {
+		env[mt.TitusMetatronVariableName] = "false"
+	}
+	env[mt.TitusMetatronVariableName] = "true"
 
 	return env, nil
+}
+
+func setupEnv(pod *v1.Pod, env map[string]string) error {
+	err := writeEnvFile(pod, env)
+	if err != nil {
+		return errors.Wrap(err, "Unable to write environment file")
+	}
+
+	metatronEnv := env[mt.TitusMetatronVariableName]
+
+	if len(metatronEnv) == 0 {
+		return nil
+	}
+
+	metatronOn, err := strconv.ParseBool(metatronEnv)
+	if err != nil {
+		return errors.Wrap(err, "Unable to tell if metatron is enabled")
+	}
+
+	if !metatronOn {
+		return nil
+	}
+
+	err = writeContainerInfo(pod)
+	if err != nil {
+		return errors.Wrap(err, "Unable to write containerInfo file")
+	}
+
+	return nil
 }
 
 func writeEnvFile(pod *v1.Pod, env map[string]string) error {
@@ -164,6 +209,41 @@ func writeEnvFile(pod *v1.Pod, env map[string]string) error {
 			return err
 		}
 	}
-
 	return fd.Close()
+}
+
+func writeContainerInfo(pod *v1.Pod) error {
+	str, ok := pod.Annotations["containerInfo"]
+	if !ok {
+		return errors.New("Unable to find containerInfo annotation")
+	}
+
+	data, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return errors.Wrap(err, "Unable to base64 decode containerInfo")
+	}
+
+	var cInfo titus.ContainerInfo
+	err = proto.Unmarshal(data, &cInfo)
+	if err != nil {
+		return errors.Wrap(err, "Unable to decode containerInfo protobuf")
+	}
+
+	out, err := json.MarshalIndent(cInfo, "", " ")
+	if err != nil {
+		return errors.Wrap(err, "Unable to marshal containerInfo as JSON")
+	}
+
+	fname := path.Join(tt.TitusEnvironmentsDir, pod.Name+".json")
+
+	fd, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // nolint: gosec
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = fd.Close()
+	}()
+
+	_, err = fd.Write(out)
+	return err
 }

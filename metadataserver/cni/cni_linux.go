@@ -250,9 +250,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	// start systemd unit for the imds proxy
 
-	err = writeEnvFile(pod, env)
+	err = setupEnv(pod, env)
 	if err != nil {
-		logrus.Errorf("writeEnvFile %s", err)
+		logrus.Errorf("setupEnv %s", err)
 		goto failMount
 	}
 
