@@ -1082,7 +1082,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			image:         r.cfg.ContainerServiceMeshImage,
 			containerName: &serviceMeshContainerName,
 			volumes: map[string]struct{}{
-				"/titus/netflix-envoy": {},
+				"/titus/proxyd": {},
 			},
 		}))
 	}
