@@ -449,7 +449,8 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		"taskID": req.TaskId,
 	})
 	span.AddAttributes(
-		trace.StringAttribute("taskID", req.TaskId))
+		trace.StringAttribute("taskID", req.TaskId),
+		trace.StringAttribute("assignmentID", req.TaskId))
 
 	if req.Idempotent {
 		val, err := vpcService.fetchIdempotentAssignment(ctx, req.TaskId, true)
@@ -1334,6 +1335,7 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
+	span.AddAttributes(trace.StringAttribute("assignmentID", req.TaskId))
 	resp := vpcapi.UnassignIPResponseV3{}
 
 	if unassigned, err := vpcService.unassignStaticAddress(ctx, req.TaskId); err != nil {
