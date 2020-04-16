@@ -111,6 +111,7 @@ func runDescribeENIs(ctx context.Context, session *session.Session, items []*bat
 
 	// TODO: Write error handling logic is one of the ENIs does not exist.
 	if err != nil {
+		_ = HandleEC2Error(err, span)
 		for idx := range items {
 			items[idx].err = err
 		}
@@ -284,6 +285,7 @@ func runDescribeInstances(ctx context.Context, session *session.Session, items [
 
 	// TODO: Write error handling logic is one of the ENIs does not exist.
 	if err != nil {
+		_ = HandleEC2Error(err, span)
 		for idx := range items {
 			items[idx].err = err
 		}
