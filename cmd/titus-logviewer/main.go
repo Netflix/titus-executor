@@ -3,10 +3,9 @@ package main
 import (
 	"net/http"
 
-	"github.com/Netflix/titus-executor/utils"
-
 	"github.com/Netflix/titus-executor/logviewer/api"
 	"github.com/Netflix/titus-executor/logviewer/conf"
+	"github.com/Netflix/titus-executor/utils"
 
 	log "github.com/sirupsen/logrus"
 )

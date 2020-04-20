@@ -7,28 +7,24 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/gogo/protobuf/proto"
-
-	"github.com/containernetworking/cni/pkg/version"
-
-	"github.com/Netflix/titus-executor/utils"
-
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 	tt "github.com/Netflix/titus-executor/executor/runtime/types"
 	mt "github.com/Netflix/titus-executor/metadataserver/types"
+	"github.com/Netflix/titus-executor/utils"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
+	"github.com/containernetworking/cni/pkg/version"
+
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -76,37 +72,10 @@ func getPod(args *skel.CmdArgs) (*v1.Pod, error) {
 	}
 	logrus.Debugf("k8s args %#v", k8sArgs)
 
-	ctx := context.Background()
-	defer ctx.Done()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	return utils.GetPod(ctx, kubeletAPIPodsURL, k8sArgs)
-}
-
-func generateTokenKeySaltIfRequired(pod *v1.Pod) (string, error) {
-	fname := path.Join(tt.TitusEnvironmentsDir, fmt.Sprintf("%s.salt", pod.Name))
-
-	_, err := os.Stat(fname)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return "", errors.Wrap(err, "Unable to stat "+fname)
-		}
-
-		fd, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644) // nolint: gosec
-		if err != nil {
-			return "", err
-		}
-
-		if _, err = fmt.Fprint(fd, uuid.New().String()); err != nil {
-			return "", err
-		}
-
-		if err = fd.Close(); err != nil {
-			return "", err
-		}
-	}
-
-	data, err := ioutil.ReadFile(fname)
-	return string(data), err
 }
 
 func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
@@ -137,23 +106,8 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	// pod specific configuration
 	env["TITUS_TASK_INSTANCE_ID"] = pod.Name
 
-	// FIXME(manas) make this an annotation in the admission webhook
-	env["REQUIRE_TOKEN"] = pod.Annotations[mt.RequireTokenAnnotation]
-	salt, err := generateTokenKeySaltIfRequired(pod)
-	if err != nil {
-		return nil, errors.Wrap(err, "Unable to generate required token salt")
-	}
-	env["TOKEN_KEY_SALT"] = salt
-
 	env["TITUS_IAM_ROLE"] = pod.Annotations[mt.IamRoleArnAnnotation]
 	env["X_FORWARDED_FOR_BLOCKING_MODE"] = pod.Annotations[mt.XForwardedForBlockingModeAnnotation]
-
-	// assume we are on a metatron enabled host if we find /metatron
-	_, err = os.Stat("/metatron")
-	if os.IsNotExist(err) {
-		env[mt.TitusMetatronVariableName] = "false"
-	}
-	env[mt.TitusMetatronVariableName] = "true"
 
 	return env, nil
 }

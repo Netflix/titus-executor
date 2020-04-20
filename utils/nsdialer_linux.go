@@ -5,6 +5,7 @@ package utils
 import (
 	"context"
 	"net"
+	"runtime"
 
 	"github.com/pkg/errors"
 	"go.uber.org/multierr"
@@ -13,6 +14,11 @@ import (
 )
 
 func (n *NsDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	runtime.LockOSThread()
+	defer func() {
+		runtime.UnlockOSThread()
+	}()
+
 	origNs, err := netns.Get()
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to save namespace")

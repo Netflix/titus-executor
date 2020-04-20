@@ -7,8 +7,8 @@ import (
 	"net"
 	"runtime"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
-	"go.uber.org/multierr"
 
 	"github.com/vishvananda/netns"
 )
@@ -35,17 +35,21 @@ func GetNsListener(netNsPath string, port int) (net.Listener, error) {
 		_ = dialNs.Close()
 	}()
 
+	var errs *multierror.Error
+
 	err = netns.Set(dialNs)
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to enter namespace")
 	}
 
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	errs = multierror.Append(errs, err)
 
-	errA := netns.Set(origNs)
-	if errA != nil {
-		errA = errors.Wrap(errA, "Unable to restore namespace")
+	err = netns.Set(origNs)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to restore namespace")
 	}
+	errs = multierror.Append(errs, err)
 
-	return listener, multierr.Combine(err, errA)
+	return listener, errs.ErrorOrNil()
 }

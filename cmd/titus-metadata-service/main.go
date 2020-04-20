@@ -227,7 +227,7 @@ func main() {
 			log.Infof("Launched with PEER_NS %s, LISTEN_PORT %d", peerNs, listenPort)
 			nsListener, err := utils.GetNsListener(peerNs, listenPort)
 			if err != nil {
-				log.Fatalf("Error getting listener %s", err)
+				log.WithError(err).Fatal("Could not get listener")
 			}
 
 			listener = nsListener
