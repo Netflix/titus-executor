@@ -28,6 +28,7 @@ const (
 	KvmEnabledParam              = "titusParameter.agent.kvmEnabled"
 	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
 	serviceMeshEnabledParam      = "titusParameter.agent.service.serviceMesh.enabled"
+	serviceMeshContainerParam    = "titusParameter.agent.service.serviceMesh.container"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
@@ -339,6 +340,19 @@ func (c *Container) GetServiceMeshEnabled() (bool, error) {
 	}
 
 	return val, nil
+}
+
+func (c *Container) GetServiceMeshImage() (string, error) {
+	image, ok := c.TitusInfo.GetPassthroughAttributes()[serviceMeshContainerParam]
+	if ok && len(image) > 0 {
+		return image, nil
+	}
+
+	if len(c.Config.ContainerServiceMeshImage) > 0 {
+		return c.Config.ContainerServiceMeshImage, nil
+	}
+
+	return "no-image", errors.New("Unable to determine service mesh container")
 }
 
 // GetShmSize should the container's /dev/shm size be set?

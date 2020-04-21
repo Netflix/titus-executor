@@ -206,12 +206,17 @@ func shouldStartMetatronSync(cfg *config.Config, c *runtimeTypes.Container) bool
 }
 
 func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool {
-	if !cfg.ContainerServiceMeshEnabled || cfg.ContainerServiceMeshImage == "" {
+	if !cfg.ContainerServiceMeshEnabled {
 		return false
 	}
 
 	enabled, _ := c.GetServiceMeshEnabled()
-	return enabled
+	if !enabled {
+		return false
+	}
+
+	_, err := c.GetServiceMeshImage()
+	return err == nil
 }
 
 // NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
@@ -1013,6 +1018,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		dockerCfg           *container.Config
 		hostCfg             *container.HostConfig
 		size                int64
+		serviceMeshImage    string
 	)
 	dockerCreateStartTime := time.Now()
 	group, errGroupCtx := errgroup.WithContext(ctx)
@@ -1077,9 +1083,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 
 	if shouldStartServiceMesh(&r.cfg, c) {
+		serviceMeshImage, _ = c.GetServiceMeshImage()
 		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
 			serviceName:   "servicemesh",
-			image:         r.cfg.ContainerServiceMeshImage,
+			image:         serviceMeshImage,
 			containerName: &serviceMeshContainerName,
 			volumes: map[string]struct{}{
 				"/titus/proxyd": {},
