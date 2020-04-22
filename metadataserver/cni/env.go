@@ -11,6 +11,8 @@ import (
 	"path"
 	"strconv"
 
+	"github.com/Netflix/titus-executor/utils/k8s"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -18,8 +20,6 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	tt "github.com/Netflix/titus-executor/executor/runtime/types"
 	mt "github.com/Netflix/titus-executor/metadataserver/types"
-	"github.com/Netflix/titus-executor/utils"
-
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
@@ -54,7 +54,7 @@ func getPrev(args *skel.CmdArgs) (*current.Result, error) {
 }
 
 func getPodName(args *skel.CmdArgs) (string, error) {
-	var k8sArgs utils.K8sArgs
+	var k8sArgs k8s.Args
 	err := types.LoadArgs(args.Args, &k8sArgs)
 	if err != nil {
 		return "pod-name", errors.Wrap(err, "Unable to parse CNI k8s args")
@@ -65,7 +65,7 @@ func getPodName(args *skel.CmdArgs) (string, error) {
 }
 
 func getPod(args *skel.CmdArgs) (*v1.Pod, error) {
-	var k8sArgs utils.K8sArgs
+	var k8sArgs k8s.Args
 	err := types.LoadArgs(args.Args, &k8sArgs)
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to parse CNI k8s args")
@@ -75,7 +75,7 @@ func getPod(args *skel.CmdArgs) (*v1.Pod, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	return utils.GetPod(ctx, kubeletAPIPodsURL, k8sArgs)
+	return k8s.GetPod(ctx, kubeletAPIPodsURL, k8sArgs)
 }
 
 func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {

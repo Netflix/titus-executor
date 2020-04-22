@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Netflix/titus-executor/utils"
+	log2 "github.com/Netflix/titus-executor/utils/log"
 
 	"github.com/Netflix/titus-executor/reaper"
 	log "github.com/sirupsen/logrus"
@@ -22,7 +22,7 @@ func main() {
 	if debug {
 		log.SetLevel(log.DebugLevel)
 	} else {
-		utils.MaybeSetupLoggerIfOnJournaldAvailable()
+		log2.MaybeSetupLoggerIfOnJournaldAvailable()
 	}
 	path := os.Getenv("PATH")
 	if err := os.Setenv("PATH", fmt.Sprintf("%s%s", path, ":/usr/sbin:/sbin:/usr/local/sbin")); err != nil {

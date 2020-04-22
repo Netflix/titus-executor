@@ -14,7 +14,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/Netflix/titus-executor/utils"
+	"github.com/Netflix/titus-executor/utils/log"
 
 	"github.com/Netflix/titus-executor/vpc"
 
@@ -128,7 +128,7 @@ func main() {
 				logrusLogger.SetLevel(logrus.DebugLevel)
 			}
 			if v.GetBool("journald") {
-				utils.MaybeSetupLoggerIfOnJournaldAvailable()
+				log.MaybeSetupLoggerIfOnJournaldAvailable()
 			}
 			view.SetReportingPeriod(time.Second * 1)
 

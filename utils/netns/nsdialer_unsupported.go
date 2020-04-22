@@ -1,12 +1,14 @@
 // +build !linux
 
-package utils
+package netns
 
 import (
 	"context"
 	"net"
+
+	"github.com/Netflix/titus-executor/utils"
 )
 
 func (ns *NsDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	return nil, ErrorUnsupportedPlatform
+	return nil, utils.ErrorUnsupportedPlatform
 }

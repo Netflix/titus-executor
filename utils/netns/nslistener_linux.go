@@ -1,19 +1,19 @@
 // +build linux
 
-package utils
+package netns
 
 import (
-	"context"
+	"fmt"
 	"net"
 	"runtime"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
-	"go.uber.org/multierr"
 
 	"github.com/vishvananda/netns"
 )
 
-func (n *NsDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+func GetNsListener(netNsPath string, port int) (net.Listener, error) {
 	runtime.LockOSThread()
 	defer func() {
 		runtime.UnlockOSThread()
@@ -27,7 +27,7 @@ func (n *NsDialer) DialContext(ctx context.Context, network, address string) (ne
 		_ = origNs.Close()
 	}()
 
-	dialNs, err := netns.GetFromPath(n.netNsPath)
+	dialNs, err := netns.GetFromPath(netNsPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to open namespace")
 	}
@@ -35,17 +35,21 @@ func (n *NsDialer) DialContext(ctx context.Context, network, address string) (ne
 		_ = dialNs.Close()
 	}()
 
+	var errs *multierror.Error
+
 	err = netns.Set(dialNs)
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to enter namespace")
 	}
 
-	conn, err := n.dialer.DialContext(ctx, network, address)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	errs = multierror.Append(errs, err)
 
-	errA := netns.Set(origNs)
-	if errA != nil {
-		errA = errors.Wrap(err, "Unable to restore namespace")
+	err = netns.Set(origNs)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to restore namespace")
 	}
+	errs = multierror.Append(errs, err)
 
-	return conn, multierr.Combine(err, errA)
+	return listener, errs.ErrorOrNil()
 }

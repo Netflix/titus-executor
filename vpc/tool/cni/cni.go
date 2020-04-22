@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Netflix/titus-executor/utils"
+	"github.com/Netflix/titus-executor/utils/k8s"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -42,7 +42,7 @@ type Command struct {
 }
 
 type config struct {
-	k8sArgs utils.K8sArgs
+	k8sArgs k8s.Args
 	cfg     TitusCNIConfig
 
 	instanceIdentity *vpcapi.InstanceIdentity
@@ -106,7 +106,7 @@ func (c *Command) getPod(ctx context.Context, cfg *config) (*corev1.Pod, error) 
 	ctx, span := trace.StartSpan(ctx, "getPod")
 	defer span.End()
 
-	pod, err := utils.GetPod(ctx, cfg.cfg.KubeletAPIURL, cfg.k8sArgs)
+	pod, err := k8s.GetPod(ctx, cfg.cfg.KubeletAPIURL, cfg.k8sArgs)
 	tracehelpers.SetStatus(err, span)
 	return pod, err
 }
@@ -197,7 +197,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 
 	// FIXME(manas) This check seems redundant?
 	podName := cfg.k8sArgs.K8S_POD_NAME
-	podKey := utils.PodKey(pod)
+	podKey := k8s.PodKey(pod)
 	if string(podName) != podKey {
 		err = fmt.Errorf("Pod key (%s) is not pod name (%s)", podKey, podName)
 		logger.G(ctx).WithError(err).Error()

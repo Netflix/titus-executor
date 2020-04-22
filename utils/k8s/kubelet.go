@@ -1,4 +1,4 @@
-package utils
+package k8s
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func ToPodList(body []byte) (*corev1.PodList, error) {
 	return podList, nil
 }
 
-func GetPod(ctx context.Context, url string, args K8sArgs) (*corev1.Pod, error) {
+func GetPod(ctx context.Context, url string, args Args) (*corev1.Pod, error) {
 	body, err := Get(ctx, url)
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to fetch from Kubernetes URL")
@@ -86,7 +86,7 @@ func Get(ctx context.Context, url string) ([]byte, error) {
 }
 
 // Refer https://github.com/kubernetes/kubernetes/blob/master/pkg/kubelet/dockershim/network/cni/cni.go#L392
-type K8sArgs struct {
+type Args struct {
 	types.CommonArgs
 
 	K8S_POD_NAME               types.UnmarshallableString // nolint:golint

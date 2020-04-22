@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Netflix/titus-executor/utils"
+	"github.com/Netflix/titus-executor/utils/k8s"
 
 	"github.com/Netflix/titus-executor/vpc/tool/container2"
 	"github.com/hashicorp/go-multierror"
@@ -115,7 +115,7 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 func kubernetesTasks(ctx context.Context, url string) ([]string, error) {
 	ctx, span := trace.StartSpan(ctx, "kubernetesTasks")
 	defer span.End()
-	body, err := utils.Get(ctx, url)
+	body, err := k8s.Get(ctx, url)
 	if err != nil {
 		err = errors.Wrap(err, "Could not fetch task body from Kubelet")
 		tracehelpers.SetStatus(err, span)
@@ -132,7 +132,7 @@ func kubernetesTasks(ctx context.Context, url string) ([]string, error) {
 }
 
 func parseKubernetesTasksBody(body []byte) ([]string, error) {
-	podList, err := utils.ToPodList(body)
+	podList, err := k8s.ToPodList(body)
 	if err != nil {
 		err = errors.Wrap(err, "Could not decode body to podlist")
 		return nil, err
@@ -141,7 +141,7 @@ func parseKubernetesTasksBody(body []byte) ([]string, error) {
 	ret := make([]string, len(podList.Items))
 	for idx := range podList.Items {
 		pod := podList.Items[idx]
-		ret[idx] = utils.PodKey(&pod)
+		ret[idx] = k8s.PodKey(&pod)
 	}
 	return ret, nil
 }
@@ -149,7 +149,7 @@ func parseKubernetesTasksBody(body []byte) ([]string, error) {
 func mesosTasks(ctx context.Context, url string) ([]string, error) {
 	ctx, span := trace.StartSpan(ctx, "mesosTasks")
 	defer span.End()
-	body, err := utils.Get(ctx, url)
+	body, err := k8s.Get(ctx, url)
 	if err != nil {
 		err = errors.Wrap(err, "Could not fetch task body from Kubelet")
 		tracehelpers.SetStatus(err, span)

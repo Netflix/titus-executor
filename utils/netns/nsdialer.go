@@ -1,9 +1,11 @@
-package utils
+package netns
 
 import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/Netflix/titus-executor/utils"
 )
 
 type NsDialer struct {
@@ -15,7 +17,7 @@ func NewNsDialer(netNsPath string) (*NsDialer, error) {
 	_, err := os.Stat(netNsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, ErrorUnknownContainer
+			return nil, utils.ErrorUnknownContainer
 		}
 
 		return nil, err

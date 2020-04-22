@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/Netflix/titus-executor/utils/netns"
+
 	"github.com/Netflix/titus-executor/utils"
 )
 
@@ -21,7 +23,7 @@ func doProxy(w http.ResponseWriter, r *http.Request, containerID string, proxy *
 	proxyURL, _ := url.Parse(inContainerURL)
 
 	nsPath := getNetNsPath(containerID)
-	nsDialer, err := utils.NewNsDialer(nsPath)
+	nsDialer, err := netns.NewNsDialer(nsPath)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

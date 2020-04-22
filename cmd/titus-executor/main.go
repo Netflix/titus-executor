@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	log2 "github.com/Netflix/titus-executor/utils/log"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
 	titusmesosdriver "github.com/Netflix/titus-executor/executor/drivers/mesos"
@@ -16,7 +18,6 @@ import (
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/Netflix/titus-executor/properties"
 	"github.com/Netflix/titus-executor/tag"
-	"github.com/Netflix/titus-executor/utils"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/urfave/cli.v1"
 	"gopkg.in/urfave/cli.v1/altsrc"
@@ -24,7 +25,7 @@ import (
 
 func init() {
 	log.SetOutput(ioutil.Discard)
-	utils.MaybeSetupLoggerIfOnJournaldAvailable()
+	log2.MaybeSetupLoggerIfOnJournaldAvailable()
 }
 
 var logLevel string

@@ -1,6 +1,6 @@
 // +build linux
 
-package utils
+package log
 
 import (
 	"github.com/wercker/journalhook"

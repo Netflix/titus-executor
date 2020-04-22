@@ -16,7 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Netflix/titus-executor/utils"
+	log2 "github.com/Netflix/titus-executor/utils/log"
+	"github.com/Netflix/titus-executor/utils/netns"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -217,7 +218,7 @@ func main() {
 			log.SetLevel(log.InfoLevel)
 		}
 
-		utils.MaybeSetupLoggerIfOnJournaldAvailable()
+		log2.MaybeSetupLoggerIfOnJournaldAvailable()
 
 		/* Get the requisite configuration from environment variables */
 		var listener net.Listener
@@ -225,7 +226,7 @@ func main() {
 		if len(peerNs) > 0 {
 			// We were launched by a CNI. Bind inside peer namespace.
 			log.Infof("Launched with PEER_NS %s, LISTEN_PORT %d", peerNs, listenPort)
-			nsListener, err := utils.GetNsListener(peerNs, listenPort)
+			nsListener, err := netns.GetNsListener(peerNs, listenPort)
 			if err != nil {
 				log.WithError(err).Fatal("Could not get listener")
 			}

@@ -3,10 +3,10 @@ package main
 import (
 	"net/http"
 
+	log2 "github.com/Netflix/titus-executor/utils/log"
+
 	"github.com/Netflix/titus-executor/logviewer/api"
 	"github.com/Netflix/titus-executor/logviewer/conf"
-	"github.com/Netflix/titus-executor/utils"
-
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,7 +17,7 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	utils.MaybeSetupLoggerIfOnJournaldAvailable()
+	log2.MaybeSetupLoggerIfOnJournaldAvailable()
 	log.Println("Titus logviewer is starting")
 	r := newMux()
 	if err := http.ListenAndServe(":8004", r); err != nil {
