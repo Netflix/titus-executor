@@ -19,11 +19,6 @@ const (
 type Config struct {
 	// nolint: maligned
 
-	// MetatronEnabled returns if Metatron is enabled
-	MetatronEnabled bool
-	// Docker image for running the metatron certificate refresh executable
-	ContainerMetatronImage string
-
 	// PrivilegedContainersEnabled returns whether to give tasks CAP_SYS_ADMIN
 	PrivilegedContainersEnabled bool
 	// UseNewNetworkDriver returns which network driver to use
@@ -39,17 +34,22 @@ type Config struct {
 	DockerHost     string
 	DockerRegistry string
 
+	// MetatronEnabled returns if Metatron is enabled
+	MetatronEnabled      bool
+	MetatronServiceImage string
+
 	// Enable an in-container logviewer via a volume container?
-	ContainerLogViewer      bool
-	ContainerLogViewerImage string
+	ContainerLogViewer    bool
+	LogViewerServiceImage string
 
 	// Enable an in-container system mesh image?
 	ContainerServiceMeshEnabled bool
-	ContainerServiceMeshImage   string
+	ProxydServiceImage          string
 
 	// Do we enable a container-specific SSHD?
-	ContainerSSHD       bool
-	ContainerSSHDImage  string
+	ContainerSSHD    bool
+	SSHDServiceImage string
+
 	ContainerSSHDCAFile string
 	ContainerSSHDUsers  cli.StringSlice
 	EC2AccountID        string
@@ -141,24 +141,20 @@ func NewConfig() (*Config, []cli.Flag) {
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
 		},
+		cli.StringFlag{
+			Name:        "metatron-service-image",
+			Destination: &cfg.MetatronServiceImage,
+			EnvVar:      "METATRON_SERVICE_IMAGE",
+		},
 		cli.BoolTFlag{
 			Name:        "container-logviewer",
 			Destination: &cfg.ContainerLogViewer,
 			EnvVar:      "CONTAINER_LOGVIEWER",
 		},
 		cli.StringFlag{
-			Name: "container-logviewer-image",
-			// This image launches the logviewer inside the container
-			Value:       "titusoss/titus-logviewer@sha256:96c77eb57738f0d929be7a18da496f539a7519937b97451aeb201a5857d99cf2",
-			Destination: &cfg.ContainerLogViewerImage,
-			EnvVar:      "CONTAINER_LOGVIEWER_IMAGE",
-		},
-		cli.StringFlag{
-			Name: "container-metatron-image",
-			// This image fetches the task identity document and writes it to `/task-identity`. See `hack/test-images/metatron/`.
-			Value:       "titusoss/metatron@sha256:a850a47bda1238f4bad36fd599679ef518cc40874c0102713982d1058b5a3a88",
-			Destination: &cfg.ContainerMetatronImage,
-			EnvVar:      "CONTAINER_METATRON_IMAGE",
+			Name:        "logviewer-service-image",
+			Destination: &cfg.LogViewerServiceImage,
+			EnvVar:      "LOGVIEWER_SERVICE_IMAGE",
 		},
 		cli.BoolFlag{
 			Name:        "container-servicemesh-enabled",
@@ -166,11 +162,9 @@ func NewConfig() (*Config, []cli.Flag) {
 			Destination: &cfg.ContainerServiceMeshEnabled,
 		},
 		cli.StringFlag{
-			Name: "container-servicemesh-image",
-			// This image launches the service mesh inside the container
-			Value:       "",
-			Destination: &cfg.ContainerServiceMeshImage,
-			EnvVar:      "CONTAINER_SERVICEMESH_IMAGE",
+			Name:        "proxyd-service-image",
+			Destination: &cfg.ProxydServiceImage,
+			EnvVar:      "PROXYD_SERVICE_IMAGE",
 		},
 		cli.BoolTFlag{
 			Name:        "container-sshd",
@@ -178,10 +172,9 @@ func NewConfig() (*Config, []cli.Flag) {
 			EnvVar:      "CONTAINER_SSHD",
 		},
 		cli.StringFlag{
-			Name:        "container-sshd-image",
-			Value:       "titusoss/titus-sshd@sha256:6f6f89250771a50e13d5a3559712defc256c37b144ca22e46c69f35f06d848a0",
-			Destination: &cfg.ContainerSSHDImage,
-			EnvVar:      "CONTAINER_SSHD_IMAGE",
+			Name:        "sshd-service-image",
+			Destination: &cfg.SSHDServiceImage,
+			EnvVar:      "SSHD_SERVICE_IMAGE",
 		},
 		cli.StringFlag{
 			Name:        "container-sshd-ca-file",

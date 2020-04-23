@@ -257,9 +257,9 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	}
 
 	cfg.ContainerLogViewer = logViewerEnabled
-	cfg.ContainerLogViewerImage = logViewerTestImage
+	cfg.LogViewerServiceImage = logViewerTestImage
 	cfg.MetatronEnabled = metatronEnabled
-	cfg.ContainerMetatronImage = metatronTestImage
+	cfg.MetatronServiceImage = metatronTestImage
 
 	dockerCfg, err := docker.GenerateConfiguration(nil)
 	if err != nil {

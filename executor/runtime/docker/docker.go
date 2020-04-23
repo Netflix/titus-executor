@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -206,12 +207,13 @@ func shouldStartMetatronSync(cfg *config.Config, c *runtimeTypes.Container) bool
 }
 
 func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool {
-	if !cfg.ContainerServiceMeshEnabled || cfg.ContainerServiceMeshImage == "" {
+	enabled, _ := c.GetServiceMeshEnabled()
+	if !enabled {
 		return false
 	}
 
-	enabled, _ := c.GetServiceMeshEnabled()
-	return enabled
+	_, err := c.GetServiceMeshImage()
+	return err == nil
 }
 
 // NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
@@ -1048,7 +1050,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	if shouldStartMetatronSync(&r.cfg, c) {
 		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
 			serviceName:   "metatron",
-			image:         r.cfg.ContainerMetatronImage,
+			image:         path.Join(c.Config.DockerRegistry, c.Config.MetatronServiceImage),
 			containerName: &metatronContainerName,
 			volumes: map[string]struct{}{
 				"/titus/metatron": {},
@@ -1058,7 +1060,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	if r.cfg.ContainerSSHD {
 		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
 			serviceName:   "sshd",
-			image:         r.cfg.ContainerSSHDImage,
+			image:         path.Join(c.Config.DockerRegistry, c.Config.SSHDServiceImage),
 			containerName: &sshdContainerName,
 			volumes: map[string]struct{}{
 				"/titus/sshd": {},
@@ -1068,7 +1070,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	if r.cfg.ContainerLogViewer {
 		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
 			serviceName:   "logviewer",
-			image:         r.cfg.ContainerLogViewerImage,
+			image:         path.Join(c.Config.DockerRegistry, c.Config.LogViewerServiceImage),
 			containerName: &logViewerContainerName,
 			volumes: map[string]struct{}{
 				"/titus/adminlogs": {},
@@ -1078,8 +1080,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 
 	if shouldStartServiceMesh(&r.cfg, c) {
 		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
-			serviceName:   "servicemesh",
-			image:         r.cfg.ContainerServiceMeshImage,
+			serviceName: "servicemesh",
+			image: func() string {
+				cimage, _ := c.GetServiceMeshImage()
+				return cimage
+			}(),
 			containerName: &serviceMeshContainerName,
 			volumes: map[string]struct{}{
 				"/titus/proxyd": {},
