@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -344,15 +345,17 @@ func (c *Container) GetServiceMeshEnabled() (bool, error) {
 
 func (c *Container) GetServiceMeshImage() (string, error) {
 	image, ok := c.TitusInfo.GetPassthroughAttributes()[serviceMeshContainerParam]
-	if ok && len(image) > 0 {
-		return image, nil
+	if ok {
+		return path.Join(c.Config.DockerRegistry, image), nil
+	} else {
+		image = c.Config.ContainerServiceMeshImage
 	}
 
-	if len(c.Config.ContainerServiceMeshImage) > 0 {
-		return c.Config.ContainerServiceMeshImage, nil
+	if  image == "" {
+		return "no-image", errors.New("Could not find service mesh image")
 	}
 
-	return "no-image", errors.New("Unable to determine service mesh container")
+	return path.Join(c.Config.DockerRegistry, image), nil
 }
 
 // GetShmSize should the container's /dev/shm size be set?
