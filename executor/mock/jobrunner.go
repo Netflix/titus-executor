@@ -30,7 +30,8 @@ var errStatusChannelClosed = errors.New("Status channel closed")
 const (
 	logUploadDir       = "/var/tmp/titus-executor/tests"
 	logViewerTestImage = "titusoss/titus-logviewer@sha256:750a908c244c3f44b2b7abf1d9297aca859592e02736b3bd48aaebac022a87e5"
-	metatronTestImage  = "titusoss/metatron:20191218-1576708232"
+	metatronTestImage  = "titusoss/metatron@sha256:78b21578893c228d006000c03eaa2546c1b1976345b273d31f704823f12d5273"
+	sshdTestImage      = "titusoss/titus-sshd@sha256:6f6f89250771a50e13d5a3559712defc256c37b144ca22e46c69f35f06d848a0"
 )
 
 // Process describes what runs inside the container
@@ -247,9 +248,11 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	// on these flags: this is just to test command-line parsing
 	configArgs = append(configArgs,
 		"--container-logviewer", strconv.FormatBool(logViewerEnabled),
-		"--container-logviewer-image", logViewerTestImage,
+		"--logviewer-service-image", logViewerTestImage,
 		"--metatron-enabled", strconv.FormatBool(metatronEnabled),
-		"--container-metatron-image", metatronTestImage)
+		"--metatron-service-image", metatronTestImage,
+		"--container-sshd", "true",
+		"--sshd-service-image", sshdTestImage)
 
 	cfg, err := config.GenerateConfiguration(configArgs)
 	if err != nil {
@@ -257,9 +260,10 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	}
 
 	cfg.ContainerLogViewer = logViewerEnabled
-	cfg.ContainerLogViewerImage = logViewerTestImage
+	cfg.LogViewerServiceImage = logViewerTestImage
 	cfg.MetatronEnabled = metatronEnabled
-	cfg.ContainerMetatronImage = metatronTestImage
+	cfg.MetatronServiceImage = metatronTestImage
+	cfg.SSHDServiceImage = sshdTestImage
 
 	dockerCfg, err := docker.GenerateConfiguration(nil)
 	if err != nil {

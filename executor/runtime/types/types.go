@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -28,6 +29,7 @@ const (
 	KvmEnabledParam              = "titusParameter.agent.kvmEnabled"
 	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
 	serviceMeshEnabledParam      = "titusParameter.agent.service.serviceMesh.enabled"
+	serviceMeshContainerParam    = "titusParameter.agent.service.serviceMesh.container"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
@@ -329,6 +331,10 @@ func (c *Container) AssignIPv6Address() (bool, error) {
 
 // GetServiceMeshEnabled should the service mesh system service be enabled?
 func (c *Container) GetServiceMeshEnabled() (bool, error) {
+	if !c.Config.ContainerServiceMeshEnabled {
+		return false, nil
+	}
+
 	enabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[serviceMeshEnabledParam]
 	if !ok {
 		return false, nil
@@ -339,6 +345,19 @@ func (c *Container) GetServiceMeshEnabled() (bool, error) {
 	}
 
 	return val, nil
+}
+
+func (c *Container) GetServiceMeshImage() (string, error) {
+	container, ok := c.TitusInfo.GetPassthroughAttributes()[serviceMeshContainerParam]
+	if !ok {
+		container = c.Config.ProxydServiceImage
+	}
+
+	if container == "" {
+		return "no-container", errors.New("Could not determine proxyd image")
+	}
+
+	return path.Join(c.Config.DockerRegistry, container), nil
 }
 
 // GetShmSize should the container's /dev/shm size be set?
