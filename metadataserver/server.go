@@ -234,10 +234,11 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.WithFields(logging.Entry(ctx)).Infof("Request %s %s '%s'", r2.Method, r2.RequestURI, r2.UserAgent())
 	}()
 	logging.AddFields(ctx, log.Fields{
-		"method":     r.Method,
-		"user-agent": r.UserAgent(),
-		"uri":        r.RequestURI,
-		"path":       r.URL.Path,
+		"method":        r.Method,
+		"user-agent":    r.UserAgent(),
+		"uri":           r.RequestURI,
+		"path":          r.URL.Path,
+		"token-present": len(r.Header.Get("X-aws-ec2-metadata-token")) > 0,
 	})
 
 	ms.internalMux.ServeHTTP(w, r2)
