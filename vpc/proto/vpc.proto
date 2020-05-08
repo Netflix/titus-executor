@@ -356,6 +356,14 @@ message DetachBranchNetworkInterfaceResponse {
     string associationID = 3;
 }
 
+message ListBranchToTrunkENIMappingRequest {
+}
+
+message ListBranchToTrunkENIMappingResponse {
+    // This map is branchENI => trunkENI
+    map<string, string> branchENIMapping = 1;
+}
+
 message GetAssignmentRequest {
     string taskId = 1;
 }
@@ -393,6 +401,7 @@ service TitusAgentVPCService {
     rpc DisassociateTrunkNetworkInterface (DisassociateTrunkNetworkInterfaceRequest) returns (DisassociateTrunkNetworkInterfaceResponse);
     rpc DescribeTrunkNetworkInterface (DescribeTrunkNetworkInterfaceRequest) returns (DescribeTrunkNetworkInterfaceResponse);
     rpc DetachBranchNetworkInterface (DetachBranchNetworkInterfaceRequest) returns (DetachBranchNetworkInterfaceResponse);
+    rpc ListBranchToTrunkENIMapping (ListBranchToTrunkENIMappingRequest) returns (ListBranchToTrunkENIMappingResponse);
 }
 
 message PrivateKey {

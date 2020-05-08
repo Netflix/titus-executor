@@ -13,6 +13,8 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
@@ -1403,4 +1405,64 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 	}
 
 	return iface, nil
+}
+
+func (vpcService *vpcService) ListBranchToTrunkENIMapping(ctx context.Context, req *vpcapi.ListBranchToTrunkENIMappingRequest) (*vpcapi.ListBranchToTrunkENIMappingResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "listBranchToTrunkENIMapping")
+	defer span.End()
+
+	mapping := map[string]string{}
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly:  true,
+		Isolation: sql.LevelRepeatableRead,
+	})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot start database transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	rows, err := tx.QueryContext(ctx, `
+	SELECT
+	branch_eni,
+	trunk_eni
+	FROM branch_eni_attachments WHERE state = 'attached'
+`)
+	if err != nil {
+		err = errors.Wrap(err, "Error scanning for all trunk to branch ENI mapping")
+		tracehelpers.SetStatus(err, span)
+		return &vpcapi.ListBranchToTrunkENIMappingResponse{
+			BranchENIMapping: mapping,
+		}, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var branchENIId, trunkENIId string
+		err = rows.Scan(&branchENIId, &trunkENIId)
+		if err != nil {
+			err = errors.Wrap(err, "Error scanning for all trunk to branch ENI mapping")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		logger.G(ctx).WithFields(map[string]interface{}{
+			"branchENI": branchENIId,
+			"trunkENI":  trunkENIId,
+		}).Debug("Returning branch => trunk mapping")
+		mapping[branchENIId] = trunkENIId
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Error commiting the sql transaction")
+		tracehelpers.SetStatus(err, span)
+	}
+
+	return &vpcapi.ListBranchToTrunkENIMappingResponse{
+		BranchENIMapping: mapping,
+	}, err
 }
