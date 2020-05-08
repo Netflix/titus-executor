@@ -324,7 +324,7 @@ WHERE trunk_eni = $1
 			return nil, err
 		}
 		branchENI.SecurityGroupIds = securityGroups
-		branchENI.CreatedAt, _ = ptypes.TimestampProto(lastAssignedTo)
+		branchENI.CreatedAt, _ = ptypes.TimestampProto(createdAt)
 		branchENI.ModifiedAt, _ = ptypes.TimestampProto(modifiedAt)
 		branchENI.LastAssignedTo, _ = ptypes.TimestampProto(lastAssignedTo)
 		association.BranchENI = &branchENI
