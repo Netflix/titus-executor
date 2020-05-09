@@ -386,8 +386,12 @@ func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoIte
 }
 
 func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
+
+	defer time.AfterFunc(11*time.Minute, func() {
+		logger.G(ctx).Warning("Function running too long")
+	}).Stop()
 
 	ctx, span := trace.StartSpan(ctx, "doGCENIs")
 	defer span.End()
@@ -422,8 +426,7 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 	})
 
 	group.Go(func() error {
-		vpcService.describeCollector(ctx, eniWQ, describeWQ)
-		return nil
+		return vpcService.describeCollector(ctx, eniWQ, describeWQ)
 	})
 
 	for i := 0; i < gcWorkers; i++ {
@@ -508,25 +511,33 @@ ORDER BY RANDOM()
 	return nil
 }
 
-func (vpcService *vpcService) describeCollector(ctx context.Context, eniWQ chan string, describeWQ chan []string) {
+func (vpcService *vpcService) describeCollector(ctx context.Context, eniWQ chan string, describeWQ chan []string) error {
 	defer close(describeWQ)
 	enis := []string{}
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return errors.Wrap(ctx.Err(), "Context error while waiting on eniWQ")
 		case eni, ok := <-eniWQ:
 			if !ok {
 				// The queue is complete
 				if len(enis) > 0 {
-					describeWQ <- enis
+					select {
+					case describeWQ <- enis:
+					case <-ctx.Done():
+						return errors.Wrap(ctx.Err(), "Context error while waiting on describeWQ on final aggregation")
+					}
 				}
-				return
+				return nil
 			}
 			enis = append(enis, eni)
 		}
 		if len(enis) > gcBatchSize {
-			describeWQ <- enis
+			select {
+			case describeWQ <- enis:
+			case <-ctx.Done():
+				return errors.Wrap(ctx.Err(), "Context error while waiting on describeWQ in incremental aggregation")
+			}
 			enis = []string{}
 		}
 	}
@@ -880,7 +891,7 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, ec2client *ec2.EC2, i
 	}
 
 	// TODO: Probably make this timeout adjustable
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
