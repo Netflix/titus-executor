@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 
 	"github.com/pkg/errors"
@@ -43,4 +45,37 @@ func TestBackoff(t *testing.T) {
 	cancel()
 	assert.ErrorContains(t, backOff(ctx, err), "expired")
 	assert.NilError(t, backOff(ctx, errors.New("")))
+}
+
+func TestListBranchToTrunkENIMapping(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NilError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	columns := []string{"branch_eni", "trunk_eni"}
+	rows := sqlmock.NewRows(columns).AddRow(
+		"eni-branch1", "eni-trunk1",
+	).AddRow(
+		"eni-branch2", "eni-trunk2",
+	)
+	mock.ExpectQuery("SELECT branch_eni, trunk_eni FROM branch_eni_attachments WHERE state = 'attached'").WillReturnRows(rows)
+	mock.ExpectCommit()
+
+	service := vpcService{db: db}
+	ctx := context.Background()
+
+	res, err := service.ListBranchToTrunkENIMapping(ctx, &vpcapi.ListBranchToTrunkENIMappingRequest{})
+	assert.NilError(t, err)
+
+	map1 := map[string]string{
+		"eni-branch1": "eni-trunk1",
+		"eni-branch2": "eni-trunk2",
+	}
+	expected := map1
+
+	got := res.BranchENIMapping
+	fmt.Println(expected)
+	fmt.Println(got)
+	assert.DeepEqual(t, expected, got)
 }
