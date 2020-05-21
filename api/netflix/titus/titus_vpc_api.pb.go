@@ -9,6 +9,7 @@ import (
 	math "math"
 
 	proto "github.com/golang/protobuf/proto"
+	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -345,6 +346,1018 @@ func (m *ValidationResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidationResponse proto.InternalMessageInfo
 
+// V2 API
+type AllocateStaticIPAddressRequest struct {
+	/// Required (The subnet where to allocate the address)
+	SubnetId string `protobuf:"bytes,1,opt,name=subnetId,proto3" json:"subnetId,omitempty"`
+	/// Optional. If specified, and an ID with that already exists, it will return an error.
+	/// This allows for idempotent requests.
+	Uuid string `protobuf:"bytes,2,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	/// Optional. Pool is an indexed column that can be used to select static IPs by.
+	Pool string `protobuf:"bytes,3,opt,name=pool,proto3" json:"pool,omitempty"`
+	/// Optional
+	Tags                 map[string]string `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
+}
+
+func (m *AllocateStaticIPAddressRequest) Reset()         { *m = AllocateStaticIPAddressRequest{} }
+func (m *AllocateStaticIPAddressRequest) String() string { return proto.CompactTextString(m) }
+func (*AllocateStaticIPAddressRequest) ProtoMessage()    {}
+func (*AllocateStaticIPAddressRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{6}
+}
+
+func (m *AllocateStaticIPAddressRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AllocateStaticIPAddressRequest.Unmarshal(m, b)
+}
+func (m *AllocateStaticIPAddressRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AllocateStaticIPAddressRequest.Marshal(b, m, deterministic)
+}
+func (m *AllocateStaticIPAddressRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AllocateStaticIPAddressRequest.Merge(m, src)
+}
+func (m *AllocateStaticIPAddressRequest) XXX_Size() int {
+	return xxx_messageInfo_AllocateStaticIPAddressRequest.Size(m)
+}
+func (m *AllocateStaticIPAddressRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_AllocateStaticIPAddressRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AllocateStaticIPAddressRequest proto.InternalMessageInfo
+
+func (m *AllocateStaticIPAddressRequest) GetSubnetId() string {
+	if m != nil {
+		return m.SubnetId
+	}
+	return ""
+}
+
+func (m *AllocateStaticIPAddressRequest) GetUuid() string {
+	if m != nil {
+		return m.Uuid
+	}
+	return ""
+}
+
+func (m *AllocateStaticIPAddressRequest) GetPool() string {
+	if m != nil {
+		return m.Pool
+	}
+	return ""
+}
+
+func (m *AllocateStaticIPAddressRequest) GetTags() map[string]string {
+	if m != nil {
+		return m.Tags
+	}
+	return nil
+}
+
+type AllocateStaticIPAddressResponse struct {
+	StaticIPAddress      *StaticIPAddress `protobuf:"bytes,1,opt,name=staticIPAddress,proto3" json:"staticIPAddress,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
+	XXX_unrecognized     []byte           `json:"-"`
+	XXX_sizecache        int32            `json:"-"`
+}
+
+func (m *AllocateStaticIPAddressResponse) Reset()         { *m = AllocateStaticIPAddressResponse{} }
+func (m *AllocateStaticIPAddressResponse) String() string { return proto.CompactTextString(m) }
+func (*AllocateStaticIPAddressResponse) ProtoMessage()    {}
+func (*AllocateStaticIPAddressResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{7}
+}
+
+func (m *AllocateStaticIPAddressResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AllocateStaticIPAddressResponse.Unmarshal(m, b)
+}
+func (m *AllocateStaticIPAddressResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AllocateStaticIPAddressResponse.Marshal(b, m, deterministic)
+}
+func (m *AllocateStaticIPAddressResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AllocateStaticIPAddressResponse.Merge(m, src)
+}
+func (m *AllocateStaticIPAddressResponse) XXX_Size() int {
+	return xxx_messageInfo_AllocateStaticIPAddressResponse.Size(m)
+}
+func (m *AllocateStaticIPAddressResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_AllocateStaticIPAddressResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AllocateStaticIPAddressResponse proto.InternalMessageInfo
+
+func (m *AllocateStaticIPAddressResponse) GetStaticIPAddress() *StaticIPAddress {
+	if m != nil {
+		return m.StaticIPAddress
+	}
+	return nil
+}
+
+type AddressLocationV2 struct {
+	AccountId            string   `protobuf:"bytes,1,opt,name=accountId,proto3" json:"accountId,omitempty"`
+	AvailabilityZone     string   `protobuf:"bytes,2,opt,name=availabilityZone,proto3" json:"availabilityZone,omitempty"`
+	AvailabilityZoneId   string   `protobuf:"bytes,3,opt,name=availabilityZoneId,proto3" json:"availabilityZoneId,omitempty"`
+	VpcId                string   `protobuf:"bytes,4,opt,name=vpcId,proto3" json:"vpcId,omitempty"`
+	SubnetId             string   `protobuf:"bytes,5,opt,name=subnetId,proto3" json:"subnetId,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *AddressLocationV2) Reset()         { *m = AddressLocationV2{} }
+func (m *AddressLocationV2) String() string { return proto.CompactTextString(m) }
+func (*AddressLocationV2) ProtoMessage()    {}
+func (*AddressLocationV2) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{8}
+}
+
+func (m *AddressLocationV2) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AddressLocationV2.Unmarshal(m, b)
+}
+func (m *AddressLocationV2) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AddressLocationV2.Marshal(b, m, deterministic)
+}
+func (m *AddressLocationV2) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AddressLocationV2.Merge(m, src)
+}
+func (m *AddressLocationV2) XXX_Size() int {
+	return xxx_messageInfo_AddressLocationV2.Size(m)
+}
+func (m *AddressLocationV2) XXX_DiscardUnknown() {
+	xxx_messageInfo_AddressLocationV2.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AddressLocationV2 proto.InternalMessageInfo
+
+func (m *AddressLocationV2) GetAccountId() string {
+	if m != nil {
+		return m.AccountId
+	}
+	return ""
+}
+
+func (m *AddressLocationV2) GetAvailabilityZone() string {
+	if m != nil {
+		return m.AvailabilityZone
+	}
+	return ""
+}
+
+func (m *AddressLocationV2) GetAvailabilityZoneId() string {
+	if m != nil {
+		return m.AvailabilityZoneId
+	}
+	return ""
+}
+
+func (m *AddressLocationV2) GetVpcId() string {
+	if m != nil {
+		return m.VpcId
+	}
+	return ""
+}
+
+func (m *AddressLocationV2) GetSubnetId() string {
+	if m != nil {
+		return m.SubnetId
+	}
+	return ""
+}
+
+type StaticIPAddress struct {
+	Uuid                 string             `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Ipv4Address          string             `protobuf:"bytes,2,opt,name=ipv4Address,proto3" json:"ipv4Address,omitempty"`
+	Ipv6Address          string             `protobuf:"bytes,3,opt,name=ipv6Address,proto3" json:"ipv6Address,omitempty"`
+	Pool                 string             `protobuf:"bytes,4,opt,name=pool,proto3" json:"pool,omitempty"`
+	Tags                 map[string]string  `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	AddressLocation      *AddressLocationV2 `protobuf:"bytes,6,opt,name=addressLocation,proto3" json:"addressLocation,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
+	XXX_unrecognized     []byte             `json:"-"`
+	XXX_sizecache        int32              `json:"-"`
+}
+
+func (m *StaticIPAddress) Reset()         { *m = StaticIPAddress{} }
+func (m *StaticIPAddress) String() string { return proto.CompactTextString(m) }
+func (*StaticIPAddress) ProtoMessage()    {}
+func (*StaticIPAddress) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{9}
+}
+
+func (m *StaticIPAddress) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_StaticIPAddress.Unmarshal(m, b)
+}
+func (m *StaticIPAddress) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_StaticIPAddress.Marshal(b, m, deterministic)
+}
+func (m *StaticIPAddress) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StaticIPAddress.Merge(m, src)
+}
+func (m *StaticIPAddress) XXX_Size() int {
+	return xxx_messageInfo_StaticIPAddress.Size(m)
+}
+func (m *StaticIPAddress) XXX_DiscardUnknown() {
+	xxx_messageInfo_StaticIPAddress.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_StaticIPAddress proto.InternalMessageInfo
+
+func (m *StaticIPAddress) GetUuid() string {
+	if m != nil {
+		return m.Uuid
+	}
+	return ""
+}
+
+func (m *StaticIPAddress) GetIpv4Address() string {
+	if m != nil {
+		return m.Ipv4Address
+	}
+	return ""
+}
+
+func (m *StaticIPAddress) GetIpv6Address() string {
+	if m != nil {
+		return m.Ipv6Address
+	}
+	return ""
+}
+
+func (m *StaticIPAddress) GetPool() string {
+	if m != nil {
+		return m.Pool
+	}
+	return ""
+}
+
+func (m *StaticIPAddress) GetTags() map[string]string {
+	if m != nil {
+		return m.Tags
+	}
+	return nil
+}
+
+func (m *StaticIPAddress) GetAddressLocation() *AddressLocationV2 {
+	if m != nil {
+		return m.AddressLocation
+	}
+	return nil
+}
+
+type SetPoolRequest struct {
+	Uuid string `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	// If Pool is unset, it's equivalent of removing it from that pool
+	Pool                 string   `protobuf:"bytes,2,opt,name=pool,proto3" json:"pool,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *SetPoolRequest) Reset()         { *m = SetPoolRequest{} }
+func (m *SetPoolRequest) String() string { return proto.CompactTextString(m) }
+func (*SetPoolRequest) ProtoMessage()    {}
+func (*SetPoolRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{10}
+}
+
+func (m *SetPoolRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_SetPoolRequest.Unmarshal(m, b)
+}
+func (m *SetPoolRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_SetPoolRequest.Marshal(b, m, deterministic)
+}
+func (m *SetPoolRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SetPoolRequest.Merge(m, src)
+}
+func (m *SetPoolRequest) XXX_Size() int {
+	return xxx_messageInfo_SetPoolRequest.Size(m)
+}
+func (m *SetPoolRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_SetPoolRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SetPoolRequest proto.InternalMessageInfo
+
+func (m *SetPoolRequest) GetUuid() string {
+	if m != nil {
+		return m.Uuid
+	}
+	return ""
+}
+
+func (m *SetPoolRequest) GetPool() string {
+	if m != nil {
+		return m.Pool
+	}
+	return ""
+}
+
+type SetPoolResponse struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *SetPoolResponse) Reset()         { *m = SetPoolResponse{} }
+func (m *SetPoolResponse) String() string { return proto.CompactTextString(m) }
+func (*SetPoolResponse) ProtoMessage()    {}
+func (*SetPoolResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{11}
+}
+
+func (m *SetPoolResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_SetPoolResponse.Unmarshal(m, b)
+}
+func (m *SetPoolResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_SetPoolResponse.Marshal(b, m, deterministic)
+}
+func (m *SetPoolResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SetPoolResponse.Merge(m, src)
+}
+func (m *SetPoolResponse) XXX_Size() int {
+	return xxx_messageInfo_SetPoolResponse.Size(m)
+}
+func (m *SetPoolResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_SetPoolResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SetPoolResponse proto.InternalMessageInfo
+
+type CreateTagRequest struct {
+	Uuid  string `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Key   string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Value string `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	// If upsert is false, and the tag exists, this call will fail.
+	Upsert               bool     `protobuf:"varint,4,opt,name=upsert,proto3" json:"upsert,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *CreateTagRequest) Reset()         { *m = CreateTagRequest{} }
+func (m *CreateTagRequest) String() string { return proto.CompactTextString(m) }
+func (*CreateTagRequest) ProtoMessage()    {}
+func (*CreateTagRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{12}
+}
+
+func (m *CreateTagRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_CreateTagRequest.Unmarshal(m, b)
+}
+func (m *CreateTagRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_CreateTagRequest.Marshal(b, m, deterministic)
+}
+func (m *CreateTagRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CreateTagRequest.Merge(m, src)
+}
+func (m *CreateTagRequest) XXX_Size() int {
+	return xxx_messageInfo_CreateTagRequest.Size(m)
+}
+func (m *CreateTagRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_CreateTagRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CreateTagRequest proto.InternalMessageInfo
+
+func (m *CreateTagRequest) GetUuid() string {
+	if m != nil {
+		return m.Uuid
+	}
+	return ""
+}
+
+func (m *CreateTagRequest) GetKey() string {
+	if m != nil {
+		return m.Key
+	}
+	return ""
+}
+
+func (m *CreateTagRequest) GetValue() string {
+	if m != nil {
+		return m.Value
+	}
+	return ""
+}
+
+func (m *CreateTagRequest) GetUpsert() bool {
+	if m != nil {
+		return m.Upsert
+	}
+	return false
+}
+
+type CreateTagResponse struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *CreateTagResponse) Reset()         { *m = CreateTagResponse{} }
+func (m *CreateTagResponse) String() string { return proto.CompactTextString(m) }
+func (*CreateTagResponse) ProtoMessage()    {}
+func (*CreateTagResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{13}
+}
+
+func (m *CreateTagResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_CreateTagResponse.Unmarshal(m, b)
+}
+func (m *CreateTagResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_CreateTagResponse.Marshal(b, m, deterministic)
+}
+func (m *CreateTagResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CreateTagResponse.Merge(m, src)
+}
+func (m *CreateTagResponse) XXX_Size() int {
+	return xxx_messageInfo_CreateTagResponse.Size(m)
+}
+func (m *CreateTagResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_CreateTagResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CreateTagResponse proto.InternalMessageInfo
+
+type DeleteTagRequest struct {
+	Uuid                 string   `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Key                  string   `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeleteTagRequest) Reset()         { *m = DeleteTagRequest{} }
+func (m *DeleteTagRequest) String() string { return proto.CompactTextString(m) }
+func (*DeleteTagRequest) ProtoMessage()    {}
+func (*DeleteTagRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{14}
+}
+
+func (m *DeleteTagRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_DeleteTagRequest.Unmarshal(m, b)
+}
+func (m *DeleteTagRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_DeleteTagRequest.Marshal(b, m, deterministic)
+}
+func (m *DeleteTagRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeleteTagRequest.Merge(m, src)
+}
+func (m *DeleteTagRequest) XXX_Size() int {
+	return xxx_messageInfo_DeleteTagRequest.Size(m)
+}
+func (m *DeleteTagRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeleteTagRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeleteTagRequest proto.InternalMessageInfo
+
+func (m *DeleteTagRequest) GetUuid() string {
+	if m != nil {
+		return m.Uuid
+	}
+	return ""
+}
+
+func (m *DeleteTagRequest) GetKey() string {
+	if m != nil {
+		return m.Key
+	}
+	return ""
+}
+
+type DeleteTagResponse struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeleteTagResponse) Reset()         { *m = DeleteTagResponse{} }
+func (m *DeleteTagResponse) String() string { return proto.CompactTextString(m) }
+func (*DeleteTagResponse) ProtoMessage()    {}
+func (*DeleteTagResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{15}
+}
+
+func (m *DeleteTagResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_DeleteTagResponse.Unmarshal(m, b)
+}
+func (m *DeleteTagResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_DeleteTagResponse.Marshal(b, m, deterministic)
+}
+func (m *DeleteTagResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeleteTagResponse.Merge(m, src)
+}
+func (m *DeleteTagResponse) XXX_Size() int {
+	return xxx_messageInfo_DeleteTagResponse.Size(m)
+}
+func (m *DeleteTagResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeleteTagResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeleteTagResponse proto.InternalMessageInfo
+
+// If the tag is unset, then do not set it
+type UpdateTagRequest struct {
+	Uuid                 string   `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Key                  string   `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Value                string   `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *UpdateTagRequest) Reset()         { *m = UpdateTagRequest{} }
+func (m *UpdateTagRequest) String() string { return proto.CompactTextString(m) }
+func (*UpdateTagRequest) ProtoMessage()    {}
+func (*UpdateTagRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{16}
+}
+
+func (m *UpdateTagRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_UpdateTagRequest.Unmarshal(m, b)
+}
+func (m *UpdateTagRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_UpdateTagRequest.Marshal(b, m, deterministic)
+}
+func (m *UpdateTagRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_UpdateTagRequest.Merge(m, src)
+}
+func (m *UpdateTagRequest) XXX_Size() int {
+	return xxx_messageInfo_UpdateTagRequest.Size(m)
+}
+func (m *UpdateTagRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_UpdateTagRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_UpdateTagRequest proto.InternalMessageInfo
+
+func (m *UpdateTagRequest) GetUuid() string {
+	if m != nil {
+		return m.Uuid
+	}
+	return ""
+}
+
+func (m *UpdateTagRequest) GetKey() string {
+	if m != nil {
+		return m.Key
+	}
+	return ""
+}
+
+func (m *UpdateTagRequest) GetValue() string {
+	if m != nil {
+		return m.Value
+	}
+	return ""
+}
+
+type UpdateTagResponse struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *UpdateTagResponse) Reset()         { *m = UpdateTagResponse{} }
+func (m *UpdateTagResponse) String() string { return proto.CompactTextString(m) }
+func (*UpdateTagResponse) ProtoMessage()    {}
+func (*UpdateTagResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{17}
+}
+
+func (m *UpdateTagResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_UpdateTagResponse.Unmarshal(m, b)
+}
+func (m *UpdateTagResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_UpdateTagResponse.Marshal(b, m, deterministic)
+}
+func (m *UpdateTagResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_UpdateTagResponse.Merge(m, src)
+}
+func (m *UpdateTagResponse) XXX_Size() int {
+	return xxx_messageInfo_UpdateTagResponse.Size(m)
+}
+func (m *UpdateTagResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_UpdateTagResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_UpdateTagResponse proto.InternalMessageInfo
+
+type AddressSearchParameter struct {
+	/// Either an IPv4 or IPv6 address. If it's an IPv4 address, then subnetId or vpcId have to be specified
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// Types that are valid to be assigned to Location:
+	//	*AddressSearchParameter_Empty
+	//	*AddressSearchParameter_SubnetId
+	//	*AddressSearchParameter_VpcId
+	Location             isAddressSearchParameter_Location `protobuf_oneof:"location"`
+	XXX_NoUnkeyedLiteral struct{}                          `json:"-"`
+	XXX_unrecognized     []byte                            `json:"-"`
+	XXX_sizecache        int32                             `json:"-"`
+}
+
+func (m *AddressSearchParameter) Reset()         { *m = AddressSearchParameter{} }
+func (m *AddressSearchParameter) String() string { return proto.CompactTextString(m) }
+func (*AddressSearchParameter) ProtoMessage()    {}
+func (*AddressSearchParameter) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{18}
+}
+
+func (m *AddressSearchParameter) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AddressSearchParameter.Unmarshal(m, b)
+}
+func (m *AddressSearchParameter) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AddressSearchParameter.Marshal(b, m, deterministic)
+}
+func (m *AddressSearchParameter) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AddressSearchParameter.Merge(m, src)
+}
+func (m *AddressSearchParameter) XXX_Size() int {
+	return xxx_messageInfo_AddressSearchParameter.Size(m)
+}
+func (m *AddressSearchParameter) XXX_DiscardUnknown() {
+	xxx_messageInfo_AddressSearchParameter.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AddressSearchParameter proto.InternalMessageInfo
+
+func (m *AddressSearchParameter) GetAddress() string {
+	if m != nil {
+		return m.Address
+	}
+	return ""
+}
+
+type isAddressSearchParameter_Location interface {
+	isAddressSearchParameter_Location()
+}
+
+type AddressSearchParameter_Empty struct {
+	Empty *empty.Empty `protobuf:"bytes,2,opt,name=empty,proto3,oneof"`
+}
+
+type AddressSearchParameter_SubnetId struct {
+	SubnetId string `protobuf:"bytes,3,opt,name=subnetId,proto3,oneof"`
+}
+
+type AddressSearchParameter_VpcId struct {
+	VpcId string `protobuf:"bytes,4,opt,name=vpcId,proto3,oneof"`
+}
+
+func (*AddressSearchParameter_Empty) isAddressSearchParameter_Location() {}
+
+func (*AddressSearchParameter_SubnetId) isAddressSearchParameter_Location() {}
+
+func (*AddressSearchParameter_VpcId) isAddressSearchParameter_Location() {}
+
+func (m *AddressSearchParameter) GetLocation() isAddressSearchParameter_Location {
+	if m != nil {
+		return m.Location
+	}
+	return nil
+}
+
+func (m *AddressSearchParameter) GetEmpty() *empty.Empty {
+	if x, ok := m.GetLocation().(*AddressSearchParameter_Empty); ok {
+		return x.Empty
+	}
+	return nil
+}
+
+func (m *AddressSearchParameter) GetSubnetId() string {
+	if x, ok := m.GetLocation().(*AddressSearchParameter_SubnetId); ok {
+		return x.SubnetId
+	}
+	return ""
+}
+
+func (m *AddressSearchParameter) GetVpcId() string {
+	if x, ok := m.GetLocation().(*AddressSearchParameter_VpcId); ok {
+		return x.VpcId
+	}
+	return ""
+}
+
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*AddressSearchParameter) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
+		(*AddressSearchParameter_Empty)(nil),
+		(*AddressSearchParameter_SubnetId)(nil),
+		(*AddressSearchParameter_VpcId)(nil),
+	}
+}
+
+type GetStaticIPAddressRequest struct {
+	// Types that are valid to be assigned to SearchParameter:
+	//	*GetStaticIPAddressRequest_Uuid
+	//	*GetStaticIPAddressRequest_AddressSearchParameter
+	SearchParameter      isGetStaticIPAddressRequest_SearchParameter `protobuf_oneof:"searchParameter"`
+	XXX_NoUnkeyedLiteral struct{}                                    `json:"-"`
+	XXX_unrecognized     []byte                                      `json:"-"`
+	XXX_sizecache        int32                                       `json:"-"`
+}
+
+func (m *GetStaticIPAddressRequest) Reset()         { *m = GetStaticIPAddressRequest{} }
+func (m *GetStaticIPAddressRequest) String() string { return proto.CompactTextString(m) }
+func (*GetStaticIPAddressRequest) ProtoMessage()    {}
+func (*GetStaticIPAddressRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{19}
+}
+
+func (m *GetStaticIPAddressRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetStaticIPAddressRequest.Unmarshal(m, b)
+}
+func (m *GetStaticIPAddressRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetStaticIPAddressRequest.Marshal(b, m, deterministic)
+}
+func (m *GetStaticIPAddressRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetStaticIPAddressRequest.Merge(m, src)
+}
+func (m *GetStaticIPAddressRequest) XXX_Size() int {
+	return xxx_messageInfo_GetStaticIPAddressRequest.Size(m)
+}
+func (m *GetStaticIPAddressRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetStaticIPAddressRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetStaticIPAddressRequest proto.InternalMessageInfo
+
+type isGetStaticIPAddressRequest_SearchParameter interface {
+	isGetStaticIPAddressRequest_SearchParameter()
+}
+
+type GetStaticIPAddressRequest_Uuid struct {
+	Uuid string `protobuf:"bytes,1,opt,name=uuid,proto3,oneof"`
+}
+
+type GetStaticIPAddressRequest_AddressSearchParameter struct {
+	AddressSearchParameter *AddressSearchParameter `protobuf:"bytes,2,opt,name=addressSearchParameter,proto3,oneof"`
+}
+
+func (*GetStaticIPAddressRequest_Uuid) isGetStaticIPAddressRequest_SearchParameter() {}
+
+func (*GetStaticIPAddressRequest_AddressSearchParameter) isGetStaticIPAddressRequest_SearchParameter() {
+}
+
+func (m *GetStaticIPAddressRequest) GetSearchParameter() isGetStaticIPAddressRequest_SearchParameter {
+	if m != nil {
+		return m.SearchParameter
+	}
+	return nil
+}
+
+func (m *GetStaticIPAddressRequest) GetUuid() string {
+	if x, ok := m.GetSearchParameter().(*GetStaticIPAddressRequest_Uuid); ok {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (m *GetStaticIPAddressRequest) GetAddressSearchParameter() *AddressSearchParameter {
+	if x, ok := m.GetSearchParameter().(*GetStaticIPAddressRequest_AddressSearchParameter); ok {
+		return x.AddressSearchParameter
+	}
+	return nil
+}
+
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*GetStaticIPAddressRequest) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
+		(*GetStaticIPAddressRequest_Uuid)(nil),
+		(*GetStaticIPAddressRequest_AddressSearchParameter)(nil),
+	}
+}
+
+type GetStaticIPAddressResponse struct {
+	StaticIPAddress      *StaticIPAddress `protobuf:"bytes,1,opt,name=staticIPAddress,proto3" json:"staticIPAddress,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
+	XXX_unrecognized     []byte           `json:"-"`
+	XXX_sizecache        int32            `json:"-"`
+}
+
+func (m *GetStaticIPAddressResponse) Reset()         { *m = GetStaticIPAddressResponse{} }
+func (m *GetStaticIPAddressResponse) String() string { return proto.CompactTextString(m) }
+func (*GetStaticIPAddressResponse) ProtoMessage()    {}
+func (*GetStaticIPAddressResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{20}
+}
+
+func (m *GetStaticIPAddressResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetStaticIPAddressResponse.Unmarshal(m, b)
+}
+func (m *GetStaticIPAddressResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetStaticIPAddressResponse.Marshal(b, m, deterministic)
+}
+func (m *GetStaticIPAddressResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetStaticIPAddressResponse.Merge(m, src)
+}
+func (m *GetStaticIPAddressResponse) XXX_Size() int {
+	return xxx_messageInfo_GetStaticIPAddressResponse.Size(m)
+}
+func (m *GetStaticIPAddressResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetStaticIPAddressResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetStaticIPAddressResponse proto.InternalMessageInfo
+
+func (m *GetStaticIPAddressResponse) GetStaticIPAddress() *StaticIPAddress {
+	if m != nil {
+		return m.StaticIPAddress
+	}
+	return nil
+}
+
+// This is really only meant to be used by (the) control plane(s)
+type GetStaticIPAddressesRequest struct {
+	// Types that are valid to be assigned to SearchParameter:
+	//	*GetStaticIPAddressesRequest_Pool
+	//	*GetStaticIPAddressesRequest_Addresses
+	SearchParameter      isGetStaticIPAddressesRequest_SearchParameter `protobuf_oneof:"searchParameter"`
+	XXX_NoUnkeyedLiteral struct{}                                      `json:"-"`
+	XXX_unrecognized     []byte                                        `json:"-"`
+	XXX_sizecache        int32                                         `json:"-"`
+}
+
+func (m *GetStaticIPAddressesRequest) Reset()         { *m = GetStaticIPAddressesRequest{} }
+func (m *GetStaticIPAddressesRequest) String() string { return proto.CompactTextString(m) }
+func (*GetStaticIPAddressesRequest) ProtoMessage()    {}
+func (*GetStaticIPAddressesRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{21}
+}
+
+func (m *GetStaticIPAddressesRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetStaticIPAddressesRequest.Unmarshal(m, b)
+}
+func (m *GetStaticIPAddressesRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetStaticIPAddressesRequest.Marshal(b, m, deterministic)
+}
+func (m *GetStaticIPAddressesRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetStaticIPAddressesRequest.Merge(m, src)
+}
+func (m *GetStaticIPAddressesRequest) XXX_Size() int {
+	return xxx_messageInfo_GetStaticIPAddressesRequest.Size(m)
+}
+func (m *GetStaticIPAddressesRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetStaticIPAddressesRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetStaticIPAddressesRequest proto.InternalMessageInfo
+
+type isGetStaticIPAddressesRequest_SearchParameter interface {
+	isGetStaticIPAddressesRequest_SearchParameter()
+}
+
+type GetStaticIPAddressesRequest_Pool struct {
+	Pool string `protobuf:"bytes,1,opt,name=pool,proto3,oneof"`
+}
+
+type GetStaticIPAddressesRequest_Addresses struct {
+	Addresses *StaticIPAddressIDs `protobuf:"bytes,2,opt,name=addresses,proto3,oneof"`
+}
+
+func (*GetStaticIPAddressesRequest_Pool) isGetStaticIPAddressesRequest_SearchParameter() {}
+
+func (*GetStaticIPAddressesRequest_Addresses) isGetStaticIPAddressesRequest_SearchParameter() {}
+
+func (m *GetStaticIPAddressesRequest) GetSearchParameter() isGetStaticIPAddressesRequest_SearchParameter {
+	if m != nil {
+		return m.SearchParameter
+	}
+	return nil
+}
+
+func (m *GetStaticIPAddressesRequest) GetPool() string {
+	if x, ok := m.GetSearchParameter().(*GetStaticIPAddressesRequest_Pool); ok {
+		return x.Pool
+	}
+	return ""
+}
+
+func (m *GetStaticIPAddressesRequest) GetAddresses() *StaticIPAddressIDs {
+	if x, ok := m.GetSearchParameter().(*GetStaticIPAddressesRequest_Addresses); ok {
+		return x.Addresses
+	}
+	return nil
+}
+
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*GetStaticIPAddressesRequest) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
+		(*GetStaticIPAddressesRequest_Pool)(nil),
+		(*GetStaticIPAddressesRequest_Addresses)(nil),
+	}
+}
+
+type GetStaticIPAddressesResponse struct {
+	StaticIPAddresses    []*StaticIPAddress `protobuf:"bytes,1,rep,name=staticIPAddresses,proto3" json:"staticIPAddresses,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
+	XXX_unrecognized     []byte             `json:"-"`
+	XXX_sizecache        int32              `json:"-"`
+}
+
+func (m *GetStaticIPAddressesResponse) Reset()         { *m = GetStaticIPAddressesResponse{} }
+func (m *GetStaticIPAddressesResponse) String() string { return proto.CompactTextString(m) }
+func (*GetStaticIPAddressesResponse) ProtoMessage()    {}
+func (*GetStaticIPAddressesResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{22}
+}
+
+func (m *GetStaticIPAddressesResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetStaticIPAddressesResponse.Unmarshal(m, b)
+}
+func (m *GetStaticIPAddressesResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetStaticIPAddressesResponse.Marshal(b, m, deterministic)
+}
+func (m *GetStaticIPAddressesResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetStaticIPAddressesResponse.Merge(m, src)
+}
+func (m *GetStaticIPAddressesResponse) XXX_Size() int {
+	return xxx_messageInfo_GetStaticIPAddressesResponse.Size(m)
+}
+func (m *GetStaticIPAddressesResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetStaticIPAddressesResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetStaticIPAddressesResponse proto.InternalMessageInfo
+
+func (m *GetStaticIPAddressesResponse) GetStaticIPAddresses() []*StaticIPAddress {
+	if m != nil {
+		return m.StaticIPAddresses
+	}
+	return nil
+}
+
+type GetBranchToTrunkENIMappingRequest struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *GetBranchToTrunkENIMappingRequest) Reset()         { *m = GetBranchToTrunkENIMappingRequest{} }
+func (m *GetBranchToTrunkENIMappingRequest) String() string { return proto.CompactTextString(m) }
+func (*GetBranchToTrunkENIMappingRequest) ProtoMessage()    {}
+func (*GetBranchToTrunkENIMappingRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{23}
+}
+
+func (m *GetBranchToTrunkENIMappingRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetBranchToTrunkENIMappingRequest.Unmarshal(m, b)
+}
+func (m *GetBranchToTrunkENIMappingRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetBranchToTrunkENIMappingRequest.Marshal(b, m, deterministic)
+}
+func (m *GetBranchToTrunkENIMappingRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetBranchToTrunkENIMappingRequest.Merge(m, src)
+}
+func (m *GetBranchToTrunkENIMappingRequest) XXX_Size() int {
+	return xxx_messageInfo_GetBranchToTrunkENIMappingRequest.Size(m)
+}
+func (m *GetBranchToTrunkENIMappingRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetBranchToTrunkENIMappingRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetBranchToTrunkENIMappingRequest proto.InternalMessageInfo
+
+type GetBranchToTrunkENIMappingResponse struct {
+	// This map is branchENI => trunkENI
+	BranchENIMapping     map[string]string `protobuf:"bytes,1,rep,name=branchENIMapping,proto3" json:"branchENIMapping,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
+}
+
+func (m *GetBranchToTrunkENIMappingResponse) Reset()         { *m = GetBranchToTrunkENIMappingResponse{} }
+func (m *GetBranchToTrunkENIMappingResponse) String() string { return proto.CompactTextString(m) }
+func (*GetBranchToTrunkENIMappingResponse) ProtoMessage()    {}
+func (*GetBranchToTrunkENIMappingResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fee69f8d9b907b12, []int{24}
+}
+
+func (m *GetBranchToTrunkENIMappingResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetBranchToTrunkENIMappingResponse.Unmarshal(m, b)
+}
+func (m *GetBranchToTrunkENIMappingResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetBranchToTrunkENIMappingResponse.Marshal(b, m, deterministic)
+}
+func (m *GetBranchToTrunkENIMappingResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetBranchToTrunkENIMappingResponse.Merge(m, src)
+}
+func (m *GetBranchToTrunkENIMappingResponse) XXX_Size() int {
+	return xxx_messageInfo_GetBranchToTrunkENIMappingResponse.Size(m)
+}
+func (m *GetBranchToTrunkENIMappingResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetBranchToTrunkENIMappingResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetBranchToTrunkENIMappingResponse proto.InternalMessageInfo
+
+func (m *GetBranchToTrunkENIMappingResponse) GetBranchENIMapping() map[string]string {
+	if m != nil {
+		return m.BranchENIMapping
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterEnum("com.netflix.titus.Family", Family_name, Family_value)
 	proto.RegisterType((*AllocateAddressRequest)(nil), "com.netflix.titus.AllocateAddressRequest")
@@ -353,40 +1366,110 @@ func init() {
 	proto.RegisterType((*GetAllocationResponse)(nil), "com.netflix.titus.GetAllocationResponse")
 	proto.RegisterType((*ValidationRequest)(nil), "com.netflix.titus.ValidationRequest")
 	proto.RegisterType((*ValidationResponse)(nil), "com.netflix.titus.ValidationResponse")
+	proto.RegisterType((*AllocateStaticIPAddressRequest)(nil), "com.netflix.titus.AllocateStaticIPAddressRequest")
+	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.AllocateStaticIPAddressRequest.TagsEntry")
+	proto.RegisterType((*AllocateStaticIPAddressResponse)(nil), "com.netflix.titus.AllocateStaticIPAddressResponse")
+	proto.RegisterType((*AddressLocationV2)(nil), "com.netflix.titus.AddressLocationV2")
+	proto.RegisterType((*StaticIPAddress)(nil), "com.netflix.titus.StaticIPAddress")
+	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.StaticIPAddress.TagsEntry")
+	proto.RegisterType((*SetPoolRequest)(nil), "com.netflix.titus.SetPoolRequest")
+	proto.RegisterType((*SetPoolResponse)(nil), "com.netflix.titus.SetPoolResponse")
+	proto.RegisterType((*CreateTagRequest)(nil), "com.netflix.titus.CreateTagRequest")
+	proto.RegisterType((*CreateTagResponse)(nil), "com.netflix.titus.CreateTagResponse")
+	proto.RegisterType((*DeleteTagRequest)(nil), "com.netflix.titus.DeleteTagRequest")
+	proto.RegisterType((*DeleteTagResponse)(nil), "com.netflix.titus.DeleteTagResponse")
+	proto.RegisterType((*UpdateTagRequest)(nil), "com.netflix.titus.UpdateTagRequest")
+	proto.RegisterType((*UpdateTagResponse)(nil), "com.netflix.titus.UpdateTagResponse")
+	proto.RegisterType((*AddressSearchParameter)(nil), "com.netflix.titus.AddressSearchParameter")
+	proto.RegisterType((*GetStaticIPAddressRequest)(nil), "com.netflix.titus.GetStaticIPAddressRequest")
+	proto.RegisterType((*GetStaticIPAddressResponse)(nil), "com.netflix.titus.GetStaticIPAddressResponse")
+	proto.RegisterType((*GetStaticIPAddressesRequest)(nil), "com.netflix.titus.GetStaticIPAddressesRequest")
+	proto.RegisterType((*GetStaticIPAddressesResponse)(nil), "com.netflix.titus.GetStaticIPAddressesResponse")
+	proto.RegisterType((*GetBranchToTrunkENIMappingRequest)(nil), "com.netflix.titus.GetBranchToTrunkENIMappingRequest")
+	proto.RegisterType((*GetBranchToTrunkENIMappingResponse)(nil), "com.netflix.titus.GetBranchToTrunkENIMappingResponse")
+	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.GetBranchToTrunkENIMappingResponse.BranchENIMappingEntry")
 }
 
 func init() { proto.RegisterFile("netflix/titus/titus_vpc_api.proto", fileDescriptor_fee69f8d9b907b12) }
 
 var fileDescriptor_fee69f8d9b907b12 = []byte{
-	// 445 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x54, 0xc1, 0x6e, 0xd3, 0x40,
-	0x10, 0xed, 0x06, 0x48, 0xe5, 0x41, 0x69, 0xe3, 0x55, 0xa0, 0xc1, 0x42, 0x28, 0x58, 0x20, 0x4c,
-	0x0e, 0x46, 0x18, 0xc4, 0x81, 0x9b, 0x2b, 0x08, 0x44, 0x2a, 0x52, 0xe5, 0xd2, 0x4a, 0xc0, 0x21,
-	0xda, 0xd8, 0x53, 0xba, 0x92, 0xe3, 0x35, 0xde, 0x75, 0xa1, 0x27, 0xbe, 0x8c, 0x8f, 0xe0, 0x03,
-	0xf8, 0x17, 0x84, 0xbd, 0x14, 0x37, 0xde, 0x10, 0x0e, 0xc0, 0xc5, 0xd2, 0xce, 0xbe, 0x37, 0xcf,
-	0xf3, 0xe6, 0xd9, 0x70, 0x3b, 0x43, 0x75, 0x9c, 0xf2, 0x4f, 0x0f, 0x14, 0x57, 0xa5, 0xac, 0x9f,
-	0xb3, 0xd3, 0x3c, 0x9e, 0xb1, 0x9c, 0xfb, 0x79, 0x21, 0x94, 0xa0, 0x76, 0x2c, 0x16, 0xbe, 0x86,
-	0xf9, 0x15, 0xc0, 0xb9, 0x65, 0x62, 0xcd, 0x99, 0xc4, 0x9a, 0xe2, 0x7e, 0x21, 0x70, 0x3d, 0x4c,
-	0x53, 0x11, 0x33, 0x85, 0x61, 0x92, 0x14, 0x28, 0x65, 0x84, 0x1f, 0x4a, 0x94, 0x8a, 0x46, 0x60,
-	0xb3, 0xba, 0xa2, 0x01, 0x5c, 0x64, 0x43, 0x32, 0x22, 0xde, 0xd5, 0xe0, 0x8e, 0xdf, 0x52, 0xf2,
-	0xc3, 0x65, 0x6c, 0xd4, 0xa6, 0xd3, 0x87, 0xd0, 0x3d, 0x66, 0x0b, 0x9e, 0x9e, 0x0d, 0x3b, 0x23,
-	0xe2, 0x6d, 0x05, 0x37, 0x0c, 0x8d, 0x26, 0x15, 0x20, 0xd2, 0x40, 0x7a, 0x13, 0x2c, 0x16, 0xc7,
-	0xa2, 0xcc, 0xd4, 0x34, 0x19, 0x5e, 0x1a, 0x11, 0xcf, 0x8a, 0x7e, 0x15, 0xdc, 0xcf, 0xb0, 0xd3,
-	0x7a, 0x7d, 0x99, 0x8b, 0x4c, 0x22, 0x4d, 0x60, 0x47, 0xf2, 0xf7, 0x19, 0x26, 0xe1, 0x8a, 0x29,
-	0xc6, 0x06, 0xf1, 0x03, 0x33, 0x23, 0x5a, 0xd5, 0xca, 0x7d, 0x07, 0x83, 0x17, 0xa8, 0x1a, 0x48,
-	0xed, 0x9e, 0x03, 0x9b, 0x7a, 0xfc, 0x4a, 0xcd, 0x7a, 0xb9, 0x11, 0xfd, 0x2c, 0xd0, 0x01, 0x5c,
-	0x2e, 0x4b, 0x9e, 0x54, 0x1e, 0xfc, 0xb8, 0xa8, 0x4e, 0xbb, 0x36, 0x6c, 0x4b, 0x64, 0x45, 0x7c,
-	0xb2, 0xcf, 0x0a, 0xb6, 0x40, 0x85, 0x85, 0xfb, 0x95, 0xc0, 0xb5, 0xa5, 0xee, 0x7a, 0xb8, 0x7f,
-	0xb1, 0x9c, 0xdf, 0x18, 0xd6, 0xf9, 0x7b, 0x86, 0x9d, 0x81, 0x7d, 0xc4, 0x52, 0x9e, 0x5c, 0x70,
-	0xeb, 0xff, 0xec, 0x6a, 0x00, 0xb4, 0x29, 0x5d, 0x5b, 0x39, 0x7e, 0x0a, 0xdd, 0x3a, 0x72, 0x94,
-	0xc2, 0xd6, 0x24, 0x7c, 0x35, 0xdd, 0x7b, 0x33, 0x7b, 0xf6, 0x7c, 0x12, 0x1e, 0xee, 0xbd, 0xee,
-	0x6f, 0xd0, 0x1e, 0x58, 0xba, 0x76, 0xf4, 0xb8, 0x4f, 0x9a, 0xc7, 0x27, 0xfd, 0x4e, 0xf0, 0x8d,
-	0x40, 0xef, 0x50, 0x62, 0x31, 0xdd, 0x3f, 0xc0, 0xe2, 0x94, 0xc7, 0x48, 0x4f, 0x60, 0x7b, 0x29,
-	0x90, 0xf4, 0xbe, 0x69, 0x21, 0xc6, 0x6f, 0xce, 0x19, 0xff, 0x09, 0x54, 0x47, 0x60, 0x0e, 0xbd,
-	0x0b, 0xd9, 0xa0, 0xf7, 0x0c, 0x64, 0x53, 0x36, 0x1d, 0x6f, 0x3d, 0xb0, 0xd6, 0x08, 0x3e, 0x9e,
-	0x3b, 0x26, 0x1a, 0x33, 0xb2, 0xf3, 0x2a, 0x36, 0xe4, 0x4d, 0xb9, 0x6b, 0x6d, 0xda, 0xb9, 0xbb,
-	0x06, 0x55, 0x0b, 0xef, 0x6e, 0xbe, 0xbd, 0x52, 0xdd, 0xcd, 0xbb, 0xd5, 0x7f, 0xea, 0xd1, 0xf7,
-	0x00, 0x00, 0x00, 0xff, 0xff, 0xd9, 0x1f, 0xda, 0xcb, 0xff, 0x04, 0x00, 0x00,
+	// 1207 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x57, 0x4d, 0x4f, 0x1b, 0x47,
+	0x1f, 0x67, 0x6d, 0x0c, 0xf8, 0x8f, 0xc0, 0xf6, 0x3c, 0x0e, 0x71, 0x16, 0x94, 0xc0, 0x26, 0xd1,
+	0x43, 0x50, 0xba, 0x28, 0x2e, 0xa5, 0x28, 0xbd, 0xd4, 0xbc, 0x5b, 0x25, 0xd4, 0x5a, 0x0c, 0x52,
+	0xd3, 0x03, 0x1a, 0xdb, 0x83, 0xd9, 0x66, 0xd9, 0xdd, 0xec, 0x8e, 0x49, 0x7d, 0x6a, 0xcf, 0x95,
+	0xfa, 0x2d, 0x7a, 0xe9, 0xa5, 0xdf, 0xa0, 0xea, 0xb5, 0xd7, 0x4a, 0xbd, 0xf6, 0xd2, 0x0f, 0xd0,
+	0xcf, 0x50, 0xed, 0xec, 0xec, 0x7a, 0x5f, 0xc6, 0x36, 0xa0, 0xa4, 0x17, 0x6b, 0x67, 0xe6, 0xf7,
+	0x7f, 0x7f, 0x35, 0xac, 0x98, 0x84, 0x5e, 0x18, 0xfa, 0xb7, 0xeb, 0x54, 0xa7, 0x3d, 0xd7, 0xff,
+	0x3d, 0xbf, 0xb6, 0xdb, 0xe7, 0xd8, 0xd6, 0x55, 0xdb, 0xb1, 0xa8, 0x85, 0x4a, 0x6d, 0xeb, 0x4a,
+	0xe5, 0x30, 0x95, 0x01, 0xe4, 0x87, 0x22, 0xaa, 0x16, 0x76, 0x89, 0x4f, 0x22, 0x2f, 0x76, 0x2d,
+	0xab, 0x6b, 0x90, 0x75, 0x76, 0x6a, 0xf5, 0x2e, 0xd6, 0xc9, 0x95, 0x4d, 0xfb, 0xfe, 0xa3, 0xf2,
+	0xab, 0x04, 0x0b, 0x35, 0xc3, 0xb0, 0xda, 0x98, 0x92, 0x5a, 0xa7, 0xe3, 0x10, 0xd7, 0xd5, 0xc8,
+	0xdb, 0x1e, 0x71, 0x29, 0xd2, 0xa0, 0x84, 0xfd, 0x1b, 0x0e, 0xd0, 0x2d, 0xb3, 0x22, 0x2d, 0x4b,
+	0xab, 0xb3, 0xd5, 0x27, 0x6a, 0x4a, 0x0d, 0xb5, 0x96, 0xc4, 0x6a, 0x69, 0x72, 0xf4, 0x02, 0xa6,
+	0x2e, 0xf0, 0x95, 0x6e, 0xf4, 0x2b, 0x99, 0x65, 0x69, 0x75, 0xbe, 0xfa, 0x40, 0xc0, 0x68, 0x9f,
+	0x01, 0x34, 0x0e, 0x44, 0x4b, 0x90, 0xc7, 0xed, 0xb6, 0xd5, 0x33, 0x69, 0xbd, 0x53, 0xc9, 0x2e,
+	0x4b, 0xab, 0x79, 0x6d, 0x70, 0xa1, 0x7c, 0x07, 0xf7, 0x53, 0xea, 0xbb, 0xb6, 0x65, 0xba, 0x04,
+	0x75, 0xe0, 0xbe, 0xab, 0x77, 0x4d, 0xd2, 0xa9, 0x0d, 0xb1, 0x62, 0x4d, 0x20, 0xfc, 0x44, 0x4c,
+	0xa1, 0x0d, 0x63, 0xa5, 0x7c, 0x0d, 0xe5, 0x03, 0x42, 0x23, 0x48, 0xee, 0x3d, 0x19, 0xa6, 0xb9,
+	0xf9, 0x4c, 0x5a, 0xfe, 0x70, 0x42, 0x0b, 0x2e, 0x50, 0x19, 0x26, 0x7b, 0x3d, 0xbd, 0xc3, 0x7c,
+	0xe0, 0x3d, 0xb0, 0xd3, 0x76, 0x09, 0x0a, 0x2e, 0xc1, 0x4e, 0xfb, 0xb2, 0x81, 0x1d, 0x7c, 0x45,
+	0x28, 0x71, 0x94, 0x3f, 0x24, 0xb8, 0x97, 0xe0, 0xce, 0x8d, 0xfb, 0x10, 0xc1, 0x19, 0xe1, 0xb0,
+	0xcc, 0xfb, 0x73, 0x58, 0x1f, 0x4a, 0x67, 0xd8, 0xd0, 0x3b, 0x31, 0x6f, 0xfd, 0x37, 0xb1, 0x2a,
+	0x03, 0x8a, 0x8a, 0xf6, 0x5d, 0xa9, 0xfc, 0x23, 0xc1, 0xc3, 0x20, 0x87, 0x4e, 0x28, 0xa6, 0x7a,
+	0xbb, 0xde, 0x48, 0x94, 0x82, 0x0c, 0x33, 0x6e, 0xaf, 0x65, 0x12, 0x2f, 0x05, 0x59, 0x34, 0xb5,
+	0xf0, 0x8c, 0x50, 0x34, 0x98, 0x7e, 0x28, 0xbd, 0x3b, 0xdb, 0xb2, 0x0c, 0x9e, 0xae, 0xec, 0x1b,
+	0x7d, 0x09, 0x93, 0x14, 0x77, 0xdd, 0xca, 0xe4, 0x72, 0x76, 0x75, 0xb6, 0xfa, 0x99, 0x28, 0x48,
+	0x23, 0x95, 0x50, 0x9b, 0xb8, 0xeb, 0xee, 0x99, 0xd4, 0xe9, 0x6b, 0x8c, 0x91, 0xfc, 0x29, 0xe4,
+	0xc3, 0x2b, 0x54, 0x84, 0xec, 0x1b, 0xd2, 0xe7, 0xca, 0x79, 0x9f, 0xa8, 0x0c, 0xb9, 0x6b, 0x6c,
+	0xf4, 0x08, 0x57, 0xcc, 0x3f, 0xbc, 0xcc, 0x6c, 0x49, 0x8a, 0x05, 0x8f, 0x86, 0x8a, 0xe2, 0xe9,
+	0x75, 0x04, 0x05, 0x37, 0xfe, 0xc4, 0xe3, 0xa0, 0x88, 0xe2, 0x90, 0x60, 0x92, 0x24, 0x55, 0x7e,
+	0x93, 0xa0, 0xc4, 0xbf, 0x8f, 0x78, 0x2c, 0xce, 0xaa, 0xf1, 0xc2, 0x96, 0x12, 0x85, 0x8d, 0xd6,
+	0xa0, 0x88, 0xaf, 0xb1, 0x6e, 0xe0, 0x96, 0x6e, 0xe8, 0xb4, 0xff, 0xda, 0x32, 0x03, 0x4b, 0x52,
+	0xf7, 0x48, 0x05, 0x94, 0xbc, 0x0b, 0x7b, 0x85, 0xe0, 0x85, 0xb9, 0xc6, 0x6e, 0xd7, 0x3b, 0x95,
+	0x49, 0xee, 0x1a, 0xef, 0x10, 0x0b, 0x72, 0x2e, 0x1e, 0x64, 0xe5, 0xf7, 0x0c, 0x14, 0x12, 0x66,
+	0x86, 0x81, 0x97, 0x22, 0x81, 0x5f, 0x86, 0x59, 0xdd, 0xbe, 0xde, 0x08, 0x7c, 0xe6, 0x2b, 0x1c,
+	0xbd, 0xe2, 0x88, 0xcd, 0x00, 0x91, 0x0d, 0x11, 0x9b, 0x11, 0xbe, 0x2c, 0x79, 0x26, 0x23, 0xc9,
+	0xf3, 0x39, 0x4f, 0x9e, 0x1c, 0x4b, 0x9e, 0xe7, 0xe3, 0x83, 0x90, 0xcc, 0x16, 0x74, 0x0c, 0x05,
+	0x1c, 0x0f, 0x41, 0x65, 0x6a, 0x5c, 0xbb, 0x18, 0x04, 0x4b, 0x4b, 0x12, 0xdf, 0x3d, 0xfb, 0xb6,
+	0x60, 0xfe, 0x84, 0xd0, 0x86, 0x65, 0x19, 0x41, 0x75, 0x89, 0x1c, 0x19, 0x38, 0x21, 0x33, 0x70,
+	0x82, 0x52, 0x82, 0x42, 0x48, 0xc9, 0x6b, 0xf7, 0x02, 0x8a, 0x3b, 0x0e, 0xc1, 0x94, 0x34, 0x71,
+	0x77, 0x14, 0x3b, 0xae, 0x60, 0x46, 0xa0, 0x60, 0x36, 0xa2, 0x20, 0x5a, 0x80, 0xa9, 0x9e, 0xed,
+	0x12, 0x87, 0x32, 0xef, 0xcf, 0x68, 0xfc, 0xa4, 0xfc, 0x0f, 0x4a, 0x11, 0x39, 0x5c, 0xf8, 0x16,
+	0x14, 0x77, 0x89, 0x41, 0x6e, 0x2f, 0xdc, 0x63, 0x17, 0xa1, 0xe4, 0xec, 0x8e, 0xa1, 0x78, 0x6a,
+	0x77, 0xde, 0x9b, 0x2d, 0x9e, 0x90, 0x08, 0x3f, 0x2e, 0xe4, 0x27, 0x6f, 0xde, 0xfb, 0xa1, 0x3c,
+	0x89, 0x0f, 0x1b, 0x54, 0x49, 0x4c, 0xac, 0xc1, 0xbc, 0x52, 0x21, 0xc7, 0x76, 0x06, 0x3e, 0x06,
+	0x16, 0x54, 0x7f, 0xa3, 0x50, 0x83, 0x8d, 0x42, 0xdd, 0xf3, 0x5e, 0x0f, 0x27, 0x34, 0x1f, 0x86,
+	0x96, 0x22, 0x95, 0x94, 0xe5, 0x33, 0x6e, 0xd0, 0x30, 0x17, 0x62, 0xd5, 0xe7, 0x51, 0xb1, 0xe3,
+	0x36, 0xc0, 0x4c, 0xd8, 0xa9, 0x7f, 0x96, 0xe0, 0xc1, 0x01, 0xa1, 0x43, 0xda, 0x71, 0x39, 0xea,
+	0x95, 0x60, 0x7e, 0xa2, 0x36, 0x2c, 0x60, 0xa1, 0x65, 0x5c, 0xed, 0x67, 0xc3, 0x13, 0x3d, 0x41,
+	0x70, 0x38, 0xa1, 0x0d, 0x61, 0x25, 0x1a, 0xd2, 0xdf, 0x80, 0x2c, 0x52, 0xf5, 0x83, 0x74, 0xd2,
+	0x1f, 0x25, 0x58, 0x4c, 0x0b, 0x23, 0x51, 0xcf, 0xb0, 0xb2, 0x09, 0x3d, 0xc3, 0xba, 0xc7, 0x1e,
+	0xe4, 0x71, 0x80, 0xe4, 0xce, 0x78, 0x3a, 0x5e, 0x7a, 0x7d, 0xd7, 0x3d, 0x9c, 0xd0, 0x06, 0x94,
+	0x22, 0xdb, 0x6d, 0x58, 0x12, 0xab, 0xc3, 0xad, 0x6f, 0x40, 0xc9, 0x4d, 0x3e, 0x56, 0x24, 0xd6,
+	0xc4, 0x6e, 0x62, 0x7f, 0x9a, 0x58, 0x79, 0x0c, 0x2b, 0x07, 0x84, 0x6e, 0x3b, 0xd8, 0x6c, 0x5f,
+	0x36, 0xad, 0xa6, 0xd3, 0x33, 0xdf, 0xec, 0x1d, 0xd7, 0x5f, 0x61, 0xdb, 0xd6, 0xcd, 0xa0, 0x6c,
+	0x94, 0xbf, 0x25, 0x50, 0x46, 0xa1, 0xb8, 0x76, 0xef, 0xa0, 0xd8, 0x62, 0x90, 0xc1, 0x1b, 0x57,
+	0xee, 0x0b, 0x81, 0x72, 0xe3, 0x19, 0xaa, 0xdb, 0x09, 0x6e, 0x7e, 0x03, 0x4e, 0x09, 0x91, 0x77,
+	0xe0, 0x9e, 0x10, 0x7a, 0x9b, 0x46, 0xba, 0xf6, 0x12, 0xa6, 0xfc, 0x55, 0x19, 0x21, 0x98, 0xdf,
+	0xaf, 0xbd, 0xaa, 0x1f, 0x7d, 0x75, 0xbe, 0xbb, 0xb7, 0x5f, 0x3b, 0x3d, 0x6a, 0x16, 0x27, 0xd0,
+	0x1c, 0xe4, 0xf9, 0xdd, 0xd9, 0x46, 0x51, 0x8a, 0x1e, 0x37, 0x8b, 0x99, 0xea, 0x5f, 0x12, 0xcc,
+	0x9d, 0xba, 0xc4, 0xa9, 0x37, 0x4e, 0x88, 0x73, 0xad, 0xb7, 0x09, 0xba, 0x84, 0x42, 0x62, 0x91,
+	0x46, 0xcf, 0x46, 0xec, 0x28, 0xf1, 0x8a, 0x94, 0xd7, 0x6e, 0x02, 0xe5, 0x5e, 0x6f, 0xc1, 0x5c,
+	0x6c, 0xa7, 0x45, 0xff, 0x17, 0x3b, 0x3b, 0xb5, 0x53, 0xcb, 0xab, 0xe3, 0x81, 0xbe, 0x8c, 0xea,
+	0xbb, 0x70, 0xd3, 0xb3, 0x22, 0x36, 0xe2, 0xf0, 0x96, 0x44, 0xc4, 0x8b, 0x06, 0x60, 0x6a, 0x43,
+	0x95, 0x9f, 0x8e, 0x41, 0x71, 0xc1, 0x7f, 0xe6, 0x20, 0x3f, 0x10, 0xf8, 0xbd, 0x34, 0xf8, 0x7b,
+	0x92, 0x5c, 0x1f, 0x5e, 0xdc, 0x7a, 0x03, 0x94, 0xab, 0xb7, 0x21, 0x09, 0x2b, 0x70, 0x9a, 0x0f,
+	0x4d, 0xb4, 0x22, 0xaa, 0xb8, 0xd8, 0x28, 0x96, 0x95, 0x51, 0x10, 0xce, 0xf1, 0x0c, 0xf2, 0xe1,
+	0x2c, 0x44, 0x8f, 0x05, 0x04, 0xc9, 0x89, 0x2c, 0x3f, 0x19, 0x0d, 0x1a, 0xf0, 0x0d, 0x87, 0xe2,
+	0xdd, 0xf9, 0xa6, 0xe6, 0xaa, 0xc7, 0x37, 0x9c, 0x83, 0x42, 0xbe, 0xc9, 0xa9, 0x2b, 0xe4, 0x9b,
+	0x1a, 0xa5, 0xe8, 0x2d, 0xa0, 0x74, 0xef, 0x43, 0xcf, 0xc5, 0x39, 0x3a, 0x24, 0xa2, 0x1f, 0xdd,
+	0x10, 0x1d, 0x36, 0xac, 0xb2, 0xa8, 0xdd, 0x22, 0xf5, 0x46, 0x6c, 0xc2, 0x31, 0x21, 0xaf, 0xdf,
+	0x18, 0xcf, 0xd3, 0xfa, 0x17, 0x09, 0x1e, 0x35, 0x3d, 0x58, 0xad, 0x4b, 0x4c, 0x7a, 0xd6, 0xd8,
+	0xa9, 0x9b, 0x17, 0x96, 0x73, 0xc5, 0x72, 0x3f, 0x48, 0xf6, 0x1f, 0x24, 0x58, 0x3c, 0xd2, 0xdd,
+	0x61, 0x4d, 0x12, 0x6d, 0xdc, 0xb2, 0xa7, 0xfa, 0xaa, 0x7e, 0x72, 0xa7, 0x4e, 0xbc, 0x3d, 0xfd,
+	0x3a, 0xc7, 0xb0, 0xad, 0x29, 0xb6, 0xa4, 0x7c, 0xfc, 0x6f, 0x00, 0x00, 0x00, 0xff, 0xff, 0xbf,
+	0x6b, 0x43, 0x64, 0x5c, 0x11, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -573,6 +1656,366 @@ var _ValidatorIPService_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ValidateAllocation",
 			Handler:    _ValidatorIPService_ValidateAllocation_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "netflix/titus/titus_vpc_api.proto",
+}
+
+// IPServiceClient is the client API for IPService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type IPServiceClient interface {
+	AllocateStaticIPAddress(ctx context.Context, in *AllocateStaticIPAddressRequest, opts ...grpc.CallOption) (*AllocateStaticIPAddressResponse, error)
+	SetPool(ctx context.Context, in *SetPoolRequest, opts ...grpc.CallOption) (*SetPoolResponse, error)
+	CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*CreateTagResponse, error)
+	DeleteTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*DeleteTagResponse, error)
+	UpdateTag(ctx context.Context, in *UpdateTagRequest, opts ...grpc.CallOption) (*UpdateTagResponse, error)
+	GetStaticIPAddress(ctx context.Context, in *GetStaticIPAddressRequest, opts ...grpc.CallOption) (*GetStaticIPAddressResponse, error)
+	GetStaticIPAddresses(ctx context.Context, in *GetStaticIPAddressesRequest, opts ...grpc.CallOption) (*GetStaticIPAddressesResponse, error)
+}
+
+type iPServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewIPServiceClient(cc grpc.ClientConnInterface) IPServiceClient {
+	return &iPServiceClient{cc}
+}
+
+func (c *iPServiceClient) AllocateStaticIPAddress(ctx context.Context, in *AllocateStaticIPAddressRequest, opts ...grpc.CallOption) (*AllocateStaticIPAddressResponse, error) {
+	out := new(AllocateStaticIPAddressResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.IPService/AllocateStaticIPAddress", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *iPServiceClient) SetPool(ctx context.Context, in *SetPoolRequest, opts ...grpc.CallOption) (*SetPoolResponse, error) {
+	out := new(SetPoolResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.IPService/SetPool", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *iPServiceClient) CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*CreateTagResponse, error) {
+	out := new(CreateTagResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.IPService/CreateTag", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *iPServiceClient) DeleteTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*DeleteTagResponse, error) {
+	out := new(DeleteTagResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.IPService/DeleteTag", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *iPServiceClient) UpdateTag(ctx context.Context, in *UpdateTagRequest, opts ...grpc.CallOption) (*UpdateTagResponse, error) {
+	out := new(UpdateTagResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.IPService/UpdateTag", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *iPServiceClient) GetStaticIPAddress(ctx context.Context, in *GetStaticIPAddressRequest, opts ...grpc.CallOption) (*GetStaticIPAddressResponse, error) {
+	out := new(GetStaticIPAddressResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.IPService/GetStaticIPAddress", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *iPServiceClient) GetStaticIPAddresses(ctx context.Context, in *GetStaticIPAddressesRequest, opts ...grpc.CallOption) (*GetStaticIPAddressesResponse, error) {
+	out := new(GetStaticIPAddressesResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.IPService/GetStaticIPAddresses", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// IPServiceServer is the server API for IPService service.
+type IPServiceServer interface {
+	AllocateStaticIPAddress(context.Context, *AllocateStaticIPAddressRequest) (*AllocateStaticIPAddressResponse, error)
+	SetPool(context.Context, *SetPoolRequest) (*SetPoolResponse, error)
+	CreateTag(context.Context, *CreateTagRequest) (*CreateTagResponse, error)
+	DeleteTag(context.Context, *CreateTagRequest) (*DeleteTagResponse, error)
+	UpdateTag(context.Context, *UpdateTagRequest) (*UpdateTagResponse, error)
+	GetStaticIPAddress(context.Context, *GetStaticIPAddressRequest) (*GetStaticIPAddressResponse, error)
+	GetStaticIPAddresses(context.Context, *GetStaticIPAddressesRequest) (*GetStaticIPAddressesResponse, error)
+}
+
+// UnimplementedIPServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedIPServiceServer struct {
+}
+
+func (*UnimplementedIPServiceServer) AllocateStaticIPAddress(ctx context.Context, req *AllocateStaticIPAddressRequest) (*AllocateStaticIPAddressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AllocateStaticIPAddress not implemented")
+}
+func (*UnimplementedIPServiceServer) SetPool(ctx context.Context, req *SetPoolRequest) (*SetPoolResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPool not implemented")
+}
+func (*UnimplementedIPServiceServer) CreateTag(ctx context.Context, req *CreateTagRequest) (*CreateTagResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateTag not implemented")
+}
+func (*UnimplementedIPServiceServer) DeleteTag(ctx context.Context, req *CreateTagRequest) (*DeleteTagResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteTag not implemented")
+}
+func (*UnimplementedIPServiceServer) UpdateTag(ctx context.Context, req *UpdateTagRequest) (*UpdateTagResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateTag not implemented")
+}
+func (*UnimplementedIPServiceServer) GetStaticIPAddress(ctx context.Context, req *GetStaticIPAddressRequest) (*GetStaticIPAddressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStaticIPAddress not implemented")
+}
+func (*UnimplementedIPServiceServer) GetStaticIPAddresses(ctx context.Context, req *GetStaticIPAddressesRequest) (*GetStaticIPAddressesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStaticIPAddresses not implemented")
+}
+
+func RegisterIPServiceServer(s *grpc.Server, srv IPServiceServer) {
+	s.RegisterService(&_IPService_serviceDesc, srv)
+}
+
+func _IPService_AllocateStaticIPAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AllocateStaticIPAddressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPServiceServer).AllocateStaticIPAddress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.IPService/AllocateStaticIPAddress",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPServiceServer).AllocateStaticIPAddress(ctx, req.(*AllocateStaticIPAddressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IPService_SetPool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPoolRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPServiceServer).SetPool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.IPService/SetPool",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPServiceServer).SetPool(ctx, req.(*SetPoolRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IPService_CreateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateTagRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPServiceServer).CreateTag(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.IPService/CreateTag",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPServiceServer).CreateTag(ctx, req.(*CreateTagRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IPService_DeleteTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateTagRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPServiceServer).DeleteTag(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.IPService/DeleteTag",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPServiceServer).DeleteTag(ctx, req.(*CreateTagRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IPService_UpdateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateTagRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPServiceServer).UpdateTag(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.IPService/UpdateTag",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPServiceServer).UpdateTag(ctx, req.(*UpdateTagRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IPService_GetStaticIPAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStaticIPAddressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPServiceServer).GetStaticIPAddress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.IPService/GetStaticIPAddress",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPServiceServer).GetStaticIPAddress(ctx, req.(*GetStaticIPAddressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IPService_GetStaticIPAddresses_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStaticIPAddressesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPServiceServer).GetStaticIPAddresses(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.IPService/GetStaticIPAddresses",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPServiceServer).GetStaticIPAddresses(ctx, req.(*GetStaticIPAddressesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _IPService_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "com.netflix.titus.IPService",
+	HandlerType: (*IPServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "AllocateStaticIPAddress",
+			Handler:    _IPService_AllocateStaticIPAddress_Handler,
+		},
+		{
+			MethodName: "SetPool",
+			Handler:    _IPService_SetPool_Handler,
+		},
+		{
+			MethodName: "CreateTag",
+			Handler:    _IPService_CreateTag_Handler,
+		},
+		{
+			MethodName: "DeleteTag",
+			Handler:    _IPService_DeleteTag_Handler,
+		},
+		{
+			MethodName: "UpdateTag",
+			Handler:    _IPService_UpdateTag_Handler,
+		},
+		{
+			MethodName: "GetStaticIPAddress",
+			Handler:    _IPService_GetStaticIPAddress_Handler,
+		},
+		{
+			MethodName: "GetStaticIPAddresses",
+			Handler:    _IPService_GetStaticIPAddresses_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "netflix/titus/titus_vpc_api.proto",
+}
+
+// TitusAgentVPCInformationServiceClient is the client API for TitusAgentVPCInformationService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type TitusAgentVPCInformationServiceClient interface {
+	ListBranchToTrunkENIMapping(ctx context.Context, in *GetBranchToTrunkENIMappingRequest, opts ...grpc.CallOption) (*GetBranchToTrunkENIMappingResponse, error)
+}
+
+type titusAgentVPCInformationServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewTitusAgentVPCInformationServiceClient(cc grpc.ClientConnInterface) TitusAgentVPCInformationServiceClient {
+	return &titusAgentVPCInformationServiceClient{cc}
+}
+
+func (c *titusAgentVPCInformationServiceClient) ListBranchToTrunkENIMapping(ctx context.Context, in *GetBranchToTrunkENIMappingRequest, opts ...grpc.CallOption) (*GetBranchToTrunkENIMappingResponse, error) {
+	out := new(GetBranchToTrunkENIMappingResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.TitusAgentVPCInformationService/ListBranchToTrunkENIMapping", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TitusAgentVPCInformationServiceServer is the server API for TitusAgentVPCInformationService service.
+type TitusAgentVPCInformationServiceServer interface {
+	ListBranchToTrunkENIMapping(context.Context, *GetBranchToTrunkENIMappingRequest) (*GetBranchToTrunkENIMappingResponse, error)
+}
+
+// UnimplementedTitusAgentVPCInformationServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedTitusAgentVPCInformationServiceServer struct {
+}
+
+func (*UnimplementedTitusAgentVPCInformationServiceServer) ListBranchToTrunkENIMapping(ctx context.Context, req *GetBranchToTrunkENIMappingRequest) (*GetBranchToTrunkENIMappingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListBranchToTrunkENIMapping not implemented")
+}
+
+func RegisterTitusAgentVPCInformationServiceServer(s *grpc.Server, srv TitusAgentVPCInformationServiceServer) {
+	s.RegisterService(&_TitusAgentVPCInformationService_serviceDesc, srv)
+}
+
+func _TitusAgentVPCInformationService_ListBranchToTrunkENIMapping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBranchToTrunkENIMappingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentVPCInformationServiceServer).ListBranchToTrunkENIMapping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.TitusAgentVPCInformationService/ListBranchToTrunkENIMapping",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentVPCInformationServiceServer).ListBranchToTrunkENIMapping(ctx, req.(*GetBranchToTrunkENIMappingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _TitusAgentVPCInformationService_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "com.netflix.titus.TitusAgentVPCInformationService",
+	HandlerType: (*TitusAgentVPCInformationServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListBranchToTrunkENIMapping",
+			Handler:    _TitusAgentVPCInformationService_ListBranchToTrunkENIMapping_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
