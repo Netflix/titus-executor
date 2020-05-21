@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 
 	"github.com/pkg/errors"
@@ -65,7 +65,7 @@ func TestListBranchToTrunkENIMapping(t *testing.T) {
 	service := vpcService{db: db}
 	ctx := context.Background()
 
-	res, err := service.ListBranchToTrunkENIMapping(ctx, &vpcapi.ListBranchToTrunkENIMappingRequest{})
+	res, err := service.ListBranchToTrunkENIMapping(ctx, &titus.GetBranchToTrunkENIMappingRequest{})
 	assert.NilError(t, err)
 
 	map1 := map[string]string{
