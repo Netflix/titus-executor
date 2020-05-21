@@ -14,7 +14,7 @@ github.com/Microsoft/go-winio
 github.com/Netflix/metrics-client-go/metrics
 # github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
 github.com/Netflix/spectator-go
-# github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20200212222136-a4a89636720b
+# github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200520235959-0ab6f1129886
 github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
 # github.com/OpenPeeDeeP/depguard v1.0.1
 github.com/OpenPeeDeeP/depguard
@@ -69,6 +69,12 @@ github.com/aws/aws-sdk-go/service/sts
 github.com/aws/aws-sdk-go/service/sts/stsiface
 # github.com/bombsimon/wsl/v2 v2.1.0
 github.com/bombsimon/wsl/v2
+# github.com/containernetworking/cni v0.7.1
+github.com/containernetworking/cni/pkg/skel
+github.com/containernetworking/cni/pkg/types
+github.com/containernetworking/cni/pkg/types/020
+github.com/containernetworking/cni/pkg/types/current
+github.com/containernetworking/cni/pkg/version
 # github.com/coreos/go-systemd v0.0.0-20200109085637-d657f9650837 => github.com/coreos/go-systemd/v22 v22.0.0
 github.com/coreos/go-systemd/daemon
 github.com/coreos/go-systemd/dbus
@@ -164,18 +170,6 @@ github.com/golang/glog
 # github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e
 github.com/golang/groupcache/lru
 # github.com/golang/protobuf v1.3.3
-github.com/golang/protobuf/proto
-github.com/golang/protobuf/ptypes/any
-github.com/golang/protobuf/ptypes/empty
-github.com/golang/protobuf/ptypes/timestamp
-github.com/golang/protobuf/ptypes/wrappers
-github.com/golang/protobuf/jsonpb
-github.com/golang/protobuf/proto
-github.com/golang/protobuf/protoc-gen-go
-github.com/golang/protobuf/ptypes/duration
-github.com/golang/protobuf/ptypes/struct
-github.com/golang/protobuf/protoc-gen-go/generator
-github.com/golang/protobuf/protoc-gen-go/grpc
 github.com/golang/protobuf/jsonpb
 github.com/golang/protobuf/proto
 github.com/golang/protobuf/protoc-gen-go
@@ -297,6 +291,8 @@ github.com/jingyugao/rowserrcheck/passes/rowserr
 github.com/jirfag/go-printf-func-name/pkg/analyzer
 # github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
 github.com/jmespath/go-jmespath
+# github.com/json-iterator/go v1.1.9
+github.com/json-iterator/go
 # github.com/jteeuwen/go-bindata v3.0.7+incompatible
 github.com/jteeuwen/go-bindata
 github.com/jteeuwen/go-bindata/go-bindata
@@ -336,6 +332,10 @@ github.com/mesos/mesos-go/upid
 github.com/mitchellh/go-homedir
 # github.com/mitchellh/mapstructure v1.1.2
 github.com/mitchellh/mapstructure
+# github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+github.com/modern-go/concurrent
+# github.com/modern-go/reflect2 v1.0.1
+github.com/modern-go/reflect2
 # github.com/myitcv/gobin v0.0.9
 github.com/myitcv/gobin
 # github.com/nbutton23/zxcvbn-go v0.0.0-20180912185939-ae427f1e4c1d
@@ -432,7 +432,7 @@ github.com/virtual-kubelet/virtual-kubelet/log/logrus
 # github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
 github.com/vishvananda/netlink
 github.com/vishvananda/netlink/nl
-# github.com/vishvananda/netns v0.0.0-20160430053723-8ba1072b58e0
+# github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
 github.com/vishvananda/netns
 # github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 github.com/wercker/journalhook
@@ -461,7 +461,6 @@ golang.org/x/crypto/ed25519/internal/edwards25519
 golang.org/x/mod/module
 golang.org/x/mod/semver
 # golang.org/x/net v0.0.0-20200219183655-46282727080f
-golang.org/x/net/bpf
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/html
@@ -470,12 +469,8 @@ golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
 golang.org/x/net/idna
-golang.org/x/net/internal/iana
-golang.org/x/net/internal/socket
 golang.org/x/net/internal/socks
 golang.org/x/net/internal/timeseries
-golang.org/x/net/ipv4
-golang.org/x/net/ipv6
 golang.org/x/net/proxy
 golang.org/x/net/trace
 # golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
@@ -647,16 +642,23 @@ k8s.io/api/core/v1
 # k8s.io/apimachinery v0.0.0-20190221213512-86fb29eff628
 k8s.io/apimachinery/pkg/api/resource
 k8s.io/apimachinery/pkg/apis/meta/v1
+k8s.io/apimachinery/pkg/apis/meta/v1/unstructured
 k8s.io/apimachinery/pkg/conversion
 k8s.io/apimachinery/pkg/conversion/queryparams
 k8s.io/apimachinery/pkg/fields
 k8s.io/apimachinery/pkg/labels
 k8s.io/apimachinery/pkg/runtime
 k8s.io/apimachinery/pkg/runtime/schema
+k8s.io/apimachinery/pkg/runtime/serializer
+k8s.io/apimachinery/pkg/runtime/serializer/json
+k8s.io/apimachinery/pkg/runtime/serializer/protobuf
+k8s.io/apimachinery/pkg/runtime/serializer/recognizer
+k8s.io/apimachinery/pkg/runtime/serializer/versioning
 k8s.io/apimachinery/pkg/selection
 k8s.io/apimachinery/pkg/types
 k8s.io/apimachinery/pkg/util/clock
 k8s.io/apimachinery/pkg/util/errors
+k8s.io/apimachinery/pkg/util/framer
 k8s.io/apimachinery/pkg/util/intstr
 k8s.io/apimachinery/pkg/util/json
 k8s.io/apimachinery/pkg/util/naming
@@ -665,6 +667,7 @@ k8s.io/apimachinery/pkg/util/runtime
 k8s.io/apimachinery/pkg/util/sets
 k8s.io/apimachinery/pkg/util/validation
 k8s.io/apimachinery/pkg/util/validation/field
+k8s.io/apimachinery/pkg/util/yaml
 k8s.io/apimachinery/pkg/watch
 k8s.io/apimachinery/third_party/forked/golang/reflect
 # k8s.io/client-go v10.0.0+incompatible
@@ -677,5 +680,7 @@ mvdan.cc/interfacer/check
 mvdan.cc/lint
 # mvdan.cc/unparam v0.0.0-20191111180625-960b1ec0f2c2
 mvdan.cc/unparam/check
+# sigs.k8s.io/yaml v1.1.0
+sigs.k8s.io/yaml
 # sourcegraph.com/sqs/pbtypes v1.0.0 => github.com/sqs/pbtypes v1.0.0
 sourcegraph.com/sqs/pbtypes

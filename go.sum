@@ -39,10 +39,6 @@ github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07 h1:F5H05
 github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07/go.mod h1:dKY6lNcNBfC6gYy4CpGw9iQ9Qgvcn+g46Diu21Co81k=
 github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef h1:KJSUpdkLKovenA1HmmoEIPkJ4CYsMApqW2RVVEvjX5Q=
 github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef/go.mod h1:3oJNZd93I7dEODYw8RBj8v5DO8VRgZrZLFZXWkmNqmY=
-github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20200212222136-a4a89636720b h1:OGz5AMswe95o/q0rJFVJ49PzDrlgQBDib3idIaK/HuU=
-github.com/Netflix/titus-api-definitions v0.0.1-rc46.0.20200212222136-a4a89636720b/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
-github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200422181542-45b626cbb0eb h1:vigNVHFdNTHmFjA0iKwAhwTy65ut086ZeABOR/Re13I=
-github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200422181542-45b626cbb0eb/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200520235959-0ab6f1129886 h1:wayKgdjwkmKPQhu8+muv7WaujcHZ04rnqiJfAQa69NI=
 github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200520235959-0ab6f1129886/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
@@ -200,7 +196,6 @@ github.com/golang/protobuf v1.3.1/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5y
 github.com/golang/protobuf v1.3.2/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
 github.com/golang/protobuf v1.3.3 h1:gyjaxf+svBWX08ZjK86iN9geUJF0H6gp2IRKX6Nf6/I=
 github.com/golang/protobuf v1.3.3/go.mod h1:vzj43D7+SQXF/4pzW/hwtAqwc6iTitCiVSaWz5lYuqw=
-github.com/golang/protobuf v1.4.1 h1:ZFgWrT+bLgsYPirOnRfKLYJLvssAegOj/hgyMFdJZe0=
 github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
 github.com/golangci/check v0.0.0-20180506172741-cfe4005ccda2 h1:23T5iq8rbUYlhpt5DB4XJkc6BU31uODLD1o1gKvZmD0=
 github.com/golangci/check v0.0.0-20180506172741-cfe4005ccda2/go.mod h1:k9Qvh+8juN+UKMCS/3jFtGICgW8O96FVaZsaxdzDkR4=
