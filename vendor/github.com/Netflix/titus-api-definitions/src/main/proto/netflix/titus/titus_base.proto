@@ -295,6 +295,11 @@ message AddressAllocation {
     string address = 3;
 };
 
+message StaticIPAddressIDs {
+    /// (Required) A list of valid UUIDs
+    repeated string uuids = 1;
+}
+
 /// An IP address allocation signed by the Titus VPC service.
 message SignedAddressAllocation {
 

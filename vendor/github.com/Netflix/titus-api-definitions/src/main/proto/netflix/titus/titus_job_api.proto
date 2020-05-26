@@ -113,6 +113,15 @@ message ContainerResources {
 
     /// (Optional) IP addresses allocated from Titus VPC IP service to be assigned to tasks.
     repeated SignedAddressAllocation signedAddressAllocations = 9;
+
+    /// (Optional) IP addresses allocated from Titus VPC IP service to be assigned to tasks via AllocateAddressRequestV2.
+    /// Mutually exclusive with signedAddressAllocations
+    oneof staticIPAddresses {
+        /// The name of the pool of static IPs to select from
+        string pool = 10;
+        /// The list of addresses to use for this job
+        StaticIPAddressIDs staticIPAddressIDs = 11;
+    }
 }
 
 /// Container security profile.

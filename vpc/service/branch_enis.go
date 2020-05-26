@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 
@@ -1407,7 +1407,7 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 	return iface, nil
 }
 
-func (vpcService *vpcService) ListBranchToTrunkENIMapping(ctx context.Context, req *vpcapi.ListBranchToTrunkENIMappingRequest) (*vpcapi.ListBranchToTrunkENIMappingResponse, error) {
+func (vpcService *vpcService) ListBranchToTrunkENIMapping(ctx context.Context, req *titus.GetBranchToTrunkENIMappingRequest) (*titus.GetBranchToTrunkENIMappingResponse, error) {
 	ctx, span := trace.StartSpan(ctx, "listBranchToTrunkENIMapping")
 	defer span.End()
 
@@ -1435,7 +1435,7 @@ func (vpcService *vpcService) ListBranchToTrunkENIMapping(ctx context.Context, r
 	if err != nil {
 		err = errors.Wrap(err, "Error scanning for all trunk to branch ENI mapping")
 		tracehelpers.SetStatus(err, span)
-		return &vpcapi.ListBranchToTrunkENIMappingResponse{
+		return &titus.GetBranchToTrunkENIMappingResponse{
 			BranchENIMapping: mapping,
 		}, err
 	}
@@ -1462,7 +1462,7 @@ func (vpcService *vpcService) ListBranchToTrunkENIMapping(ctx context.Context, r
 		tracehelpers.SetStatus(err, span)
 	}
 
-	return &vpcapi.ListBranchToTrunkENIMappingResponse{
+	return &titus.GetBranchToTrunkENIMappingResponse{
 		BranchENIMapping: mapping,
 	}, err
 }

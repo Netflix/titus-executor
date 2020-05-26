@@ -270,6 +270,7 @@ func Run(ctx context.Context, config *Config) error {
 		}
 		titus.RegisterUserIPServiceServer(grpcServer, vpc)
 		titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
+		titus.RegisterTitusAgentVPCInformationServiceServer(grpcServer, vpc)
 		reflection.Register(grpcServer)
 		group.Go(func() error {
 			<-ctx.Done()
