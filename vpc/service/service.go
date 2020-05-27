@@ -152,6 +152,8 @@ type Config struct {
 
 	TrunkNetworkInterfaceDescription  string
 	BranchNetworkInterfaceDescription string
+
+	WorkerRole string
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -182,9 +184,13 @@ func Run(ctx context.Context, config *Config) error {
 		return errors.New("Branch interface description must be non-empty")
 	}
 
+	if config.WorkerRole == "" {
+		return errors.New("The worker role must be non-empty")
+	}
+
 	vpc := &vpcService{
 		hostname: hostname,
-		ec2:      ec2wrapper.NewEC2SessionManager(),
+		ec2:      ec2wrapper.NewEC2SessionManager(config.WorkerRole),
 		db:       config.DB,
 		dbURL:    config.DBURL,
 

@@ -3,7 +3,6 @@ package ec2wrapper
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -54,11 +53,12 @@ var (
 	keyAccountID = tag.MustNewKey("accountId")
 )
 
-func NewEC2SessionManager() *EC2SessionManager {
+func NewEC2SessionManager(workerRole string) *EC2SessionManager {
 	sessionManager := &EC2SessionManager{
 		baseSession:  session.Must(session.NewSession()),
 		sessions:     &sync.Map{},
 		singleflight: &singleflight.Group{},
+		workerRole:   workerRole,
 	}
 
 	return sessionManager
@@ -74,39 +74,13 @@ func (k Key) String() string {
 }
 
 type EC2SessionManager struct {
-	baseSession        *session.Session
-	callerIdentityLock sync.RWMutex
-	callerIdentity     *sts.GetCallerIdentityOutput
+	workerRole  string
+	baseSession *session.Session
 
 	sessions     *sync.Map
 	singleflight *singleflight.Group
 }
 
-func (sessionManager *EC2SessionManager) getCallerIdentity(ctx context.Context) (*sts.GetCallerIdentityOutput, error) {
-	ctx, span := trace.StartSpan(ctx, "getCallerIdentity")
-	defer span.End()
-	sessionManager.callerIdentityLock.RLock()
-	ret := sessionManager.callerIdentity
-	sessionManager.callerIdentityLock.RUnlock()
-	if ret != nil {
-		return ret, nil
-	}
-
-	sessionManager.callerIdentityLock.Lock()
-	defer sessionManager.callerIdentityLock.Unlock()
-	// To prevent the thundering herd
-	if sessionManager.callerIdentity != nil {
-		return sessionManager.callerIdentity, nil
-	}
-	stsClient := sts.New(sessionManager.baseSession)
-	output, err := stsClient.GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
-	if err != nil {
-		return nil, HandleEC2Error(err, span)
-	}
-	sessionManager.callerIdentity = output
-
-	return output, nil
-}
 func (sessionManager *EC2SessionManager) GetSessionFromInstanceIdentity(ctx context.Context, instanceIdentity *vpcapi.InstanceIdentity) (*EC2Session, error) {
 	return sessionManager.GetSessionFromAccountAndRegion(ctx, Key{Region: instanceIdentity.Region, AccountID: instanceIdentity.AccountID})
 }
@@ -125,11 +99,6 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 			return val, nil
 		}
 
-		myIdentity, err := sessionManager.getCallerIdentity(ctx)
-		if err != nil {
-			return nil, err
-		}
-		// This can race, but that's okay
 		ec2Session := &EC2Session{}
 		config := aws.NewConfig()
 
@@ -139,43 +108,37 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 			config.Region = &sessionKey.Region
 		}
 
+		var err error
 		ec2Session.Session, err = session.NewSession(config)
 		if err != nil {
 			return nil, err
 		}
-		if aws.StringValue(myIdentity.Account) != sessionKey.AccountID {
-			// Gotta do the assumerole flow
-			currentARN, err := arn.Parse(aws.StringValue(myIdentity.Arn))
-			if err != nil {
-				return nil, err
-			}
-			newArn := arn.ARN{
-				Partition: "aws",
-				Service:   "iam",
-				AccountID: sessionKey.AccountID,
-				Resource:  "role/" + strings.Split(currentARN.Resource, "/")[1],
-			}
 
-			credentials := stscreds.NewCredentials(ec2Session.Session, newArn.String())
-			// Copy the original config
-			config2 := *config
-			config2.Credentials = credentials
-			if sessionKey.Region != "" {
-				config2.Region = &sessionKey.Region
-			}
-			logger.G(ctx).WithField("arn", newArn).WithField("currentARN", currentARN).Info("Setting up assume role")
-			ec2Session.Session, err = session.NewSession(&config2)
-			if err != nil {
-				return nil, err
-			}
-			output, err := sts.New(ec2Session.Session).GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
-			if err != nil {
-				return nil, err
-			}
-			logger.G(ctx).WithField("arn", aws.StringValue(output.Arn)).Info("New ARN")
-		} else {
-			logger.G(ctx).Info("Setting up session")
+		// Gotta do the assumerole flow
+		newArn := arn.ARN{
+			Partition: "aws",
+			Service:   "iam",
+			AccountID: sessionKey.AccountID,
+			Resource:  "role/" + sessionManager.workerRole,
 		}
+
+		credentials := stscreds.NewCredentials(ec2Session.Session, newArn.String())
+		// Copy the original config
+		config2 := *config
+		config2.Credentials = credentials
+		if sessionKey.Region != "" {
+			config2.Region = &sessionKey.Region
+		}
+		logger.G(ctx).WithField("arn", newArn).Info("Setting up assume role")
+		ec2Session.Session, err = session.NewSession(&config2)
+		if err != nil {
+			return nil, err
+		}
+		output, err := sts.New(ec2Session.Session).GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
+		if err != nil {
+			return nil, err
+		}
+		logger.G(ctx).WithField("arn", aws.StringValue(output.Arn)).Info("New ARN")
 
 		ec2Session.instanceCache = ccache.New(ccache.Configure().MaxSize(10000).ItemsToPrune(10))
 		ec2Session.instanceCache.OnDelete(func(*ccache.Item) {

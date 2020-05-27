@@ -43,7 +43,7 @@ import (
 var enableIntegrationTests, record bool
 var dbURL string
 var integrationTestTimeout time.Duration
-var testAZ, testAccount, testSecurityGroupID, wd, subnets string
+var testAZ, testAccount, testSecurityGroupID, wd, subnets, workerRole string
 
 func TestMain(m *testing.M) {
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
@@ -56,6 +56,7 @@ func TestMain(m *testing.M) {
 	flag.StringVar(&testSecurityGroupID, "security-group", "", "The security group id to use for testing")
 	flag.BoolVar(&record, "record", true, "Record span for each test")
 	flag.StringVar(&subnets, "subnets", "", "Subnets for stress testing")
+	flag.StringVar(&workerRole, "worker-role", "", "The role to use for the AWS IAM worker")
 	var err error
 	wd, err = os.Getwd()
 	if err != nil {
@@ -92,7 +93,7 @@ func newTestServiceInstance(t *testing.T) *vpcService {
 		db:       db,
 		dbURL:    dbURL,
 		hostname: hostname,
-		ec2:      ec2wrapper.NewEC2SessionManager(),
+		ec2:      ec2wrapper.NewEC2SessionManager(workerRole),
 
 		branchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
 		trunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,

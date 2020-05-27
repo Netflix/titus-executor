@@ -47,6 +47,7 @@ const (
 	refreshIntervalFlagName      = "refresh-interval"
 	maxOpenConnectionsFlagName   = "max-open-connections"
 	maxConcurrentRefreshFlagName = "max-concurrent-refresh"
+	workerRoleFlagName           = "worker-role"
 
 	sslCertFlagName         = "ssl-cert"
 	sslPrivateKeyFlagName   = "ssl-private-key"
@@ -291,6 +292,7 @@ func main() {
 	rootCmd.Flags().StringSlice(enabledLongLivedTasksFlagName, service.GetLongLivedTaskNames(), "Enabled long lived tasks")
 	rootCmd.Flags().String(trunkENIDescriptionFlagName, vpc.DefaultTrunkNetworkInterfaceDescription, "The description for trunk interfaces")
 	rootCmd.Flags().String(branchENIDescriptionFlagName, vpc.DefaultBranchNetworkInterfaceDescription, "The description for branch interfaces")
+	rootCmd.Flags().String(workerRoleFlagName, "", "The role which to assume into to do work")
 
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
@@ -376,6 +378,9 @@ func bindVariables(v *pkgviper.Viper) {
 		panic(err)
 	}
 
+	if err := v.BindEnv(workerRoleFlagName, "WORKER_ROLE"); err != nil {
+		panic(err)
+	}
 }
 
 func getTLSConfig(ctx context.Context, certificateFile, privateKey string, trustedCerts ...string) (*tls.Config, error) {
