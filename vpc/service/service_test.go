@@ -52,6 +52,7 @@ func TestService(t *testing.T) {
 			TitusAgentCACertPool:  nil,
 			EnabledTaskLoops:      []string{},
 			EnabledLongLivedTasks: []string{},
+			WorkerRole:            "testWorkerRole",
 
 			TrunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
 			BranchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
