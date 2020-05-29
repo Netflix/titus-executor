@@ -199,25 +199,6 @@ func (vpcService *vpcService) attachNetworkInterfaceAtIdx(ctx context.Context, e
 	return describeNetworkInterfacesOutput.NetworkInterfaces[0], nil
 }
 
-func (vpcService *vpcService) ProvisionInstanceV2(ctx context.Context, req *vpcapi.ProvisionInstanceRequestV2) (*vpcapi.ProvisionInstanceResponseV2, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "ProvisionInstanceV2")
-	defer span.End()
-	log := ctxlogrus.Extract(ctx)
-	ctx = logger.WithLogger(ctx, log)
-
-	networkInterface, err := vpcService.provisionInstanceShared(ctx, req.InstanceIdentity, 2)
-	if err != nil {
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	return &vpcapi.ProvisionInstanceResponseV2{
-		TrunkNetworkInterface: networkInterface,
-	}, nil
-}
-
 func (vpcService *vpcService) ProvisionInstanceV3(ctx context.Context, req *vpcapi.ProvisionInstanceRequestV3) (*vpcapi.ProvisionInstanceResponseV3, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

@@ -2,6 +2,7 @@ package setup2
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -39,15 +40,6 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 
 	var trunkENI *vpcapi.NetworkInterface
 	switch generation {
-	case 2:
-		provisionInstanceRequest := &vpcapi.ProvisionInstanceRequestV2{
-			InstanceIdentity: instanceIdentity,
-		}
-		provisionInstanceResponse, err := client.ProvisionInstanceV2(ctx, provisionInstanceRequest)
-		if err != nil {
-			return err
-		}
-		trunkENI = provisionInstanceResponse.TrunkNetworkInterface
 	case 3:
 		provisionInstanceRequest := &vpcapi.ProvisionInstanceRequestV3{
 			InstanceIdentity: instanceIdentity,
@@ -57,6 +49,8 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 			return err
 		}
 		trunkENI = provisionInstanceResponse.TrunkNetworkInterface
+	default:
+		return fmt.Errorf("This generation instance (%d) not supported", generation)
 	}
 
 	err = waitForInterfaceUp(ctx, trunkENI)
