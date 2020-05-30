@@ -1,6 +1,6 @@
 // +build !linux
 
-package logsutil
+package log
 
 // MaybeSetupLoggerIfOnJournaldAvailable sets up journald logging if the system
 func MaybeSetupLoggerIfOnJournaldAvailable() {

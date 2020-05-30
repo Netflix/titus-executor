@@ -85,6 +85,7 @@ require (
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 	github.com/wsxiaoys/terminal v0.0.0-20160513160801-0940f3fc43a0 // indirect
 	go.opencensus.io v0.22.3
+	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20200221170553-0f24fbd83dfb
 	golang.org/x/net v0.0.0-20200219183655-46282727080f
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e

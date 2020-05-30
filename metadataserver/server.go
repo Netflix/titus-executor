@@ -54,8 +54,6 @@ type MetadataServer struct {
 	titusTaskInstanceID string
 	ipv4Address         net.IP
 	ipv6Address         *net.IP
-	vpcID               string
-	eniID               string
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
 	// Need to hold `signLock` while accessing `signer`
@@ -89,8 +87,6 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		titusTaskInstanceID:       config.TitusTaskInstanceID,
 		ipv4Address:               config.Ipv4Address,
 		ipv6Address:               config.Ipv6Address,
-		vpcID:                     config.VpcID,
-		eniID:                     config.EniID,
 		container:                 config.Container,
 		signer:                    config.Signer,
 		tokenRequired:             config.RequireToken,

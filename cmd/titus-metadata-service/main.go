@@ -16,7 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Netflix/titus-executor/logsutil"
+	log2 "github.com/Netflix/titus-executor/utils/log"
+	"github.com/Netflix/titus-executor/utils/netns"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -114,20 +115,15 @@ func main() {
 		debug                      bool
 		requireToken               bool
 		tokenSalt                  string
-		apiProtectEnabled          bool
 		backingMetadataServer      string
 		metatronEnabled            bool
-		optimistic                 bool
 		region                     string
 		iamARN                     string
 		titusTaskInstanceID        string
 		ipv4Address                string
 		ipv6Addresses              string
-		stateDir                   string
 		xFordwardedForBlockingMode bool
-
-		vpcID string
-		eniID string
+		peerNs                     string
 	)
 
 	app.Flags = []cli.Flag{
@@ -152,19 +148,8 @@ func main() {
 			Name:        "listener-port",
 			Value:       defaultListeningPort,
 			Usage:       "Use specific port to listen on",
+			EnvVar:      "LISTEN_PORT",
 			Destination: &listenPort,
-		},
-		cli.BoolFlag{
-			Name:        "optimistic",
-			Usage:       "If you set this to to true, the IAM service will optimistically fetch IAM credentials",
-			Destination: &optimistic,
-			EnvVar:      types.TitusOptimisticIAMVariableName,
-		},
-		cli.BoolFlag{
-			Name:        "api-protect",
-			Usage:       "Enable API protect",
-			Destination: &apiProtectEnabled,
-			EnvVar:      types.TitusAPIProtectEnabledVariableName,
 		},
 		cli.StringFlag{
 			Name:        "region",
@@ -195,26 +180,9 @@ func main() {
 			Destination: &metatronEnabled,
 		},
 		cli.StringFlag{
-			Name:        "vpc-id",
-			EnvVar:      "EC2_VPC_ID",
-			Destination: &vpcID,
-		},
-		cli.StringFlag{
-			Name:        "eni-id",
-			EnvVar:      "EC2_INTERFACE_ID",
-			Destination: &eniID,
-		},
-		cli.StringFlag{
 			Name:        "ipv6-address",
 			EnvVar:      "EC2_IPV6S",
 			Destination: &ipv6Addresses,
-		},
-		cli.StringFlag{
-			Name:        "state-dir",
-			Value:       "/run/titus-metadata-service",
-			Usage:       "Where to store the state, and locker state -- creates directory",
-			EnvVar:      "IAM_STATE_DIR",
-			Destination: &stateDir,
 		},
 		cli.BoolFlag{
 			Name:        "require-token",
@@ -235,29 +203,44 @@ func main() {
 			EnvVar:      "X_FORWARDED_FOR_BLOCKING_MODE",
 			Destination: &xFordwardedForBlockingMode,
 		},
+		cli.StringFlag{
+			Name:        "peer-namespace",
+			Usage:       "When set, the proxy will bind inside the namespace specified",
+			EnvVar:      "PEER_NAMESPACE",
+			Destination: &peerNs,
+		},
 	}
+
 	app.Action = func(c *cli.Context) error {
 		if debug {
 			log.SetLevel(log.DebugLevel)
 		} else {
 			log.SetLevel(log.InfoLevel)
 		}
-		// This needs to be if journald available, because titus executors are started by mesos agent, and in order
-		// for logs to get from the tasks starts by titus tasks to
-		logsutil.MaybeSetupLoggerIfOnJournaldAvailable()
+
+		log2.MaybeSetupLoggerIfOnJournaldAvailable()
+
 		/* Get the requisite configuration from environment variables */
-		listener := getListener(listenPort, listenerFd)
+		var listener net.Listener
+
+		if len(peerNs) > 0 {
+			// We were launched by a CNI. Bind inside peer namespace.
+			log.Infof("Launched with PEER_NS %s, LISTEN_PORT %d", peerNs, listenPort)
+			nsListener, err := netns.GetNsListener(peerNs, listenPort)
+			if err != nil {
+				log.WithError(err).Fatal("Could not get listener")
+			}
+
+			listener = nsListener
+		} else {
+			listener = getListener(listenPort, listenerFd)
+		}
 
 		mdscfg := types.MetadataServerConfiguration{
 			IAMARN:                     iamARN,
 			TitusTaskInstanceID:        titusTaskInstanceID,
 			Ipv4Address:                net.ParseIP(ipv4Address),
-			VpcID:                      vpcID,
-			EniID:                      eniID,
 			Region:                     region,
-			Optimistic:                 optimistic,
-			APIProtectEnabled:          apiProtectEnabled,
-			StateDir:                   stateDir,
 			RequireToken:               requireToken,
 			TokenKey:                   titusTaskInstanceID + tokenSalt,
 			XFordwardedForBlockingMode: xFordwardedForBlockingMode,
@@ -292,7 +275,11 @@ func main() {
 		}
 		ms := metadataserver.NewMetaDataServer(context.Background(), mdscfg)
 		go notifySystemd()
-		go reloadSigner(ms)
+
+		if metatronEnabled {
+			go reloadSigner(ms)
+		}
+
 		// TODO: Wire up logic to shut down mds on signal
 		if err := http.Serve(listener, ms); err != nil {
 			return cli.NewExitError(err.Error(), 1)

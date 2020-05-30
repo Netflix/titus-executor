@@ -13,7 +13,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/bpf2/filter"
-	"github.com/Netflix/titus-executor/vpc/tool/shared"
 	"github.com/pkg/errors"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -28,7 +27,7 @@ func configureQdiscs(ctx context.Context, trunkNetworkInterface *vpcapi.NetworkI
 	if err != nil {
 		return err
 	}
-	trunkInterface, err := shared.GetLinkByMac(trunkNetworkInterface.MacAddress)
+	trunkInterface, err := GetLinkByMac(trunkNetworkInterface.MacAddress)
 	if err != nil {
 		return errors.Wrap(err, "Cannot get trunk interface")
 	}
@@ -244,4 +243,20 @@ func setupLinkIFBFilter(ctx context.Context, link netlink.Link, filterName strin
 		return errors.Wrap(err, "Cannot run command to install filter")
 	}
 	return nil
+}
+
+var ErrLinkNotFound = errors.New("Link not found")
+
+func GetLinkByMac(mac string) (netlink.Link, error) {
+	links, err := netlink.LinkList()
+	if err != nil {
+		return nil, err
+	}
+	for _, link := range links {
+		if link.Attrs().HardwareAddr.String() == mac {
+			return link, nil
+		}
+	}
+
+	return nil, ErrLinkNotFound
 }

@@ -5,19 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"net"
 	"net/http"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/cache"
+	"sync"
 
 	"github.com/Netflix/titus-executor/metadataserver/types"
-	"github.com/aws/aws-sdk-go/service/ec2"
-
-	"sync"
 
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/aws/aws-sdk-go/aws"
@@ -46,10 +41,6 @@ type iamProxy struct {
 	roleAssumptionStateLock *sync.RWMutex
 	// This is used to start the role assumer
 	roleAssumerOnce *sync.Once
-
-	vpcID              string
-	apiProtectPolicy   *string
-	apiProtectInfoLock sync.Locker
 }
 
 const (
@@ -72,18 +63,13 @@ func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataS
 		log.Fatal("Unable to parse ARN: ", err)
 	}
 
-	apiProtectInfoLock := &sync.RWMutex{}
-
 	proxy := &iamProxy{
 		ctx:                 ctx,
 		titusTaskInstanceID: config.TitusTaskInstanceID,
 		arn:                 parsedArn,
-		vpcID:               config.VpcID,
 
 		roleAssumerOnce:         &sync.Once{},
 		roleAssumptionStateLock: &sync.RWMutex{},
-
-		apiProtectInfoLock: apiProtectInfoLock.RLocker(),
 	}
 	s := session.Must(session.NewSession())
 
@@ -114,21 +100,8 @@ func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataS
 	*/
 	router.HandleFunc("/security-credentials/{iamProfile}", proxy.specificInstanceProfile)
 
-	if config.APIProtectEnabled {
-		apiProtectInfoLock.Lock()
-		ec2AWSCfg := aws.NewConfig().WithMaxRetries(3)
-		if config.Region != "" {
-			ec2AWSCfg = ec2AWSCfg.WithRegion(config.Region)
-		}
-
-		ec2Client := ec2.New(s, ec2AWSCfg)
-		go proxy.getProtectInfo(ec2Client, config.StateDir, apiProtectInfoLock, &config.Ipv4Address, config.Ipv6Address)
-	}
-
-	if config.Optimistic {
-		// No need to block here
-		go proxy.startRoleAssumer()
-	}
+	// No need to block here
+	go proxy.startRoleAssumer()
 }
 
 // An EC2IAMInfo provides the shape for marshaling
@@ -140,46 +113,8 @@ type ec2IAMInfo struct {
 	InstanceProfileID  string
 }
 
-// getProtectInfo is supposed to populate, and unlock proxy.apiProtectInfoLock
-func (proxy *iamProxy) getProtectInfo(ec2Client *ec2.EC2, stateDir string, lock *sync.RWMutex, ipv4Address, ipv6Address *net.IP) {
-	defer lock.Unlock()
-
-	// I don't see a good reason to make this cache configurable (yet)
-	vpcCache, err := cache.NewCache(filepath.Join(stateDir, "vpc"), cache.Duration(time.Hour), vpcResolver(ec2Client))
-	if err != nil {
-		log.WithError(err).Error("Could not fetch VPC, API Protect policy not generated")
-		return
-	}
-	vpcEndpointsCache, err := cache.NewCache(filepath.Join(stateDir, "vpc-endpoints"), cache.Duration(time.Hour), vpcEndpointsResolver(ec2Client))
-	if err != nil {
-		log.WithError(err).Error("Could not fetch VPC endpoints, API Protect policy not generated")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(proxy.ctx, time.Second*15)
-	defer cancel()
-	proxy.apiProtectPolicy = getAPIProtectPolicy(ctx, vpcCache, vpcEndpointsCache, proxy.vpcID, ipv4Address, ipv6Address)
-	if proxy.apiProtectPolicy == nil {
-		log.Warning("API Protect not generated, failing open")
-	} else {
-		log.WithField("policy", proxy.apiProtectPolicy).Debug("Generated policy")
-	}
-}
-
 func (proxy *iamProxy) policy(w http.ResponseWriter, r *http.Request) {
-	proxy.apiProtectInfoLock.Lock()
-	defer proxy.apiProtectInfoLock.Unlock()
-
-	if proxy.apiProtectPolicy == nil {
-		w.WriteHeader(404)
-		return
-	}
-
-	w.Header().Add("Content-Type", "application/json")
-	_, err := w.Write([]byte(*proxy.apiProtectPolicy))
-	if err != nil {
-		log.WithError(err).Error("Unable to write API protect policy")
-	}
+	w.WriteHeader(404)
 }
 
 func (proxy *iamProxy) info(w http.ResponseWriter, r *http.Request) {
@@ -390,22 +325,6 @@ func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
 		RoleSessionName: aws.String(GenerateSessionName(proxy.titusTaskInstanceID)),
 	}
 
-	// This should be safe because this method should be serialized
-	// and in addition this is an rlock, which means multiple reads
-	// can be in this critical section
-
-	// the only (primary) problem is that this can block forever, and
-	// we're protected by the apiProtectInfoFetchTimeout, but who
-	// knows how good that codepath is, so we do some futzing here
-	proxy.apiProtectInfoLock.Lock()
-	defer proxy.apiProtectInfoLock.Unlock()
-	if err := ctx.Err(); err != nil {
-		log.WithError(err).Error("Context canceled while waiting for api protect info lock")
-	}
-
-	if proxy.apiProtectPolicy != nil {
-		input.Policy = proxy.apiProtectPolicy
-	}
 	log.WithField("assumeRoleInput", input).Debug("Assume role input")
 
 	now := time.Now()
