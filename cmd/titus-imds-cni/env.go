@@ -1,6 +1,6 @@
 // +build linux
 
-package cni
+package main
 
 import (
 	"context"
@@ -188,7 +188,7 @@ func writeContainerInfo(pod *v1.Pod) error {
 		return errors.Wrap(err, "Unable to marshal containerInfo as JSON")
 	}
 
-	fname := path.Join(tt.TitusEnvironmentsDir, pod.Name+".json")
+	fname := path.Join(tt.TitusEnvironmentsDir, fmt.Sprintf("%s.json", pod.Name))
 
 	fd, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // nolint: gosec
 	if err != nil {
