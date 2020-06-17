@@ -155,12 +155,14 @@ and then pessimistic expansion.
 
 // CheckFileForStdio determines whether the file at the path below is one written by tini as a stdio rotator
 func CheckFileForStdio(fileName string) bool {
-	if _, err := xattr.GetXattr(fileName, StdioAttr); err == xattr.ENOATTR {
+	_, err := xattr.GetXattr(fileName, StdioAttr)
+
+	if err == xattr.ENOATTR {
 		return false
 	} else if os.IsNotExist(err) {
 		return false
 	} else if err != nil {
-		log.Errorf("Unable to fetch stdio attr from file %s because: %v", fileName, err)
+		log.Errorf("error reading attr %s from file %s: %v", StdioAttr, fileName, err)
 	}
 
 	return true
@@ -686,7 +688,7 @@ func shouldIgnoreFile(fileInfo os.FileInfo, uploadThreshold time.Duration, check
 	}
 
 	// Do not "traditonally" "rotate" (really upload, and delete) stdio files
-	if _, ok := PotentialStdioNames[path.Base(fileInfo.Name())]; ok && CheckFileForStdio(fileInfo.Name()) {
+	if CheckFileForStdio(fileInfo.Name()) {
 		return true
 	}
 
