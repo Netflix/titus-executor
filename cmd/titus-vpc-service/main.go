@@ -271,6 +271,8 @@ func main() {
 
 				TrunkNetworkInterfaceDescription:  v.GetString(trunkENIDescriptionFlagName),
 				BranchNetworkInterfaceDescription: v.GetString(branchENIDescriptionFlagName),
+
+				WorkerRole: v.GetString(workerRoleFlagName),
 			})
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
@@ -368,8 +370,6 @@ func bindVariables(v *pkgviper.Viper) {
 	if err := v.BindEnv(sslTitusAgentCAFlagName, "SSL_TITUSAGENT_CA"); err != nil {
 		panic(err)
 	}
-
-	v.AutomaticEnv()
 
 	if err := v.BindEnv(maxOpenConnectionsFlagName, "MAX_OPEN_CONNECTIONS"); err != nil {
 		panic(err)
