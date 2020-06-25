@@ -156,7 +156,6 @@ and then pessimistic expansion.
 // CheckFileForStdio determines whether the file at the path below is one written by tini as a stdio rotator
 func CheckFileForStdio(fileName string) bool {
 	_, err := xattr.GetXattr(fileName, StdioAttr)
-
 	if err == xattr.ENOATTR {
 		return false
 	} else if os.IsNotExist(err) {
@@ -662,7 +661,7 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 	}
 
 	for _, fileInfo := range fileInfos {
-		if shouldIgnoreFile(fileInfo, uploadThreshold, checkModifiedTimeThreshold) {
+		if shouldIgnoreFile(dirName, fileInfo, uploadThreshold, checkModifiedTimeThreshold) {
 			continue
 		}
 
@@ -678,7 +677,7 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 	return result, nil
 }
 
-func shouldIgnoreFile(fileInfo os.FileInfo, uploadThreshold time.Duration, checkModifiedTimeThreshold bool) bool {
+func shouldIgnoreFile(dirName string, fileInfo os.FileInfo, uploadThreshold time.Duration, checkModifiedTimeThreshold bool) bool {
 
 	if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
 		return true
@@ -688,7 +687,9 @@ func shouldIgnoreFile(fileInfo os.FileInfo, uploadThreshold time.Duration, check
 	}
 
 	// Do not "traditonally" "rotate" (really upload, and delete) stdio files
-	if CheckFileForStdio(fileInfo.Name()) {
+	qualifiedFileName := path.Join(dirName, fileInfo.Name())
+	if CheckFileForStdio(qualifiedFileName) {
+		log.Infof("ignoring %s, %s is set", qualifiedFileName, StdioAttr)
 		return true
 	}
 
