@@ -13,6 +13,28 @@ const (
 	SecurityGroupsAnnotation   = "network.titus.netflix.com/securityGroups"
 	IngressBandwidthAnnotation = "kubernetes.io/ingress-bandwidth"
 	EgressBandwidthAnnotation  = "kubernetes.io/egress-bandwidth"
+
+	IPv4AddressAnnotation      = "network.titus.netflix.com/address-ipv4"
+	IPv4PrefixLengthAnnotation = "network.titus.netflix.com/prefixlen-ipv4"
+	IPv6AddressAnnotation      = "network.titus.netflix.com/address-ipv6"
+	IPv6PrefixLengthAnnotation = "network.titus.netflix.com/prefixlen-ipv6"
+
+	BranchEniIDAnnotation     = "network.titus.netflix.com/branch-eni-id"
+	BranchEniMacAnnotation    = "network.titus.netflix.com/branch-eni-mac"
+	BranchEniVpcAnnotation    = "network.titus.netflix.com/branch-eni-vpc"
+	BranchEniSubnetAnnotation = "network.titus.netflix.com/branch-eni-subnet"
+
+	TrunkEniIDAnnotation  = "network.titus.netflix.com/trunk-eni-id"
+	TrunkEniMacAnnotation = "network.titus.netflix.com/trunk-eni-mac"
+	TrunkEniVpcAnnotation = "network.titus.netflix.com/trunk-eni-vpc"
+
+	VlanIDAnnotation        = "network.titus.netflix.com/vlan-id"
+	AllocationIdxAnnotation = "network.titus.netflix.com/allocation-idx"
+
+	AgentStackAnnotation  = "com.netflix.titus.agent.attribute/stack"
+	AgentRegionAnnotation = "com.netflix.titus.agent.attribute/region"
+	AgentZoneAnnotation   = "com.netflix.titus.agent.attribute/zone"
+	AgentITypeAnnotation  = " com.netflix.titus.agent.attribute/itype"
 )
 
 type Generation string

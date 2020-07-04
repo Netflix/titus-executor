@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/Netflix/titus-executor/utils/k8s"
 
@@ -143,15 +142,6 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
-	securityGroups, ok := pod.Annotations[vpctypes.SecurityGroupsAnnotation]
-	if !ok {
-		err = fmt.Errorf("Security groups must be specified on the pod via the annotation %s", vpctypes.SecurityGroupsAnnotation)
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-	span.AddAttributes(trace.StringAttribute("securityGroups", securityGroups))
-	securityGroupsList := strings.Split(securityGroups, ",")
-
 	ingressBandwidth, ok := pod.Annotations[vpctypes.IngressBandwidthAnnotation]
 	if !ok {
 		err = fmt.Errorf("Ingress must be specified on the pod via the annotation %s", vpctypes.IngressBandwidthAnnotation)
@@ -195,40 +185,16 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	}
 	defer ns.Close()
 
-	// FIXME(manas) This check seems redundant?
-	podName := cfg.k8sArgs.K8S_POD_NAME
-	podKey := k8s.PodKey(pod)
-	if string(podName) != podKey {
-		err = fmt.Errorf("Pod key (%s) is not pod name (%s)", podKey, podName)
+	alloc, err := vpctypes.PodToAllocation(pod)
+	if err != nil {
 		logger.G(ctx).WithError(err).Error()
 		tracehelpers.SetStatus(err, span)
-		return err
 	}
-	assignIPRequest := &vpcapi.AssignIPRequestV3{
-		InstanceIdentity: cfg.instanceIdentity,
-		TaskId:           podKey,
-		SecurityGroupIds: securityGroupsList,
-		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true},
-		Idempotent:       true,
-	}
+	logger.G(ctx).WithField("pod", pod.String()).WithField("allocation", fmt.Sprintf("%+v", alloc)).Info("Parsed pod annotations")
 
-	client := vpcapi.NewTitusAgentVPCServiceClient(cfg.conn)
+	mask := net.CIDRMask(int(alloc.IPV4Address.PrefixLength), 32)
+	ip := net.ParseIP(alloc.IPV4Address.Address.Address)
 
-	response, err := client.AssignIPV3(ctx, assignIPRequest)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("AssignIP request failed")
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
-	alloc := vpctypes.AssignmentToAllocation(response)
-
-	logger.G(ctx).WithField("response", response.String()).WithField("allocation", fmt.Sprintf("%+v", alloc)).Info("Allocated IP")
-
-	mask := net.CIDRMask(int(response.Ipv4Address.PrefixLength), 32)
-	ip := net.ParseIP(response.Ipv4Address.Address.Address)
-	ipnet := net.IPNet{IP: ip, Mask: mask}
-	zeroIdx := 0
 	gateway := cidr.Inc(ip.Mask(mask))
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
 
@@ -240,12 +206,13 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
+	zeroIdx := 0
 	result := current.Result{
 		CNIVersion: "0.3.1",
 		Interfaces: []*current.Interface{
 			{
 				Name:    "eth0",
-				Mac:     response.BranchNetworkInterface.MacAddress,
+				Mac:     alloc.BranchENIMAC,
 				Sandbox: args.Netns,
 			},
 		},
@@ -253,8 +220,11 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 			{
 				Version:   "4",
 				Interface: &zeroIdx,
-				Address:   ipnet,
-				Gateway:   gateway,
+				Address: net.IPNet{
+					IP:   ip,
+					Mask: mask,
+				},
+				Gateway: gateway,
 			},
 		},
 		Routes: []*types.Route{
