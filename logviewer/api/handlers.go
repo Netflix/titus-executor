@@ -124,11 +124,24 @@ func maybeVirtualFileStdioLogHandler(w http.ResponseWriter, r *http.Request, con
 
 func logHandlerWithFile(w http.ResponseWriter, r *http.Request, fout *os.File) error {
 
-	if filesystems.CheckFDForStdio(fout) {
+	if CheckFDForStdio(fout) {
 		return stdioLogHandlerWithFile(w, r, fout)
 	}
 	http.ServeContent(w, r, fout.Name(), time.Now(), fout)
 	return nil
+}
+
+// CheckFDForStdio determines whether the file at the fd is one written by tini as a stdio rotator
+func CheckFDForStdio(file *os.File) bool {
+	if _, err := xattr.FGetXattr(file, filesystems.StdioAttr); err == xattr.ENOATTR {
+		return false
+	} else if os.IsNotExist(err) {
+		return false
+	} else if err != nil {
+		log.Errorf("Unable to fetch stdio attr from file %s because: %v", file.Name(), err)
+	}
+
+	return true
 }
 
 func stdioLogHandlerWithFile(w http.ResponseWriter, r *http.Request, fout *os.File) error {
