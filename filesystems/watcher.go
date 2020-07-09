@@ -167,19 +167,6 @@ func CheckFileForStdio(fileName string) bool {
 	return true
 }
 
-// CheckFDForStdio determines whether the file at the fd is one written by tini as a stdio rotator
-func CheckFDForStdio(file *os.File) bool {
-	if _, err := xattr.FGetXattr(file, StdioAttr); err == xattr.ENOATTR {
-		return false
-	} else if os.IsNotExist(err) {
-		return false
-	} else if err != nil {
-		log.Errorf("Unable to fetch stdio attr from file %s because: %v", file.Name(), err)
-	}
-
-	return true
-}
-
 func CheckFileForRotation(fileName string, regexp *regexp.Regexp) bool { // nolint: golint
 	fileNameBytes := []byte(fileName)
 	rotateIt := regexp != nil && regexp.Match(fileNameBytes)
@@ -661,39 +648,32 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 	}
 
 	for _, fileInfo := range fileInfos {
-		if shouldIgnoreFile(dirName, fileInfo, uploadThreshold, checkModifiedTimeThreshold) {
+		fqName := path.Join(dirName, fileInfo.Name())
+
+		if fileInfo.IsDir() {
+			log.Debugf("descending into %s", fqName)
+			return buildFileListInDir2(fqName, result, checkModifiedTimeThreshold, uploadThreshold) // nolint: ineffassign
+		}
+
+		if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
+			log.Debugf("ignoring %s, %s indicates symlink", fqName, fileInfo.Mode())
 			continue
 		}
 
-		if !fileInfo.IsDir() && !(fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink) {
-			result = append(result, path.Join(dirName, fileInfo.Name()))
-		} else {
-			result, err = buildFileListInDir2(path.Join(dirName, fileInfo.Name()), result, checkModifiedTimeThreshold, uploadThreshold) // nolint: ineffassign
-			if err != nil {
-				return nil, err
-			}
+		if checkModifiedTimeThreshold && !isFileModifiedAfterThreshold(fileInfo, uploadThreshold) {
+			log.Debugf("ignoring %s, %s not soon enough", fqName, fileInfo.ModTime())
+			continue
 		}
+
+		if CheckFileForStdio(fqName) {
+			log.Debugf("ignoring %s, %s is set", fqName, StdioAttr)
+			continue
+		}
+
+		log.Printf("adding %s to list of files to upload", fqName)
+		result = append(result, fqName)
 	}
 	return result, nil
-}
-
-func shouldIgnoreFile(dirName string, fileInfo os.FileInfo, uploadThreshold time.Duration, checkModifiedTimeThreshold bool) bool {
-
-	if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
-		return true
-	}
-	if checkModifiedTimeThreshold && !fileInfo.IsDir() && isFileModifiedAfterThreshold(fileInfo, uploadThreshold) {
-		return true
-	}
-
-	// Do not "traditonally" "rotate" (really upload, and delete) stdio files
-	qualifiedFileName := path.Join(dirName, fileInfo.Name())
-	if CheckFileForStdio(qualifiedFileName) {
-		log.Infof("ignoring %s, %s is set", qualifiedFileName, StdioAttr)
-		return true
-	}
-
-	return false
 }
 
 func isFileModifiedAfterThreshold(file os.FileInfo, uploadThreshold time.Duration) bool {
