@@ -670,7 +670,7 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 			continue
 		}
 
-		log.Printf("adding %s to list of files to upload", fqName)
+		log.Debugf("adding %s to list of files to upload", fqName)
 		result = append(result, fqName)
 	}
 	return result, nil
