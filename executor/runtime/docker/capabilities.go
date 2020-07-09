@@ -12,7 +12,6 @@ import (
 
 const (
 	SYS_ADMIN = "SYS_ADMIN" // nolint: golint
-	NET_ADMIN = "NET_ADMIN" // nolint: golint
 )
 
 var (
@@ -69,10 +68,6 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 	}
 
 	if kvmEnabled {
-		if _, ok := addedCapabilities[NET_ADMIN]; !ok {
-			hostCfg.CapAdd = append(hostCfg.CapAdd, NET_ADMIN)
-		}
-
 		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
 			PathOnHost:        kvmDev,
 			PathInContainer:   kvmDev,
