@@ -153,12 +153,12 @@ func (u *S3Backend) uploadFile(ctx context.Context, local io.Reader, remote stri
 		contentType = defaultS3ContentType
 	}
 
-	contentEncoding := ""
-	if contentType == 'text/plain' {
+	var contentEncoding *string
+	if contentType == "text/plain" {
 		// On plain text files (default encoding), without setting this, it will be
 		// unset, leaving it up to the browser, which means it will be ISO-8859-1 !
 		// This can be confusing for users, so this gives us a better default.
-		contentEncoding = "utf-8"
+		contentEncoding = aws.String("utf-8")
 	}
 
 	// wrap input io.Reader with a counting reader
@@ -167,7 +167,7 @@ func (u *S3Backend) uploadFile(ctx context.Context, local io.Reader, remote stri
 	result, err := u.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 		ACL:             aws.String(defaultS3ACL),
 		ContentType:     aws.String(contentType),
-		ContentEncoding: aws.String(contentEncoding),
+		ContentEncoding: contentEncoding,
 		Bucket:          aws.String(u.bucketName),
 		Key:             aws.String(filepath.Join(u.pathPrefix, remote)),
 		Body:            reader,
