@@ -653,26 +653,29 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 
 		if fileInfo.IsDir() {
 			log2.Debug("descending into directory")
-			return buildFileListInDir2(fqName, result, checkModifiedTimeThreshold, uploadThreshold) // nolint: ineffassign
-		}
+			result, err = buildFileListInDir2(fqName, result, checkModifiedTimeThreshold, uploadThreshold) // nolint: ineffassign
+			if err != nil {
+				return result, err
+			}
+		} else {
+			if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
+				log2.Debug("ignoring symlink")
+				continue
+			}
 
-		if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
-			log2.Debug("ignoring symlink")
-			continue
-		}
+			if checkModifiedTimeThreshold && !isFileModifiedAfterThreshold(fileInfo, uploadThreshold) {
+				log2.Debugf("%s not soon enough", fileInfo.ModTime())
+				continue
+			}
 
-		if checkModifiedTimeThreshold && !isFileModifiedAfterThreshold(fileInfo, uploadThreshold) {
-			log2.Debugf("%s not soon enough", fileInfo.ModTime())
-			continue
-		}
+			if CheckFileForStdio(fqName) {
+				log2.Debugf("%s is set", StdioAttr)
+				continue
+			}
 
-		if CheckFileForStdio(fqName) {
-			log2.Debugf("%s is set", StdioAttr)
-			continue
+			log2.Debug("append to file list")
+			result = append(result, fqName)
 		}
-
-		log2.Debug("append to file list")
-		result = append(result, fqName)
 	}
 	return result, nil
 }
