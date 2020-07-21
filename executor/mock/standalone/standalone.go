@@ -21,7 +21,6 @@ import (
 	_ "github.com/Netflix/titus-executor/api/netflix/titus"
 	_ "github.com/Netflix/titus-executor/executor/mock"
 	_ "github.com/Netflix/titus-executor/executor/runtime/docker"
-	_ "github.com/mesos/mesos-go/mesosproto"
 	_ "github.com/pborman/uuid"
 	_ "github.com/sirupsen/logrus"
 )

@@ -23,11 +23,14 @@ import (
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	dockerTypes "github.com/docker/docker/api/types"
 	protobuf "github.com/golang/protobuf/proto"
-	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	TASK_FAILED = "TASK_FAILED" // nolint:golint
 )
 
 var standalone bool
@@ -505,7 +508,7 @@ func testImageInvalidDigestFails(t *testing.T, jobID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != mesosproto.TaskState_TASK_FAILED.String() {
+	if status != TASK_FAILED {
 		t.Fatalf("Expected status=FAILED, got: %s", status)
 	}
 }
@@ -522,7 +525,7 @@ func testImageNonExistingDigestFails(t *testing.T, jobID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != mesosproto.TaskState_TASK_FAILED.String() {
+	if status != TASK_FAILED {
 		t.Fatalf("Expected status=FAILED, got: %s", status)
 	}
 }
@@ -538,7 +541,7 @@ func testImagePullError(t *testing.T, jobID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != mesosproto.TaskState_TASK_FAILED.String() {
+	if status != TASK_FAILED {
 		t.Fatalf("Expected status=FAILED, got: %s", status)
 	}
 }

@@ -35,7 +35,6 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 					conn,
 					gc3.Args{
 						KubernetesPodsURL: v.GetString("kubernetes-pods-url"),
-						MesosStateURL:     v.GetString("mesos-state-url"),
 						SourceOfTruth:     v.GetString(sourceOfTruthFlagName),
 					},
 				)
@@ -48,7 +47,6 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 	cmd.Flags().Duration("timeout", 10*time.Minute, "How long to allow the GC to run for")
 	cmd.Flags().String(sourceOfTruthFlagName, "kubernetes", "What to use as the source of truth?")
 	cmd.Flags().String("kubernetes-pods-url", "https://localhost:10250/pods", "The source of truth URL (pods or state.json)")
-	cmd.Flags().String("mesos-state-url", "http://localhost:7101/state", "The mesos (agent) state json URL")
 	addSharedFlags(cmd.Flags())
 
 	return cmd

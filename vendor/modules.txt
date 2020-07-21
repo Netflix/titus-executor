@@ -165,8 +165,6 @@ github.com/golang-migrate/migrate/database
 github.com/golang-migrate/migrate/database/postgres
 github.com/golang-migrate/migrate/source
 github.com/golang-migrate/migrate/source/go_bindata
-# github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-github.com/golang/glog
 # github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e
 github.com/golang/groupcache/lru
 # github.com/golang/protobuf v1.3.3
@@ -319,15 +317,6 @@ github.com/matoous/godox
 github.com/mattn/go-colorable
 # github.com/mattn/go-isatty v0.0.12
 github.com/mattn/go-isatty
-# github.com/mesos/mesos-go v0.0.0-20161004192122-7228b13084ce
-github.com/mesos/mesos-go/executor
-github.com/mesos/mesos-go/mesosproto
-github.com/mesos/mesos-go/mesosproto/scheduler
-github.com/mesos/mesos-go/mesosutil
-github.com/mesos/mesos-go/mesosutil/process
-github.com/mesos/mesos-go/messenger
-github.com/mesos/mesos-go/messenger/sessionid
-github.com/mesos/mesos-go/upid
 # github.com/mitchellh/go-homedir v1.1.0
 github.com/mitchellh/go-homedir
 # github.com/mitchellh/mapstructure v1.1.2
@@ -454,6 +443,10 @@ go.opencensus.io/trace/propagation
 go.opencensus.io/trace/tracestate
 go.opencensus.io/zpages
 go.opencensus.io/zpages/internal
+# go.uber.org/atomic v1.4.0
+go.uber.org/atomic
+# go.uber.org/multierr v1.1.0
+go.uber.org/multierr
 # golang.org/x/crypto v0.0.0-20200221170553-0f24fbd83dfb
 golang.org/x/crypto/ed25519
 golang.org/x/crypto/ed25519/internal/edwards25519
@@ -461,7 +454,6 @@ golang.org/x/crypto/ed25519/internal/edwards25519
 golang.org/x/mod/module
 golang.org/x/mod/semver
 # golang.org/x/net v0.0.0-20200219183655-46282727080f
-golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/html
 golang.org/x/net/html/atom

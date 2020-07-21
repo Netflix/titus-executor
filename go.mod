@@ -54,7 +54,6 @@ require (
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.3.0
 	github.com/mattn/go-isatty v0.0.12 // indirect
-	github.com/mesos/mesos-go v0.0.0-20161004192122-7228b13084ce
 	github.com/myitcv/gobin v0.0.9
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
