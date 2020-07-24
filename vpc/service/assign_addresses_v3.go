@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -31,6 +32,9 @@ const (
 	invalidParameterValue        = "InvalidParameterValue"
 	invalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
 	assignTimeout                = 5 * time.Minute
+
+	getSubnetTimeout     = 1 * time.Minute
+	subnetExpirationTime = 1 * time.Minute
 )
 
 var (
@@ -98,27 +102,81 @@ type branchENI struct {
 	idx           int
 }
 
+func subnetCacheKey(az, accountID string, subnetIDs []string) string {
+	sort.Strings(subnetIDs)
+	return fmt.Sprintf("az:%s accountID:%s subnetIDs:%s", az, accountID, strings.Join(subnetIDs, ","))
+}
+
 func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "getSubnet")
 	defer span.End()
 
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		ReadOnly: true,
-	})
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
+	// NOTE[jigish] caching using the full set of subnetIDs will cause the same subnet to be returned for all hits
+	cacheKey := subnetCacheKey(az, accountID, subnetIDs)
 
-	var row *sql.Row
-	if len(subnetIDs) == 0 {
-		row = tx.QueryRowContext(ctx, `
+	item := vpcService.getSubnetCache.Get(cacheKey)
+	if item != nil {
+		span.AddAttributes(trace.BoolAttribute("cached", true))
+		span.AddAttributes(trace.BoolAttribute("expired", item.Expired()))
+		span.AddAttributes(trace.StringAttribute("expires", item.Expires().String()))
+
+		val := item.Value().(*subnet)
+		if !item.Expired() {
+			return val, nil
+		}
+		span.AddAttributes(trace.BoolAttribute("stale", true))
+	} else {
+		span.AddAttributes(trace.BoolAttribute("cached", false))
+	}
+
+	r, err, _ := vpcService.getSubnetLock.Do(cacheKey, func() (interface{}, error) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		ctx, span := trace.StartSpan(ctx, "getSubnetSingleFlight")
+		defer span.End()
+
+		item := vpcService.getSubnetCache.Get(cacheKey)
+		var staleSubnet *subnet
+		if item != nil {
+			span.AddAttributes(trace.BoolAttribute("cached", true))
+			span.AddAttributes(trace.BoolAttribute("expired", item.Expired()))
+			span.AddAttributes(trace.StringAttribute("expires", item.Expires().String()))
+
+			val := item.Value().(*subnet)
+			if !item.Expired() {
+				return val, nil
+			}
+			staleSubnet = val
+		} else {
+			span.AddAttributes(trace.BoolAttribute("cached", false))
+		}
+
+		queryCtx, queryCancel := context.WithTimeout(ctx, getSubnetTimeout)
+		defer queryCancel()
+		tx, err := vpcService.db.BeginTx(queryCtx, &sql.TxOptions{
+			ReadOnly: true,
+		})
+		if err != nil {
+			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
+			span.SetStatus(traceStatusFromError(err))
+
+			if staleSubnet != nil {
+				logger.G(ctx).WithField("error", err).WithField("subnet", staleSubnet).
+					Warn("Database transaction error, returning stale subnet")
+				span.AddAttributes(trace.BoolAttribute("stale", true))
+				return staleSubnet, nil
+			}
+			return nil, err
+		}
+		defer func() {
+			_ = tx.Rollback()
+		}()
+
+		var row *sql.Row
+		if len(subnetIDs) == 0 {
+			row = tx.QueryRowContext(queryCtx, `
 SELECT subnets.az,
        subnets.vpc_id,
        subnets.account_id,
@@ -131,9 +189,9 @@ JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets
 WHERE subnets.account_id = $1
   AND subnets.az = $2
 `,
-			accountID, az)
-	} else {
-		row = tx.QueryRowContext(ctx, `
+				accountID, az)
+		} else {
+			row = tx.QueryRowContext(queryCtx, `
 SELECT subnets.az,
        subnets.vpc_id,
        subnets.account_id,
@@ -146,24 +204,36 @@ WHERE subnets.az = $1
   AND subnets.subnet_id = any($2)
 LIMIT 1
 `, az, pq.Array(subnetIDs))
-	}
-	ret := subnet{}
-	err = row.Scan(&ret.az, &ret.vpcID, &ret.accountID, &ret.subnetID, &ret.cidr, &ret.region)
-	if err == sql.ErrNoRows {
-		if len(subnetIDs) == 0 {
-			err = fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az)
-		} else {
-			err = fmt.Errorf("No subnet found in account %s in az %s", accountID, az)
 		}
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	if err != nil {
-		err = errors.Wrap(err, "Cannot fetch subnet ID from database")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	return &ret, nil
+		ret := subnet{}
+		err = row.Scan(&ret.az, &ret.vpcID, &ret.accountID, &ret.subnetID, &ret.cidr, &ret.region)
+		if err == sql.ErrNoRows {
+			if len(subnetIDs) == 0 {
+				err = fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az)
+			} else {
+				err = fmt.Errorf("No subnet found in account %s in az %s", accountID, az)
+			}
+			span.SetStatus(traceStatusFromError(err))
+			// explicitly not returning stale subnet here
+			return nil, err
+		}
+		if err != nil {
+			err = errors.Wrap(err, "Cannot fetch subnet ID from database")
+			span.SetStatus(traceStatusFromError(err))
+
+			if staleSubnet != nil {
+				logger.G(ctx).WithField("error", err).WithField("subnet", staleSubnet).
+					Warn("Database transaction error, returning stale subnet")
+				span.AddAttributes(trace.BoolAttribute("stale", true))
+				return staleSubnet, nil
+			}
+			return nil, err
+		}
+
+		vpcService.getSubnetCache.Set(cacheKey, &ret, subnetExpirationTime)
+		return &ret, nil
+	})
+	return r.(*subnet), err
 }
 
 type staticAllocation struct {
