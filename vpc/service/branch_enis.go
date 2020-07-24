@@ -1042,7 +1042,8 @@ type actionWorker struct {
 
 	pendingState string
 
-	readyCh chan struct{}
+	readyCh       chan struct{}
+	readyChClosed bool
 }
 
 func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) error {
@@ -1123,7 +1124,10 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 					err = errors.Wrap(err, "Could not retrieve all work items")
 					return err
 				}
-				close(actionWorker.readyCh)
+				if !actionWorker.readyChClosed {
+					close(actionWorker.readyCh)
+					actionWorker.readyChClosed = true
+				}
 			case pq.ListenerEventDisconnected:
 				logger.G(ctx).WithError(ev.err).Error("Disconnected from postgres")
 			case pq.ListenerEventReconnected:
