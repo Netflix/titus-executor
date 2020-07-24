@@ -133,15 +133,14 @@ get_eni:
 		Isolation: sql.LevelSerializable,
 		ReadOnly:  true,
 	})
-	defer func(tx *sql.Tx) {
-		_ = tx.Rollback()
-	}(fastTx)
-
 	if err != nil {
 		err = errors.Wrap(err, "Cannot start serialized, readonly database transaction")
 		span.SetStatus(traceStatusFromError(err))
 		return false, err
 	}
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback()
+	}(fastTx)
 
 	row := fastTx.QueryRowContext(ctx, `
      SELECT branch_eni
