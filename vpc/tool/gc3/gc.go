@@ -2,7 +2,6 @@ package gc3
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -24,7 +23,6 @@ import (
 
 type Args struct {
 	KubernetesPodsURL string
-	MesosStateURL     string
 	SourceOfTruth     string
 }
 
@@ -52,8 +50,6 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 	switch args.SourceOfTruth {
 	case "kubernetes":
 		req.RunningTaskIDs, err = kubernetesTasks(ctx, args.KubernetesPodsURL)
-	case "mesos":
-		req.RunningTaskIDs, err = mesosTasks(ctx, args.MesosStateURL)
 	default:
 		err = fmt.Errorf("Source of truth %q unknown", args.SourceOfTruth)
 	}
@@ -144,48 +140,4 @@ func parseKubernetesTasksBody(body []byte) ([]string, error) {
 		ret[idx] = k8s.PodKey(&pod)
 	}
 	return ret, nil
-}
-
-func mesosTasks(ctx context.Context, url string) ([]string, error) {
-	ctx, span := trace.StartSpan(ctx, "mesosTasks")
-	defer span.End()
-	body, err := k8s.Get(ctx, url)
-	if err != nil {
-		err = errors.Wrap(err, "Could not fetch task body from Kubelet")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	tasks, err := parseMesosTasksBody(body)
-	if err != nil {
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	return tasks, nil
-}
-
-func parseMesosTasksBody(body []byte) ([]string, error) {
-	var state State
-	err := json.Unmarshal(body, &state)
-	if err != nil {
-		err = errors.Wrap(err, "Unable to unmarshal state")
-		return nil, err
-	}
-
-	tasks := []string{}
-	for _, framework := range state.Frameworks {
-		for _, executor := range framework.Executors {
-			for _, task := range executor.Tasks {
-				// We consider all tasks by all running executors to be alive, even if they are in a terminal state
-				// That is because the executor can hang on the task's network resources until it itself is terminated
-				if task.Name == "" {
-					return nil, fmt.Errorf("Invalid task: %v", task)
-				}
-				tasks = append(tasks, task.Name)
-			}
-		}
-	}
-
-	return tasks, nil
 }
