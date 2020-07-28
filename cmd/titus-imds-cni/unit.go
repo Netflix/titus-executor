@@ -1,6 +1,6 @@
 // +build linux
 
-package cni
+package main
 
 import (
 	"errors"

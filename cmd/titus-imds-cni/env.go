@@ -1,6 +1,6 @@
 // +build linux
 
-package cni
+package main
 
 import (
 	"context"
@@ -143,7 +143,7 @@ func setupEnv(pod *v1.Pod, env map[string]string) error {
 
 func writeEnvFile(pod *v1.Pod, env map[string]string) error {
 	dname := path.Join(tt.TitusEnvironmentsDir, pod.Name)
-	fname := path.Join(dname, "imds-proxy.env")
+	fname := path.Join(dname, "titus-imds-proxy.env")
 
 	err := os.Mkdir(dname, 0644)
 	if err != nil && !os.IsExist(err) {

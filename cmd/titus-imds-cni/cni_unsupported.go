@@ -1,6 +1,6 @@
 // +build !linux
 
-package cni
+package main
 
 import (
 	"github.com/Netflix/titus-executor/utils"

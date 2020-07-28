@@ -23,7 +23,7 @@ LimitNOFILE=65536
 PrivateTmp=yes
 
 EnvironmentFile=-/run/titus-metadata-proxy.salt
-EnvironmentFile=/var/lib/titus-environments/%i/imds-proxy.env
+EnvironmentFile=/var/lib/titus-environments/%i/titus-imds-proxy.env
 ExecStart=/apps/titus-executor/bin/titus-metadata-service
 
 [Install]
