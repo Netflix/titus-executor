@@ -36,8 +36,6 @@ import (
 	//	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 )
 
-const kubeletAPIPodsURL = "https://localhost:10250/pods"
-
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
 
 type Command struct {
