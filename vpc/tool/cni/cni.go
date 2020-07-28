@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
+	"path"
 	"strings"
+
+	tt "github.com/Netflix/titus-executor/executor/runtime/types"
 
 	"github.com/Netflix/titus-executor/utils/k8s"
 
@@ -31,6 +35,8 @@ import (
 	"google.golang.org/grpc"
 	//	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 )
+
+const kubeletAPIPodsURL = "https://localhost:10250/pods"
 
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
 
@@ -221,6 +227,19 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
+	bytes, err := json.Marshal(response)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("cannot marshal API response")
+		return err
+	}
+
+	fname := path.Join(tt.TitusEnvironmentsDir, string(podName), "vpc-v3.json")
+	err = ioutil.WriteFile(fname, bytes, 0644)
+	if err != nil {
+		logger.G(ctx).WithError(err).Errorf("cannot write %s", fname)
+		return err
+	}
+
 	alloc := vpctypes.AssignmentToAllocation(response)
 
 	logger.G(ctx).WithField("response", response.String()).WithField("allocation", fmt.Sprintf("%+v", alloc)).Info("Allocated IP")
@@ -303,9 +322,18 @@ func (c *Command) Del(args *skel.CmdArgs) (e error) {
 	}
 	logger.G(ctx).WithField("args", args).WithField("cfg", cfg).Info("CNI Delete Networking")
 
+	podName := string(cfg.k8sArgs.K8S_POD_NAME)
+
+	fname := path.Join(tt.TitusEnvironmentsDir, podName, "vpc-v3.json")
+	err = os.Remove(fname)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("AssignIP request failed")
+		return err
+	}
+
 	client := vpcapi.NewTitusAgentVPCServiceClient(cfg.conn)
 	assignment, err := client.GetAssignment(ctx, &vpcapi.GetAssignmentRequest{
-		TaskId: string(cfg.k8sArgs.K8S_POD_NAME),
+		TaskId: podName,
 	})
 
 	if err != nil {
