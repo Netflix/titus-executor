@@ -213,10 +213,11 @@ func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID strin
 		// The lifetime of this singleflight should be independent of that of the connection / request
 		ctx2, cancel2 := context.WithTimeout(context.Background(), getSubnetTimeout)
 		defer cancel2()
-		ctx2, span := trace.StartSpanWithRemoteParent(ctx2, "getSubnetSingleflight", spanContext)
+		ctx2, span2 := trace.StartSpanWithRemoteParent(ctx2, "getSubnetSingleflight", spanContext)
+		defer span2.End()
 		subnet, err := vpcService.getSubnetUncached(ctx2, az, accountID, subnetIDs)
 		if err != nil {
-			tracehelpers.SetStatus(err, span)
+			tracehelpers.SetStatus(err, span2)
 			return nil, err
 		}
 		vpcService.getSubnetCache.Set(cacheKey, subnet, vpcService.subnetCacheExpirationTime)
