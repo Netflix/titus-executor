@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -31,6 +32,9 @@ const (
 	invalidParameterValue        = "InvalidParameterValue"
 	invalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
 	assignTimeout                = 5 * time.Minute
+
+	// The P99 for get subnet is 3 seconds
+	getSubnetTimeout = 10 * time.Second
 )
 
 var (
@@ -98,10 +102,13 @@ type branchENI struct {
 	idx           int
 }
 
-func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "getSubnet")
+func subnetCacheKey(az, accountID string, subnetIDs []string) string {
+	sort.Strings(subnetIDs)
+	return fmt.Sprintf("az:%s accountID:%s subnetIDs:%s", az, accountID, strings.Join(subnetIDs, ","))
+}
+
+func (vpcService *vpcService) getSubnetUncached(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
+	ctx, span := trace.StartSpan(ctx, "getSubnetUncached")
 	defer span.End()
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
@@ -156,6 +163,7 @@ LIMIT 1
 			err = fmt.Errorf("No subnet found in account %s in az %s", accountID, az)
 		}
 		span.SetStatus(traceStatusFromError(err))
+		// explicitly not returning stale subnet here
 		return nil, err
 	}
 	if err != nil {
@@ -163,7 +171,74 @@ LIMIT 1
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+
 	return &ret, nil
+}
+
+func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "getSubnet")
+	defer span.End()
+
+	// NOTE[jigish] caching using the full set of subnetIDs will cause the same subnet to be returned for all hits
+	cacheKey := subnetCacheKey(az, accountID, subnetIDs)
+
+	item := vpcService.getSubnetCache.Get(cacheKey)
+	if item != nil {
+		span.AddAttributes(trace.BoolAttribute("cached", true))
+		val := item.Value().(*subnet)
+		if !item.Expired() {
+			return val, nil
+		}
+
+		span.AddAttributes(trace.BoolAttribute("expired", true))
+		span.AddAttributes(trace.StringAttribute("expires", item.Expires().String()))
+
+		span.AddAttributes(trace.BoolAttribute("stale", true))
+	}
+
+	spanContext := span.SpanContext()
+	resultChan := vpcService.getSubnetLock.DoChan(cacheKey, func() (interface{}, error) {
+		// There could be a race here between the time we checked above and this singleflight started
+		// so check again
+		//
+		// Also, go scoping makes this confusing, so keep this name different than above
+		item2 := vpcService.getSubnetCache.Get(cacheKey)
+		if item2 != nil && !item2.Expired() {
+			span.AddAttributes(trace.BoolAttribute("cached", true))
+			return item2.Value().(*subnet), nil
+		}
+
+		// The lifetime of this singleflight should be independent of that of the connection / request
+		ctx2, cancel2 := context.WithTimeout(context.Background(), getSubnetTimeout)
+		defer cancel2()
+		ctx2, span := trace.StartSpanWithRemoteParent(ctx2, "getSubnetSingleflight", spanContext)
+		subnet, err := vpcService.getSubnetUncached(ctx2, az, accountID, subnetIDs)
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		vpcService.getSubnetCache.Set(cacheKey, subnet, vpcService.subnetCacheExpirationTime)
+		return subnet, nil
+	})
+
+	select {
+	case result := <-resultChan:
+		span.AddAttributes(trace.BoolAttribute("shared", result.Shared))
+		if result.Err == nil {
+			return result.Val.(*subnet), nil
+		}
+		if item != nil {
+			span.AddAttributes(trace.BoolAttribute("fallback", true))
+			return item.Value().(*subnet), nil
+		}
+		tracehelpers.SetStatus(result.Err, span)
+		return nil, result.Err
+	case <-ctx.Done():
+		tracehelpers.SetStatus(ctx.Err(), span)
+		return nil, ctx.Err()
+	}
 }
 
 type staticAllocation struct {
