@@ -102,6 +102,8 @@ type vpcService struct {
 
 	getSubnetCache *ccache.Cache
 	getSubnetLock  singleflight.Group
+
+	subnetCacheExpirationTime time.Duration
 }
 
 func generatorTrackerCache() *ccache.Cache {
@@ -212,6 +214,12 @@ func Run(ctx context.Context, config *Config) error {
 		generatorTracker:          generatorTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
 		getSubnetCache:            ccache.New(ccache.Configure()),
+
+		// Failures to find subnet (negative result) is never cached. Only positive results are cached.
+		// The reconcile interval drives how often the subnets change in the DB. Although they may be out of phase
+		// they will never be more than in an completely offset phase if we set the expiration time
+		// to the reconcile time.
+		subnetCacheExpirationTime: config.ReconcileInterval / 2.0,
 	}
 
 	// TODO: actually validate this
