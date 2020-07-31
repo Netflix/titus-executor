@@ -1,0 +1,1 @@
+-- There is no down from here to restore the deprecated tables
