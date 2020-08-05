@@ -173,7 +173,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 			err = errors.Wrap(err, "Cannot set lock timeout to 1000 milliseconds")
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error()
-			return nil
+			return err
 		}
 
 		// Try to lock it for one second. It'll error out otherwise
@@ -191,9 +191,14 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 			err = errors.Wrap(err, "Cannot reset lock timeout to 0 (infinity)")
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error()
-			return nil
+			return err
 		}
 
+		/*
+		 * We intentionally return nil on the errors below, because they aren't critical to the operation of the action
+		 * worker loop (for the most part). We do not want to cause these things failing to cause the entire action
+		 * worker to bail.
+		 */
 		err = actionWorker.cb(ctx, tx, id)
 		// TODO: Consider updating the table state here
 		if vpcerrors.IsPersistentError(err) {
