@@ -1,0 +1,7 @@
+START TRANSACTION ;
+
+ALTER TABLE branch_eni_actions_associate_DEPRECATED RENAME TO branch_eni_actions_associate;
+ALTER TABLE branch_eni_actions_disassociate_DEPRECATED RENAME TO branch_eni_actions_disassociate;
+ALTER TABLE trunk_eni_accounts_DEPRECATED RENAME TO trunk_eni_accounts;
+
+COMMIT;

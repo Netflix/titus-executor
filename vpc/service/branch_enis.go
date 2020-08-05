@@ -660,7 +660,7 @@ retry:
 		goto retry
 	}
 	if err != nil {
-		err = errors.Wrap(err, "Could not query branch_eni_actions_disassociate for existing requests to disassociate")
+		err = errors.Wrap(err, "Could not query branch_eni_attachments for existing requests to disassociate")
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -876,7 +876,7 @@ WHERE branch_eni_attachments.id = $1
 				goto restart
 			}
 			if err2 != nil {
-				err2 = errors.Wrap(err2, "Unable to update branch_eni_actions_disassociate table to mark action as failed")
+				err2 = errors.Wrap(err2, "Unable to update branch_eni_attachments table to mark action as failed")
 				logger.G(ctx).WithError(err2).Error()
 				tracehelpers.SetStatus(err2, span)
 				return err2
@@ -887,7 +887,7 @@ WHERE branch_eni_attachments.id = $1
 				goto restart
 			}
 			if err2 != nil {
-				err2 = errors.Wrap(err2, "Unable to commit to branch_eni_actions_disassociate table to mark action as failed")
+				err2 = errors.Wrap(err2, "Unable to commit to branch_eni_attachments table to mark action as failed")
 				logger.G(ctx).WithError(err2).Error()
 				tracehelpers.SetStatus(err2, span)
 				return err2
@@ -968,7 +968,7 @@ retry_update:
 		goto retry_update
 	}
 	if err != nil {
-		err = errors.Wrap(err, "Cannot update branch_eni_actions_disassociate table to mark action as completed")
+		err = errors.Wrap(err, "Cannot update branch_eni_attachments table to mark action as completed")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
