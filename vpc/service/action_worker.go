@@ -71,7 +71,9 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 
 	wq := workqueue.NewNamedRateLimitingQueue(workqueue.NewMaxOfRateLimiter(
 		workqueue.NewItemExponentialFailureRateLimiter(100*time.Millisecond, time.Minute),
-		// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+		// 100 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+		// wait at least 100 milliseconds before trying to work on item (assume the actual submitter of work
+		// has given up).
 		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(100), 200)},
 	), actionWorker.name)
 	defer wq.ShutDown()
