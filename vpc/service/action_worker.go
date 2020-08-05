@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -22,6 +23,9 @@ type listenerEvent struct {
 	err           error
 }
 
+// The action worker loop can be started and stopped multiple times. We need to be "safe" of that. For example,
+// we can lose our leadership due to a database, or network error, and the later regain it. Flapping leadership
+// in the cluster is probably indicative of something else bad though.
 type actionWorker struct {
 	db    *sql.DB
 	dbURL string
@@ -38,8 +42,15 @@ type actionWorker struct {
 
 	pendingState string
 
-	readyCh       chan struct{}
-	readyChClosed bool
+	// Only used during testing. The reason this ready condition exists is it
+	// is to let others (the test) know that the actionworker is ready to do
+	// work and connected to the database.
+	//
+	// Since this bool is accessed by multiple goroutines, we protect it with
+	// the locker in readyCond.Locker, and others can wait on it to change
+	// by waiting on readyCond
+	ready     bool
+	readyCond *sync.Cond
 }
 
 func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) error {
@@ -122,10 +133,16 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 					err = errors.Wrap(err, "Could not retrieve all work items")
 					return err
 				}
-				if !actionWorker.readyChClosed {
-					close(actionWorker.readyCh)
-					actionWorker.readyChClosed = true
-				}
+				actionWorker.readyCond.L.Lock()
+				actionWorker.ready = true
+				actionWorker.readyCond.L.Unlock()
+				actionWorker.readyCond.Broadcast()
+				defer func() {
+					actionWorker.readyCond.L.Lock()
+					actionWorker.ready = false
+					actionWorker.readyCond.L.Unlock()
+				}()
+
 			case pq.ListenerEventDisconnected:
 				logger.G(ctx).WithError(ev.err).Error("Disconnected from postgres")
 			case pq.ListenerEventReconnected:

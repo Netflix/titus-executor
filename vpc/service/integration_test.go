@@ -957,7 +957,7 @@ func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetad
 		maxWorkTime:     time.Minute,
 		pendingState:    "undone",
 
-		readyCh: make(chan struct{}),
+		readyCond: sync.NewCond(&sync.Mutex{}),
 	}
 
 	group.Go(func() error {
@@ -968,7 +968,15 @@ func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetad
 		return err
 	})
 
-	<-testActionWorker.readyCh
+	testActionWorker.readyCond.L.Lock()
+wait_for_ready:
+	if testActionWorker.ready {
+		testActionWorker.readyCond.L.Unlock()
+	} else {
+		testActionWorker.readyCond.Wait()
+		goto wait_for_ready
+	}
+
 	var listenerPid int
 	assert.NilError(t, service.db.QueryRowContext(ctx, `
 SELECT pid

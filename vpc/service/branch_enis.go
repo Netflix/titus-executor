@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -1078,7 +1079,7 @@ func (vpcService *vpcService) associateActionWorker() *actionWorker {
 
 		pendingState: attaching,
 
-		readyCh: make(chan struct{}),
+		readyCond: sync.NewCond(&sync.Mutex{}),
 	}
 }
 
@@ -1098,7 +1099,7 @@ func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
 
 		pendingState: unattaching,
 
-		readyCh: make(chan struct{}),
+		readyCond: sync.NewCond(&sync.Mutex{}),
 	}
 }
 
