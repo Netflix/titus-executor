@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,25 +16,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/karlseguin/ccache"
-
-	"github.com/openzipkin/zipkin-go/model"
-
 	"contrib.go.opencensus.io/exporter/zipkin"
-	"github.com/google/uuid"
-	openzipkin "github.com/openzipkin/zipkin-go"
-	"go.opencensus.io/trace"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
+	"github.com/karlseguin/ccache"
 	"github.com/lib/pq"
+	openzipkin "github.com/openzipkin/zipkin-go"
+	"github.com/openzipkin/zipkin-go/model"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"gotest.tools/assert"
 	is "gotest.tools/assert/cmp"
@@ -100,6 +99,8 @@ func newTestServiceInstance(t *testing.T) *vpcService {
 
 		generatorTracker:          generatorTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
+		subnetCacheExpirationTime: time.Second * 10,
+		getSubnetCache:            ccache.New(ccache.Configure()),
 	}
 }
 
@@ -897,13 +898,18 @@ func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetad
 
 	const workedUponSuffix = "-worked-upon"
 	doTestWork := func() int {
+		_, file, line, ok := runtime.Caller(1)
+		filename := filepath.Base(file)
+		assert.Assert(t, ok)
+
 		tx, err := service.db.BeginTx(ctx, nil)
 		assert.NilError(t, err)
 		defer func(t *sql.Tx) {
 			_ = t.Rollback()
 		}(tx)
 
-		row := tx.QueryRowContext(ctx, "INSERT INTO test_work(input) VALUES ($1) RETURNING id", uuid.New().String())
+		workItem := fmt.Sprintf("%s:%d-%s", filename, line, uuid.New().String())
+		row := tx.QueryRowContext(ctx, "INSERT INTO test_work(input) VALUES ($1) RETURNING id", workItem)
 		var workItemID int
 		assert.NilError(t, row.Scan(&workItemID))
 
@@ -920,18 +926,28 @@ func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetad
 	testActionWorker := &actionWorker{
 		db:    service.db,
 		dbURL: service.dbURL,
-		cb: func(ctx context.Context, tx *sql.Tx, id int) error {
+		cb: func(ctx context.Context, tx *sql.Tx, id int) (retErr error) {
+			ctx, span := trace.StartSpan(ctx, "testActionCallbackSpan")
+			defer span.End()
+			defer func() {
+				tracehelpers.SetStatus(retErr, span)
+			}()
+			logger.G(ctx).Debug("Starting test action worker callback")
 			row := tx.QueryRowContext(ctx, "SELECT input FROM test_work WHERE id = $1", id)
 			var input string
 			if err := row.Scan(&input); err != nil {
 				return err
 			}
 			output := input + workedUponSuffix
+			logger.G(ctx).Debug("Retrieved input")
 
 			if _, err := tx.ExecContext(ctx, "UPDATE test_work SET state = 'done', output = $1 WHERE id = $2", output, id); err != nil {
 				return err
 			}
+			logger.G(ctx).Debug("Updated work to done")
+
 			_, err := tx.ExecContext(ctx, "SELECT pg_notify('test_work_finished', $1)", strconv.Itoa(id))
+			logger.G(ctx).WithError(err).Debug("Sent completion notification")
 			return err
 		},
 		creationChannel: "test_work_created",
@@ -945,7 +961,11 @@ func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetad
 	}
 
 	group.Go(func() error {
-		return testActionWorker.loop(ctx, &nilItem{})
+		err := testActionWorker.loop(ctx, &nilItem{})
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("test action worker exited")
+		}
+		return err
 	})
 
 	<-testActionWorker.readyCh
