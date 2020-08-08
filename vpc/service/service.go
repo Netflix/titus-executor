@@ -119,6 +119,8 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 	start := time.Now()
 	result, err := handler(ctx, req)
 
+	// TODO: Implement error unwrapping here to catch wrapped errors, so try to unwrap
+	// into an error which implements `GRPCStatus` before setting status From error
 	st, _ := status.FromError(err)
 	duration := time.Since(start)
 	l := logger.G(ctx).WithField("method", info.FullMethod).WithField("statusCode", st.Code().String()).WithField("duration", duration.String())
