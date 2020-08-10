@@ -158,11 +158,11 @@ LIMIT 1
 	err = row.Scan(&ret.az, &ret.vpcID, &ret.accountID, &ret.subnetID, &ret.cidr, &ret.region)
 	if err == sql.ErrNoRows {
 		if len(subnetIDs) == 0 {
-			err = fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az)
+			err = newNotFoundError(fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az))
 		} else {
-			err = fmt.Errorf("No subnet found in account %s in az %s", accountID, az)
+			err = newNotFoundError(fmt.Errorf("No subnet found in account %s in az %s", accountID, az))
 		}
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		// explicitly not returning stale subnet here
 		return nil, err
 	}
@@ -570,7 +570,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 
 	subnet, err := vpcService.getSubnet(ctx, aws.StringValue(instance.Placement.AvailabilityZone), accountID, req.Subnets)
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	span.AddAttributes(trace.StringAttribute("subnet", subnet.subnetID))

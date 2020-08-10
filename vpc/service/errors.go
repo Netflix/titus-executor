@@ -104,3 +104,31 @@ func isSerializationFailure(err error) bool {
 	}
 	return pqErr.Code.Name() == "serialization_failure"
 }
+
+type notFoundError struct {
+	err error
+}
+
+func newNotFoundError(err error) error {
+	if err == nil {
+		panic("err is nil")
+	}
+	return &notFoundError{err: err}
+}
+
+func (e *notFoundError) Unwrap() error {
+	return e.err
+}
+
+func (e *notFoundError) Error() string {
+	return e.err.Error()
+}
+
+func (e *notFoundError) Is(target error) bool {
+	_, ok := target.(*notFoundError)
+	return ok
+}
+
+func (e *notFoundError) GRPCStatus() *status.Status {
+	return status.New(codes.NotFound, e.err.Error())
+}
