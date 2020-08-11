@@ -2,17 +2,19 @@ package cni
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strings"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/gogo/protobuf/proto"
+
 	"github.com/Netflix/titus-executor/utils/k8s"
 
 	corev1 "k8s.io/api/core/v1"
-
-	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/Netflix/titus-executor/vpc/tool/container2"
 	"github.com/apparentlymart/go-cidr/cidr"
@@ -143,48 +145,59 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
-	securityGroups, ok := pod.Annotations[vpctypes.SecurityGroupsAnnotation]
+	str, ok := pod.Annotations["containerInfo"]
 	if !ok {
-		err = fmt.Errorf("Security groups must be specified on the pod via the annotation %s", vpctypes.SecurityGroupsAnnotation)
-		tracehelpers.SetStatus(err, span)
-		return err
+		return errors.New("Unable to find containerInfo annotation")
 	}
-	span.AddAttributes(trace.StringAttribute("securityGroups", securityGroups))
-	securityGroupsList := strings.Split(securityGroups, ",")
 
-	ingressBandwidth, ok := pod.Annotations[vpctypes.IngressBandwidthAnnotation]
-	if !ok {
-		err = fmt.Errorf("Ingress must be specified on the pod via the annotation %s", vpctypes.IngressBandwidthAnnotation)
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-	ingressBandwidthValue, err := resource.ParseQuantity(ingressBandwidth)
+	data, err := base64.StdEncoding.DecodeString(str)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot parse ingress bandwidth resource quantity %s", ingressBandwidth)
+		err = errors.Wrap(err, "Unable to base64 decode containerInfo")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	egressBandwidth, ok := pod.Annotations[vpctypes.EgressBandwidthAnnotation]
-	if !ok {
-		err = fmt.Errorf("Egress must be specified on the pod via the annotation %s", vpctypes.EgressBandwidthAnnotation)
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-	egressBandwidthValue, err := resource.ParseQuantity(egressBandwidth)
+	var cInfo titus.ContainerInfo
+	err = proto.Unmarshal(data, &cInfo)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot parse ingress bandwidth resource quantity %s", egressBandwidth)
+		err = errors.Wrap(err, "Unable to decode containerInfo protobuf")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	if ingressBandwidthValue.Cmp(egressBandwidthValue) != 0 {
-		err = fmt.Errorf("Titus does not support differing ingress (%s) and egress (%s) bandwidth values", ingressBandwidthValue.String(), egressBandwidthValue.String())
+	accountID, ok := cInfo.GetPassthroughAttributes()["titusParameter.agent.accountID"]
+	if !ok {
+		err = errors.New("cannot find titusParameter.agent.accountID")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+	span.AddAttributes(trace.StringAttribute("accountID", accountID))
 
-	kbps := uint64(ingressBandwidthValue.Value() / 1000)
+	subnets, ok := cInfo.GetPassthroughAttributes()["titusParameter.agent.subnets"]
+	if !ok {
+		err = errors.New("cannot find titusParameter.agent.subnets")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	subnetsList := strings.Split(subnets, ",")
+	if len(subnetsList) == 0 {
+		err = errors.New("subnet list is empty")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	span.AddAttributes(trace.StringAttribute("subnets", subnets))
+
+	netInfo := cInfo.GetNetworkConfigInfo()
+
+	securityGroupsList := netInfo.SecurityGroups
+	if len(securityGroupsList) == 0 {
+		err = errors.New("security group list is empty")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	span.AddAttributes(trace.StringAttribute("securityGroups", strings.Join(securityGroupsList, ",")))
+
+	kbps := uint64(*netInfo.BandwidthLimitMbps) / 1000
 
 	ns, err := os.Open(args.Netns)
 	if err != nil {
@@ -195,18 +208,11 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	}
 	defer ns.Close()
 
-	// FIXME(manas) This check seems redundant?
-	podName := cfg.k8sArgs.K8S_POD_NAME
-	podKey := k8s.PodKey(pod)
-	if string(podName) != podKey {
-		err = fmt.Errorf("Pod key (%s) is not pod name (%s)", podKey, podName)
-		logger.G(ctx).WithError(err).Error()
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
 	assignIPRequest := &vpcapi.AssignIPRequestV3{
 		InstanceIdentity: cfg.instanceIdentity,
-		TaskId:           podKey,
+		AccountID:        accountID,
+		Subnets:          subnetsList,
+		TaskId:           pod.Name,
 		SecurityGroupIds: securityGroupsList,
 		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true},
 		Idempotent:       true,
