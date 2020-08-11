@@ -135,8 +135,6 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	// Extra options we want / need
 	// IPv6
 	// Static IP(s)
-	// Subnets
-	// Account ID
 
 	pod, err := c.getPod(ctx, cfg)
 	if err != nil {
