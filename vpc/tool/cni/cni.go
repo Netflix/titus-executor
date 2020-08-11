@@ -36,6 +36,8 @@ import (
 
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
 
+const kubeletAPIPodsURL = "https://localhost:10250/pods"
+
 type Command struct {
 	// Never use this context except to get the initial context for Add / Check / Del
 	ctx context.Context
@@ -45,7 +47,7 @@ type Command struct {
 
 type config struct {
 	k8sArgs k8s.Args
-	cfg     TitusCNIConfig
+	netConf types.NetConf
 
 	instanceIdentity *vpcapi.InstanceIdentity
 
@@ -60,11 +62,6 @@ func MakeCommand(ctx context.Context, instanceIdentityProvider identity.Instance
 		iip: instanceIdentityProvider,
 		gsv: gsv,
 	}
-}
-
-type TitusCNIConfig struct {
-	types.NetConf
-	KubeletAPIURL string `json:"KubeletAPIURL"`
 }
 
 func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error) {
@@ -87,7 +84,7 @@ func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error)
 		return nil, err
 	}
 
-	err = json.Unmarshal(args.StdinData, &retCfg.cfg)
+	err = json.Unmarshal(args.StdinData, &retCfg.netConf)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot parse Kubernetes configuration")
 		tracehelpers.SetStatus(err, span)
@@ -108,7 +105,7 @@ func (c *Command) getPod(ctx context.Context, cfg *config) (*corev1.Pod, error) 
 	ctx, span := trace.StartSpan(ctx, "getPod")
 	defer span.End()
 
-	pod, err := k8s.GetPod(ctx, cfg.cfg.KubeletAPIURL, cfg.k8sArgs)
+	pod, err := k8s.GetPod(ctx, kubeletAPIPodsURL, cfg.k8sArgs)
 	tracehelpers.SetStatus(err, span)
 	return pod, err
 }
@@ -281,7 +278,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 
 	logger.G(ctx).WithField("result", result).Debug("Created CNI allocation")
 
-	return types.PrintResult(&result, cfg.cfg.CNIVersion)
+	return types.PrintResult(&result, cfg.netConf.CNIVersion)
 }
 
 func (c *Command) Check(_ *skel.CmdArgs) error {
