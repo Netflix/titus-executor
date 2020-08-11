@@ -9,12 +9,6 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 )
 
-const (
-	SecurityGroupsAnnotation   = "network.titus.netflix.com/securityGroups"
-	IngressBandwidthAnnotation = "kubernetes.io/ingress-bandwidth"
-	EgressBandwidthAnnotation  = "kubernetes.io/egress-bandwidth"
-)
-
 type Generation string
 
 const (
