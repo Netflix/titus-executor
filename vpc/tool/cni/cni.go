@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 
 	"github.com/Netflix/titus-executor/utils/k8s"
 

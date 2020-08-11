@@ -13,7 +13,7 @@ import (
 
 	"github.com/Netflix/titus-executor/utils/k8s"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
