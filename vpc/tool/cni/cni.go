@@ -160,9 +160,9 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
-	accountID, ok := cInfo.GetPassthroughAttributes()["titusParameter.agent.accountID"]
+	accountID, ok := cInfo.GetPassthroughAttributes()["titusParameter.agent.accountId"]
 	if !ok {
-		err = errors.New("cannot find titusParameter.agent.accountID")
+		err = errors.New("cannot find titusParameter.agent.accountId")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
