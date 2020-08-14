@@ -21,12 +21,11 @@ import (
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
-	"golang.org/x/sync/semaphore"
 )
 
 const (
-	maxAssociateTime   = 10 * time.Second
-	maxDisssociateTime = 10 * time.Second
+	maxAssociateTime   = 30 * time.Second
+	maxDisssociateTime = 30 * time.Second
 )
 
 // eni states
@@ -88,9 +87,18 @@ func (vpcService *vpcService) associateNetworkInterface(ctx context.Context, tx 
 	var id int
 	var err error
 	var pqErr *pq.Error
-
+	var fastTx *sql.Tx
 startAssociation:
-	id, err = vpcService.startAssociation(ctx, nil, tx, branchENI, trunkENI, idx)
+	if fastTx != nil {
+		_ = fastTx.Rollback()
+	}
+	fastTx, err = beginSerializableTx(ctx, vpcService.db)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to begin serializable transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	id, err = vpcService.startAssociation(ctx, fastTx, tx, branchENI, trunkENI, idx)
 	if isSerializationFailure(err) {
 		logger.G(ctx).WithError(pqErr).Debug("Retrying transaction")
 		goto startAssociation
@@ -175,6 +183,8 @@ func (vpcService *vpcService) finishAssociationAWS(ctx context.Context, slowTx *
 }
 
 func (vpcService *vpcService) finishAssociation(ctx context.Context, slowTx *sql.Tx, session *ec2wrapper.EC2Session, id int) (*string, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "finishAssociation")
 	defer span.End()
 
@@ -222,18 +232,17 @@ WHERE branch_eni_attachments.id = $1
 	}
 
 	// No one else can start a new ID generation while this is running because we don't attach an ENI when
-	// other ENIs are in the attaching state. So, we "best effort" lock
-	doneCh := make(chan struct{})
-	defer close(doneCh)
+	// other ENIs are in the attaching state. So, we "best effort" lock, but we don't want to block on
+	// acquisition of the lock
 	go func() {
-		trunkTracker := vpcService.getTrunkTracker(trunk)
-		if trunkTracker != nil {
-			sem := trunkTracker.Value().(*semaphore.Weighted)
-			e := sem.Acquire(ctx, 1)
-			if e == nil {
-				<-doneCh
-				sem.Release(1)
-			}
+		unlock, err := vpcService.trunkTracker.acquire(ctx, trunk)
+		// There could have just been a race in us acquiring the trunk tracker lock
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logger.G(ctx).WithError(err).Error("Could not lock trunk tracker asynchronously")
+		}
+		if err == nil {
+			<-ctx.Done()
+			unlock()
 		}
 	}()
 
@@ -594,7 +603,11 @@ func (vpcService *vpcService) disassociateNetworkInterface(ctx context.Context, 
 
 	id, err = vpcService.startDissociation(ctx, tx, associationID, force)
 	if err != nil {
-		err = errors.Wrap(err, "Unable to start disassociation")
+		if ctx.Err() != nil {
+			err = fmt.Errorf("Unable to start disassociation: %s: %w", ctx.Err().Error(), err)
+		} else {
+			err = errors.Wrap(err, "Unable to start disassociation")
+		}
 		tracehelpers.SetStatus(err, span)
 		return err
 	}

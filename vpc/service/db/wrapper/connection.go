@@ -6,6 +6,10 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -15,10 +19,17 @@ import (
 	"go.opencensus.io/trace"
 )
 
+const (
+	skipLevel     = 5
+	callerProject = "github.com/Netflix/titus-executor"
+)
+
 var (
 	_ connectionInterface       = (*connectionWrapper)(nil)
 	_ driver.ConnPrepareContext = (*connectionWrapper)(nil)
 )
+
+var LogTransactions bool
 
 type connectionInterface interface {
 	driver.Conn
@@ -35,11 +46,14 @@ type connectionInterface interface {
 type connectionWrapper struct {
 	realConn connectionInterface
 	wrapper  *wrapper
+	pid      int64
 }
 
 func (c *connectionWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	query = c.enhanceQuery(ctx, query)
-	return c.realConn.Prepare(query)
+	timeFunc, query := c.enhanceQuery(ctx, query)
+	res, err := c.realConn.Prepare(query)
+	timeFunc(err)
+	return res, err
 }
 
 func (c *connectionWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
@@ -77,13 +91,17 @@ func (c *connectionWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) 
 }
 
 func (c *connectionWrapper) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	query = c.enhanceQuery(ctx, query)
-	return c.realConn.QueryContext(ctx, query, args)
+	timeFunc, query := c.enhanceQuery(ctx, query)
+	res, err := c.realConn.QueryContext(ctx, query, args)
+	timeFunc(err)
+	return res, err
 }
 
 func (c *connectionWrapper) Query(query string, args []driver.Value) (driver.Rows, error) {
-	query = c.enhanceQuery(context.Background(), query)
-	return c.realConn.Query(query, args)
+	timeFunc, query := c.enhanceQuery(context.TODO(), query)
+	res, err := c.realConn.Query(query, args)
+	timeFunc(err)
+	return res, err
 }
 
 func (c *connectionWrapper) Ping(ctx context.Context) error {
@@ -91,13 +109,17 @@ func (c *connectionWrapper) Ping(ctx context.Context) error {
 }
 
 func (c *connectionWrapper) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	query = c.enhanceQuery(ctx, query)
-	return c.realConn.ExecContext(ctx, query, args)
+	timeFunc, query := c.enhanceQuery(ctx, query)
+	res, err := c.realConn.ExecContext(ctx, query, args)
+	timeFunc(err)
+	return res, err
 }
 
 func (c *connectionWrapper) Exec(query string, args []driver.Value) (driver.Result, error) {
-	query = c.enhanceQuery(context.Background(), query)
-	return c.realConn.Exec(query, args)
+	timeFunc, query := c.enhanceQuery(context.TODO(), query)
+	res, err := c.realConn.Exec(query, args)
+	timeFunc(err)
+	return res, err
 }
 
 func (c *connectionWrapper) Prepare(query string) (driver.Stmt, error) {
@@ -119,21 +141,48 @@ func (c *connectionWrapper) Begin() (driver.Tx, error) {
 	}, nil
 }
 
-func (c connectionWrapper) enhanceQuery(ctx context.Context, query string) string {
+func (c *connectionWrapper) enhanceQuery(ctx context.Context, query string) (func(error), string) {
 	md := QueryMetadata{}
 
+	callsite := ":0"
+	callers := make([]uintptr, 10)
+	runtime.Callers(skipLevel, callers)
+	frames := runtime.CallersFrames(callers)
+	frame, more := frames.Next()
+	for more {
+		// Function is the package path-qualified function name of
+		// this call frame.
+		if strings.HasPrefix(frame.Function, callerProject) {
+			callsite = fmt.Sprintf("%s:%d", filepath.Base(frame.File), frame.Line)
+			break
+		}
+		frame, more = frames.Next()
+	}
+	timeFunction := func(error) {}
 	if span := trace.FromContext(ctx); span != nil {
+		span.AddAttributes(trace.Int64Attribute("pg_backend_pid", c.pid))
 		spanContext := span.SpanContext()
 		md.SpanID = spanContext.SpanID.String()
+		now := time.Now()
+		timeFunction = func(e error) {
+			queryTime := time.Since(now)
+			span.AddAttributes(trace.Int64Attribute(callsite+"#queryTimeMs", queryTime.Milliseconds()))
+			if e != nil {
+				span.AddAttributes(trace.StringAttribute(callsite+"#error", e.Error()))
+			}
+		}
+		if LogTransactions {
+			span.AddAttributes(trace.StringAttribute("query", query))
+		}
 	} else {
 		md.Hostname = c.wrapper.hostname
 	}
 	data, err := json.Marshal(md)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to serialize JSON to enhance query")
-		return query
+		return timeFunction, query
 	}
-	return fmt.Sprintf("/* md: %s */\n", string(data)) + query
+	return timeFunction, fmt.Sprintf("/* md: %s */\n", string(data)) + query
 }
 
 type QueryMetadata struct {

@@ -26,7 +26,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
-	"github.com/karlseguin/ccache"
+	ccache "github.com/karlseguin/ccache/v2"
 	"github.com/lib/pq"
 	openzipkin "github.com/openzipkin/zipkin-go"
 	"github.com/openzipkin/zipkin-go/model"
@@ -45,6 +45,7 @@ var integrationTestTimeout time.Duration
 var testAZ, testAccount, testSecurityGroupID, wd, subnets, workerRole string
 
 func TestMain(m *testing.M) {
+	wrapper.LogTransactions = true
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
 	flag.BoolVar(&enableIntegrationTests, "enable-integration-tests", false, "Enable running integration tests")
@@ -97,7 +98,7 @@ func newTestServiceInstance(t *testing.T) *vpcService {
 		branchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
 		trunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
 
-		generatorTracker:          generatorTrackerCache(),
+		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
 		subnetCacheExpirationTime: time.Second * 10,
 		getSubnetCache:            ccache.New(ccache.Configure()),
@@ -402,6 +403,9 @@ func startAssociationAndDisassociationWorkers(ctx context.Context, t *testing.T,
 }
 
 func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	ctx, span := trace.StartSpan(ctx, "testAssociate")
+	defer span.End()
+
 	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
 	assert.NilError(t, err)
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
@@ -413,43 +417,32 @@ func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata
 		return err
 	}))
 
-	assoc := association{
-		branchENI: aws.StringValue(branchENI.NetworkInterfaceId),
-		trunkENI:  aws.StringValue(trunkENI.NetworkInterfaceId),
-	}
-	var associationID string
-	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "SELECT branch_eni FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
-		assert.NilError(t, err)
-		id, err := service.associateNetworkInterface(ctx, tx, session, assoc, 5)
-		assert.NilError(t, err)
-		associationID = *id
-		return nil
-	}))
+	assoc, err := service.doAssociateTrunkNetworkInterface(ctx, aws.StringValue(trunkENI.NetworkInterfaceId), aws.StringValue(branchENI.NetworkInterfaceId), 5)
+	assert.NilError(t, err)
 
-	logger.G(ctx).WithField("associationID", associationID).Debug("Completed association")
+	logger.G(ctx).WithField("associationID", assoc.AssociationId).Debug("Completed association")
 	// Now disassociate
 	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "SELECT branch_eni FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
+		_, err := tx.ExecContext(ctx, "SELECT branch_eni FROM branch_enis WHERE branch_eni = $1", aws.StringValue(branchENI.NetworkInterfaceId))
 		assert.NilError(t, err)
-		_, err = tx.ExecContext(ctx, "SELECT branch_eni FROM branch_eni_attachments WHERE branch_eni = $1 FOR NO KEY UPDATE", aws.StringValue(branchENI.NetworkInterfaceId))
+		_, err = tx.ExecContext(ctx, "SELECT branch_eni FROM branch_eni_attachments WHERE branch_eni = $1", aws.StringValue(branchENI.NetworkInterfaceId))
 		assert.NilError(t, err)
-		assert.NilError(t, service.disassociateNetworkInterface(ctx, tx, session, associationID, false))
+		assert.NilError(t, service.disassociateNetworkInterface(ctx, tx, session, assoc.AssociationId, false))
 		return nil
 	}))
-	logger.G(ctx).WithField("associationID", associationID).Debug("Completed disassociation")
+	logger.G(ctx).WithField("associationID", assoc.AssociationId).Debug("Completed disassociation")
 
 	_, err = session.DescribeTrunkInterfaceAssociations(ctx, ec2.DescribeTrunkInterfaceAssociationsInput{
-		AssociationIds: aws.StringSlice([]string{associationID}),
+		AssociationIds: aws.StringSlice([]string{assoc.AssociationId}),
 	})
 	assert.Assert(t, err != nil)
 	awsErr := ec2wrapper.RetrieveEC2Error(err)
 	assert.Assert(t, is.Equal(awsErr.Code(), ec2wrapper.InvalidAssociationIDNotFound))
 
-	var count int
-	row := service.db.QueryRowContext(ctx, "SELECT count(*) FROM branch_eni_attachments WHERE association_id = $1", associationID)
-	assert.NilError(t, row.Scan(&count))
-	assert.Assert(t, is.Equal(count, 0))
+	var state string
+	row := service.db.QueryRowContext(ctx, "SELECT state FROM branch_eni_attachments WHERE association_id = $1", assoc.AssociationId)
+	assert.NilError(t, row.Scan(&state))
+	assert.Assert(t, is.Equal(state, "unattached"))
 }
 
 func testReconcileBranchENIAttachments(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {

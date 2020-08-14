@@ -608,20 +608,27 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 }
 
 func lockAssignment(ctx context.Context, tx *sql.Tx, assignmentID int) error {
+	ctx, span := trace.StartSpan(ctx, "lockAssignment")
+	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("assignmentID", int64(assignmentID)))
+
 	result, err := tx.ExecContext(ctx, "SELECT FROM assignments WHERE id = $1 FOR NO KEY UPDATE", assignmentID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot select assignment for no key update")
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	n, err := result.RowsAffected()
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get rows affected by select assignment for no key update")
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	if n != 1 {
 		err = fmt.Errorf("Unexpected number of rows affected by select assignment for no key update: %d", n)
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -653,7 +660,13 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	// This locks the branch ENI making this whole process "exclusive"
+	now := time.Now()
 	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", ass.branch.id)
+	selectSecurityGroupsFromBranchENIs := time.Since(now)
+	span.AddAttributes(
+		trace.StringAttribute("selectSecurityGroupsFromBranchENIsTime", selectSecurityGroupsFromBranchENIs.String()),
+		trace.Int64Attribute("selectSecurityGroupsFromBranchENIsTimeNs", selectSecurityGroupsFromBranchENIs.Nanoseconds()),
+	)
 	var dbSecurityGroups []string
 	err = row.Scan(pq.Array(&dbSecurityGroups))
 	if err != nil {

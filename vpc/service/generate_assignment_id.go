@@ -284,22 +284,14 @@ func (vpcService *vpcService) generateAssignmentID2(ctx context.Context, req *ge
 	var resp *getENIResponse
 	var trunkLock *eniLockWrapper
 
-	if trunkTracker := vpcService.getTrunkTracker(req.trunkENI); trunkTracker != nil {
-		now := time.Now()
-		span.AddAttributes(trace.BoolAttribute("serialized", true))
-		defer trunkTracker.Release()
-		trunkLock = &eniLockWrapper{
-			sem: trunkTracker.Value().(*semaphore.Weighted),
-		}
-		if err := trunkLock.sem.Acquire(ctx, 1); err != nil {
-			err = errors.Wrapf(err, "Could not acquire semaphore waiting on trunk ENI: %s", req.trunkENI)
-			tracehelpers.SetStatus(err, span)
-			return nil, err
-		}
-		defer trunkLock.release()
-
-		span.AddAttributes(trace.Int64Attribute("trunkTrackerWaitTime", time.Since(now).Nanoseconds()))
+	span.AddAttributes(trace.StringAttribute("trunk", req.trunkENI))
+	// Don't include getting the trunk tracker lock as part of our internal generate assignment ID timeout
+	unlock, err := vpcService.trunkTracker.acquire(ctx, req.trunkENI)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
+	defer unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, generateAssignmentIDTimeout)
 	defer cancel()
