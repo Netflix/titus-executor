@@ -15,7 +15,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-	"github.com/karlseguin/ccache"
+	ccache "github.com/karlseguin/ccache/v2"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"

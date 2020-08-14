@@ -14,7 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/karlseguin/ccache"
+	ccache "github.com/karlseguin/ccache/v2"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"

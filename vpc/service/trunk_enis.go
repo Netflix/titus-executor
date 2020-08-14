@@ -5,9 +5,6 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/karlseguin/ccache"
-	"golang.org/x/sync/semaphore"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
@@ -371,25 +368,4 @@ func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]
 
 	_ = tx.Commit()
 	return ret, nil
-}
-
-func (vpcService *vpcService) getTrunkTracker(trunk string) ccache.TrackedItem {
-	trunkTracker := vpcService.generatorTracker.Get(trunk)
-	if trunkTracker != nil {
-		return trunkTracker
-	}
-
-	_, _, _ = vpcService.generatorTrackerAdderLock.Do(trunk, func() (interface{}, error) {
-		item := vpcService.generatorTracker.Get(trunk)
-		if item != nil {
-			item.Release()
-			return nil, nil
-		}
-
-		lock := semaphore.NewWeighted(1)
-		vpcService.generatorTracker.Set(trunk, lock, 24*time.Hour)
-		return nil, nil
-	})
-
-	return vpcService.generatorTracker.Get(trunk)
 }

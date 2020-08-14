@@ -5,10 +5,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"go.opencensus.io/trace"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
@@ -18,7 +22,7 @@ import (
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
-	"github.com/karlseguin/ccache"
+	ccache "github.com/karlseguin/ccache/v2"
 	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -95,9 +99,7 @@ type vpcService struct {
 	trunkNetworkInterfaceDescription  string
 	branchNetworkInterfaceDescription string
 
-	generatorTracker          *ccache.Cache
-	generatorTrackerAdderLock singleflight.Group
-
+	trunkTracker              *trunkTrackerCache
 	invalidSecurityGroupCache *ccache.Cache
 
 	getSubnetCache *ccache.Cache
@@ -106,8 +108,57 @@ type vpcService struct {
 	subnetCacheExpirationTime time.Duration
 }
 
-func generatorTrackerCache() *ccache.Cache {
-	return ccache.New(ccache.Configure().Track())
+// trunkTrackerCache keeps track of trunk ENIs, and at least locally (on-instance) tries to reduce contention for operations
+// on that trunk ENI.
+type trunkTrackerCache struct {
+	cache                     *ccache.Cache
+	generatorTrackerAdderLock singleflight.Group
+}
+
+func newTrunkTrackerCache() *trunkTrackerCache {
+	return &trunkTrackerCache{
+		cache: ccache.New(ccache.Configure().MaxSize(20000).Track()),
+	}
+}
+
+// lockTrunk locks the trunk ENI referenced to be string. It is expected that the
+func (t *trunkTrackerCache) acquire(ctx context.Context, trunkENI string) (func(), error) {
+	ctx, span := trace.StartSpan(ctx, "trunkTrackerCache.acquire")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("eni", trunkENI),
+		trace.StringAttribute("trunk", trunkENI),
+	)
+	val, err, _ := t.generatorTrackerAdderLock.Do(trunkENI, func() (interface{}, error) {
+		item := t.cache.TrackingGet(trunkENI)
+		if item != ccache.NilTracked {
+			return item, nil
+		}
+
+		lock := semaphore.NewWeighted(1)
+		return t.cache.TrackingSet(trunkENI, lock, 24*time.Hour), nil
+	})
+
+	if err != nil {
+		err = fmt.Errorf("Could not fetch trunk tracker item from cache: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	trackedItem := val.(ccache.TrackedItem)
+	sem := trackedItem.Value().(*semaphore.Weighted)
+	err = sem.Acquire(ctx, 1)
+	if err != nil {
+		err = fmt.Errorf("Could not acquire tracking semaphore %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	return func() {
+		trackedItem.Release()
+		sem.Release(1)
+	}, nil
 }
 
 func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -213,7 +264,7 @@ func Run(ctx context.Context, config *Config) error {
 		trunkNetworkInterfaceDescription:  config.TrunkNetworkInterfaceDescription,
 		branchNetworkInterfaceDescription: config.BranchNetworkInterfaceDescription,
 
-		generatorTracker:          generatorTrackerCache(),
+		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
 		getSubnetCache:            ccache.New(ccache.Configure()),
 
