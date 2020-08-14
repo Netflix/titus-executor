@@ -56,21 +56,22 @@ func GenerationPointer(g Generation) *Generation {
 
 // Allocation is the public interface exposed when we allocate a namespace
 type Allocation struct {
-	IPV4Address     *vpcapi.UsableAddress `json:"ipv4Address"`
-	IPV6Address     *vpcapi.UsableAddress `json:"ipv6Address"`
-	DeviceIndex     int                   `json:"deviceIndex"`
-	Success         bool                  `json:"success"`
-	Error           string                `json:"error"`
-	BranchENIID     string                `json:"branchENIID"`
-	BranchENIVPC    string                `json:"branchVPCID"`
-	BranchENIMAC    string                `json:"branchMAC"`
-	BranchENISubnet string                `json:"branchENISubnetID"`
-	VlanID          int                   `json:"vlanID"`
-	TrunkENIID      string                `json:"trunkENIID"`
-	TrunkENIVPC     string                `json:"trunkVPCID"`
-	TrunkENIMAC     string                `json:"trunkMAC"`
-	AllocationIndex uint16                `json:"allocationIndex"`
-	Generation      *Generation           `json:"generation"`
+	IPV4Address     *vpcapi.UsableAddress              `json:"ipv4Address"`
+	IPV6Address     *vpcapi.UsableAddress              `json:"ipv6Address"`
+	Routes          []*vpcapi.AssignIPResponseV3_Route `json:"routes"`
+	DeviceIndex     int                                `json:"deviceIndex"`
+	Success         bool                               `json:"success"`
+	Error           string                             `json:"error"`
+	BranchENIID     string                             `json:"branchENIID"`
+	BranchENIVPC    string                             `json:"branchVPCID"`
+	BranchENIMAC    string                             `json:"branchMAC"`
+	BranchENISubnet string                             `json:"branchENISubnetID"`
+	VlanID          int                                `json:"vlanID"`
+	TrunkENIID      string                             `json:"trunkENIID"`
+	TrunkENIVPC     string                             `json:"trunkVPCID"`
+	TrunkENIMAC     string                             `json:"trunkMAC"`
+	AllocationIndex uint16                             `json:"allocationIndex"`
+	Generation      *Generation                        `json:"generation"`
 }
 
 // WiringStatus indicates whether or not wiring was successful
@@ -96,22 +97,23 @@ type LegacyAllocation struct {
 }
 
 type HybridAllocation struct {
-	IPV4Address     *vpcapi.UsableAddress `json:"ipv4Address"`
-	IPV6Address     *vpcapi.UsableAddress `json:"ipv6Address"`
-	DeviceIndex     int                   `json:"deviceIndex"`
-	Success         bool                  `json:"success"`
-	Error           string                `json:"error"`
-	BranchENIID     string                `json:"branchENIID"`
-	BranchENIVPC    string                `json:"branchVPCID"`
-	BranchENIMAC    string                `json:"branchMAC"`
-	BranchENISubnet string                `json:"branchENISubnetID"`
-	VlanID          int                   `json:"vlanID"`
-	TrunkENIID      string                `json:"trunkENIID"`
-	TrunkENIVPC     string                `json:"trunkVPCID"`
-	TrunkENIMAC     string                `json:"trunkMAC"`
-	AllocationIndex uint16                `json:"allocationIndex"`
-	ENI             string                `json:"eni"`
-	VPC             string                `json:"vpc"`
-	MAC             string                `json:"mac"`
-	Generation      *Generation           `json:"generation"`
+	IPV4Address     *vpcapi.UsableAddress              `json:"ipv4Address"`
+	IPV6Address     *vpcapi.UsableAddress              `json:"ipv6Address"`
+	Routes          []*vpcapi.AssignIPResponseV3_Route `json:"routes"`
+	DeviceIndex     int                                `json:"deviceIndex"`
+	Success         bool                               `json:"success"`
+	Error           string                             `json:"error"`
+	BranchENIID     string                             `json:"branchENIID"`
+	BranchENIVPC    string                             `json:"branchVPCID"`
+	BranchENIMAC    string                             `json:"branchMAC"`
+	BranchENISubnet string                             `json:"branchENISubnetID"`
+	VlanID          int                                `json:"vlanID"`
+	TrunkENIID      string                             `json:"trunkENIID"`
+	TrunkENIVPC     string                             `json:"trunkVPCID"`
+	TrunkENIMAC     string                             `json:"trunkMAC"`
+	AllocationIndex uint16                             `json:"allocationIndex"`
+	ENI             string                             `json:"eni"`
+	VPC             string                             `json:"vpc"`
+	MAC             string                             `json:"mac"`
+	Generation      *Generation                        `json:"generation"`
 }
