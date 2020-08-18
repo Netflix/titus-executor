@@ -192,7 +192,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	}
 	span.AddAttributes(trace.StringAttribute("securityGroups", strings.Join(securityGroupsList, ",")))
 
-	kbps := uint64(*netInfo.BandwidthLimitMbps) / 1000
+	kbps := uint64(*netInfo.BandwidthLimitMbps) * 1000
 
 	ns, err := os.Open(args.Netns)
 	if err != nil {
