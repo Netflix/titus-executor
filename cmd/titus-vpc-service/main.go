@@ -52,9 +52,10 @@ const (
 	maxConcurrentRequestsFlagName = "max-concurrent-requests"
 	workerRoleFlagName            = "worker-role"
 
-	sslCertFlagName       = "ssl-cert"
-	sslPrivateKeyFlagName = "ssl-private-key"
-	sslCAFlagName         = "ssl-ca"
+	sslCertFlagName         = "ssl-cert"
+	sslPrivateKeyFlagName   = "ssl-private-key"
+	sslCAFlagName           = "ssl-ca"
+	sslValidCNRegexFlagName = "ssl-valid-cn-regex"
 
 	enabledLongLivedTasksFlagName = "enabled-long-lived-tasks"
 	enabledTaskLoopsFlagName      = "enabled-task-loops"
@@ -257,6 +258,7 @@ func main() {
 				ReconcileInterval:     v.GetDuration("reconcile-interval"),
 				RefreshInterval:       v.GetDuration(refreshIntervalFlagName),
 				TLSConfig:             tlsConfig,
+				ValidCNRegex:          v.GetString(sslValidCNRegexFlagName),
 
 				EnabledLongLivedTasks: v.GetStringSlice(enabledLongLivedTasksFlagName),
 				EnabledTaskLoops:      v.GetStringSlice(enabledTaskLoopsFlagName),
@@ -279,6 +281,7 @@ func main() {
 	rootCmd.Flags().String(sslPrivateKeyFlagName, "", "The SSL Private Key")
 	rootCmd.Flags().String(sslCertFlagName, "", "The SSL Certificate")
 	rootCmd.Flags().String(sslCAFlagName, "", "General SSL CA")
+	rootCmd.Flags().String(sslValidCNRegexFlagName, `titusagent\..*`, "A regex representing valid CNs/SANS for incoming client certs")
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
 	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
@@ -356,6 +359,10 @@ func bindVariables(v *pkgviper.Viper) {
 	}
 
 	if err := v.BindEnv(sslCAFlagName, "SSL_CA"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(sslValidCNRegexFlagName, "SSL_VALID_CN_REGEX"); err != nil {
 		panic(err)
 	}
 

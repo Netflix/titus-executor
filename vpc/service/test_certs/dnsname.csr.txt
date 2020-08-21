@@ -1,0 +1,23 @@
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+x509_extensions = v3_req
+distinguished_name = req_distinguished_name
+
+[req_distinguished_name]
+C=US
+ST=CA
+L=Nowhere
+O=My Org
+OU=OU
+emailAddress=foo@example.com
+CN=something.example.com
+
+[v3_req]
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = titusagent.foo.example.com
+DNS.2 = anothername.example.com
