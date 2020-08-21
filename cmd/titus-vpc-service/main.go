@@ -39,16 +39,17 @@ import (
 )
 
 const (
-	atlasAddrFlagName            = "atlas-addr"
-	statsdAddrFlagName           = "statsd-addr"
-	zipkinURLFlagName            = "zipkin"
-	debugAddressFlagName         = "debug-address"
-	gcTimeoutFlagName            = "gc-timeout"
-	maxIdleConnectionsFlagName   = "max-idle-connections"
-	refreshIntervalFlagName      = "refresh-interval"
-	maxOpenConnectionsFlagName   = "max-open-connections"
-	maxConcurrentRefreshFlagName = "max-concurrent-refresh"
-	workerRoleFlagName           = "worker-role"
+	atlasAddrFlagName             = "atlas-addr"
+	statsdAddrFlagName            = "statsd-addr"
+	zipkinURLFlagName             = "zipkin"
+	debugAddressFlagName          = "debug-address"
+	gcTimeoutFlagName             = "gc-timeout"
+	maxIdleConnectionsFlagName    = "max-idle-connections"
+	refreshIntervalFlagName       = "refresh-interval"
+	maxOpenConnectionsFlagName    = "max-open-connections"
+	maxConcurrentRefreshFlagName  = "max-concurrent-refresh"
+	maxConcurrentRequestsFlagName = "max-concurrent-requests"
+	workerRoleFlagName            = "worker-role"
 
 	sslCertFlagName         = "ssl-cert"
 	sslPrivateKeyFlagName   = "ssl-private-key"
@@ -255,16 +256,17 @@ func main() {
 			}
 
 			return service.Run(ctx, &service.Config{
-				Listener:             listener,
-				DB:                   conn,
-				DBURL:                dburl,
-				Key:                  signingKey,
-				MaxConcurrentRefresh: v.GetInt64(maxConcurrentRefreshFlagName),
-				GCTimeout:            v.GetDuration(gcTimeoutFlagName),
-				ReconcileInterval:    v.GetDuration("reconcile-interval"),
-				RefreshInterval:      v.GetDuration(refreshIntervalFlagName),
-				TLSConfig:            tlsConfig,
-				TitusAgentCACertPool: titusAgentCACertPool,
+				Listener:              listener,
+				DB:                    conn,
+				DBURL:                 dburl,
+				Key:                   signingKey,
+				MaxConcurrentRefresh:  v.GetInt64(maxConcurrentRefreshFlagName),
+				MaxConcurrentRequests: v.GetInt(maxConcurrentRequestsFlagName),
+				GCTimeout:             v.GetDuration(gcTimeoutFlagName),
+				ReconcileInterval:     v.GetDuration("reconcile-interval"),
+				RefreshInterval:       v.GetDuration(refreshIntervalFlagName),
+				TLSConfig:             tlsConfig,
+				TitusAgentCACertPool:  titusAgentCACertPool,
 
 				EnabledLongLivedTasks: v.GetStringSlice(enabledLongLivedTasksFlagName),
 				EnabledTaskLoops:      v.GetStringSlice(enabledTaskLoopsFlagName),
@@ -296,6 +298,7 @@ func main() {
 	rootCmd.Flags().String(trunkENIDescriptionFlagName, vpc.DefaultTrunkNetworkInterfaceDescription, "The description for trunk interfaces")
 	rootCmd.Flags().String(branchENIDescriptionFlagName, vpc.DefaultBranchNetworkInterfaceDescription, "The description for branch interfaces")
 	rootCmd.Flags().String(workerRoleFlagName, "", "The role which to assume into to do work")
+	rootCmd.Flags().Int(maxConcurrentRequestsFlagName, 100, "Maximum concurrent gRPC requests to allow")
 
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
@@ -380,6 +383,10 @@ func bindVariables(v *pkgviper.Viper) {
 	}
 
 	if err := v.BindEnv(workerRoleFlagName, "WORKER_ROLE"); err != nil {
+		panic(err)
+	}
+
+	if err := v.BindEnv(maxConcurrentRequestsFlagName, "MAX_CONCURRENT_REQUESTS"); err != nil {
 		panic(err)
 	}
 }
