@@ -528,6 +528,13 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		trace.StringAttribute("taskID", req.TaskId),
 		trace.StringAttribute("assignmentID", req.TaskId))
 
+	if err := vpcService.concurrentRequests.Acquire(ctx, 1); err != nil {
+		err = fmt.Errorf("Could not acquire concurrent require semaphore: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer vpcService.concurrentRequests.Release(1)
+
 	if req.Idempotent {
 		val, err := vpcService.fetchIdempotentAssignment(ctx, req.TaskId, true)
 		if err != nil {
@@ -1426,6 +1433,13 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 
 	span.AddAttributes(trace.StringAttribute("assignmentID", req.TaskId))
 	resp := vpcapi.UnassignIPResponseV3{}
+
+	if err := vpcService.concurrentRequests.Acquire(ctx, 1); err != nil {
+		err = fmt.Errorf("Could not acquire concurrent require semaphore: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	defer vpcService.concurrentRequests.Release(1)
 
 	if unassigned, err := vpcService.unassignStaticAddress(ctx, req.TaskId); err != nil {
 		span.SetStatus(traceStatusFromError(err))

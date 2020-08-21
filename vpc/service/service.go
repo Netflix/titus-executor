@@ -106,6 +106,7 @@ type vpcService struct {
 	getSubnetLock  singleflight.Group
 
 	subnetCacheExpirationTime time.Duration
+	concurrentRequests        *semaphore.Weighted
 }
 
 // trunkTrackerCache keeps track of trunk ENIs, and at least locally (on-instance) tries to reduce contention for operations
@@ -194,16 +195,17 @@ func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryS
 }
 
 type Config struct {
-	Listener             net.Listener
-	DB                   *sql.DB
-	DBURL                string
-	Key                  vpcapi.PrivateKey
-	MaxConcurrentRefresh int64
-	GCTimeout            time.Duration
-	ReconcileInterval    time.Duration
-	RefreshInterval      time.Duration
-	TLSConfig            *tls.Config
-	TitusAgentCACertPool *x509.CertPool
+	Listener              net.Listener
+	DB                    *sql.DB
+	DBURL                 string
+	Key                   vpcapi.PrivateKey
+	MaxConcurrentRefresh  int64
+	MaxConcurrentRequests int
+	GCTimeout             time.Duration
+	ReconcileInterval     time.Duration
+	RefreshInterval       time.Duration
+	TLSConfig             *tls.Config
+	TitusAgentCACertPool  *x509.CertPool
 
 	EnabledLongLivedTasks []string
 	EnabledTaskLoops      []string
@@ -273,6 +275,8 @@ func Run(ctx context.Context, config *Config) error {
 		// they will never be more than in an completely offset phase if we set the expiration time
 		// to the reconcile time.
 		subnetCacheExpirationTime: config.ReconcileInterval / 2.0,
+
+		concurrentRequests: semaphore.NewWeighted(int64(config.MaxConcurrentRequests)),
 	}
 
 	// TODO: actually validate this
