@@ -528,12 +528,14 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		trace.StringAttribute("taskID", req.TaskId),
 		trace.StringAttribute("assignmentID", req.TaskId))
 
+	leaseAcquisitionStart := time.Now()
 	if err := vpcService.concurrentRequests.Acquire(ctx, 1); err != nil {
 		err = fmt.Errorf("Could not acquire concurrent require semaphore: %w", err)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	defer vpcService.concurrentRequests.Release(1)
+	span.AddAttributes(trace.Int64Attribute("leaseAcquisitionTime", time.Since(leaseAcquisitionStart).Nanoseconds()))
 
 	if req.Idempotent {
 		val, err := vpcService.fetchIdempotentAssignment(ctx, req.TaskId, true)
