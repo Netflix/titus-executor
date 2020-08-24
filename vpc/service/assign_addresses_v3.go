@@ -649,8 +649,12 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "assignIPsToENI")
 	defer span.End()
-	span.AddAttributes(trace.StringAttribute("eni", ass.branch.id))
-
+	span.AddAttributes(
+		trace.StringAttribute("eni", ass.branch.id),
+		trace.Int64Attribute("idx", int64(ass.branch.idx)),
+		trace.StringAttribute("trunk", aws.StringValue(trunkENI.NetworkInterfaceId)),
+		trace.StringAttribute("branch", ass.branch.id),
+	)
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot start transaction")
@@ -779,7 +783,6 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		}
 	}
 
-	span.AddAttributes(trace.StringAttribute("branch", aws.StringValue(iface.NetworkInterfaceId)))
 	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_assigned_to = now() WHERE branch_eni = $1", aws.StringValue(iface.NetworkInterfaceId))
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update last_assigned_to")
@@ -797,10 +800,6 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 	resp.TrunkNetworkInterface = instanceNetworkInterface(*instance, *trunkENI)
 	resp.VlanId = uint32(ass.branch.idx)
-	span.AddAttributes(
-		trace.Int64Attribute("idx", int64(ass.branch.idx)),
-		trace.StringAttribute("trunk", resp.TrunkNetworkInterface.NetworkInterfaceId),
-	)
 
 	row = tx.QueryRowContext(ctx, `
 UPDATE htb_classid
