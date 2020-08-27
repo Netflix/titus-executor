@@ -127,7 +127,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, mtu, allocation)
 }
 
-func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, mtu *int, address *vpcapi.UsableAddress) error {
+func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, mtu *int, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) error {
 	mask := net.CIDRMask(int(address.PrefixLength), 32)
 	ip := net.ParseIP(address.Address.Address)
 
@@ -145,35 +145,73 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	}
 
 	gateway := cidr.Inc(ip.Mask(mask))
-	logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
-	newRoute := netlink.Route{
-		Gw:        gateway.To4(),
-		Src:       ip,
-		LinkIndex: link.Attrs().Index,
-	}
-	if mtu != nil {
-		newRoute.MTU = *mtu
-	}
-	err = nsHandle.RouteAdd(&newRoute)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to add route to link")
-		return errors.Wrap(err, "Unable to add default route to link")
+	var defaultRouteFound bool
+	if len(routes) > 0 {
+		for _, route := range routes {
+			if route.Family != vpcapi.AssignIPResponseV3_Route_IPv4 {
+				continue
+			}
+			logger.G(ctx).WithField("route", route).Debug("Adding route")
+			_, routeNet, err := net.ParseCIDR(route.Destination)
+			if err != nil {
+				logger.G(ctx).WithError(err).Error("Could not parse route")
+				return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
+			}
+			if routeNet.String() == "0.0.0.0/0" {
+				defaultRouteFound = true
+			}
+			newRoute := netlink.Route{
+				Gw:        gateway.To4(),
+				Src:       ip,
+				LinkIndex: link.Attrs().Index,
+				Dst:       routeNet,
+				MTU:       int(route.Mtu),
+			}
+			err = nsHandle.RouteAdd(&newRoute)
+			if err != nil {
+				logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
+				return fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
+			}
+		}
+		if !defaultRouteFound {
+			logger.G(ctx).Warn("Did not install default route. Suspicious.")
+		}
+	} else {
+		logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
+		newRoute := netlink.Route{
+			Gw:        gateway.To4(),
+			Src:       ip,
+			LinkIndex: link.Attrs().Index,
+		}
+		if mtu != nil {
+			newRoute.MTU = *mtu
+		}
+		err = nsHandle.RouteAdd(&newRoute)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Unable to add route to link")
+			return errors.Wrap(err, "Unable to add default route to link")
+		}
 	}
 
+	// Add a /32 route on the link to *only* the virtual gateway / phantom router
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding gateway route")
-	newRoute = netlink.Route{
+	gatewayRoute := netlink.Route{
 		Dst:       &net.IPNet{IP: gateway, Mask: net.CIDRMask(32, 32)},
 		Src:       ip,
 		LinkIndex: link.Attrs().Index,
 		Scope:     unix.RT_SCOPE_LINK,
 	}
-	err = nsHandle.RouteAdd(&newRoute)
+	err = nsHandle.RouteAdd(&gatewayRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add route to link")
 		return errors.Wrap(err, "Unable to add gateway route to link")
 	}
 
-	newRoute = netlink.Route{
+	// Removing this forces all traffic through the gateway, which is the AWS virtual gateway / phantom router
+	// this is beneficial for two reasons:
+	// 1. No ARP needed because you only ever need to learn the ARP / neighbor entry of the default gateway
+	// 2. It means that certain security things are enforced
+	oldLinkRoute := netlink.Route{
 		Protocol:  unix.RTPROT_UNSPEC,
 		Dst:       &net.IPNet{IP: ip.Mask(mask), Mask: mask},
 		LinkIndex: link.Attrs().Index,
@@ -182,9 +220,9 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 		Scope:     unix.RT_SCOPE_NOWHERE,
 		Type:      unix.RTN_UNSPEC,
 	}
-	logger.G(ctx).WithField("route", newRoute).Debug("Deleting link route")
+	logger.G(ctx).WithField("route", oldLinkRoute).Debug("Deleting link route")
 
-	err = nsHandle.RouteDel(&newRoute)
+	err = nsHandle.RouteDel(&oldLinkRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to delete route on link")
 		return errors.Wrap(err, "Unable to add delete existing 'link' route to link")
@@ -219,7 +257,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		}
 	}
 
-	err = addIPv4AddressAndRoute(ctx, nsHandle, link, mtu, allocation.IPV4Address)
+	err = addIPv4AddressAndRoute(ctx, nsHandle, link, mtu, allocation.IPV4Address, allocation.Routes)
 	if err != nil {
 		return err
 	}
