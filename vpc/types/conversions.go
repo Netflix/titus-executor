@@ -16,6 +16,7 @@ func AssignmentToAllocation(assignment *vpcapi.AssignIPResponseV3) Allocation {
 		AllocationIndex: uint16(assignment.ClassId),
 		DeviceIndex:     int(assignment.VlanId),
 		Generation:      GenerationPointer(V3),
+		Routes:          assignment.Routes,
 	}
 
 	if assignment.Ipv6Address != nil {

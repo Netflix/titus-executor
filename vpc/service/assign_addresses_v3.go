@@ -545,6 +545,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 			return nil, err
 		}
 		if val != nil {
+			addDefaultRoute(ctx, req, val)
 			return val, nil
 		}
 	}
@@ -614,6 +615,26 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	}
 
 	return vpcService.assignIPsToENI(ctx, req, ass, maxIPAddresses, instance, trunkENI)
+}
+
+func addDefaultRoute(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *vpcapi.AssignIPResponseV3) {
+	if req.Jumbo {
+		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
+			{
+				Destination: "0.0.0.0/0",
+				Mtu:         9000,
+				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
+			},
+		}
+	} else {
+		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
+			{
+				Destination: "0.0.0.0/0",
+				Mtu:         1500,
+				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
+			},
+		}
+	}
 }
 
 func lockAssignment(ctx context.Context, tx *sql.Tx, assignmentID int) error {
@@ -835,6 +856,7 @@ WHERE id=
 		return nil, err
 	}
 
+	addDefaultRoute(ctx, req, &resp)
 	return &resp, nil
 }
 

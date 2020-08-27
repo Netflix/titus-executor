@@ -124,6 +124,8 @@ message AssignIPRequestV3 {
     // If this assignment ID already exists in the database, then return that assignment.
     // If that assignment was not completed, then we will try to unassign it and re-assign it.
     bool idempotent = 13;
+    // Jumbo: I want "default routes" with an MTU of "Jumbo"
+    bool jumbo = 14;
 };
 
 message ElasticAddress {
@@ -133,6 +135,20 @@ message ElasticAddress {
 }
 
 message AssignIPResponseV3 {
+    // Right now this is just to over-ride the MTU per-route.
+    message Route {
+        enum Family {
+            // Right now, we always / already configure IPv6 with a natively jumbo frame
+            // MTU
+            IPv4 = 0;
+        }
+        // Destination, formatted as CIDR, like 10.0.0.0/8. Unfortunately, this is somewhat ambigious
+        // because say 10.0.250.0/8 is kind of equivalent from a routing perspective
+        string destination = 1;
+        // mtu of 0 is default
+        uint32 mtu = 2;
+        Family family = 3;
+    }
     UsableAddress ipv4address = 1;
     UsableAddress ipv6address = 2;
     NetworkInterface branchNetworkInterface = 3;
@@ -140,6 +156,9 @@ message AssignIPResponseV3 {
     uint32 vlanId = 5;
     ElasticAddress elasticAddress = 6;
     uint32 classId = 7;
+    // Routes act as overrides. There may be an override for default, but it if it not present, one should still be
+    // assigned.
+    repeated Route routes = 9;
 };
 
 message UnassignIPRequestV3 {
