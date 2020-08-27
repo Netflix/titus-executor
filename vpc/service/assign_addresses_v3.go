@@ -630,7 +630,7 @@ func addDefaultRoute(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *vp
 		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
 			{
 				Destination: "0.0.0.0/0",
-				Mtu:         15000,
+				Mtu:         1500,
 				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
 			},
 		}
