@@ -35,7 +35,7 @@ tini/src:
 	git submodule update --init --recursive
 
 .PHONY: build
-build: tini/src | $(clean) $(builder)
+build: tini/src vpc/service/db/migrations/bindata.go | $(clean) $(builder)
 	mkdir -p $(PWD)/build/distributions
 	$(DOCKER_RUN) -v $(PWD):$(PWD) -u $(UID):$(GID) -w $(PWD) \
 	-e "BUILD_HOST=$(JENKINS_URL)" -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e BUILDKITE_BRANCH \
@@ -138,3 +138,7 @@ clean-proto-defs: | $(clean)
 $(GOBIN_TOOL):
 	go get github.com/myitcv/gobin
 	go install github.com/myitcv/gobin
+
+vpc/service/db/migrations/bindata.go: vpc/service/db/migrations/generate.go vpc/service/db/migrations/*.sql
+	go generate ./vpc/service/db/migrations/
+	make fmt
