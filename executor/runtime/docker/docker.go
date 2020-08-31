@@ -806,7 +806,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		}
 	}()
 
-	killTimer := time.AfterFunc(time.Minute, func() {
+	killTimer := time.AfterFunc(2*time.Minute, func() {
 		killCh <- struct{}{}
 	})
 	err = json.NewDecoder(stdoutPipe).Decode(&c.Allocation)
@@ -1955,7 +1955,7 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 		}
 	}()
 
-	killTimer := time.AfterFunc(time.Minute, func() {
+	killTimer := time.AfterFunc(2*time.Minute, func() {
 		killCh <- struct{}{}
 	})
 
