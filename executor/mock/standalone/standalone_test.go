@@ -23,7 +23,7 @@ import (
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	dockerTypes "github.com/docker/docker/api/types"
 	protobuf "github.com/golang/protobuf/proto"
-	"github.com/pborman/uuid"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -438,7 +438,7 @@ func testMakesPTY(t *testing.T, jobID string) {
 }
 
 func testStdoutGoesToLogFile(t *testing.T, jobID string) {
-	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New())
+	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" && sleep 1 && grep "%[1]s" /logs/stdout'`, message)
 	ji := &mock.JobInput{
 		ImageName:     alpine.name,
@@ -452,7 +452,7 @@ func testStdoutGoesToLogFile(t *testing.T, jobID string) {
 }
 
 func testStderrGoesToLogFile(t *testing.T, jobID string) {
-	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New())
+	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" >&2 && sleep 1 && grep "%[1]s" /logs/stderr'`, message)
 	ji := &mock.JobInput{
 		ImageName:     alpine.name,

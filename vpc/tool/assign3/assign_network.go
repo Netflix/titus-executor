@@ -14,7 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/golang/protobuf/ptypes/empty"
-	"github.com/pborman/uuid"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
@@ -43,7 +43,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 	if args.TaskID == "" {
-		args.TaskID = uuid.New()
+		args.TaskID = uuid.New().String()
 		logger.G(ctx).WithField("taskId", args.TaskID).Info("Setting task ID")
 	}
 

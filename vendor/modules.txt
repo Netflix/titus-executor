@@ -252,7 +252,7 @@ github.com/google/go-cmp/cmp/internal/function
 github.com/google/go-cmp/cmp/internal/value
 # github.com/google/gofuzz v1.1.0
 github.com/google/gofuzz
-# github.com/google/uuid v1.1.1
+# github.com/google/uuid v1.1.2
 github.com/google/uuid
 # github.com/gorilla/mux v1.7.4
 github.com/gorilla/mux
@@ -294,8 +294,8 @@ github.com/json-iterator/go
 # github.com/jteeuwen/go-bindata v3.0.7+incompatible
 github.com/jteeuwen/go-bindata
 github.com/jteeuwen/go-bindata/go-bindata
-# github.com/karlseguin/ccache v2.0.3+incompatible
-github.com/karlseguin/ccache
+# github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
+github.com/karlseguin/ccache/v2
 # github.com/kisielk/gotool v1.0.0
 github.com/kisielk/gotool
 github.com/kisielk/gotool/internal/load
@@ -356,8 +356,6 @@ github.com/openzipkin/zipkin-go/model
 github.com/openzipkin/zipkin-go/propagation
 github.com/openzipkin/zipkin-go/reporter
 github.com/openzipkin/zipkin-go/reporter/http
-# github.com/pborman/uuid v1.2.0
-github.com/pborman/uuid
 # github.com/pelletier/go-toml v1.6.0
 github.com/pelletier/go-toml
 # github.com/philhofer/fwd v1.0.0
