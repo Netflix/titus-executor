@@ -46,12 +46,13 @@ type iamProxy struct {
 const (
 	requestTimeout         = 30 * time.Second
 	defaultSessionLifetime = time.Hour
-	maxSessionNameLen      = 32
+	maxSessionNameLen      = 64
 	renewalWindow          = 5 * time.Minute
 	awsTimeFormat          = "2006-01-02T15:04:05Z"
 )
 
 var (
+	validSessionNameRegexp   = regexp.MustCompile(`^[\w+=,.@-]*$`)
 	invalidSessionNameRegexp = regexp.MustCompile(`[^\w+=,.@-]`)
 )
 
@@ -355,7 +356,9 @@ func (proxy *iamProxy) getRoleAssumptionState(ctx context.Context) *roleAssumpti
 
 func GenerateSessionName(containerID string) string {
 	sessionName := fmt.Sprintf("titus-%s", containerID)
-	sessionName = invalidSessionNameRegexp.ReplaceAllString(sessionName, "_")
+	if !validSessionNameRegexp.MatchString(sessionName) {
+		sessionName = invalidSessionNameRegexp.ReplaceAllString(sessionName, "_")
+	}
 	if len(sessionName) <= maxSessionNameLen {
 		return sessionName
 	}

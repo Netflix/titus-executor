@@ -38,7 +38,7 @@ require (
 	github.com/golangci/golangci-lint v1.23.6
 	github.com/golangci/revgrep v0.0.0-20180812185044-276a5c0a1039 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
-	github.com/google/uuid v1.1.1
+	github.com/google/uuid v1.1.2
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/gorilla/mux v1.7.4
 	github.com/gostaticanalysis/analysisutil v0.0.3 // indirect
@@ -60,7 +60,6 @@ require (
 	github.com/opencontainers/runc v0.0.0-20180125150909-c4e4bb0df2fc
 	github.com/opencontainers/runtime-spec v1.0.1 // indirect
 	github.com/openzipkin/zipkin-go v0.2.2
-	github.com/pborman/uuid v1.2.0
 	github.com/pelletier/go-toml v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/rogpeppe/go-internal v1.5.2 // indirect

@@ -13,8 +13,8 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/golang/protobuf/proto"
+	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
-	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"golang.org/x/crypto/ed25519"
@@ -123,7 +123,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 
 	allocationUUID := rq.AddressAllocation.Uuid
 	if allocationUUID == "" {
-		allocationUUID = uuid.New()
+		allocationUUID = uuid.New().String()
 	}
 
 	logger.WithFields(ctx, map[string]interface{}{
