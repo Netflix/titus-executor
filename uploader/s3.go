@@ -38,9 +38,7 @@ type S3Backend struct {
 }
 
 // NewS3Backend creates a new instance of an S3 manager which uploads to the specified location.
-func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskID string, useDefaultRole bool) (Backend, error) {
-	log.StandardLogger().Infof("logging to %s/%s using iamRole %s", bucket, prefix, iamRoleArn)
-
+func NewS3Backend(m metrics.Reporter, bucket, prefix, taskRole, taskID, writerRole string, useDefaultRole bool) (Backend, error) {
 	region, err := getEC2Region()
 	if err != nil {
 		panic(err)
@@ -48,10 +46,15 @@ func NewS3Backend(m metrics.Reporter, bucket, prefix, iamRoleArn, taskID string,
 
 	var session *session.Session
 
-	if useDefaultRole {
+	if len(writerRole) > 0 {
+		log.StandardLogger().Infof("logging to %s/%s using writer role %s", bucket, prefix, writerRole)
+		session, err = getCustomSession(region, writerRole, taskID)
+	} else if useDefaultRole {
+		log.StandardLogger().Infof("logging to %s/%s using instance profile", bucket, prefix)
 		session, err = getDefaultSession(region)
 	} else {
-		session, err = getCustomSession(region, iamRoleArn, taskID)
+		log.StandardLogger().Infof("logging to %s/%s using task role %s", bucket, prefix, taskRole)
+		session, err = getCustomSession(region, taskRole, taskID)
 	}
 	if err != nil {
 		return nil, err
