@@ -46,14 +46,18 @@ func NewS3Backend(m metrics.Reporter, bucket, prefix, taskRole, taskID, writerRo
 
 	var session *session.Session
 
+	e := log.WithFields(log.Fields{
+		"s3_bucket": bucket,
+		"s3_prefix": prefix,
+	})
 	if len(writerRole) > 0 {
-		log.StandardLogger().Infof("logging to %s/%s using writer role %s", bucket, prefix, writerRole)
+		e.WithField("s3_role", writerRole).Info("uploading using writer role")
 		session, err = getCustomSession(region, writerRole, taskID)
 	} else if useDefaultRole {
-		log.StandardLogger().Infof("logging to %s/%s using instance profile", bucket, prefix)
+		e.Info("uploading using instance profile")
 		session, err = getDefaultSession(region)
 	} else {
-		log.StandardLogger().Infof("logging to %s/%s using task role %s", bucket, prefix, taskRole)
+		e.WithField("s3_role", taskRole).Info("uploading using task role")
 		session, err = getCustomSession(region, taskRole, taskID)
 	}
 	if err != nil {
