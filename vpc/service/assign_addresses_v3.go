@@ -4,21 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"net"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
@@ -1061,40 +1060,24 @@ func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	logger.G(ctx).WithField("usedIPAddresses", usedIPAddresses.List()).WithField("allInterfaceIPAddresses", allInterfaceIPAddresses.List()).Debug("Trying to assign IPv6 Address")
 	unusedIPAddresses := allInterfaceIPAddresses.Difference(usedIPAddresses)
 
-	if unusedIPAddresses.Len() > 0 {
+	if l := unusedIPAddresses.Len(); l > 0 {
 		unusedIPv6AddressesList := unusedIPAddresses.List()
 
-		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2", pq.Array(unusedIPv6AddressesList), aws.StringValue(branchENI.VpcId))
-		if err != nil {
-			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
-			span.SetStatus(traceStatusFromError(err))
+		row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2 ORDER BY last_seen ASC LIMIT 1", pq.Array(unusedIPv6AddressesList), aws.StringValue(branchENI.VpcId))
+		var ipAddress string
+		err = row.Scan(&ipAddress)
+		if err == sql.ErrNoRows {
+			// Effectively choose a random one.
+			ipAddress = unusedIPv6AddressesList[rand.Intn(l)]
+		} else if err != nil {
+			err = errors.Wrap(err, "Could not fetch utilized IPv6 addresses from the database")
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 
-		ipToTimeLastUsed := map[string]time.Time{}
-		epoch := time.Time{}
-		for addr := range unusedIPAddresses {
-			ipToTimeLastUsed[addr] = epoch
-		}
-		for rows.Next() {
-			var ip string
-			var lastUsed time.Time
-			err = rows.Scan(&ip, &lastUsed)
-			if err != nil {
-				err = status.Error(codes.Unknown, errors.Wrap(err, "Could not scan utilized IPv6 addresses from the database").Error())
-				span.SetStatus(traceStatusFromError(err))
-				return nil, err
-			}
-			ipToTimeLastUsed[net.ParseIP(ip).String()] = lastUsed
-		}
-
-		sort.Slice(unusedIPv6AddressesList, func(i, j int) bool {
-			return ipToTimeLastUsed[unusedIPv6AddressesList[i]].Before(ipToTimeLastUsed[unusedIPv6AddressesList[j]])
-		})
-
 		return &vpcapi.UsableAddress{
 			Address: &vpcapi.Address{
-				Address: unusedIPv6AddressesList[0],
+				Address: ipAddress,
 			},
 			PrefixLength: uint32(128),
 		}, nil
@@ -1193,40 +1176,23 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 		}
 	}
 
-	if unusedIPAddresses.Len() > 0 {
+	if l := unusedIPAddresses.Len(); l > 0 {
 		unusedIPv4AddressesList := unusedIPAddresses.List()
 
-		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.VpcId))
-		if err != nil {
-			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
-			span.SetStatus(traceStatusFromError(err))
+		row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2  ORDER BY last_seen ASC LIMIT 1", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.VpcId))
+		var ipAddress string
+		err = row.Scan(&ipAddress)
+		if err == sql.ErrNoRows {
+			// Effectively choose a random one.
+			ipAddress = unusedIPv4AddressesList[rand.Intn(l)]
+		} else if err != nil {
+			err = errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database")
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
-
-		ipToTimeLastUsed := map[string]time.Time{}
-		epoch := time.Time{}
-		for addr := range unusedIPAddresses {
-			ipToTimeLastUsed[addr] = epoch
-		}
-		for rows.Next() {
-			var ip string
-			var lastUsed time.Time
-			err = rows.Scan(&ip, &lastUsed)
-			if err != nil {
-				err = status.Error(codes.Unknown, errors.Wrap(err, "Could not scan utilized IPv4 addresses from the database").Error())
-				span.SetStatus(traceStatusFromError(err))
-				return nil, err
-			}
-			ipToTimeLastUsed[net.ParseIP(ip).String()] = lastUsed
-		}
-
-		sort.Slice(unusedIPv4AddressesList, func(i, j int) bool {
-			return ipToTimeLastUsed[unusedIPv4AddressesList[i]].Before(ipToTimeLastUsed[unusedIPv4AddressesList[j]])
-		})
-
 		return &vpcapi.UsableAddress{
 			Address: &vpcapi.Address{
-				Address: unusedIPv4AddressesList[0],
+				Address: ipAddress,
 			},
 			PrefixLength: uint32(prefixlength),
 		}, nil
