@@ -1064,7 +1064,7 @@ func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	if unusedIPAddresses.Len() > 0 {
 		unusedIPv6AddressesList := unusedIPAddresses.List()
 
-		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2", pq.Array(unusedIPv6AddressesList), aws.StringValue(branchENI.VpcId))
+		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2", pq.Array(unusedIPv6AddressesList), aws.StringValue(branchENI.VpcId))
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
 			span.SetStatus(traceStatusFromError(err))
@@ -1196,7 +1196,7 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	if unusedIPAddresses.Len() > 0 {
 		unusedIPv4AddressesList := unusedIPAddresses.List()
 
-		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE host(ip_address) = any($1) AND vpc_id = $2", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.VpcId))
+		rows, err := tx.QueryContext(ctx, "SELECT ip_address, last_seen FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.VpcId))
 		if err != nil {
 			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database").Error())
 			span.SetStatus(traceStatusFromError(err))
