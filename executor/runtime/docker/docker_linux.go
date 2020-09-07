@@ -97,6 +97,12 @@ var systemServices = []serviceOpts{
 		required:     true,
 		enabledCheck: shouldStartServiceMesh,
 	},
+	{
+		humanName:    "abmetrix",
+		unitName:     "titus-abmetrix",
+		required:     true,
+		enabledCheck: shouldStartAbmetrix,
+	},
 }
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {

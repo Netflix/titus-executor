@@ -30,6 +30,8 @@ const (
 	assignIPv6AddressParam       = "titusParameter.agent.assignIPv6Address"
 	serviceMeshEnabledParam      = "titusParameter.agent.service.serviceMesh.enabled"
 	serviceMeshContainerParam    = "titusParameter.agent.service.serviceMesh.container"
+	abmetrixEnabledParam         = "titusParameter.agent.service.abmetrix.enabled"
+	abmetrixContainerParam       = "titusParameter.agent.service.abmetrix.container"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
@@ -355,6 +357,37 @@ func (c *Container) GetServiceMeshImage() (string, error) {
 
 	if container == "" {
 		return "no-container", errors.New("Could not determine proxyd image")
+	}
+
+	return path.Join(c.Config.DockerRegistry, container), nil
+}
+
+// GetAbmetrixEnabled should the abmetrix system service be enabled?
+func (c *Container) GetAbmetrixEnabled() (bool, error) {
+	if !c.Config.ContainerAbmetrixEnabled {
+		return false, nil
+	}
+
+	enabledStr, ok := c.TitusInfo.GetPassthroughAttributes()[abmetrixEnabledParam]
+	if !ok {
+		return false, nil
+	}
+	val, err := strconv.ParseBool(enabledStr)
+	if err != nil {
+		return false, err
+	}
+
+	return val, nil
+}
+
+func (c *Container) GetAbmetrixImage() (string, error) {
+	container, ok := c.TitusInfo.GetPassthroughAttributes()[abmetrixContainerParam]
+	if !ok {
+		container = c.Config.AbmetrixServiceImage
+	}
+
+	if container == "" {
+		return "no-container", errors.New("Could not determine abmetrix image")
 	}
 
 	return path.Join(c.Config.DockerRegistry, container), nil

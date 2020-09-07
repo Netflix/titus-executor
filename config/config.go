@@ -42,6 +42,10 @@ type Config struct {
 	ContainerLogViewer    bool
 	LogViewerServiceImage string
 
+	// Enable abmetrix service
+	ContainerAbmetrixEnabled bool
+	AbmetrixServiceImage     string
+
 	// Enable an in-container system mesh image?
 	ContainerServiceMeshEnabled bool
 	ProxydServiceImage          string
@@ -155,6 +159,16 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "logviewer-service-image",
 			Destination: &cfg.LogViewerServiceImage,
 			EnvVar:      "LOGVIEWER_SERVICE_IMAGE",
+		},
+		cli.BoolTFlag{
+			Name:        "container-abmetrix",
+			Destination: &cfg.ContainerAbmetrixEnabled,
+			EnvVar:      "CONTAINER_ABMETRIX",
+		},
+		cli.StringFlag{
+			Name:        "abmetrix-service-image",
+			Destination: &cfg.AbmetrixServiceImage,
+			EnvVar:      "ABMETRIX_SERVICE_IMAGE",
 		},
 		cli.BoolFlag{
 			Name:        "container-servicemesh-enabled",
