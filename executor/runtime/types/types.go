@@ -143,7 +143,7 @@ type Container struct {
 	SecurityGroupIDs   []string
 	Allocation         vpcTypes.HybridAllocation
 	NormalizedENIIndex int
-	BandwidthLimitMbps uint32
+	BandwidthLimitMbps uint64
 	AllocationUUID     string
 
 	// Is this container meant to run SystemD?
@@ -532,6 +532,7 @@ type Resources struct {
 	CPU       int64
 	GPU       int64
 	Disk      uint64
+	Network   uint64
 	HostPorts []uint16
 }
 
