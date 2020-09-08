@@ -34,6 +34,8 @@ const (
 
 var (
 	errAddressSetupTimeout = errors.New("IPv6 address setup timed out")
+	errNoRoutesReceived    = errors.New("No routes receives from Titus VPC Service")
+	errNoDefaultRoute      = errors.New("No default route installed")
 )
 
 func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.Link, error) {
@@ -80,7 +82,7 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 	return vlanLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) error {
+func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, allocation types.Allocation) error {
 	branchLink, err := getBranchLink(ctx, allocation)
 	if err != nil {
 		return err
@@ -118,16 +120,10 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 	}
 
-	var mtu *int
-	if !jumbo {
-		nonJumboMTU := 1500
-		mtu = &nonJumboMTU
-	}
-
-	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, mtu, allocation)
+	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, allocation)
 }
 
-func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, mtu *int, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) error {
+func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) (uint64, error) {
 	mask := net.CIDRMask(int(address.PrefixLength), 32)
 	ip := net.ParseIP(address.Address.Address)
 
@@ -141,56 +137,43 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	err := nsHandle.AddrAdd(link, &new4Addr)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add IPv4 addr to link")
-		return errors.Wrap(err, "Unable to add IPv4 addr to link")
+		return 0, errors.Wrap(err, "Unable to add IPv4 addr to link")
 	}
 
 	gateway := cidr.Inc(ip.Mask(mask))
-	var defaultRouteFound bool
-	if len(routes) > 0 {
-		for _, route := range routes {
-			if route.Family != vpcapi.AssignIPResponseV3_Route_IPv4 {
-				continue
-			}
-			logger.G(ctx).WithField("route", route).Debug("Adding route")
-			_, routeNet, err := net.ParseCIDR(route.Destination)
-			if err != nil {
-				logger.G(ctx).WithError(err).Error("Could not parse route")
-				return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
-			}
-			if routeNet.String() == "0.0.0.0/0" {
-				defaultRouteFound = true
-			}
-			newRoute := netlink.Route{
-				Gw:        gateway.To4(),
-				Src:       ip,
-				LinkIndex: link.Attrs().Index,
-				Dst:       routeNet,
-				MTU:       int(route.Mtu),
-			}
-			err = nsHandle.RouteAdd(&newRoute)
-			if err != nil {
-				logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
-				return fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
-			}
+	var mtu uint64
+	if len(routes) == 0 {
+		return 0, errNoRoutesReceived
+	}
+	for _, route := range routes {
+		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv4 {
+			continue
 		}
-		if !defaultRouteFound {
-			logger.G(ctx).Warn("Did not install default route. Suspicious.")
+		logger.G(ctx).WithField("route", route).Debug("Adding route")
+		_, routeNet, err := net.ParseCIDR(route.Destination)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not parse route")
+			return 0, fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
 		}
-	} else {
-		logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
+		if routeNet.String() == "0.0.0.0/0" {
+			mtu = uint64(route.Mtu)
+		}
 		newRoute := netlink.Route{
 			Gw:        gateway.To4(),
 			Src:       ip,
 			LinkIndex: link.Attrs().Index,
-		}
-		if mtu != nil {
-			newRoute.MTU = *mtu
+			Dst:       routeNet,
+			MTU:       int(route.Mtu),
 		}
 		err = nsHandle.RouteAdd(&newRoute)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Unable to add route to link")
-			return errors.Wrap(err, "Unable to add default route to link")
+			logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
+			return 0, fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
 		}
+	}
+
+	if mtu == 0 {
+		return 0, errNoDefaultRoute
 	}
 
 	// Add a /32 route on the link to *only* the virtual gateway / phantom router
@@ -204,7 +187,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	err = nsHandle.RouteAdd(&gatewayRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add route to link")
-		return errors.Wrap(err, "Unable to add gateway route to link")
+		return 0, errors.Wrap(err, "Unable to add gateway route to link")
 	}
 
 	// Removing this forces all traffic through the gateway, which is the AWS virtual gateway / phantom router
@@ -225,13 +208,13 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	err = nsHandle.RouteDel(&oldLinkRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to delete route on link")
-		return errors.Wrap(err, "Unable to add delete existing 'link' route to link")
+		return 0, errors.Wrap(err, "Unable to add delete existing 'link' route to link")
 	}
 
-	return nil
+	return mtu, nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, mtu *int, allocation types.Allocation) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, allocation types.Allocation) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -257,7 +240,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		}
 	}
 
-	err = addIPv4AddressAndRoute(ctx, nsHandle, link, mtu, allocation.IPV4Address, allocation.Routes)
+	defaultMTU, err := addIPv4AddressAndRoutes(ctx, nsHandle, link, allocation.IPV4Address, allocation.Routes)
 	if err != nil {
 		return err
 	}
@@ -267,11 +250,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return err
 	}
 
-	linkMTUOrSmaller := link.Attrs().MTU
-	if mtu != nil {
-		linkMTUOrSmaller = *mtu
-	}
-	err = setupHTBClasses(ctx, bandwidth, ceil, uint64(linkMTUOrSmaller), allocation.AllocationIndex, allocation.TrunkENIMAC)
+	err = setupHTBClasses(ctx, bandwidth, ceil, defaultMTU, allocation.AllocationIndex, allocation.TrunkENIMAC)
 	if err != nil {
 		return err
 	}

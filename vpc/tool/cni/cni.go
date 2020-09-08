@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -36,7 +37,10 @@ import (
 
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
 
-const kubeletAPIPodsURL = "https://localhost:10250/pods"
+const (
+	kubeletAPIPodsURL = "https://localhost:10250/pods"
+	jumboFrameParam   = "titusParameter.agent.allowNetworkJumbo"
+)
 
 type Command struct {
 	// Never use this context except to get the initial context for Add / Check / Del
@@ -181,6 +185,17 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 	span.AddAttributes(trace.StringAttribute("subnets", subnets))
+	var val string
+	var jumbo bool
+	val, ok = cInfo.GetPassthroughAttributes()[jumboFrameParam]
+	if ok {
+		jumbo, err = strconv.ParseBool(val)
+		if err != nil {
+			err = fmt.Errorf("Cannot parse value %q of: %s: %w", val, jumboFrameParam, err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+	}
 
 	netInfo := cInfo.GetNetworkConfigInfo()
 
@@ -211,6 +226,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		SecurityGroupIds: securityGroupsList,
 		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true},
 		Idempotent:       true,
+		Jumbo:            jumbo,
 	}
 
 	client := vpcapi.NewTitusAgentVPCServiceClient(cfg.conn)
@@ -233,7 +249,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	gateway := cidr.Inc(ip.Mask(mask))
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
 
-	err = container2.DoSetupContainer(ctx, int(ns.Fd()), kbps, kbps, false, alloc)
+	err = container2.DoSetupContainer(ctx, int(ns.Fd()), kbps, kbps, alloc)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not setup network")
 		err = errors.Wrap(err, "Cannot not setup network")

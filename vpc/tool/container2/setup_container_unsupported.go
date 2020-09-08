@@ -8,7 +8,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/types"
 )
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.Allocation) error {
+func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, allocation types.Allocation) error {
 	return types.ErrUnsupported
 }
 
