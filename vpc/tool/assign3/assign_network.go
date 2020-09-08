@@ -30,6 +30,7 @@ type Arguments struct {
 	ElasticIPPool      string
 	ElasticIPs         []string
 	Idempotent         bool
+	Jumbo              bool
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, args Arguments) error {
@@ -111,6 +112,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		InstanceIdentity: instanceIdentity,
 		AccountID:        args.InterfaceAccount,
 		Idempotent:       args.Idempotent,
+		Jumbo:            args.Jumbo,
 	}
 
 	if args.ElasticIPPool != "" {

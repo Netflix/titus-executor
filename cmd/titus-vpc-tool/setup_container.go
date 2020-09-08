@@ -25,7 +25,7 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 			case "v1":
 				return container.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
 			case "v2", "v3":
-				return container2.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
+				return container2.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst)
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}

@@ -32,6 +32,8 @@ const (
 	serviceMeshContainerParam    = "titusParameter.agent.service.serviceMesh.container"
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
+	jumboFrameParam              = "titusParameter.agent.allowNetworkJumbo"
+
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
 	TitusEnvironmentsDir            = "/var/lib/titus-environments"
 	titusContainerIDEnvVariableName = "TITUS_CONTAINER_ID"
@@ -327,6 +329,21 @@ func (c *Container) AssignIPv6Address() (bool, error) {
 	}
 
 	return val, nil
+}
+
+// Jumbo determines whether the container should get jumbo frames
+func (c *Container) Jumbo() (bool, error) {
+	val, ok := c.TitusInfo.GetPassthroughAttributes()[jumboFrameParam]
+	if !ok {
+		return false, nil
+	}
+	allowJumbo, err := strconv.ParseBool(val)
+	if err != nil {
+		err = fmt.Errorf("Cannot parse value %q of: %s: %w", val, jumboFrameParam, err)
+		return false, err
+	}
+
+	return allowJumbo, nil
 }
 
 // GetServiceMeshEnabled should the service mesh system service be enabled?

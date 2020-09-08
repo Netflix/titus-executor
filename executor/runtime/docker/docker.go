@@ -64,7 +64,6 @@ const (
 	defaultRunTmpFsSize     = "134217728" // 128 MiB
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
-	jumboFrameParam         = "titusParameter.agent.allowNetworkJumbo"
 	accountID               = "titusParameter.agent.accountId"
 	subnets                 = "titusParameter.agent.subnets"
 	elasticIPPool           = "titusParameter.agent.elasticIPPool"
@@ -749,6 +748,12 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	}
 	if assignIPv6Address {
 		args = append(args, "--assign-ipv6-address=true")
+	}
+
+	if jumbo, err := c.Jumbo(); err != nil {
+		log.WithError(err).Error("Could not parse value for jumbo frame parameter")
+	} else if jumbo {
+		args = append(args, "--jumbo=true")
 	}
 
 	// We intentionally don't use context here, because context only KILLs.
@@ -1881,13 +1886,12 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 	if burst || c.TitusInfo.GetAllowNetworkBursting() {
 		args = append(args, "--burst=true")
 	}
-	if jumbo, ok := c.TitusInfo.GetPassthroughAttributes()[jumboFrameParam]; ok {
-		if val, err := strconv.ParseBool(jumbo); err != nil {
-			log.Error("Could not parse value for "+jumboFrameParam+": ", err)
-		} else if val {
-			args = append(args, "--jumbo=true")
-		}
+	if jumbo, err := c.Jumbo(); err != nil {
+		log.WithError(err).Error("Could not parse value for jumbo frame parameter")
+	} else if jumbo {
+		args = append(args, "--jumbo=true")
 	}
+
 	return args
 }
 
