@@ -412,11 +412,12 @@ func (jobRunner *JobRunner) StartJob(t *testing.T, jobInput *JobInput) *JobRunRe
 		gpu = *jobInput.GPU
 	}
 	diskMiB := uint64(100)
+	network := uint64(128)
 
 	// Get a reference to the executor and somewhere to stash results
 
 	// Start the task and wait for it to complete
-	err := jobRunner.runner.StartTask(taskID, ci, memMiB, cpu, gpu, diskMiB)
+	err := jobRunner.runner.StartTask(taskID, ci, memMiB, cpu, gpu, diskMiB, network)
 	if err != nil {
 		log.Printf("Failed to start task %s: %s", taskID, err)
 	}

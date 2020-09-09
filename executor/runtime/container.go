@@ -48,7 +48,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 	strCPU := strconv.FormatInt(resources.CPU, 10)
 	strMem := strconv.FormatInt(resources.Mem, 10)
 	strDisk := strconv.FormatUint(resources.Disk, 10)
-	strNetwork := strconv.FormatUint(uint64(networkCfgParams.GetBandwidthLimitMbps()), 10)
+	strNetwork := strconv.FormatUint(resources.Network, 10)
 
 	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
 	// System service systemd units need this to be set in order to run with the right runtime path
@@ -67,7 +67,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 		Env:                env,
 		Labels:             labels,
 		SecurityGroupIDs:   networkCfgParams.GetSecurityGroups(),
-		BandwidthLimitMbps: networkCfgParams.GetBandwidthLimitMbps(),
+		BandwidthLimitMbps: resources.Network,
 		Config:             cfg,
 	}
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {

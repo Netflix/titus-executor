@@ -40,6 +40,7 @@ type task struct {
 	cpu       int64
 	gpu       int64
 	disk      uint64
+	network   uint64
 }
 
 // Runner maintains in memory state for the task runner
@@ -104,7 +105,7 @@ func WithRuntime(ctx context.Context, m metrics.Reporter, rp RuntimeProvider, cf
 }
 
 // StartTask can be called once to start a task, by a given Runner
-func (r *Runner) StartTask(taskID string, titusInfo *titus.ContainerInfo, mem int64, cpu int64, gpu int64, disk uint64) error {
+func (r *Runner) StartTask(taskID string, titusInfo *titus.ContainerInfo, mem int64, cpu int64, gpu int64, disk uint64, network uint64) error {
 	// This can only be called once!
 	t := task{
 		taskID:    taskID,
@@ -113,6 +114,7 @@ func (r *Runner) StartTask(taskID string, titusInfo *titus.ContainerInfo, mem in
 		cpu:       cpu,
 		gpu:       gpu,
 		disk:      disk,
+		network:   network,
 	}
 	select {
 	case r.taskChan <- t:
@@ -171,10 +173,11 @@ func (r *Runner) startRunner(parentCtx context.Context, setupCh chan error, rp R
 	}
 
 	resources := &runtimeTypes.Resources{
-		Mem:  taskConfig.mem,
-		CPU:  taskConfig.cpu,
-		GPU:  taskConfig.gpu,
-		Disk: taskConfig.disk,
+		Mem:     taskConfig.mem,
+		CPU:     taskConfig.cpu,
+		GPU:     taskConfig.gpu,
+		Disk:    taskConfig.disk,
+		Network: taskConfig.network,
 	}
 	r.container = runtime.NewContainer(taskConfig.taskID, taskConfig.titusInfo, resources, labels, r.config)
 

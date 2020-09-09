@@ -130,9 +130,10 @@ func TestNewContainer(t *testing.T) {
 	}
 
 	resources := &runtimeTypes.Resources{
-		CPU:  expectedCPU,
-		Mem:  expectedMem,
-		Disk: expectedDisk,
+		CPU:     expectedCPU,
+		Mem:     expectedMem,
+		Disk:    expectedDisk,
+		Network: uint64(expectedNetwork),
 	}
 
 	labels := make(map[string]string)

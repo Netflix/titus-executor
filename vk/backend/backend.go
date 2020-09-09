@@ -101,30 +101,38 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 		return errors.Wrap(err, "Could not deserialize protobuf")
 	}
 
-	requests := pod.Spec.Containers[0].Resources.Requests
+	limits := pod.Spec.Containers[0].Resources.Limits
 
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
 	disk, _ := resource.ParseQuantity("2G")
 	for _, k := range []v1.ResourceName{v1.ResourceEphemeralStorage, v1.ResourceStorage, "titus/disk"} {
-		if v, ok := requests[k]; ok {
+		if v, ok := limits[k]; ok {
 			disk = v
 			break
 		}
 	}
 
-	cpu := requests[v1.ResourceCPU]
-	memory := requests[v1.ResourceMemory]
-
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
 	gpu, _ := resource.ParseQuantity("0")
 	for _, k := range []v1.ResourceName{"nvidia.com/gpu", "titus/gpu"} {
-		if v, ok := requests[k]; ok {
+		if v, ok := limits[k]; ok {
 			gpu = v
 			break
 		}
 	}
 
-	err = runner.StartTask(pod.GetName(), &containerInfo, memory.Value(), cpu.Value(), gpu.Value(), uint64(disk.Value()))
+	cpu := limits[v1.ResourceCPU]
+	memory := limits[v1.ResourceMemory]
+	network := limits["titus/network"]
+
+	err = runner.StartTask(
+		pod.GetName(),
+		&containerInfo,
+		memory.Value(),
+		cpu.Value(),
+		gpu.Value(),
+		uint64(disk.Value()),
+		uint64(network.Value()))
 	if err != nil {
 		return errors.Wrap(err, "Could not start task")
 	}
