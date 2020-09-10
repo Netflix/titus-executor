@@ -477,6 +477,11 @@ func (vpcService *vpcService) getTaskLoops() []taskLoop {
 			itemLister: vpcService.getRegionAccounts,
 			workFunc:   vpcService.reconcileAvailabilityZonesRegionAccount,
 		},
+		{
+			taskName:   "last_used_ip_pruner",
+			itemLister: nilItemEnumerator,
+			workFunc:   vpcService.pruneLastUsedIPAddresses,
+		},
 	}
 }
 
