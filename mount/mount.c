@@ -1,6 +1,13 @@
+#define _GNU_SOURCE
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+
+/* getaddrinfo */
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <string.h>
 
 /* setns */
 #include <sched.h>
@@ -23,6 +30,30 @@ static char* get_fs_type() {
 	return fs_type;
 }
 
+static int dns_lookup(const char *hostname, struct sockaddr_in *addr)
+{
+	struct hostent *hp;
+	addr->sin_family = AF_INET;
+
+	if (inet_aton(hostname, &addr->sin_addr)) {
+		fprintf(stderr, "titus-mount: %s is already an IP. Not doing a DNS lookup\n", hostname);
+		return 0;
+	}
+	fprintf(stderr, "titus-mount: Decoding and resolving dns hostname for %s\n", hostname);
+	hp = gethostbyname(hostname);
+	if (hp == NULL) {
+		int err_ret = h_errno;
+		fprintf(stderr, "titus-mount: can't get address for %s: %s\n", hostname, hstrerror(err_ret));
+		return -1;
+	}
+	if (hp->h_length > (int)sizeof(struct in_addr)) {
+		fprintf(stderr, "titus-mount: got bad hp->h_length");
+		return -1;
+	}
+	memcpy(&addr->sin_addr, hp->h_addr, hp->h_length);
+	return 0;
+}
+
 int main() {
 	int mnt_ns_fd, net_ns_fd;
 	unsigned long flags_ul;
@@ -35,10 +66,15 @@ int main() {
 	const char *mnt_ns = getenv("MOUNT_NS");
 	const char *net_ns = getenv("NET_NS");
 	const char *source = getenv("MOUNT_SOURCE");
+	const char *nfs_mount_hostname = getenv("MOUNT_NFS_HOSTNAME");
 	const char *target = getenv("MOUNT_TARGET");
 	const char *flags = getenv("MOUNT_FLAGS");
 	const char *options = getenv("MOUNT_OPTIONS");
 	const char *fs_type = get_fs_type();
+
+	int buf_size = sysconf(_SC_PAGESIZE);
+	char final_options [buf_size];
+	strcpy(final_options, options);
 
 	if (!(source && target && flags && options))
 		return 1;
@@ -98,8 +134,23 @@ int main() {
 		}
 	}
 
+	/* For NFS, we must do the dns resolution *here* while we are inside net ns */
+	if (nfs_mount_hostname) {
+		static struct sockaddr_in server_addr;
+		char *ip_string;
+
+		if (dns_lookup(nfs_mount_hostname, &server_addr)) {
+			fprintf(stderr, "titus-mount: DNS lookup failed for %s. Exiting 1.\n", nfs_mount_hostname);
+			return 1;
+		}
+		ip_string = inet_ntoa(server_addr.sin_addr);
+		strcat(final_options, ",addr=");
+		strcat(final_options, ip_string);
+		fprintf(stderr, "titus-mount: using these nfs mount options: %s\n", final_options);
+	}
+
 	/* We don't check for overflow */
-	rc = mount(source, target, fs_type, flags_ul, options);
+	rc = mount(source, target, fs_type, flags_ul, final_options);
 	if (rc) {
 		perror("mount");
 		return 1;
