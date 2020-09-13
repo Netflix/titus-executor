@@ -691,13 +691,27 @@ func (vpcService *vpcService) getUnattachedBranchENIV3(ctx context.Context, fast
 	var eni branchENI
 
 	row := fastTx.QueryRowContext(ctx, `
-SELECT branch_enis.branch_eni, az, account_id  
-FROM branch_enis 
-WHERE 
-subnet_id = $1 AND 
-(SELECT state FROM branch_eni_attachments WHERE branch_eni = branch_enis.branch_eni AND state IN ('attaching', 'attached', 'unattaching')) IS NULL
+SELECT branch_enis.branch_eni,
+       branch_enis.az,
+       branch_enis.account_id
+FROM branch_enis
+LEFT JOIN eni_permissions ON branch_enis.branch_eni = eni_permissions.branch_eni
+WHERE branch_enis.subnet_id = $1
+ -- Either the branch eni and trunk eni must be in the same account, or there must be an existing eni permission for
+-- the account the trunk eni is in, or there must be no other network permissions
+
+  AND (eni_permissions.account_id IS NULL
+       OR eni_permissions.account_id = $2
+       OR branch_enis.account_id = $2)
+  AND
+    (SELECT state
+     FROM branch_eni_attachments
+     WHERE branch_eni = branch_enis.branch_eni
+       AND state IN ('attaching',
+                     'attached',
+                     'unattaching')) IS NULL
 ORDER BY RANDOM()
-LIMIT 1`, req.subnet.subnetID)
+LIMIT 1`, req.subnet.subnetID, req.trunkENIAccount)
 	err := row.Scan(&eni.id, &eni.az, &eni.accountID)
 	if err == nil {
 		span.AddAttributes(

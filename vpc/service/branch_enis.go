@@ -550,6 +550,11 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 	ctx, span := trace.StartSpan(ctx, "ensureBranchENIPermissionV3")
 	defer span.End()
 
+	span.AddAttributes(
+		trace.StringAttribute("branch", eni.id),
+		trace.StringAttribute("branchAccount", eni.accountID),
+		trace.StringAttribute("trunkAccount", trunkENIAccountID),
+	)
 	if eni.accountID == trunkENIAccountID {
 		return nil
 	}
