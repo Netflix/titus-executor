@@ -58,7 +58,7 @@ VOLUME /var/lib/titus-environments
 VOLUME /var/tmp
 
 # This is for the in-container SSHd configuration
-RUN touch /etc/ssh/titus_user_ssh_key_cas.pub
+RUN mkdir -p /etc/ssh && touch /etc/ssh/titus_user_ssh_key_cas.pub
 
 # this assumes there is a deb file (or symlink) with the _latest suffix
 # build scripts are expected to produce it
