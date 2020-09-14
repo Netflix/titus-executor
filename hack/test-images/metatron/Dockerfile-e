@@ -1,7 +1,7 @@
 FROM ubuntu:bionic as builder
 
 COPY --from=golang:1.13-stretch /usr/local/go /usr/local/go
-RUN apt-get update && apt-get install busybox-static
+RUN apt-get update && apt-get --no-install-recommends install -y busybox-static
 ENV GOPATH /go
 ENV EXECUTOR_DIR "$GOPATH/src/github.com/Netflix/titus-executor"
 ENV DESTDIR "$EXECUTOR_DIR/hack/test-images/metatron"
