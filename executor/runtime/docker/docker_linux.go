@@ -98,12 +98,10 @@ var systemServices = []serviceOpts{
 		enabledCheck: shouldStartServiceMesh,
 	},
 	{
-		humanName: "abmetrix",
-		unitName:  "titus-abmetrix",
-		required:  true,
-		enabledCheck: func(cfg *config.Config, c *runtimeTypes.Container) bool {
-			return cfg.ContainerAbmetrixEnabled
-		},
+		humanName:    "abmetrix",
+		unitName:     "titus-abmetrix",
+		required:     false,
+		enabledCheck: shouldStartAbmetrix,
 	},
 }
 

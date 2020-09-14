@@ -215,6 +215,19 @@ func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool 
 	return err == nil
 }
 
+func shouldStartAbmetrix(cfg *config.Config, c *runtimeTypes.Container) bool {
+	enabled := cfg.ContainerAbmetrixEnabled
+	if !enabled {
+		return false
+	}
+
+	if cfg.AbmetrixServiceImage == "" {
+		return false
+	}
+	return true
+
+}
+
 // NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
 var NoEntrypointError = &runtimeTypes.BadEntryPointError{Reason: errors.New("Image, and job have no entrypoint, or command")}
 
@@ -1086,7 +1099,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		}))
 	}
 
-	if r.cfg.ContainerAbmetrixEnabled {
+	if shouldStartAbmetrix(&r.cfg, c) {
 		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
 			serviceName:   "abmetrix",
 			image:         path.Join(c.Config.DockerRegistry, c.Config.AbmetrixServiceImage),
