@@ -1,2 +1,2 @@
 FROM ubuntu:xenial
-RUN apt-get update && apt-get --no-install-recommends install -y expect coreutils
+RUN apt-get update && apt-get install -y expect coreutils

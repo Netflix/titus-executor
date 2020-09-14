@@ -6,15 +6,15 @@
 # systemd pieces were inspired by solita/docker-systemd (MIT License)
 FROM ubuntu:bionic
 
-RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get --no-install-recommends install -y apt-transport-https ca-certificates gpg gpg-agent
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y apt-transport-https ca-certificates
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
-    apt-get --no-install-recommends install -y build-essential curl make cmake libattr1-dev dbus systemd
+    apt-get install -y build-essential curl make cmake libattr1-dev dbus systemd
 
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
 RUN echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable" > /etc/apt/sources.list.d/docker.list
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
-    apt-get --no-install-recommends install -y docker-ce=5:18.09.7~3-0~ubuntu-bionic
+    apt-get install -y docker-ce=5:18.09.7~3-0~ubuntu-bionic
 
 ### systemd
 ENV container docker
