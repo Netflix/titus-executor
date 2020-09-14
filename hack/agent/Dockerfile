@@ -6,7 +6,7 @@
 # systemd pieces were inspired by solita/docker-systemd (MIT License)
 FROM ubuntu:bionic
 
-RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get --no-install-recommends install -y apt-transport-https ca-certificates
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get --no-install-recommends install -y apt-transport-https ca-certificates gpg
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
     apt-get --no-install-recommends install -y build-essential curl make cmake libattr1-dev dbus systemd
 
