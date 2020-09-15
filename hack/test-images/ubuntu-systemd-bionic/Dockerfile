@@ -5,7 +5,7 @@ ENV container docker
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update && \
-    apt-get --no-install-recommends install -y dbus systemd locales curl && \
+    apt-get install -y dbus systemd locales curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
