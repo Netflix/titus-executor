@@ -214,6 +214,19 @@ func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool 
 	return err == nil
 }
 
+func shouldStartAbmetrix(cfg *config.Config, c *runtimeTypes.Container) bool {
+	enabled := cfg.ContainerAbmetrixEnabled
+	if !enabled {
+		return false
+	}
+
+	if cfg.AbmetrixServiceImage == "" {
+		return false
+	}
+	return true
+
+}
+
 // NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
 var NoEntrypointError = &runtimeTypes.BadEntryPointError{Reason: errors.New("Image, and job have no entrypoint, or command")}
 
@@ -996,6 +1009,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string, startTime time.Time) error { // nolint: gocyclo
 	var logViewerContainerName string
+	var abmetrixContainerName string
 	var metatronContainerName string
 	var serviceMeshContainerName string
 	var sshdContainerName string
@@ -1090,6 +1104,17 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		}))
 	}
 
+	if shouldStartAbmetrix(&r.cfg, c) {
+		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+			serviceName:   "abmetrix",
+			image:         path.Join(c.Config.DockerRegistry, c.Config.AbmetrixServiceImage),
+			containerName: &abmetrixContainerName,
+			volumes: map[string]struct{}{
+				"/titus/abmetrix": {},
+			},
+		}))
+	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func() error {
 			prepareNetworkStartTime := time.Now()
@@ -1137,6 +1162,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 	if serviceMeshContainerName != "" {
 		volumeContainers = append(volumeContainers, serviceMeshContainerName)
+	}
+	if abmetrixContainerName != "" {
+		volumeContainers = append(volumeContainers, abmetrixContainerName)
 	}
 
 	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, volumeContainers)
