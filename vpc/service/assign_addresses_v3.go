@@ -393,6 +393,7 @@ WHERE assignment_id = $1
 		if err != nil {
 			err = errors.Wrap(err, "Could not scan subnet CIDR")
 			tracehelpers.SetStatus(err, span)
+			return nil, err
 		}
 		_, ipnet, err := net.ParseCIDR(subnetCIDR)
 		if err != nil {
