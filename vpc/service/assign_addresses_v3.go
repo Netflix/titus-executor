@@ -374,7 +374,7 @@ WHERE assignment_id = $1
 	}
 
 	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1", trunkENI)
-	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
+	err = row.Scan(&resp.TrunkNetworkInterface.SubnetId,
 		&resp.TrunkNetworkInterface.AvailabilityZone,
 		&resp.TrunkNetworkInterface.MacAddress,
 		&resp.TrunkNetworkInterface.NetworkInterfaceId,
@@ -391,13 +391,13 @@ WHERE assignment_id = $1
 		row = tx.QueryRowContext(ctx, "SELECT cidr FROM subnets WHERE subnet_id = $1", resp.BranchNetworkInterface.SubnetId)
 		err = row.Scan(&subnetCIDR)
 		if err != nil {
-			err = errors.Wrap(err, "Could not scan subnet CIDR")
+			err = fmt.Errorf("Could not scan subnet CIDR %q: %w", resp.BranchNetworkInterface.SubnetId, err)
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 		_, ipnet, err := net.ParseCIDR(subnetCIDR)
 		if err != nil {
-			err = errors.Wrapf(err, "Could not parse subnet CIDR: %s", subnetCIDR)
+			err = fmt.Errorf("Could not parse subnet CIDR %q: %w", subnetCIDR, err)
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
