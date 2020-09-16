@@ -2,7 +2,7 @@ FROM ubuntu:bionic
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
     apt-get install -y build-essential make cmake g++ gcc libc6-dev pkg-config \
-        libattr1-dev git curl wget jq ruby ruby-dev rubygems lintian unzip bison flex clang llvm && \
+        libattr1-dev git curl wget jq ruby ruby-dev rubygems lintian unzip bison flex clang llvm musl-tools && \
     rm -rf /var/lib/apt/lists/*
 
 RUN gem install --no-ri --no-rdoc fpm

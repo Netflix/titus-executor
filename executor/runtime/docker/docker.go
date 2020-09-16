@@ -1374,19 +1374,6 @@ func maybeConvertIntoBadEntryPointError(err error) error {
 	return err
 }
 
-func inferLocalIP(remoteIP *net.UDPAddr) (net.IP, error) {
-	addr, err := net.DialUDP("udp4", nil, remoteIP)
-	if err != nil {
-		return nil, err
-	}
-	host, _, err := net.SplitHostPort(addr.LocalAddr().String())
-	if err != nil {
-		return nil, err
-	}
-
-	return net.ParseIP(host), nil
-}
-
 type readWriteMode int
 
 const (
@@ -1406,9 +1393,6 @@ type efsMountInfo struct {
 	// Derived fields
 	// Derived from taking the DNS name of: ${efsFsID}.efs.${REGION}.amazonaws.com
 	hostname string
-	remoteIP net.IP
-	// What's the route to that? Eventually, we can do multiple IPs in order to QoS EFS access, but let's do that later.
-	localIP net.IP
 }
 
 func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountInfo, error) {
@@ -1439,22 +1423,7 @@ func (r *DockerRuntime) processEFSMounts(c *runtimeTypes.Container) ([]efsMountI
 			// We don't validate at client creation time, because we don't get this during testing.
 			return nil, errors.New("Could not retrieve EC2 region")
 		}
-		// Get the remote IP. -- Is this really the best way how? Go doesn't have a simpler API for this?
 		emi.hostname = fmt.Sprintf("%s.efs.%s.amazonaws.com", emi.efsFsID, r.awsRegion)
-		// According to go's documentation:
-		// Resolving a hostname is not recommended because this returns at most one of its IP addresses.
-		// It just takes the first IP the resolver returns
-		addr, err := net.ResolveUDPAddr("udp4", emi.hostname+":1")
-		if err != nil {
-			return nil, err
-		}
-
-		// In the "official" go code, they use the first IP returned, but not sure what to do here.
-		emi.remoteIP = addr.IP
-		emi.localIP, err = inferLocalIP(addr)
-		if err != nil {
-			return nil, err
-		}
 		efsMountInfos = append(efsMountInfos, emi)
 	}
 
@@ -1715,8 +1684,6 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 
 		mountOptions := append(
 			baseMountOptions,
-			fmt.Sprintf("addr=%s", efsMountInfo.remoteIP.String()),
-			fmt.Sprintf("clientaddr=%s", efsMountInfo.localIP.String()),
 			fmt.Sprintf("fsc=%s", c.TaskID),
 		)
 		cmd.Env = []string{
@@ -1726,6 +1693,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 			"MOUNT_NS=3",
 			"NET_NS=4",
 			fmt.Sprintf("MOUNT_TARGET=%s", efsMountInfo.cleanMountPoint),
+			fmt.Sprintf("MOUNT_NFS_HOSTNAME=%s", efsMountInfo.hostname),
 			fmt.Sprintf("MOUNT_SOURCE=%s:%s", efsMountInfo.hostname, efsMountInfo.cleanEfsFsRelativeMntPoint),
 			fmt.Sprintf("MOUNT_FLAGS=%d", flags),
 			fmt.Sprintf("MOUNT_OPTIONS=%s", strings.Join(mountOptions, ",")),
