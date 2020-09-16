@@ -1,8 +1,16 @@
 FROM ubuntu:bionic
 
+# titus-agent-ci includes debs for ci-related stuff
+# Specifically the linux-libc-dev package was downloaded from
+# https://packages.debian.org/experimental/linux-libc-dev
+# and then manually uploaded to https://packagecloud.io/netflix/titus-agent-ci
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get -y install curl && \
+    curl https://packagecloud.io/install/repositories/netflix/titus-agent-ci/script.deb.sh | bash
+
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
     apt-get install -y build-essential make cmake g++ gcc libc6-dev pkg-config \
-        libattr1-dev git curl wget jq ruby ruby-dev rubygems lintian unzip bison flex clang llvm musl-tools && \
+        libattr1-dev git curl wget jq ruby ruby-dev rubygems lintian unzip bison flex clang llvm musl-tools \
+        linux-libc-dev=5.9~rc4-1~exp1 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN gem install --no-ri --no-rdoc fpm
