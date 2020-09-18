@@ -8,6 +8,7 @@ steps:
     branches:
       - master
       - multi-account
+      - nfs-hack
     build:
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"
