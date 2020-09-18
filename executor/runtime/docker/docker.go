@@ -1549,13 +1549,6 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 	}
 	defer shouldClose(netNSFile)
 
-	userNSPath := filepath.Join("/proc", strconv.Itoa(int(cred.pid)), "ns", "user")
-	userNSFile, err := os.OpenFile(userNSPath, os.O_RDONLY, 0444)
-	if err != nil {
-		return err
-	}
-	defer shouldClose(userNSFile)
-
 	for _, efsMountInfo := range efsMountInfos {
 		// Todo: Make into a const
 		// TODO: Run this under the container's PID namespace
@@ -1571,8 +1564,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 
 		// mntNSFD = 3+0 = 3
 		// netNSFD = 3+1 = 4
-		// userNSFD = 3+2 = 5
-		cmd.ExtraFiles = []*os.File{mntNSFile, netNSFile, userNSFile}
+		cmd.ExtraFiles = []*os.File{mntNSFile, netNSFile}
 
 		mountOptions := append(
 			baseMountOptions,
@@ -1584,7 +1576,6 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 			// See above for "math"
 			"MOUNT_NS=3",
 			"NET_NS=4",
-			"USER_NS=5",
 			fmt.Sprintf("MOUNT_TARGET=%s", efsMountInfo.cleanMountPoint),
 			fmt.Sprintf("MOUNT_NFS_HOSTNAME=%s", efsMountInfo.hostname),
 			fmt.Sprintf("MOUNT_SOURCE=%s:%s", efsMountInfo.hostname, efsMountInfo.cleanEfsFsRelativeMntPoint),
@@ -1592,8 +1583,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 			fmt.Sprintf("MOUNT_OPTIONS=%s", strings.Join(mountOptions, ",")),
 		}
 
-		// XXX
-		log.Infof("MOUNT: opts=%+v, env=%+v", mountOptions, cmd.Env)
+		log.Debugf("Running mount command: opts=%+v, env=%+v", mountOptions, cmd.Env)
 		stdoutStderr, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("Mount failure: %+v: %s", efsMountInfo, string(stdoutStderr))
