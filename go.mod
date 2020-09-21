@@ -49,6 +49,7 @@ require (
 	github.com/json-iterator/go v1.1.9 // indirect
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
+	github.com/kevinburke/go-bindata v3.21.0+incompatible // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.3.0

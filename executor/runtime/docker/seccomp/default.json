@@ -299,7 +299,6 @@
 				"setrlimit",
 				"set_robust_list",
 				"setsid",
-				"setsockopt",
 				"set_thread_area",
 				"set_tid_address",
 				"setuid",
@@ -363,6 +362,29 @@
 			"action": "SCMP_ACT_ALLOW",
 			"args": [],
 			"comment": "",
+			"includes": {},
+			"excludes": {}
+		},
+		{
+			"names": [
+				"setsockopt"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 1,
+					"value": 263,
+					"valueTwo": 0,
+					"op": "SCMP_CMP_NE"
+				},
+				{
+					"index": 2,
+					"value": 15,
+					"valueTwo":  0,
+					"op": "SCMP_CMP_NE"
+				}
+			],
+			"comment": "CVE-2020-14386",
 			"includes": {},
 			"excludes": {}
 		},
