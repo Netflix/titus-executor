@@ -158,6 +158,7 @@ func TestStandalone(t *testing.T) {
 		testSystemdImageMount,
 		testShm,
 		testContainerLogViewer,
+		testcve202014386,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -1092,4 +1093,8 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 	if !mock.RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
+}
+
+func testcve202014386(t *testing.T, jobID string) {
+
 }
