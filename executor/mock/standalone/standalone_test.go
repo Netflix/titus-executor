@@ -99,6 +99,10 @@ var (
 		name: "titusoss/ubuntu-systemd-bionic",
 		tag:  "20181219-1545261266",
 	}
+	cve202014386 = testImage{
+		name: "titusoss/cve-2020-14386",
+		tag:  "20200921-1600711952",
+	}
 )
 
 const defaultFailureTimeout = time.Minute
@@ -1096,5 +1100,11 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 }
 
 func testcve202014386(t *testing.T, jobID string) {
-
+	ji := &mock.JobInput{
+		ImageName: cve202014386.name,
+		Version:   cve202014386.tag,
+	}
+	if !mock.RunJobExpectingFailure(t, ji) {
+		t.Fail()
+	}
 }
