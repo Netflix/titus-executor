@@ -1098,8 +1098,8 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 
 func testcve202014386(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
-		ImageName: ubuntu.name,
-		Version:   ubuntu.tag,
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
 		EntrypointOld: "/usr/bin/cve-2020-14386",
 	}
 	if !mock.RunJobExpectingFailure(t, ji) {
