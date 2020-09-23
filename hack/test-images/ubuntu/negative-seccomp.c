@@ -29,14 +29,5 @@ int main() {
 	assert(setsockopt(fd, -1, PACKET_VNET_HDR, 0, 0) == -1);
 	assert(errno != -EPERM);
 
-	close(fd);
-
-	fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-	assert(fd != -1);
-
-	val = 1;
-	assert(setsockopt(fd, SOL_PACKET, PACKET_VNET_HDR, &val, sizeof(val)) == -1);
-	assert(errno == -EPERM);
-
 	return 0;
 }
