@@ -163,6 +163,7 @@ func TestStandalone(t *testing.T) {
 		testShm,
 		testContainerLogViewer,
 		testcve202014386,
+		testnc,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -1105,6 +1106,19 @@ func testcve202014386(t *testing.T, jobID string) {
 		Version:   cve202014386.tag,
 	}
 	if !mock.RunJobExpectingFailure(t, ji) {
+		t.Fail()
+	}
+}
+
+
+func testcve202014386(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName: ubuntu.name,
+		Version:   ubuntu.tag,
+		// Make sure that the process exits due to timeout, and not due to permission denied error
+		EntrypointOld: `/bin/bash -c "timeout 1s nc -l 7101 || test $? == 124"`,
+	}
+	if !mock.RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
