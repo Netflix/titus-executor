@@ -58,7 +58,7 @@ var (
 	}
 	ubuntu = testImage{
 		name: "titusoss/ubuntu",
-		tag:  "20200923-1600887860",
+		tag:  "20200923-1600889010",
 	}
 	// TODO: Determine how this got built, and add it to the auto image builders?
 	byDigest = testImage{
