@@ -58,7 +58,7 @@ var (
 	}
 	ubuntu = testImage{
 		name: "titusoss/ubuntu",
-		tag:  "20180606-1528275004",
+		tag:  "20200923-1600889010",
 	}
 	// TODO: Determine how this got built, and add it to the auto image builders?
 	byDigest = testImage{
@@ -98,10 +98,6 @@ var (
 	systemdImage = testImage{
 		name: "titusoss/ubuntu-systemd-bionic",
 		tag:  "20181219-1545261266",
-	}
-	cve202014386 = testImage{
-		name: "titusoss/cve-2020-14386",
-		tag:  "20200921-1600711952",
 	}
 )
 
@@ -163,6 +159,7 @@ func TestStandalone(t *testing.T) {
 		testShm,
 		testContainerLogViewer,
 		testcve202014386,
+		testnc,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -1101,10 +1098,23 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 
 func testcve202014386(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
-		ImageName: cve202014386.name,
-		Version:   cve202014386.tag,
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		EntrypointOld: "/usr/bin/cve-2020-14386",
 	}
 	if !mock.RunJobExpectingFailure(t, ji) {
+		t.Fail()
+	}
+}
+
+func testnc(t *testing.T, jobID string) {
+	ji := &mock.JobInput{
+		ImageName: ubuntu.name,
+		Version:   ubuntu.tag,
+		// Make sure that the process exits due to timeout, and not due to permission denied error
+		EntrypointOld: "/usr/bin/negative-seccomp",
+	}
+	if !mock.RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }

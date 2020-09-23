@@ -376,7 +376,18 @@
 					"value": 263,
 					"valueTwo": 0,
 					"op": "SCMP_CMP_NE"
-				},
+				}
+			],
+			"comment": "CVE-2020-14386",
+			"includes": {},
+			"excludes": {}
+		},
+		{
+			"names": [
+				"setsockopt"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
 				{
 					"index": 2,
 					"value": 15,
