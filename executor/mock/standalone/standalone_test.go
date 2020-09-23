@@ -1111,7 +1111,7 @@ func testcve202014386(t *testing.T, jobID string) {
 }
 
 
-func testcve202014386(t *testing.T, jobID string) {
+func testnc(t *testing.T, jobID string) {
 	ji := &mock.JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
