@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
+	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
@@ -20,6 +22,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	byteUnitsEnabledLabel = "pod.titus.netflix.com/byteUnits"
 )
 
 var (
@@ -43,6 +49,38 @@ func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 	default:
 		panic(state)
 	}
+}
+
+// Is the control plane indicating that it's sending the resources in bytes?
+func useByteUnits(pod *v1.Pod) (bool, error) {
+	bytesEnabled, ok := pod.GetLabels()[byteUnitsEnabledLabel]
+	if !ok {
+		return false, nil
+	}
+
+	return strconv.ParseBool(bytesEnabled)
+}
+
+func resourceBytesToMiB(r *resource.Quantity) (resource.Quantity, error) {
+	rInt, ok := r.AsInt64()
+	if !ok {
+		zeroQuant := resource.NewQuantity(0, resource.BinarySI)
+		return *zeroQuant, errors.New("dimension parsing error")
+	}
+
+	res := resource.NewQuantity(rInt/units.MiB, resource.BinarySI)
+	return *res, nil
+}
+
+func resourceBytesToMB(r *resource.Quantity) (resource.Quantity, error) {
+	rInt, ok := r.AsInt64()
+	if !ok {
+		zeroQuant := resource.NewQuantity(0, resource.DecimalSI)
+		return *zeroQuant, errors.New("dimension parsing error")
+	}
+
+	res := resource.NewQuantity(rInt/units.MB, resource.DecimalSI)
+	return *res, nil
 }
 
 func getTerminatedContainerState(prevState *v1.ContainerState) v1.ContainerState {
@@ -85,7 +123,7 @@ func state2containerState(prevState *v1.ContainerState, currState titusdriver.Ti
 	}
 }
 
-func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.File, pod *v1.Pod) error {
+func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.File, pod *v1.Pod) error { // nolint: gocyclo
 	containerInfoStr, ok := pod.GetAnnotations()["containerInfo"]
 	if !ok {
 		return errContainerInfo
@@ -99,6 +137,11 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 	err = proto.Unmarshal(data, &containerInfo)
 	if err != nil {
 		return errors.Wrap(err, "Could not deserialize protobuf")
+	}
+
+	useBytes, err := useByteUnits(pod)
+	if err != nil {
+		return errors.Wrap(err, "Could not parse byte units pod annotation")
 	}
 
 	limits := pod.Spec.Containers[0].Resources.Limits
@@ -124,6 +167,25 @@ func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.Fil
 	cpu := limits[v1.ResourceCPU]
 	memory := limits[v1.ResourceMemory]
 	network := limits["titus/network"]
+
+	if useBytes {
+		// The control plane has passed resource values in bytes, but the runner takes
+		// MiB / MB, so we need to do the conversion.
+		disk, err = resourceBytesToMiB(&disk)
+		if err != nil {
+			return errors.New("error converting disk resource units")
+		}
+
+		memory, err = resourceBytesToMiB(&memory)
+		if err != nil {
+			return errors.New("error converting memory resource units")
+		}
+
+		network, err = resourceBytesToMB(&network)
+		if err != nil {
+			return errors.New("error converting network resource units")
+		}
+	}
 
 	err = runner.StartTask(
 		pod.GetName(),
