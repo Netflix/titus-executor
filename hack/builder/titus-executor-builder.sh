@@ -54,7 +54,6 @@ fi
 # Build a tarball
 mkdir -p build/tarball
 install -t build/tarball build/bin/linux-amd64/*
-install -t build/tarball root/apps/titus-executor/bin/run
 tar  -czv -C build/tarball -f ${outdir}/titus-executor-${version}.tar.gz .
 
 ## Build the deb package
