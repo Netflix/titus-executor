@@ -142,15 +142,7 @@ func setupEnv(pod *v1.Pod, env map[string]string) error {
 }
 
 func writeEnvFile(pod *v1.Pod, env map[string]string) error {
-	dname := path.Join(tt.TitusEnvironmentsDir, pod.Name)
-	fname := path.Join(dname, "titus-imds-proxy.env")
-
-	err := os.Mkdir(dname, 0644)
-	if err != nil && !os.IsExist(err) {
-		return err
-	}
-
-	fd, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // nolint: gosec
+	fd, err := openFile(path.Join(tt.TitusEnvironmentsDir, pod.Name), "titus-imds-proxy.env")
 	if err != nil {
 		return err
 	}
@@ -163,7 +155,37 @@ func writeEnvFile(pod *v1.Pod, env map[string]string) error {
 			return err
 		}
 	}
+
 	return fd.Close()
+}
+
+func writeNetworkNamespaceFile(pod *v1.Pod, networkNamespaceName string) error {
+	fd, err := openFile(path.Join(tt.TitusEnvironmentsDir, pod.Name), "netns")
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(fd, "%s", networkNamespaceName)
+	if err != nil {
+		return err
+	}
+
+	return fd.Close()
+}
+
+func openFile(dname, fname string) (*os.File, error) {
+	err := os.Mkdir(dname, 0644)
+	if err != nil && !os.IsExist(err) {
+		return nil, err
+	}
+
+	fname = path.Join(dname, fname)
+	fd, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // nolint: gosec
+	if err != nil {
+		return nil, err
+	}
+
+	return fd, nil
 }
 
 func writeContainerInfo(pod *v1.Pod) error {

@@ -256,6 +256,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 		goto failMount
 	}
 
+	err = writeNetworkNamespaceFile(pod, args.Netns)
+	if err != nil {
+		logrus.Errorf("writeNetworkNamespaceFile %s", err)
+		goto failMount
+	}
+
 	err = startUnit(pod.Name)
 	if err != nil {
 		logrus.Errorf("startUnit %s", err)
