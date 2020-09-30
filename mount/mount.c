@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
@@ -14,6 +15,9 @@
 
 /* mount */
 #include <sys/mount.h>
+
+/* for mount syscalls */
+#include <asm-generic/unistd.h>
 
 /* fcntl */
 #include <unistd.h>
@@ -52,6 +56,26 @@ static int dns_lookup(const char *hostname, struct sockaddr_in *addr)
 	}
 	memcpy(&addr->sin_addr, hp->h_addr, hp->h_length);
 	return 0;
+}
+
+static int fsopen(const char *fsname, unsigned int flags) {
+	return syscall(__NR_fsopen, fsname, flags);
+}
+
+bool check_new_mount_api_available() {
+	fsopen("", 0);
+	return errno != ENOSYS;
+}
+
+int do_fsmount(const char *source, const char *target, const char *fs_type, unsigned long flags_ul, const char *options) {
+	// TODO
+	return mount(source, target, fs_type, flags_ul, options);
+/*
+    int fsopen(const char *fsname, unsigned int flags);
+    int fsmount(int fd, unsigned int flags, unsigned int ms_flags);
+    int move_mount(int from_dfd, const char *from_path, int to_dfd, const char *to_path, unsigned int flags);
+*/
+
 }
 
 int main() {
@@ -149,8 +173,14 @@ int main() {
 		fprintf(stderr, "titus-mount: using these nfs mount options: %s\n", final_options);
 	}
 
-	/* We don't check for overflow */
-	rc = mount(source, target, fs_type, flags_ul, final_options);
+	if (nfs_mount_hostname && check_new_mount_api_available()) {
+		/* Where possible, we try to use the newer fsmount syscalls for newer kernel support */
+		rc = do_fsmount(source, target, fs_type, flags_ul, final_options);
+	} else {
+		/* Otherwise we use the traditional mount call */
+		rc = mount(source, target, fs_type, flags_ul, final_options);
+	}
+
 	if (rc) {
 		perror("mount");
 		return 1;
