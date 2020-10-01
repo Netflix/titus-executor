@@ -70,7 +70,7 @@ type TitusExecutor interface {
 	// When Stop returns the executor may still be shutting down.
 	Stop()
 	// StartTask starts a new task
-	StartTask(taskID string, titusInfo *titus.ContainerInfo, mem int64, cpu int64, disk uint64, hostPorts []uint16) error
+	StartTask(taskID string, titusInfo *titus.ContainerInfo, mem int64, cpu int64, disk uint64) error
 	// StopTask stops an existing task
 	StopTask(taskID string) error
 }
