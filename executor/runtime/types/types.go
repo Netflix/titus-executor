@@ -131,7 +131,6 @@ type Container struct {
 	TaskID    string
 	Env       map[string]string
 	Labels    map[string]string
-	Ports     []string
 	TitusInfo *titus.ContainerInfo
 	Resources *Resources
 
@@ -528,12 +527,11 @@ func (c *Container) SetID(id string) {
 
 // Resources specify constraints to be applied to a Container
 type Resources struct {
-	Mem       int64 // in MiB
-	CPU       int64
-	GPU       int64
-	Disk      uint64
-	Network   uint64
-	HostPorts []uint16
+	Mem     int64 // in MiB
+	CPU     int64
+	GPU     int64
+	Disk    uint64
+	Network uint64
 }
 
 // NetworkConfigurationDetails used to pass results back to master
