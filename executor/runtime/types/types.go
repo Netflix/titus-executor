@@ -123,7 +123,7 @@ type GPUContainer interface {
 // Container contains config state for a container.
 // It is not safe to be used concurrently, synchronization and locking needs to be handled externally.
 type Container struct {
-	// nolint: maligned
+	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
 	ID        string
 	TaskID    string
 	Env       map[string]string
