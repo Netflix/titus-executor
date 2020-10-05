@@ -6,10 +6,10 @@ comment:
   require_head: yes       # [yes :: must have a head report to post]
 
 ignore:
-  - *.pb.go
-  - bindata.go
-  - aws/**
-  - vendor/**
+  - '*.pb.go'
+  - 'bindata.go'
+  - 'aws/**'
+  - 'vendor/**'
 
 coverage:
   precision: 2
