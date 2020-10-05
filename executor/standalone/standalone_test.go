@@ -17,7 +17,6 @@ import (
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/executor/mock"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -195,7 +194,7 @@ func addImageNameToTest(f func(*testing.T, string), funTitle string) func(*testi
 }
 
 func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, dockerCfg := mock.GenerateConfigs(nil)
+	cfg, dockerCfg := GenerateConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -215,7 +214,7 @@ func dockerImageRemove(t *testing.T, imgName string) {
 }
 
 func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, dockerCfg := mock.GenerateConfigs(nil)
+	cfg, dockerCfg := GenerateConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -243,19 +242,19 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 }
 
 func testSimpleJob(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: "echo Hello Titus",
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testSimpleJobWithBadEnvironment(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: "echo Hello Titus",
@@ -266,37 +265,37 @@ func testSimpleJobWithBadEnvironment(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testCustomCmd(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: alpine.name,
 		Version:   alpine.tag,
-		Process: &mock.Process{
+		Process: &Process{
 			Cmd: []string{"echo", "Hello Titus"},
 		},
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: alpine.name,
 		Version:   alpine.tag,
-		Process: &mock.Process{
+		Process: &Process{
 			Cmd: []string{"echo Hello Titus"}, // this will exit with status 127 since there is no such binary
 		},
 		JobID: jobID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
+	jobResponse, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 127); err != nil {
 		t.Fatal(err)
@@ -304,32 +303,32 @@ func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
 }
 
 func testEntrypointAndCmd(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: alpine.name,
 		Version:   alpine.tag,
-		Process: &mock.Process{
+		Process: &Process{
 			Entrypoint: []string{"/bin/sh", "-c"},
 			Cmd:        []string{"echo Hello Titus"},
 		},
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
-		Process:   &mock.Process{
+		Process:   &Process{
 			// entrypoint and cmd baked into the image will exit with status 123
 		},
 		JobID: jobID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
+	jobResponse, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 123); err != nil {
 		t.Fatal(err)
@@ -337,17 +336,17 @@ func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
 }
 
 func testOverrideCmdFromImage(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
-		Process: &mock.Process{
+		Process: &Process{
 			Cmd: []string{"exit 5"},
 		},
 		JobID: jobID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
+	jobResponse, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 5); err != nil {
 		t.Fatal(err)
@@ -355,10 +354,10 @@ func testOverrideCmdFromImage(t *testing.T, jobID string) {
 }
 
 func testResetEntrypointFromImage(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
-		Process: &mock.Process{
+		Process: &Process{
 			Entrypoint: []string{""},
 			Cmd:        []string{"/bin/sh", "-c", "exit 6"},
 		},
@@ -367,40 +366,40 @@ func testResetEntrypointFromImage(t *testing.T, jobID string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
+	jobResponse, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 6); err != nil {
 		t.Fatal(err)
 	}
 }
 func testResetCmdFromImage(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
-		Process: &mock.Process{
+		Process: &Process{
 			Cmd: []string{""},
 		},
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testNoCapPtraceByDefault(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/sh -c '! (/sbin/capsh --print | tee /logs/no-ptrace.log | grep sys_ptrace')",
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testCanAddCapabilities(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/sh -c '/sbin/capsh --print | tee /logs/ptrace.log | grep sys_ptrace'",
@@ -411,7 +410,7 @@ func testCanAddCapabilities(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -420,26 +419,26 @@ func testCanAddCapabilities(t *testing.T, jobID string) {
 // https://github.com/docker/docker/blob/master/oci/defaults_linux.go#L62-L77
 // https://github.com/appc/spec/blob/master/spec/ace.md#linux-isolators
 func testDefaultCapabilities(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Older kernels (3.13 on jenkins) have a different bitmask, so we check both the new and old formats
 		EntrypointOld: `/bin/bash -c 'cat /proc/self/status | tee /logs/capabilities.log | egrep "CapEff:\s+(00000020a80425fb|00000000a80425fb)"'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testMakesPTY(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     pty.name,
 		Version:       pty.tag,
 		EntrypointOld: "/bin/bash -c '/usr/bin/unbuffer /usr/bin/tty | grep /dev/pts'",
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -447,13 +446,13 @@ func testMakesPTY(t *testing.T, jobID string) {
 func testStdoutGoesToLogFile(t *testing.T, jobID string) {
 	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" && sleep 1 && grep "%[1]s" /logs/stdout'`, message)
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: cmd,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -461,33 +460,33 @@ func testStdoutGoesToLogFile(t *testing.T, jobID string) {
 func testStderrGoesToLogFile(t *testing.T, jobID string) {
 	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" >&2 && sleep 1 && grep "%[1]s" /logs/stderr'`, message)
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: cmd,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testImageByDigest(t *testing.T, jobID string) {
 	cmd := `grep not-latest /etc/who-am-i`
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     byDigest.name,
 		ImageDigest:   byDigest.digest,
 		EntrypointOld: cmd,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
 	cmd := `grep not-latest /etc/who-am-i`
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: byDigest.name,
 		Version:   "20171024-1508896310", // should be ignored
 		// This version (tag) of the image has the digest:
@@ -497,21 +496,21 @@ func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
 		EntrypointOld: cmd,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testImageInvalidDigestFails(t *testing.T, jobID string) {
 	digest := "some-invalid-digest"
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     byDigest.name,
 		Version:       "latest", // should be ignored
 		ImageDigest:   digest,
 		EntrypointOld: "/bin/true",
 		JobID:         jobID,
 	}
-	status, err := mock.RunJob(t, ji)
+	status, err := RunJob(t, ji)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,13 +521,13 @@ func testImageInvalidDigestFails(t *testing.T, jobID string) {
 
 func testImageNonExistingDigestFails(t *testing.T, jobID string) {
 	digest := "sha256:12345123456c6f231ea3adc7960cc7f753ebb0099999999999999a9b4dfdfdcd"
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     byDigest.name,
 		ImageDigest:   digest,
 		EntrypointOld: "/bin/true",
 		JobID:         jobID,
 	}
-	status, err := mock.RunJob(t, ji)
+	status, err := RunJob(t, ji)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,13 +537,13 @@ func testImageNonExistingDigestFails(t *testing.T, jobID string) {
 }
 
 func testImagePullError(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       "latest1",
 		EntrypointOld: "/usr/bin/true",
 		JobID:         jobID,
 	}
-	status, err := mock.RunJob(t, ji)
+	status, err := RunJob(t, ji)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +556,7 @@ func testCancelPullBigImage(t *testing.T, jobID string) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	jobResponse, err := mock.StartJob(t, ctx, &mock.JobInput{
+	jobResponse, err := StartJob(t, ctx, &JobInput{
 		JobID:     jobID,
 		ImageName: bigImage.name,
 		Version:   bigImage.tag,
@@ -599,25 +598,25 @@ big_task_killed:
 }
 
 func testBadEntrypoint(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: "bad",
 		JobID:         jobID,
 	}
 	// We expect this to fail
-	if mock.RunJobExpectingSuccess(t, ji) {
+	if RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testNoEntrypoint(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: noEntrypoint.name,
 		Version:   noEntrypoint.tag,
 	}
 	// We expect this to fail
-	if mock.RunJobExpectingSuccess(t, ji) {
+	if RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -625,13 +624,13 @@ func testNoEntrypoint(t *testing.T, jobID string) {
 func testCanWriteInLogsAndSubDirs(t *testing.T, jobID string) {
 	cmd := `sh -c "mkdir -p /logs/prana && echo begining > /logs/prana/prana.log && ` +
 		`mv /logs/prana/prana.log /logs/prana/prana-2016.log && echo ending >> /logs/out"`
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: cmd,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -644,14 +643,14 @@ func testShutdown(t *testing.T, jobID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: "sleep 6000",
 		JobID:         jobID,
 	}
 
-	jobRunner, err := mock.StartJob(t, ctx, ji)
+	jobRunner, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobRunner.StopExecutor()
 
@@ -685,25 +684,25 @@ func testShutdown(t *testing.T, jobID string) {
 }
 
 func testMetadataProxyInjection(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/local-ipv4 | grep 1.2.3.4'",
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'curl -sf --interface $(ip route get 4.2.2.2|grep -E -o "src [0-9.]+"|cut -f2 -d" ") http://169.254.169.254/latest/meta-data/local-ipv4'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -714,14 +713,14 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 
 	// Submit a job that runs for a long time and does
 	// NOT exit on SIGTERM
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:       ignoreSignals.name,
 		Version:         ignoreSignals.tag,
 		KillWaitSeconds: killWaitSeconds,
 		JobID:           jobID,
 	}
 	// Start the executor
-	jobResponse, err := mock.StartJob(t, ctx, ji)
+	jobResponse, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutorAsync()
 
@@ -778,13 +777,13 @@ func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
 }
 
 func testOOMAdj(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'cat /proc/1/oom_score | grep 999'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -793,7 +792,7 @@ func testOOMKill(t *testing.T, jobID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `stress --vm 100 --vm-keep --vm-hang 100`,
@@ -801,7 +800,7 @@ func testOOMKill(t *testing.T, jobID string) {
 	}
 
 	// Start the executor
-	jobResponse, err := mock.StartJob(t, ctx, ji)
+	jobResponse, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutorAsync()
 
@@ -821,106 +820,106 @@ func testOOMKill(t *testing.T, jobID string) {
 }
 
 func testSchedBatch(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_BATCH | grep 19'`,
 		JobID:         jobID,
 		Batch:         "true",
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testSchedNormal(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_NORMAL'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testSchedIdle(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_IDLE'`,
 		JobID:         jobID,
 		Batch:         "idle",
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testNewEnvironmentLocationPositive(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     envLabel.name,
 		Version:       envLabel.tag,
 		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testNewEnvironmentLocationNegative(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     envLabel.name,
 		Version:       envLabel.tag,
 		EntrypointOld: `cat /etc/profile.d/netflix_environment.sh`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingFailure(t, ji) {
+	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
 	}
 }
 
 func testOldEnvironmentLocationPositive(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `cat /etc/profile.d/netflix_environment.sh`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 func testOldEnvironmentLocationNegative(t *testing.T, jobID string) {
 
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingFailure(t, ji) {
+	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
 	}
 }
 
 func testNoCPUBursting(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Make sure quota is set
 		EntrypointOld: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.cfs_quota_us|grep -v - -1'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testCPUBursting(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Make sure quota is set
@@ -928,14 +927,14 @@ func testCPUBursting(t *testing.T, jobID string) {
 		JobID:         jobID,
 		CPUBursting:   true,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testTwoCPUs(t *testing.T, jobID string) {
 	var cpuCount int64 = 2
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Make sure quota is set
@@ -943,33 +942,33 @@ func testTwoCPUs(t *testing.T, jobID string) {
 		JobID:         jobID,
 		CPU:           &cpuCount,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testTty(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/usr/bin/tty`,
 		JobID:         jobID,
 		Tty:           true,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testTtyNegative(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/usr/bin/tty`,
 		JobID:         jobID,
 		// Tty not specified
 	}
-	if !mock.RunJobExpectingFailure(t, ji) {
+	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
 	}
 }
@@ -992,7 +991,7 @@ func testCachedDockerPull(t *testing.T, jobID string) {
 }
 
 func testMetatron(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:       userSet.name,
 		Version:         userSet.tag,
 		MetatronEnabled: true,
@@ -1000,7 +999,7 @@ func testMetatron(t *testing.T, jobID string) {
 		EntrypointOld: fmt.Sprintf("/bin/bash -c \"grep %s /task-identity && grep jobAcceptedTimestampMs /task-identity | grep -E '[\\d+]'\"", jobID),
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -1010,7 +1009,7 @@ func testMetatronFailure(t *testing.T, jobID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:       userSet.name,
 		Version:         userSet.tag,
 		MetatronEnabled: true,
@@ -1023,7 +1022,7 @@ func testMetatronFailure(t *testing.T, jobID string) {
 		JobID: jobID,
 	}
 
-	jobResponse, err := mock.StartJob(t, ctx, ji)
+	jobResponse, err := StartJob(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutor()
 
@@ -1038,27 +1037,27 @@ func testMetatronFailure(t *testing.T, jobID string) {
 // Test that `/run` is a tmpfs mount, and has the default size
 func testRunTmpFsMount(t *testing.T, jobID string) {
 	var mem int64 = 256
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run[^/]" | grep 128M'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 // Test that we can execute files in `/run`
 func testExecSlashRun(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'cp /bin/ls /run/ && /run/ls'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -1066,14 +1065,14 @@ func testExecSlashRun(t *testing.T, jobID string) {
 // Test for a container running a systemd labeled image that `/run/lock` is a tmpfs mount, and has the default size
 func testSystemdImageMount(t *testing.T, jobID string) {
 	var mem int64 = 256
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     systemdImage.name,
 		Version:       systemdImage.tag,
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run/lock[^/]" | grep 5M'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
@@ -1082,7 +1081,7 @@ func testSystemdImageMount(t *testing.T, jobID string) {
 func testShm(t *testing.T, jobID string) {
 	var mem int64 = 256
 	var shmSize uint32 = 192
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		Mem:           &mem,
@@ -1090,13 +1089,13 @@ func testShm(t *testing.T, jobID string) {
 		EntrypointOld: `/bin/bash -c 'df | grep -e '^shm' | grep 196608'`,
 		JobID:         jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testContainerLogViewer(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:        ubuntu.name,
 		Version:          ubuntu.tag,
 		LogViewerEnabled: true,
@@ -1115,30 +1114,30 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 			"'",
 		JobID: jobID,
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
 
 func testcve202014386(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: "/usr/bin/cve-2020-14386",
 	}
-	if !mock.RunJobExpectingFailure(t, ji) {
+	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
 	}
 }
 
 func testnc(t *testing.T, jobID string) {
-	ji := &mock.JobInput{
+	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Make sure that the process exits due to timeout, and not due to permission denied error
 		EntrypointOld: "/usr/bin/negative-seccomp",
 	}
-	if !mock.RunJobExpectingSuccess(t, ji) {
+	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
