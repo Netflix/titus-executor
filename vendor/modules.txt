@@ -90,7 +90,7 @@ github.com/dgrijalva/jwt-go
 # github.com/docker/distribution v2.7.0+incompatible
 github.com/docker/distribution/digestset
 github.com/docker/distribution/reference
-# github.com/docker/docker v0.7.3-0.20190108045446-77df18c24acf => github.com/docker/engine v0.0.0-20190408150954-50ebe4562dfc
+# github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0 => github.com/moby/moby v0.0.0-20190408150954-50ebe4562dfc
 github.com/docker/docker/api
 github.com/docker/docker/api/types
 github.com/docker/docker/api/types/blkiodev
@@ -627,9 +627,9 @@ honnef.co/go/tools/staticcheck
 honnef.co/go/tools/stylecheck
 honnef.co/go/tools/unused
 honnef.co/go/tools/version
-# k8s.io/api v0.0.0-20190222213804-5cb15d344471
+# k8s.io/api v0.18.4 => k8s.io/api v0.18.4
 k8s.io/api/core/v1
-# k8s.io/apimachinery v0.0.0-20190221213512-86fb29eff628
+# k8s.io/apimachinery v0.18.4 => k8s.io/apimachinery v0.18.4
 k8s.io/apimachinery/pkg/api/resource
 k8s.io/apimachinery/pkg/apis/meta/v1
 k8s.io/apimachinery/pkg/apis/meta/v1/unstructured
@@ -660,9 +660,9 @@ k8s.io/apimachinery/pkg/util/validation/field
 k8s.io/apimachinery/pkg/util/yaml
 k8s.io/apimachinery/pkg/watch
 k8s.io/apimachinery/third_party/forked/golang/reflect
-# k8s.io/client-go v10.0.0+incompatible
+# k8s.io/client-go v10.0.0+incompatible => k8s.io/client-go v0.18.4
 k8s.io/client-go/util/workqueue
-# k8s.io/klog v0.1.0
+# k8s.io/klog v1.0.0
 k8s.io/klog
 # mvdan.cc/interfacer v0.0.0-20180901003855-c20040233aed
 mvdan.cc/interfacer/check
@@ -670,7 +670,9 @@ mvdan.cc/interfacer/check
 mvdan.cc/lint
 # mvdan.cc/unparam v0.0.0-20191111180625-960b1ec0f2c2
 mvdan.cc/unparam/check
-# sigs.k8s.io/yaml v1.1.0
+# sigs.k8s.io/structured-merge-diff/v3 v3.0.0
+sigs.k8s.io/structured-merge-diff/v3/value
+# sigs.k8s.io/yaml v1.2.0
 sigs.k8s.io/yaml
 # sourcegraph.com/sqs/pbtypes v1.0.0 => github.com/sqs/pbtypes v1.0.0
 sourcegraph.com/sqs/pbtypes
