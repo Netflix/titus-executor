@@ -61,7 +61,7 @@ require (
 	github.com/rogpeppe/go-internal v1.5.2 // indirect
 	github.com/securego/gosec v0.0.0-20200203094520-d13bb6d2420c // indirect
 	github.com/shurcooL/go v0.0.0-20191216061654-b114cc39af9f // indirect
-	github.com/sirupsen/logrus v1.4.2
+	github.com/sirupsen/logrus v1.7.0
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/cast v1.3.1 // indirect
