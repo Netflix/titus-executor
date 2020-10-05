@@ -105,12 +105,12 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Getting uploaders from %+v", cfg.S3Uploaders)
 
-	dockerRunner, err := runner.New(ctx, m, *cfg, *dockerCfg)
+	rp, err := docker.NewDockerRuntime(ctx, m, *dockerCfg, *cfg)
 	if err != nil {
 		return errors.Wrap(err, "cannot create Titus executor")
 	}
 
-	err = backend.RunWithBackend(ctx, dockerRunner, pipe, pod)
+	err = backend.RunWithBackend(ctx, rp, m, pipe, pod, *cfg)
 	if err != nil {
 		log.G(ctx).WithError(err).Fatal("Could not run container")
 	}
