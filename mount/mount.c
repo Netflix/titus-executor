@@ -134,8 +134,10 @@ bool check_new_mount_api_available() {
                         mount_error(fd, key ?: "create");               \
         } while (0)
 
+
+
 void do_fsconfigs(int fsfd, const char *options) {
-	// TODO
+	// TODO parse this for real
 	// echo "vers=4.1,nosharecache,rsize=1048576,wsize=1048576,timeo=600,retrans=2,addr=100.66.9.206,clientaddr=100.122.62.253,noresvport,fsc=d85f8159aec7" | tr ',' '\n' | sed 's/^/E_fsconfig(fsfd, FSCONFIG_SET_STRING, "/g' | sed 's/=/", "/g' | sed 's/$/", 0);/g'
 	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "vers", "4.1", 0);
 //	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "nosharecache", "", 0);
@@ -148,8 +150,8 @@ void do_fsconfigs(int fsfd, const char *options) {
 	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "clientaddr", "100.122.62.253", 0);
 //	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "noresvport", "",  0);
 //	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "fsc", "d85f8159aec7", 0);
+	// TODO: This fails if nsenter'd into the userns, works if not (but uid/gid are wrong)
 	E_fsconfig(fsfd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
-//	E_fsconfig(fsfd, FSCONFIG_CMD_RECONFIGURE, NULL, NULL, 0);
 }
 
 
@@ -174,8 +176,8 @@ int do_fsmount(const char *source, const char *target, const char *fs_type, unsi
                 perror("fsopen");
                 exit(1);
 	}
-	
-	printf("Doing fdconfigs with these options: %s\n", options);
+
+	printf("Doing fsconfigs with these options: %s\n", options);
 	do_fsconfigs(fsfd, options);
 
 	/* Now we can fsmount it into a mount fd (mfd) */
@@ -197,7 +199,7 @@ int do_fsmount(const char *source, const char *target, const char *fs_type, unsi
 }
 
 int main() {
-	int mnt_ns_fd, net_ns_fd;
+	int mnt_ns_fd, net_ns_fd, user_ns_fd;
 	unsigned long flags_ul;
 	int rc;
 	/*
@@ -207,6 +209,7 @@ int main() {
 	 */
 	const char *mnt_ns = getenv("MOUNT_NS");
 	const char *net_ns = getenv("NET_NS");
+	const char *user_ns = getenv("USER_NS");
 	const char *source = getenv("MOUNT_SOURCE");
 	const char *nfs_mount_hostname = getenv("MOUNT_NFS_HOSTNAME");
 	const char *target = getenv("MOUNT_TARGET");
@@ -252,6 +255,7 @@ int main() {
 			perror("netns");
 			return 1;
 		}
+		printf("Now using the net namespace\n");
 	}
 
 	if (mnt_ns) {
@@ -274,7 +278,35 @@ int main() {
 			perror("setns");
 			return 1;
 		}
+		printf("Now using the mount namespace\n");
 	}
+
+		// TODO
+		if (user_ns) {
+			printf("var for user_ns : %s", user_ns);
+			user_ns_fd = strtol(user_ns, NULL, 10);
+			if (errno) {
+				perror("user_ns 1");
+				return 1;
+			}
+			printf("user_ns_fd : %d\n", user_ns_fd);
+			if (user_ns_fd == 0) {
+				fprintf(stderr, "Unable to get user NS fd\n");
+				return 1;
+			}
+			/* Validate that we have this file descriptor */
+			if (fcntl(user_ns_fd, F_GETFD) == -1) {
+				perror("user: f_getfd");
+				return 1;
+			}
+			printf("Going for a clone\n");
+			rc = setns(user_ns_fd, CLONE_NEWUSER);
+			if (rc) {
+				perror("setns");
+				return 1;
+			}
+			printf("Now using the user namespace\n");
+		}
 
 	/* For NFS, we must do the dns resolution *here* while we are inside net ns */
 	if (nfs_mount_hostname) {
@@ -304,5 +336,6 @@ int main() {
 		return 1;
 	}
 
+	printf("All done, mounted on %s\n", target);
 	return 0;
 }
