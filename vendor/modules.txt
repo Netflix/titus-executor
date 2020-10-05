@@ -299,8 +299,6 @@ github.com/karlseguin/ccache/v2
 # github.com/kisielk/gotool v1.0.0
 github.com/kisielk/gotool
 github.com/kisielk/gotool/internal/load
-# github.com/konsorten/go-windows-terminal-sequences v1.0.2
-github.com/konsorten/go-windows-terminal-sequences
 # github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 github.com/leanovate/gopter
 github.com/leanovate/gopter/gen
@@ -372,7 +370,7 @@ github.com/rogpeppe/go-internal/txtar
 # github.com/securego/gosec v0.0.0-20200203094520-d13bb6d2420c
 github.com/securego/gosec
 github.com/securego/gosec/rules
-# github.com/sirupsen/logrus v1.4.2
+# github.com/sirupsen/logrus v1.7.0
 github.com/sirupsen/logrus
 # github.com/soheilhy/cmux v0.1.4
 github.com/soheilhy/cmux
