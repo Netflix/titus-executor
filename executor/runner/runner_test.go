@@ -32,8 +32,6 @@ const (
 
 // runtimeMock implements the Runtime interface
 type runtimeMock struct {
-	c *runtimeTypes.Container
-
 	t   *testing.T
 	ctx context.Context
 
@@ -51,19 +49,16 @@ type runtimeMock struct {
 	killCallback    func(c *runtimeTypes.Container) error
 }
 
-func (r *runtimeMock) Prepare(ctx context.Context) error {
-	if r.c == nil {
-		panic("Container is nil")
-	}
-	r.t.Log("runtimeMock.Prepare", r.c.TaskID)
+func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string, startTime time.Time) error {
+	r.t.Log("runtimeMock.Prepare", c.TaskID)
 	if r.prepareCallback != nil {
 		return r.prepareCallback(ctx)
 	}
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
-	r.t.Log("runtimeMock.Start", r.c.TaskID)
+func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+	r.t.Log("runtimeMock.Start", c.TaskID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	close(r.startCalled)
@@ -85,13 +80,13 @@ func (r *runtimeMock) Start(ctx context.Context) (string, *runtimeTypes.Details,
 	return "", details, r.statusChan, nil
 }
 
-func (r *runtimeMock) Kill(ctx context.Context) error {
-	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, r.c.TaskID)
+func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
+	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, c.TaskID)
 	if r.killCallback != nil {
-		return r.killCallback(r.c)
+		return r.killCallback(c)
 	}
 	defer close(r.statusChan)
-	defer logrus.Info("runtimeMock.Killed: ", r.c.TaskID)
+	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
 	// send a kill request and wait for a grant
 	req := make(chan struct{}, 1)
 	select {
@@ -110,10 +105,10 @@ func (r *runtimeMock) Kill(ctx context.Context) error {
 	return nil
 }
 
-func (r *runtimeMock) Cleanup(ctx context.Context) error {
-	r.t.Log("runtimeMock.Cleanup", r.c.TaskID)
+func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
+	r.t.Log("runtimeMock.Cleanup", c.TaskID)
 	if r.cleanupCallback != nil {
-		return r.cleanupCallback(r.c)
+		return r.cleanupCallback(c)
 	}
 	return nil
 }
@@ -153,20 +148,12 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 		return nil
 	}
 
-	task := Task{
-		TaskID:    taskID,
-		TitusInfo: taskInfo,
-		Mem:       1,
-		CPU:       1,
-		Gpu:       0,
-		Disk:      1,
-		Network:   1,
-	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c *runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
-		r.c = c
+	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
 	}, config.Config{})
+
 	require.NoError(t, err)
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 0, 1, 1))
 
 	defer time.Sleep(1 * time.Second)
 	timeout := time.NewTimer(30 * time.Second)
@@ -232,20 +219,12 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 		return c.Err()
 	}
 
-	task := Task{
-		TaskID:    taskID,
-		TitusInfo: taskInfo,
-		Mem:       1,
-		CPU:       1,
-		Gpu:       0,
-		Disk:      1,
-		Network:   1,
-	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c *runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
-		r.c = c
+	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
 	}, config.Config{})
+
 	require.NoError(t, err)
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 0, 1, 1))
 
 	testFailed := make(chan struct{})
 	time.AfterFunc(30*time.Second, func() {
@@ -263,9 +242,9 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 			logrus.Debug("Got update: ", update)
 			switch update.State {
 			case titusdriver.Starting:
-				logrus.Debug("Killing Task, now that it's entered starting")
+				logrus.Debug("Killing task, now that it's entered starting")
 				executor.Kill()
-				logrus.Debug("Killed Task, now that it's entered starting")
+				logrus.Debug("Killed task, now that it's entered starting")
 			case titusdriver.Killed:
 				return
 			default:
@@ -323,20 +302,12 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 		statusChan:  statusChan,
 	}
 
-	task := Task{
-		TaskID:    taskID,
-		TitusInfo: taskInfo,
-		Mem:       1,
-		CPU:       1,
-		Gpu:       0,
-		Disk:      1,
-		Network:   1,
-	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c *runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
-		r.c = c
+	executor, err := WithRuntime(ctx, metrics.Discard, func(ctx context.Context, _cfg config.Config) (runtimeTypes.Runtime, error) {
 		return r, nil
 	}, config.Config{})
+
 	require.NoError(t, err)
+	require.NoError(t, executor.StartTask(taskID, taskInfo, 1, 1, 0, 1, 1))
 
 	killTimeout := time.NewTimer(15 * time.Second)
 	defer killTimeout.Stop()
@@ -354,10 +325,10 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 		}
 	}
 running:
-	// We'll kill the Task after a few seconds
+	// We'll kill the task after a few seconds
 	time.AfterFunc(5*time.Second, func() {
 		// This should be idempotent
-		t.Log("Killing Task")
+		t.Log("Killing task")
 		executor.Kill()
 		executor.Kill()
 		executor.Kill()

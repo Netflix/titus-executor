@@ -31,7 +31,7 @@ func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, c
 	return nil
 }
 
-func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+func mountContainerProcPid1InTitusInits(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
 	return nil
 }
 

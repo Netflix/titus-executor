@@ -23,7 +23,6 @@ import (
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	protobuf "github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
-	"gotest.tools/assert"
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
@@ -87,8 +86,6 @@ type JobInput struct {
 // JobRunResponse returned from RunJob
 type JobRunResponse struct {
 	runner     *runner.Runner
-	ctx        context.Context
-	cancel     context.CancelFunc
 	TaskID     string
 	UpdateChan chan runner.Update
 }
@@ -224,6 +221,14 @@ func (jobRunResponse *JobRunResponse) logContainerStdErrOut() {
 
 }
 
+// JobRunner is the entrypoint struct to create an executor and run test jobs on it
+type JobRunner struct {
+	runner          *runner.Runner
+	ctx             context.Context
+	cancel          context.CancelFunc
+	shutdownChannel chan struct{}
+}
+
 // GenerateConfigs generates test configs
 func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	configArgs := []string{"--copy-uploader", logUploadDir}
@@ -269,28 +274,45 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	return cfg, dockerCfg
 }
 
-var r = rand.New(rand.NewSource(999))
-
-// StopExecutor stops a currently running executor
-func (jobRunResponse *JobRunResponse) StopExecutor() {
-	jobRunResponse.cancel()
-	<-jobRunResponse.runner.StoppedChan
-}
-
-// StopExecutorAsync stops a currently running executor
-func (jobRunResponse *JobRunResponse) StopExecutorAsync() {
-	jobRunResponse.cancel()
-}
-
-// StartJob starts a job and returns once the job is started
-func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunResponse, error) { // nolint: gocyclo,golint
+// NewJobRunner creates a new JobRunner with its executor started
+// in the background and the test driver configured to use it.
+func NewJobRunner(jobInput *JobInput) *JobRunner {
 	cfg, dockerCfg := GenerateConfigs(jobInput)
 
 	log.SetLevel(log.DebugLevel)
 	// Create an executor
-	ctx, cancel := context.WithCancel(ctx) // nolint:govet
-	// DO NOT CANCEL Context, this will stop the job.
+	ctx, cancel := context.WithCancel(context.Background())
+	// TODO: Replace this config mechanism
+	r, err := runner.New(ctx, metrics.Discard, *cfg, *dockerCfg)
+	if err != nil {
+		log.Fatalf("cannot create executor : %s", err)
+	}
 
+	jobRunner := &JobRunner{
+		ctx:             ctx,
+		cancel:          cancel,
+		runner:          r,
+		shutdownChannel: make(chan struct{}),
+	}
+
+	return jobRunner
+}
+
+var r = rand.New(rand.NewSource(999))
+
+// StopExecutor stops a currently running executor
+func (jobRunner *JobRunner) StopExecutor() {
+	jobRunner.cancel()
+	<-jobRunner.runner.StoppedChan
+}
+
+// StopExecutorAsync stops a currently running executor
+func (jobRunner *JobRunner) StopExecutorAsync() {
+	jobRunner.cancel()
+}
+
+// StartJob starts a job on an existing JobRunner and returns once the job is started
+func (jobRunner *JobRunner) StartJob(t *testing.T, jobInput *JobInput) *JobRunResponse { // nolint: gocyclo
 	// Define some stock job to run
 	var jobID string
 
@@ -392,73 +414,54 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	diskMiB := uint64(100)
 	network := uint64(128)
 
-	// TODO: Replace this config mechanism
-	task := runner.Task{
-		TaskID:    taskID,
-		TitusInfo: ci,
-		Mem:       memMiB,
-		CPU:       cpu,
-		Gpu:       gpu,
-		Disk:      diskMiB,
-		Network:   network,
-	}
-	runner, err := runner.StartTask(ctx, task, metrics.Discard, *cfg, *dockerCfg)
+	// Get a reference to the executor and somewhere to stash results
+
+	// Start the task and wait for it to complete
+	err := jobRunner.runner.StartTask(taskID, ci, memMiB, cpu, gpu, diskMiB, network)
 	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("Cannot start task / runner: %w", err)
+		log.Printf("Failed to start task %s: %s", taskID, err)
 	}
-
 	jrr := &JobRunResponse{
-		ctx:        ctx,
-		cancel:     cancel,
-		runner:     runner,
+		runner:     jobRunner.runner,
 		TaskID:     taskID,
-		UpdateChan: runner.UpdatesChan,
+		UpdateChan: jobRunner.runner.UpdatesChan,
 	}
 
-	return jrr, nil
+	return jrr
 }
 
 // KillTask issues a kill task request to the executor. The kill
 // may be done in the background and the state change should occur
 // on the existing JobRunResponse channel.
-func (jobRunResponse *JobRunResponse) KillTask() error {
-	jobRunResponse.runner.Kill()
-	<-jobRunResponse.runner.StoppedChan
+func (jobRunner *JobRunner) KillTask() error {
+	jobRunner.runner.Kill()
+	<-jobRunner.runner.StoppedChan
 	return nil
 }
 
 // RunJobExpectingSuccess is similar to RunJob but returns true when the task completes successfully.
 func RunJobExpectingSuccess(t *testing.T, jobInput *JobInput) bool {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	jobRunner := NewJobRunner(jobInput)
+	defer jobRunner.StopExecutor()
 
-	jobResult, err := StartJob(t, ctx, jobInput)
-	assert.NilError(t, err)
-
-	defer jobResult.StopExecutor()
+	jobResult := jobRunner.StartJob(t, jobInput)
 	return jobResult.WaitForSuccess()
 }
 
 // RunJobExpectingFailure is similar to RunJob but returns true when the task completes successfully.
 func RunJobExpectingFailure(t *testing.T, jobInput *JobInput) bool {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	jobRunner := NewJobRunner(jobInput)
+	defer jobRunner.StopExecutor()
 
-	jobResult, err := StartJob(t, ctx, jobInput)
-	assert.NilError(t, err)
-
-	defer jobResult.StopExecutor()
+	jobResult := jobRunner.StartJob(t, jobInput)
 	return jobResult.WaitForFailure()
 }
 
 // RunJob runs a single Titus task based on provided JobInput
 func RunJob(t *testing.T, jobInput *JobInput) (string, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	jobRunner := NewJobRunner(jobInput)
+	defer jobRunner.StopExecutor()
 
-	jobResult, err := StartJob(t, ctx, jobInput)
-	assert.NilError(t, err)
-
+	jobResult := jobRunner.StartJob(t, jobInput)
 	return jobResult.WaitForCompletion()
 }

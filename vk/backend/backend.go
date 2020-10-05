@@ -11,12 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
@@ -126,7 +123,7 @@ func state2containerState(prevState *v1.ContainerState, currState titusdriver.Ti
 	}
 }
 
-func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, m metrics.Reporter, statuses *os.File, pod *v1.Pod, cfg config.Config) error { // nolint: gocyclo
+func RunWithBackend(ctx context.Context, runner *runner.Runner, statuses *os.File, pod *v1.Pod) error { // nolint: gocyclo
 	containerInfoStr, ok := pod.GetAnnotations()["containerInfo"]
 	if !ok {
 		return errContainerInfo
@@ -190,15 +187,14 @@ func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvide
 		}
 	}
 
-	runner, err := runner.StartTaskWithRuntime(ctx, runner.Task{
-		TaskID:    pod.GetName(),
-		TitusInfo: &containerInfo,
-		Mem:       memory.Value(),
-		CPU:       cpu.Value(),
-		Gpu:       gpu.Value(),
-		Disk:      uint64(disk.Value()),
-		Network:   uint64(network.Value()),
-	}, m, rp, cfg)
+	err = runner.StartTask(
+		pod.GetName(),
+		&containerInfo,
+		memory.Value(),
+		cpu.Value(),
+		gpu.Value(),
+		uint64(disk.Value()),
+		uint64(network.Value()))
 	if err != nil {
 		return errors.Wrap(err, "Could not start task")
 	}

@@ -200,15 +200,10 @@ func dockerImageRemove(t *testing.T, imgName string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	runtimeMaker, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
-	require.NoError(t, err, "Error creating docker runtime maker")
-
-	rt, err := runtimeMaker(ctx, nil, time.Time{})
-	require.NoError(t, err, "Error creating docker runtime")
+	rt, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
+	require.NoError(t, err, "No error creating docker runtime")
 
 	drt, ok := rt.(*docker.DockerRuntime)
-	require.True(t, ok, "DockerRuntime cast should succeed")
-
 	require.True(t, ok, "DockerRuntime cast should succeed")
 	err = drt.DockerImageRemove(ctx, imgName)
 	require.NoErrorf(t, err, "No error removing docker image %s: +%v", imgName, err)
@@ -220,11 +215,8 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	runtimeMaker, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
-	require.NoError(t, err, "Error creating docker runtime maker")
-
-	rt, err := runtimeMaker(ctx, nil, time.Time{})
-	require.NoError(t, err, "Error creating docker runtime")
+	rt, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
+	require.NoError(t, err, "No error creating docker runtime")
 
 	drt, ok := rt.(*docker.DockerRuntime)
 	require.True(t, ok, "DockerRuntime cast should succeed")
@@ -294,10 +286,11 @@ func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
+	jobRunner := mock.NewJobRunner(nil)
+	defer jobRunner.StopExecutor()
+	jobResponse := jobRunner.StartJob(t, ji)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 127); err != nil {
 		t.Fatal(err)
 	}
@@ -327,10 +320,11 @@ func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
+	jobRunner := mock.NewJobRunner(nil)
+	defer jobRunner.StopExecutor()
+	jobResponse := jobRunner.StartJob(t, ji)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 123); err != nil {
 		t.Fatal(err)
 	}
@@ -345,10 +339,11 @@ func testOverrideCmdFromImage(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
+	jobRunner := mock.NewJobRunner(nil)
+	defer jobRunner.StopExecutor()
+	jobResponse := jobRunner.StartJob(t, ji)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 5); err != nil {
 		t.Fatal(err)
 	}
@@ -364,11 +359,11 @@ func testResetEntrypointFromImage(t *testing.T, jobID string) {
 		},
 		JobID: jobID,
 	}
-
+	jobRunner := mock.NewJobRunner(nil)
+	defer jobRunner.StopExecutor()
+	jobResponse := jobRunner.StartJob(t, ji)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 6); err != nil {
 		t.Fatal(err)
 	}
@@ -554,19 +549,16 @@ func testImagePullError(t *testing.T, jobID string) {
 }
 
 func testCancelPullBigImage(t *testing.T, jobID string) { // nolint: gocyclo
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	jobRunner := mock.NewJobRunner(nil)
 
-	jobResponse, err := mock.StartJob(t, ctx, &mock.JobInput{
+	testResultBigImage := jobRunner.StartJob(t, &mock.JobInput{
 		JobID:     jobID,
 		ImageName: bigImage.name,
 		Version:   bigImage.tag,
 	})
 
-	require.NoError(t, err)
-
 	select {
-	case taskStatus := <-jobResponse.UpdateChan:
+	case taskStatus := <-testResultBigImage.UpdateChan:
 		if taskStatus.State.String() != "TASK_STARTING" {
 			t.Fatal("Task never observed in TASK_STARTING, instead: ", taskStatus)
 		}
@@ -574,19 +566,19 @@ func testCancelPullBigImage(t *testing.T, jobID string) { // nolint: gocyclo
 		t.Fatal("Spent too long waiting for task starting")
 	}
 
-	if err := jobResponse.KillTask(); err != nil {
+	if err := jobRunner.KillTask(); err != nil {
 		t.Fatal("Could not stop task: ", err)
 	}
 	timeOut := time.After(30 * time.Second)
 	for {
 		select {
-		case taskStatus := <-jobResponse.UpdateChan:
+		case taskStatus := <-testResultBigImage.UpdateChan:
 			//		t.Log("Observed task status: ", taskStatus)
 			if taskStatus.State == titusdriver.Running {
-				t.Fatalf("Task %s started after killTask %v", jobResponse.TaskID, taskStatus)
+				t.Fatalf("Task %s started after killTask %v", testResultBigImage.TaskID, taskStatus)
 			}
 			if taskStatus.State == titusdriver.Killed || taskStatus.State == titusdriver.Lost {
-				t.Logf("Task %s successfully terminated with status %s", jobResponse.TaskID, taskStatus.State.String())
+				t.Logf("Task %s successfully terminated with status %s", testResultBigImage.TaskID, taskStatus.State.String())
 				goto big_task_killed
 			}
 		case <-timeOut:
@@ -595,7 +587,7 @@ func testCancelPullBigImage(t *testing.T, jobID string) { // nolint: gocyclo
 	}
 big_task_killed:
 	// We do this here, otherwise  a stuck executor can prevent this from exiting.
-	jobResponse.StopExecutor()
+	jobRunner.StopExecutor()
 }
 
 func testBadEntrypoint(t *testing.T, jobID string) {
@@ -637,13 +629,6 @@ func testCanWriteInLogsAndSubDirs(t *testing.T, jobID string) {
 }
 
 func testShutdown(t *testing.T, jobID string) {
-	// This test changed from canceling the context to stop the container to calling killTask. The reason being
-	// is that now we plumb through a single context from the test -> jobRunner -> runtime. This is useful for
-	// things like tracing, but it makes it so that once the context is cancelled, we can no longer make calls
-	// to the backend.
-	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
-	defer cancel()
-
 	ji := &mock.JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
@@ -651,37 +636,33 @@ func testShutdown(t *testing.T, jobID string) {
 		JobID:         jobID,
 	}
 
-	jobRunner, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
-	defer jobRunner.StopExecutor()
-
-	var taskRunning bool
-	for {
-		select {
-		case status := <-jobRunner.UpdateChan:
-			if status.State == titusdriver.Running {
-				if taskRunning == false {
-					taskRunning = true
-					t.Logf("Task is running, stopping executor")
-					go func() {
-						_ = jobRunner.KillTask()
-					}()
+	jobRunner := mock.NewJobRunner(nil)
+	testResult := jobRunner.StartJob(t, ji)
+	taskRunning := make(chan bool, 10)
+	go func() {
+		for {
+			select {
+			case status := <-testResult.UpdateChan:
+				if status.State == titusdriver.Running {
+					taskRunning <- true
+				} else if status.State.IsTerminalStatus() {
+					if status.State != titusdriver.Killed {
+						t.Errorf("Task %s not killed successfully, %s!", testResult.TaskID, status.State.String())
+					}
+					taskRunning <- false
+					return
 				}
-			}
-			if status.State.IsTerminalStatus() {
-				if status.State != titusdriver.Killed {
-					t.Errorf("Task %s not killed successfully, %s!", jobRunner.TaskID, status.State.String())
-				}
-				if !taskRunning {
-					t.Errorf("Task never went into running, and therefore killed for some other reason")
-				}
+			case <-time.After(defaultFailureTimeout):
+				t.Errorf("Task %s did not reach RUNNING - timed out", testResult.TaskID)
+				taskRunning <- false
 				return
 			}
-		case <-ctx.Done():
-			t.Errorf("Task %s did not reach RUNNING - timed out: %s", jobRunner.TaskID, ctx.Err().Error())
-			return
 		}
-	}
+	}()
+
+	<-taskRunning
+	t.Logf("Task is running, stopping executor")
+	jobRunner.StopExecutor()
 }
 
 func testMetadataProxyInjection(t *testing.T, jobID string) {
@@ -709,8 +690,9 @@ func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
 }
 
 func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uint32) (*runner.Update, time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
-	defer cancel()
+	// Start the executor
+	jobRunner := mock.NewJobRunner(nil)
+	defer jobRunner.StopExecutorAsync()
 
 	// Submit a job that runs for a long time and does
 	// NOT exit on SIGTERM
@@ -720,10 +702,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 		KillWaitSeconds: killWaitSeconds,
 		JobID:           jobID,
 	}
-	// Start the executor
-	jobResponse, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
-	defer jobResponse.StopExecutorAsync()
+	jobResponse := jobRunner.StartJob(t, ji)
 
 	// Wait until the task is running
 	for status := range jobResponse.UpdateChan {
@@ -740,7 +719,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 	// job does not exit on SIGTERM we expect the kill
 	// to take at least some seconds
 	killTime := time.Now()
-	if err := jobResponse.KillTask(); err != nil {
+	if err := jobRunner.KillTask(); err != nil {
 		t.Fail()
 	}
 
@@ -790,8 +769,9 @@ func testOOMAdj(t *testing.T, jobID string) {
 }
 
 func testOOMKill(t *testing.T, jobID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
-	defer cancel()
+	// Start the executor
+	jobRunner := mock.NewJobRunner(nil)
+	defer jobRunner.StopExecutorAsync()
 
 	ji := &mock.JobInput{
 		ImageName:     ubuntu.name,
@@ -799,13 +779,10 @@ func testOOMKill(t *testing.T, jobID string) {
 		EntrypointOld: `stress --vm 100 --vm-keep --vm-hang 100`,
 		JobID:         jobID,
 	}
-
-	// Start the executor
-	jobResponse, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
-	defer jobResponse.StopExecutorAsync()
+	jobResponse := jobRunner.StartJob(t, ji)
 
 	// Wait until the task is running
+
 	for status := range jobResponse.UpdateChan {
 		if status.State.IsTerminalStatus() {
 			if status.State.String() != "TASK_FAILED" {
@@ -1007,9 +984,6 @@ func testMetatron(t *testing.T, jobID string) {
 
 // Test that we return failure messages from services
 func testMetatronFailure(t *testing.T, jobID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
-	defer cancel()
-
 	ji := &mock.JobInput{
 		ImageName:       userSet.name,
 		Version:         userSet.tag,
@@ -1023,9 +997,11 @@ func testMetatronFailure(t *testing.T, jobID string) {
 		JobID: jobID,
 	}
 
-	jobResponse, err := mock.StartJob(t, ctx, ji)
-	require.NoError(t, err)
-	defer jobResponse.StopExecutor()
+	jobRunner := mock.NewJobRunner(ji)
+	defer jobRunner.StopExecutor()
+	jobResponse := jobRunner.StartJob(t, ji)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
+	defer cancel()
 
 	status, err := jobResponse.WaitForFailureStatus(ctx)
 	assert.Nil(t, err)

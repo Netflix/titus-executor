@@ -114,6 +114,9 @@ func (e *InvalidConfigurationError) Error() string {
 	return fmt.Sprintf("Invalid configuration: %s", e.Reason)
 }
 
+// CleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
+type CleanupFunc func() error
+
 // GPUContainer manages the GPUs for a container, and frees them
 type GPUContainer interface {
 	Devices() []string
@@ -130,6 +133,10 @@ type Container struct {
 	Labels    map[string]string
 	TitusInfo *titus.ContainerInfo
 	Resources *Resources
+
+	// cleanup callbacks that runtime implementations can register to do cleanup
+	// after a launchGuard on the taskID has been lifted
+	cleanup []CleanupFunc
 
 	// VPC driver fields
 	SecurityGroupIDs   []string
@@ -170,6 +177,23 @@ func (c *Container) QualifiedImageName() string {
 		return baseRef + "@" + c.TitusInfo.GetImageDigest()
 	}
 	return baseRef + ":" + c.TitusInfo.GetVersion()
+}
+
+// RegisterRuntimeCleanup calls registered functions whether or not the container successfully starts
+func (c *Container) RegisterRuntimeCleanup(callback CleanupFunc) {
+	c.cleanup = append(c.cleanup, callback)
+}
+
+// RuntimeCleanup runs cleanup callbacks registered by runtime implementations
+func (c *Container) RuntimeCleanup() []error {
+	var errs []error
+	for idx := range c.cleanup {
+		fn := c.cleanup[len(c.cleanup)-idx-1]
+		if err := fn(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
 }
 
 // ImageTagForMetrics returns a map with the image name
@@ -541,8 +565,6 @@ type Details struct {
 	NetworkConfiguration *NetworkConfigurationDetails
 }
 
-type ContainerRuntimeProvider func(ctx context.Context, c *Container, startTime time.Time) (Runtime, error)
-
 // Runtime is the containerization engine
 type Runtime interface {
 	// Prepare the host to run a Container: download images, prepare filesystems, etc.
@@ -551,14 +573,13 @@ type Runtime interface {
 	// TODO(fabio): better (non-Docker specific) abstraction for binds
 	// The context passed to the Prepare, and Start function is valid over the lifetime of the container,
 	// NOT per-operation
-	Prepare(containerCtx context.Context) error
+	Prepare(containerCtx context.Context, c *Container, bindMounts []string, startTime time.Time) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
-	Start(containerCtx context.Context) (string, *Details, <-chan StatusMessage, error)
+	Start(containerCtx context.Context, c *Container) (string, *Details, <-chan StatusMessage, error)
 	// Kill a container
-	Kill(ctx context.Context) error
-	// Cleanup can be called to tear down resources after a container has been Killed or has naturally
-	// stopped. Must always be called.
-	Cleanup(ctx context.Context) error
+	Kill(*Container) error
+	// Cleanup can be called to tear down resources after a container has been Killed
+	Cleanup(*Container) error
 }
 
 // Status represent a containers state
