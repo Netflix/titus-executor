@@ -16,6 +16,7 @@ import (
 	"github.com/Netflix/titus-executor/utils/k8s"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/Netflix/titus-executor/vpc/tool/container2"
 	"github.com/apparentlymart/go-cidr/cidr"
@@ -38,8 +39,9 @@ import (
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
 
 const (
-	kubeletAPIPodsURL = "https://localhost:10250/pods"
-	jumboFrameParam   = "titusParameter.agent.allowNetworkJumbo"
+	kubeletAPIPodsURL          = "https://localhost:10250/pods"
+	jumboFrameParam            = "titusParameter.agent.allowNetworkJumbo"
+	IngressBandwidthAnnotation = "kubernetes.io/ingress-bandwidth"
 )
 
 type Command struct {
@@ -66,6 +68,21 @@ func MakeCommand(ctx context.Context, instanceIdentityProvider identity.Instance
 		iip: instanceIdentityProvider,
 		gsv: gsv,
 	}
+}
+
+func getBandwidthLimitKbps(pod *corev1.Pod) (uint64, error) {
+	bwAnnotation, ok := pod.GetAnnotations()[IngressBandwidthAnnotation]
+	if !ok {
+		return 0, errors.New("could not get ingress bandwidth annotation from pod")
+	}
+
+	bwBytes, err := resource.ParseQuantity(bwAnnotation)
+	if err != nil {
+		return 0, err
+	}
+
+	// Bandwidth limit in the annotation is in Mbps - convert to Kbps
+	return uint64(bwBytes.Value() / 1000), nil
 }
 
 func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error) {
@@ -207,7 +224,11 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	}
 	span.AddAttributes(trace.StringAttribute("securityGroups", strings.Join(securityGroupsList, ",")))
 
-	kbps := uint64(*netInfo.BandwidthLimitMbps) * 1000
+	kbps, err := getBandwidthLimitKbps(pod)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
 
 	ns, err := os.Open(args.Netns)
 	if err != nil {
