@@ -9,7 +9,6 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/runtime"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/filesystems"
@@ -95,7 +94,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		killChan:      make(chan struct{}),
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
-		container:     runtime.NewContainer(task.TaskID, task.TitusInfo, resources, labels, cfg),
+		container:     runtimeTypes.NewContainer(task.TaskID, task.TitusInfo, resources, labels, cfg),
 	}
 
 	rt, err := rp(ctx, runner.container, startTime)

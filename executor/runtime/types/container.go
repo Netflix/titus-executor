@@ -1,4 +1,4 @@
-package runtime
+package types
 
 import (
 	"strconv"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 )
 
 const (
@@ -42,7 +41,7 @@ const (
 )
 
 // NewContainer allocates and initializes a new container struct object
-func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runtimeTypes.Resources, labels map[string]string, cfg config.Config) *runtimeTypes.Container {
+func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *Resources, labels map[string]string, cfg config.Config) *Container {
 	networkCfgParams := titusInfo.GetNetworkConfigInfo()
 
 	strCPU := strconv.FormatInt(resources.CPU, 10)
@@ -52,7 +51,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 
 	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
 	// System service systemd units need this to be set in order to run with the right runtime path
-	env[runtimeTypes.TitusRuntimeEnvVariableName] = runtimeTypes.DefaultOciRuntime
+	env[TitusRuntimeEnvVariableName] = DefaultOciRuntime
 	labels[titusTaskInstanceIDKey] = env[titusTaskInstanceIDKey]
 	labels[cpuLabelKey] = strCPU
 	labels[memLabelKey] = strMem
@@ -60,7 +59,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *runt
 	labels[networkLabelKey] = strNetwork
 	addLabels(titusInfo, labels)
 
-	c := &runtimeTypes.Container{
+	c := &Container{
 		TaskID:             taskID,
 		TitusInfo:          titusInfo,
 		Resources:          resources,

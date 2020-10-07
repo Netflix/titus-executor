@@ -1,4 +1,4 @@
-package runtime
+package types
 
 import (
 	"strconv"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	protobuf "github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 )
@@ -17,7 +16,7 @@ func TestImageNameWithTag(t *testing.T) {
 	cfg, err := config.GenerateConfiguration(nil)
 	assert.NoError(t, err)
 	expected := "docker.io/titusoss/alpine:latest"
-	c := &runtimeTypes.Container{
+	c := &Container{
 		Config: *cfg,
 		TitusInfo: &titus.ContainerInfo{
 			ImageName: protobuf.String("titusoss/alpine"),
@@ -34,7 +33,7 @@ func TestImageTagLatestByDefault(t *testing.T) {
 	assert.NoError(t, err)
 
 	expected := "docker.io/titusoss/alpine:latest"
-	c := &runtimeTypes.Container{
+	c := &Container{
 		Config: *cfg,
 		TitusInfo: &titus.ContainerInfo{
 			ImageName: protobuf.String("titusoss/alpine"),
@@ -51,7 +50,7 @@ func TestImageByDigest(t *testing.T) {
 
 	expected := "docker.io/" +
 		"titusoss/alpine@sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
-	c := &runtimeTypes.Container{
+	c := &Container{
 		Config: *cfg,
 		TitusInfo: &titus.ContainerInfo{
 			ImageName:   protobuf.String("titusoss/alpine"),
@@ -69,7 +68,7 @@ func TestImageByDigestIgnoresTag(t *testing.T) {
 
 	expected := "docker.io/" +
 		"titusoss/alpine@sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
-	c := &runtimeTypes.Container{
+	c := &Container{
 		Config: *cfg,
 		TitusInfo: &titus.ContainerInfo{
 			ImageName:   protobuf.String("titusoss/alpine"),
@@ -129,7 +128,7 @@ func TestNewContainer(t *testing.T) {
 		},
 	}
 
-	resources := &runtimeTypes.Resources{
+	resources := &Resources{
 		CPU:     expectedCPU,
 		Mem:     expectedMem,
 		Disk:    expectedDisk,
@@ -198,7 +197,7 @@ func TestMetatronEnabled(t *testing.T) {
 		AllowCpuBursting: &batch,
 	}
 
-	resources := &runtimeTypes.Resources{
+	resources := &Resources{
 		CPU:  int64(2),
 		Mem:  int64(1024),
 		Disk: uint64(15000),

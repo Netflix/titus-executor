@@ -120,8 +120,7 @@ type GPUContainer interface {
 	Deallocate() int
 }
 
-// Container contains config state for a container.
-// It is not safe to be used concurrently, synchronization and locking needs to be handled externally.
+// Container contains config state for a container. It should be Read Only.
 type Container struct {
 	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
 	ID        string
