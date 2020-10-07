@@ -5,15 +5,14 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
-	"strings"
-
 	"github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/fslocker"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/docker/docker/api/types/container"
@@ -59,7 +58,7 @@ func NewNvidiaInfo(ctx context.Context) (*PluginInfo, error) {
 	return n, n.initHostGpuInfo(ctx)
 }
 
-func isGPUInstance() (bool, error) {
+func isGPUInstance(ctx context.Context) (bool, error) {
 	// Only check if we're on a GPU instance type
 	sess := session.Must(session.NewSession())
 	metadatasvc := ec2metadata.New(sess)
@@ -70,7 +69,7 @@ func isGPUInstance() (bool, error) {
 
 	r := regexp.MustCompile(AwsGpuInstanceRegex)
 	if !r.MatchString(instanceType) {
-		log.Info("Not on a GPU instance type. No GPU info available.")
+		logger.G(ctx).Info("Not on a GPU instance type. No GPU info available.")
 		return false, nil
 	}
 
@@ -79,7 +78,7 @@ func isGPUInstance() (bool, error) {
 
 // InitHostGpuInfo populates in-mem state about GPU devices
 func (n *PluginInfo) initHostGpuInfo(parentCtx context.Context) error {
-	if gpuInstance, err := isGPUInstance(); err != nil {
+	if gpuInstance, err := isGPUInstance(parentCtx); err != nil {
 		return err
 	} else if !gpuInstance {
 		return nil
