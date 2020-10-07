@@ -8,7 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -125,7 +128,8 @@ type Container struct {
 	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
 	ID        string
 	TaskID    string
-	Env       map[string]string
+	envLock   sync.Mutex
+	env       map[string]string
 	Labels    map[string]string
 	TitusInfo *titus.ContainerInfo
 	Resources *Resources
@@ -141,11 +145,53 @@ type Container struct {
 	IsSystemD bool
 
 	// GPU devices
-	GPUInfo GPUContainer
+	gpuInfo GPUContainer
 	// Set if using a non-runc runtime to run system service init commands
-	Runtime string
+	runtime string
 
 	Config config.Config
+}
+
+func (c *Container) GetEnv() map[string]string {
+	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	return maps.CopySS(c.env)
+}
+
+func (c *Container) SetEnv(key, value string) {
+	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	c.env[key] = value
+}
+
+func (c *Container) SetEnvs(env map[string]string) {
+	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	for key, value := range env {
+		c.env[key] = value
+	}
+}
+
+func (c *Container) GetGPUInfo() GPUContainer {
+	return c.gpuInfo
+}
+
+func (c *Container) SetGPUInfo(gpuInfo GPUContainer, ociRuntime string) {
+	c.runtime = ociRuntime
+
+	c.SetEnv(TitusRuntimeEnvVariableName, c.runtime)
+
+	// Now setup the environment variables that `nvidia-container-runtime` uses to configure itself,
+	// and remove any that may have been set by the user.  See https://github.com/NVIDIA/nvidia-container-runtime
+	c.SetEnv("NVIDIA_VISIBLE_DEVICES", strings.Join(gpuInfo.Devices(), ","))
+
+	// nvidia-docker 1.0 would mount all of `/usr/local/nvidia/`, bringing in all of the shared libs.
+	// Setting this to "all" will mount all of those libs:
+	c.SetEnv("NVIDIA_DRIVER_CAPABILITIES", "all")
+}
+
+func (c *Container) GetRuntime() string {
+	return c.runtime
 }
 
 // ImageHasDigest returns true if the image was specified by digest
@@ -206,14 +252,15 @@ func (c *Container) Process() (entrypoint, cmd []string, err error) {
 
 // GetSortedEnvArray returns the list of environment variables set for the container as a sorted Key=Value list
 func (c *Container) GetSortedEnvArray() []string {
-	retEnv := make([]string, 0, len(c.Env))
-	keys := make([]string, 0, len(c.Env))
-	for k := range c.Env {
+	env := c.GetEnv()
+	retEnv := make([]string, 0, len(env))
+	keys := make([]string, 0, len(env))
+	for k := range env {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		retEnv = append(retEnv, key+"="+c.Env[key])
+		retEnv = append(retEnv, key+"="+env[key])
 	}
 	return retEnv
 
@@ -497,7 +544,7 @@ func (c *Container) GetConfig(startTime time.Time) (*titus.ContainerInfo, error)
 // SetID sets the container ID for this container, updating internal data structures as necessary
 func (c *Container) SetID(id string) {
 	c.ID = id
-	c.Env[titusContainerIDEnvVariableName] = c.ID
+	c.SetEnv(titusContainerIDEnvVariableName, c.ID)
 }
 
 // Resources specify constraints to be applied to a Container

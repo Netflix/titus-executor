@@ -8,8 +8,9 @@ github.com/DATA-DOG/go-sqlmock
 github.com/DataDog/datadog-go/statsd
 # github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
 github.com/Datadog/opencensus-go-exporter-datadog
-# github.com/Microsoft/go-winio v0.4.11
+# github.com/Microsoft/go-winio v0.4.14
 github.com/Microsoft/go-winio
+github.com/Microsoft/go-winio/pkg/guid
 # github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 github.com/Netflix/metrics-client-go/metrics
 # github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
@@ -79,7 +80,7 @@ github.com/containernetworking/cni/pkg/version
 github.com/coreos/go-systemd/daemon
 github.com/coreos/go-systemd/dbus
 github.com/coreos/go-systemd/journal
-# github.com/cyphar/filepath-securejoin v0.0.0-20190205144030-7efe413b52e1
+# github.com/cyphar/filepath-securejoin v0.2.2
 github.com/cyphar/filepath-securejoin
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
@@ -87,7 +88,7 @@ github.com/davecgh/go-spew/spew
 github.com/deckarep/golang-set
 # github.com/dgrijalva/jwt-go v3.2.0+incompatible
 github.com/dgrijalva/jwt-go
-# github.com/docker/distribution v2.7.0+incompatible
+# github.com/docker/distribution v2.7.1+incompatible
 github.com/docker/distribution/digestset
 github.com/docker/distribution/reference
 # github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0 => github.com/moby/moby v0.0.0-20190408150954-50ebe4562dfc
@@ -113,7 +114,7 @@ github.com/docker/docker/errdefs
 github.com/docker/go-connections/nat
 github.com/docker/go-connections/sockets
 github.com/docker/go-connections/tlsconfig
-# github.com/docker/go-units v0.3.3
+# github.com/docker/go-units v0.4.0
 github.com/docker/go-units
 # github.com/fatih/color v1.9.0
 github.com/fatih/color
@@ -342,7 +343,7 @@ github.com/opencontainers/go-digest
 # github.com/opencontainers/image-spec v1.0.1
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/opencontainers/runc v0.0.0-20180125150909-c4e4bb0df2fc
+# github.com/opencontainers/runc v1.0.0-rc10
 github.com/opencontainers/runc/libcontainer/cgroups
 github.com/opencontainers/runc/libcontainer/configs
 # github.com/opencontainers/runtime-spec v1.0.1
@@ -662,6 +663,8 @@ k8s.io/apimachinery/third_party/forked/golang/reflect
 k8s.io/client-go/util/workqueue
 # k8s.io/klog v1.0.0
 k8s.io/klog
+# k8s.io/kubernetes v1.18.4
+k8s.io/kubernetes/pkg/util/maps
 # mvdan.cc/interfacer v0.0.0-20180901003855-c20040233aed
 mvdan.cc/interfacer/check
 # mvdan.cc/lint v0.0.0-20170908181259-adc824a0674b
