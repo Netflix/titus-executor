@@ -70,7 +70,7 @@ func MakeCommand(ctx context.Context, instanceIdentityProvider identity.Instance
 	}
 }
 
-func getBandwidthLimitKbps(pod *corev1.Pod) (uint64, error) {
+func getBandwidthLimitBps(pod *corev1.Pod) (uint64, error) {
 	bwAnnotation, ok := pod.GetAnnotations()[IngressBandwidthAnnotation]
 	if !ok {
 		return 0, errors.New("could not get ingress bandwidth annotation from pod")
@@ -81,8 +81,8 @@ func getBandwidthLimitKbps(pod *corev1.Pod) (uint64, error) {
 		return 0, err
 	}
 
-	// Bandwidth limit in the annotation is in Mbps - convert to Kbps
-	return uint64(bwBytes.Value() / 1000), nil
+	// No conversion necessary - Value() returns bytes
+	return uint64(bwBytes.Value()), nil
 }
 
 func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error) {
@@ -224,7 +224,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	}
 	span.AddAttributes(trace.StringAttribute("securityGroups", strings.Join(securityGroupsList, ",")))
 
-	kbps, err := getBandwidthLimitKbps(pod)
+	bwLimitBps, err := getBandwidthLimitBps(pod)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return err
@@ -270,7 +270,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	gateway := cidr.Inc(ip.Mask(mask))
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
 
-	err = container2.DoSetupContainer(ctx, int(ns.Fd()), kbps, kbps, alloc)
+	err = container2.DoSetupContainer(ctx, int(ns.Fd()), bwLimitBps, bwLimitBps, alloc)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not setup network")
 		err = errors.Wrap(err, "Cannot not setup network")
