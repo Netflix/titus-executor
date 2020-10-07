@@ -193,11 +193,12 @@ func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvide
 	runner, err := runner.StartTaskWithRuntime(ctx, runner.Task{
 		TaskID:    pod.GetName(),
 		TitusInfo: &containerInfo,
+		Pod:       pod,
 		Mem:       memory.Value(),
 		CPU:       cpu.Value(),
 		Gpu:       gpu.Value(),
-		Disk:      uint64(disk.Value()),
-		Network:   uint64(network.Value()),
+		Disk:      disk.Value(),
+		Network:   network.Value(),
 	}, m, rp, cfg)
 	if err != nil {
 		return errors.Wrap(err, "Could not start task")

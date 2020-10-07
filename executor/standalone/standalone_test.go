@@ -232,6 +232,7 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 		TitusInfo: &titus.ContainerInfo{
 			ImageName:   protobuf.String(imgName),
 			ImageDigest: protobuf.String(imgDigest),
+			IamProfile:  protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
 		},
 	}
 

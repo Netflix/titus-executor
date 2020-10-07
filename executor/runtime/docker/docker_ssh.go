@@ -89,10 +89,7 @@ PidFile /run/sshd.pid
 `
 
 func addContainerSSHDConfig(c *runtimeTypes.Container, tw *tar.Writer, cfg config.Config) error {
-	iamProfileARN, err := c.GetIamProfile()
-	if err != nil {
-		return err
-	}
+	iamProfileARN := c.GetIamProfile()
 	iamProfile, err := arn.Parse(iamProfileARN)
 	if err != nil {
 		return err
