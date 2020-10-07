@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Netflix/titus-executor/logger"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -582,15 +584,15 @@ func vpcToolPath() string {
 }
 
 // Use image labels to determine if the container should be configured to run SystemD
-func setSystemdRunning(log *log.Entry, imageInfo types.ImageInspect, c *runtimeTypes.Container) error {
-	l := log.WithField("imageName", c.QualifiedImageName())
+func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c *runtimeTypes.Container) error {
+	ctx = logger.WithField(ctx, "imageName", c.QualifiedImageName())
 
 	if systemdBool, ok := imageInfo.Config.Labels[systemdImageLabel]; ok {
-		l.WithField("systemdLabel", systemdBool).Info("SystemD image label set")
+		logger.G(ctx).WithField("systemdLabel", systemdBool).Info("SystemD image label set")
 
 		val, err := strconv.ParseBool(systemdBool)
 		if err != nil {
-			l.WithError(err).Error("Error parsing systemd image label")
+			logger.G(ctx).WithError(err).Error("Error parsing systemd image label")
 			return errors.Wrap(err, "error parsing systemd image label")
 		}
 
@@ -792,9 +794,9 @@ func cleanContainerName(prefix string, imageName string) string {
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(ctx context.Context, l *log.Entry, vCfg *volumeContainerConfig) func() error {
-	return func() error {
-		l.Infof("Setting up %s container", vCfg.serviceName)
+func (r *DockerRuntime) createVolumeContainerFunc(vCfg *volumeContainerConfig) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		logger.G(ctx).WithField("serviceName", vCfg.serviceName).Infof("Setting up container")
 		cfg := &container.Config{
 			Hostname:   fmt.Sprintf("titus-%s", vCfg.serviceName),
 			Volumes:    vCfg.volumes,
@@ -805,7 +807,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(ctx context.Context, l *log.En
 			NetworkMode: "none",
 		}
 
-		createErr := r.createVolumeContainer(ctx, l, vCfg.containerName, cfg, hostConfig)
+		createErr := r.createVolumeContainer(ctx, vCfg.containerName, cfg, hostConfig)
 		if createErr != nil {
 			return errors.Wrapf(createErr, "Unable to setup %s container", vCfg.serviceName)
 		}
@@ -815,7 +817,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(ctx context.Context, l *log.En
 }
 
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
-func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
+func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
 	image := cfg.Image
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
@@ -823,10 +825,11 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 	}
 
 	imageSpecifiedByTag := !strings.Contains(image, "@")
-	logger := l.WithField("hostName", cfg.Hostname).WithField("imageName", image)
+	ctx = logger.WithField(ctx, "hostName", cfg.Hostname)
+	ctx = logger.WithField(ctx, "imageName", image)
 
 	if tmpImageInfo == nil || imageSpecifiedByTag {
-		logger.WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
+		logger.G(ctx).WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
 		err = pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
 		if err != nil {
 			return err
@@ -840,16 +843,16 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 		image = resp.RepoDigests[0]
 		cfg.Image = image
 	} else {
-		logger.Info("createVolumeContainer: image exists: not pulling image")
+		logger.G(ctx).Info("createVolumeContainer: image exists: not pulling image")
 	}
 
 	*containerName = cleanContainerName(cfg.Hostname, image)
-	logger = log.WithField("hostName", cfg.Hostname).WithField("imageName", image).WithField("containerName", *containerName)
+	ctx = logger.WithField(ctx, "containerName", *containerName)
 
 	// Check if this container exists, if not create it.
 	_, err = r.client.ContainerInspect(ctx, *containerName)
 	if err == nil {
-		logger.Info("createVolumeContainer: container exists: not creating")
+		logger.G(ctx).Info("createVolumeContainer: container exists: not creating")
 		return nil
 	}
 
@@ -857,7 +860,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 		return err
 	}
 
-	logger.Info("createVolumeContainer: creating container")
+	logger.G(ctx).Info("createVolumeContainer: creating container")
 	// We don't check the error here, because there's no way
 	// to prevent us from accidentally calling this concurrently
 	_, tmpErr := r.client.ContainerCreate(ctx, cfg, hostConfig, nil, *containerName)
@@ -890,8 +893,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	var sshdContainerName string
 	var volumeContainers []string
 
-	l := log.WithField("taskID", r.c.TaskID)
-	l.WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
+	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID)
+	logger.G(parentCtx).WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
 
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.prepareTimeout)
 	defer cancel()
@@ -904,14 +907,14 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		size                int64
 	)
 	dockerCreateStartTime := time.Now()
-	group, errGroupCtx := errgroup.WithContext(ctx)
+	group := groupWithContext(ctx)
 	err := r.validateEFSMounts(r.c)
 	if err != nil {
 		goto error
 	}
 
-	group.Go(func() error {
-		imageInfo, pullErr := r.DockerPull(errGroupCtx, r.c)
+	group.Go(func(ctx context.Context) error {
+		imageInfo, pullErr := r.DockerPull(ctx, r.c)
 		if pullErr != nil {
 			return pullErr
 		}
@@ -919,7 +922,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		if imageInfo == nil {
 			inspected, _, inspectErr := r.client.ImageInspectWithRaw(ctx, r.c.QualifiedImageName())
 			if inspectErr != nil {
-				l.WithField("imageName", r.c.QualifiedImageName()).WithError(inspectErr).Errorf("Error inspecting docker image")
+				logger.G(ctx).WithField("imageName", r.c.QualifiedImageName()).WithError(inspectErr).Error("Error inspecting docker image")
 				return inspectErr
 			}
 			imageInfo = &inspected
@@ -935,7 +938,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	})
 
 	if shouldStartMetatronSync(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "metatron",
 			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.MetatronServiceImage),
 			containerName: &metatronContainerName,
@@ -945,7 +948,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}))
 	}
 	if r.cfg.ContainerSSHD {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "sshd",
 			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.SSHDServiceImage),
 			containerName: &sshdContainerName,
@@ -955,7 +958,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}))
 	}
 	if r.cfg.ContainerLogViewer {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "logviewer",
 			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.LogViewerServiceImage),
 			containerName: &logViewerContainerName,
@@ -966,7 +969,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	}
 
 	if shouldStartServiceMesh(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName: "servicemesh",
 			image: func() string {
 				cimage, _ := r.c.GetServiceMeshImage()
@@ -980,7 +983,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	}
 
 	if shouldStartAbmetrix(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "abmetrix",
 			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.AbmetrixServiceImage),
 			containerName: &abmetrixContainerName,
@@ -991,9 +994,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	}
 
 	if r.cfg.UseNewNetworkDriver {
-		group.Go(func() error {
+		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()
-			cf, netErr := prepareNetworkDriver(errGroupCtx, r.dockerCfg, r.c)
+			cf, netErr := prepareNetworkDriver(ctx, r.dockerCfg, r.c)
 			if netErr == nil {
 				r.metrics.Timer("titus.executor.prepareNetworkTime", time.Since(prepareNetworkStartTime), nil)
 				r.registerRuntimeCleanup(cf)
@@ -1014,7 +1017,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 			Error:       "",
 			BranchENIID: "eni-cat-dog",
 		}
-		l.Info("Mocking networking configuration in dev mode to IP: ", r.c.Allocation)
+		logger.G(ctx).Info("Mocking networking configuration in dev mode to IP: ", r.c.Allocation)
 	}
 
 	err = group.Wait()
@@ -1022,7 +1025,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		goto error
 	}
 
-	if err = setSystemdRunning(l, *myImageInfo, r.c); err != nil {
+	if err = setSystemdRunning(ctx, *myImageInfo, r.c); err != nil {
 		goto error
 	}
 
@@ -1054,7 +1057,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}
 	}
 
-	l.Infof("create with Docker config %#v and Host config: %#v", *dockerCfg, *hostCfg)
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"dockerCfg": logger.ShouldJSON(ctx, *dockerCfg),
+		"hostCfg":   logger.ShouldJSON(ctx, *hostCfg),
+	}).Info("Creating container")
 
 	containerCreateBody, err = r.client.ContainerCreate(ctx, dockerCfg, hostCfg, nil, r.c.TaskID)
 	r.c.SetID(containerCreateBody.ID)
@@ -1066,26 +1072,26 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	if err != nil {
 		goto error
 	}
-	l = l.WithField("containerID", r.c.ID)
-	l.Info("Container successfully created")
+	ctx = logger.WithField(ctx, "containerID", r.c.ID)
+	logger.G(ctx).Info("Container successfully created")
 
 	err = r.createTitusEnvironmentFile(r.c)
 	if err != nil {
 		goto error
 	}
-	l.Info("Titus environment pushed")
+	logger.G(ctx).Info("Titus environment pushed")
 
 	err = r.createTitusContainerConfigFile(r.c, r.startTime)
 	if err != nil {
 		goto error
 	}
-	l.Info("Titus Configuration pushed")
+	logger.G(ctx).Info("Titus Configuration pushed")
 
 	err = r.pushEnvironment(r.c, myImageInfo)
 	if err != nil {
 		goto error
 	}
-	l.Info("Titus environment pushed")
+	logger.G(ctx).Info("Titus environment pushed")
 
 error:
 	if err != nil {
@@ -1969,7 +1975,7 @@ func (r *DockerRuntime) setupGPU(ctx context.Context, c *runtimeTypes.Container,
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
 func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
-	log.Infof("Killing %s", r.c.TaskID)
+	logger.G(ctx).Info("Killing task")
 
 	var errs *multierror.Error
 

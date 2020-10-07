@@ -2,6 +2,8 @@ package logger
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 )
@@ -22,7 +24,11 @@ func GetLogger(ctx context.Context) logrus.FieldLogger {
 	logger := ctx.Value(loggerKey{})
 
 	if logger == nil {
-		return logrus.StandardLogger()
+		l := logrus.StandardLogger()
+		l.SetFormatter(&logrus.TextFormatter{
+			DisableQuote: true,
+		})
+		return l
 	}
 
 	return logger.(logrus.FieldLogger)
@@ -34,4 +40,15 @@ func WithField(ctx context.Context, key string, value interface{}) context.Conte
 
 func WithFields(ctx context.Context, fields map[string]interface{}) context.Context {
 	return WithLogger(ctx, GetLogger(ctx).WithFields(fields))
+}
+
+// ShouldJSON returns JSON'd version of object, and if it cannot, it will log the error, and returns the "%+v" formatted
+// version
+func ShouldJSON(ctx context.Context, o interface{}) string {
+	data, err := json.Marshal(o)
+	if err != nil {
+		GetLogger(ctx).WithError(err).Error("Could not serialize value")
+		return fmt.Sprintf("%+v", o)
+	}
+	return string(data)
 }

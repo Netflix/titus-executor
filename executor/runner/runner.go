@@ -5,6 +5,12 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 
+	"context"
+	"fmt"
+	"os"
+	"sync"
+	"time"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -15,13 +21,6 @@ import (
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/hashicorp/go-multierror"
-	"github.com/sirupsen/logrus"
-
-	"context"
-	"fmt"
-	"os"
-	"sync"
-	"time"
 )
 
 // Config is runner config
@@ -65,7 +64,7 @@ func StartTask(ctx context.Context, task Task, m metrics.Reporter, cfg config.Co
 
 // StartTaskWithRuntime builds an Executor using the provided Runtime factory func, and starts the task
 func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp runtimeTypes.ContainerRuntimeProvider, cfg config.Config) (*Runner, error) {
-	ctx = logger.WithLogger(ctx, logrus.NewEntry(logrus.StandardLogger()).WithField("TaskID", task.TaskID))
+	ctx = logger.WithField(ctx, "taskID", task.TaskID)
 
 	metricsTagger, _ := m.(tagger) // metrics.Reporter may or may not implement tagger interface.  OK to be nil
 	labels := map[string]string{

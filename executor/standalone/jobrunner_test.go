@@ -20,6 +20,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	"github.com/Netflix/titus-executor/logger"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	protobuf "github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
@@ -300,12 +301,14 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 		jobID = jobInput.JobID
 	}
 
+	ctx = logger.WithField(ctx, "jobID", jobID)
 	// TODO: refactor this all to use NewContainer()
 	// Strip out characters that aren't allowed in container names, and shorten
 	// the name so that it only includes the name of the test
 	validContainerNameRE := regexp.MustCompile("[^a-zA-Z0-9_.-]")
 	shortTestNameRE := regexp.MustCompile(".*/")
 	taskID := fmt.Sprintf("Titus-%v%v-%s-0-2", r.Intn(1000), time.Now().Second(), validContainerNameRE.ReplaceAllString(shortTestNameRE.ReplaceAllString(t.Name(), ""), "_"))
+	ctx = logger.WithField(ctx, "taskID", taskID)
 
 	env := map[string]string{
 		"TITUS_TASK_ID":          taskID,
