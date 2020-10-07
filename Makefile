@@ -89,7 +89,7 @@ fmt: $(GOBIN_TOOL)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOBIN_TOOL)
-	$(GOBIN_TOOL) -m -run github.com/golangci/golangci-lint/cmd/golangci-lint run $(GOLANGCI_LINT_ARGS)
+	GOOS=linux $(GOBIN_TOOL) -m -run github.com/golangci/golangci-lint/cmd/golangci-lint run $(GOLANGCI_LINT_ARGS)
 
 .PHONY: lint
 lint: golangci-lint
