@@ -268,7 +268,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	ipnet := net.IPNet{IP: ip, Mask: mask}
 	zeroIdx := 0
 	gateway := cidr.Inc(ip.Mask(mask))
-	logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
+	logger.G(ctx).WithField("gateway", gateway).WithField("bwLimit", bwLimitBps).Info("Setting up container networking")
 
 	err = container2.DoSetupContainer(ctx, int(ns.Fd()), bwLimitBps, bwLimitBps, alloc)
 	if err != nil {
