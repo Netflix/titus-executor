@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -105,7 +107,14 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 	}
 
 	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
-	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(seccomp.MustAsset(seccompProfile))))
+	asset := seccomp.MustAsset(seccompProfile)
+	var buf bytes.Buffer
+	err = json.Compact(&buf, asset)
+	if err != nil {
+		return fmt.Errorf("Could not JSON compact seccomp profile string: %w", err)
+	}
+
+	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", buf.String()))
 
 	return nil
 }

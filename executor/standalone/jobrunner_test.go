@@ -83,6 +83,8 @@ type JobInput struct {
 	Mem *int64
 	// ShmSize sets the shared memory size of `/dev/shm` in MiB
 	ShmSize *uint32
+
+	GPUManager runtimeTypes.GPUManager
 }
 
 // JobRunResponse returned from RunJob
@@ -274,7 +276,7 @@ var r = rand.New(rand.NewSource(999))
 
 // StopExecutor stops a currently running executor
 func (jobRunResponse *JobRunResponse) StopExecutor() {
-	jobRunResponse.cancel()
+	jobRunResponse.StopExecutorAsync()
 	<-jobRunResponse.runner.StoppedChan
 }
 
@@ -391,6 +393,7 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	gpu := int64(0)
 	if jobInput.GPU != nil {
 		gpu = *jobInput.GPU
+		ci.NumGpus = protobuf.Uint32(uint32(*jobInput.GPU))
 	}
 	diskMiB := uint64(100)
 	network := uint64(128)
@@ -405,7 +408,18 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 		Disk:      diskMiB,
 		Network:   network,
 	}
-	runner, err := runner.StartTask(ctx, task, metrics.Discard, *cfg, *dockerCfg)
+
+	opts := []docker.Opt{}
+	if jobInput.GPUManager == nil {
+		opts = append(opts, docker.WithGPUManager(&dummyGPUManager{}))
+	} else {
+		opts = append(opts, docker.WithGPUManager(jobInput.GPUManager))
+	}
+
+	rp, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg, opts...)
+	assert.NilError(t, err)
+
+	runner, err := runner.StartTaskWithRuntime(ctx, task, metrics.Discard, rp, *cfg)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("Cannot start task / runner: %w", err)

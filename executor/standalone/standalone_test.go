@@ -13,10 +13,9 @@ import (
 	"testing"
 	"time"
 
-	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
-
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -159,6 +158,7 @@ func TestStandalone(t *testing.T) {
 		testContainerLogViewer,
 		testcve202014386,
 		testnc,
+		testGPUManager1GPU,
 	}
 	for _, fun := range testFunctions {
 		fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
@@ -1140,4 +1140,35 @@ func testnc(t *testing.T, jobID string) {
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
+}
+
+func testGPUManager1GPU(t *testing.T, jobID string) {
+	g := &gpuManager{}
+	var gpu int64 = 1
+
+	ji := &JobInput{
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		EntrypointOld: fmt.Sprintf(`/bin/bash -c 'test "${TITUS_OCI_RUNTIME}" == "%s"'`, gpuTestRuntime),
+		JobID:         jobID,
+		GPUManager:    g,
+		GPU:           &gpu,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
+	defer cancel()
+
+	jobResult, err := StartJob(t, ctx, ji)
+	assert.Nil(t, err)
+
+	require.True(t, jobResult.WaitForSuccess())
+
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+
+	jobResult.StopExecutor()
+
+	assert.Equal(t, 1, g.devicesAllocated)
+	assert.Equal(t, 1, g.devicesDeallocated)
 }

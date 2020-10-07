@@ -122,13 +122,23 @@ type DockerRuntime struct { // nolint: golint
 	cleanupFuncLock sync.Mutex
 	cleanup         []cleanupFunc
 
-	// To be set when a container
-	c         *runtimeTypes.Container
-	startTime time.Time
+	// To be set when initializing a specific instance of the runtime provider
+	c          *runtimeTypes.Container
+	startTime  time.Time
+	gpuManager runtimeTypes.GPUManager
+}
+
+type Opt func(ctx context.Context, runtime *DockerRuntime) error
+
+func WithGPUManager(gpuManager runtimeTypes.GPUManager) Opt {
+	return func(ctx context.Context, runtime *DockerRuntime) error {
+		runtime.gpuManager = gpuManager
+		return nil
+	}
 }
 
 // NewDockerRuntime provides a Runtime implementation on Docker.
-func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config) (runtimeTypes.ContainerRuntimeProvider, error) {
+func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config, dockerOpts ...Opt) (runtimeTypes.ContainerRuntimeProvider, error) {
 	log.Info("New Docker client, to host ", cfg.DockerHost)
 	client, err := docker.NewClient(cfg.DockerHost, "1.26", nil, map[string]string{})
 
@@ -172,6 +182,21 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 			log.WithField("initBinary", info.InitBinary).Warning("Docker runtime disabling Tini support")
 		}
 
+		for _, dockerOpt := range dockerOpts {
+			err := dockerOpt(ctx, dockerRuntime)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if dockerRuntime.gpuManager == nil {
+			dockerRuntime.gpuManager, err = nvidia.NewNvidiaInfo(ctx, dockerCfg.nvidiaOciRuntime)
+			if err != nil {
+				return nil, fmt.Errorf("GPU Manager unset, failed to initialize default (nvidia) GPU manager: %w", err)
+			}
+		}
+
+		// Don't reference captured error variable from above
 		err := setupLoggingInfra(dockerRuntime)
 		if err != nil {
 			return nil, err
@@ -356,7 +381,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv6.conf.default.accept_dad":    "0",
 			"net.ipv6.conf.all.accept_dad":        "0",
 		},
-		Init: &useInit,
+		Init:    &useInit,
+		Runtime: c.GetRuntime(),
 	}
 
 	// TODO(Sargun): Add IPv6 address
@@ -1025,9 +1051,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		logger.G(ctx).Info("Mocking networking configuration in dev mode to IP: ", r.c.Allocation)
 	}
 
-	if r.c.Resources.GPU > 0 {
-		group.Go(r.setupGPU)
-	}
+	group.Go(r.setupGPU)
 
 	err = group.Wait()
 	if err != nil {
@@ -1957,19 +1981,14 @@ func launchTini(conn *net.UnixConn) error {
 }
 
 func (r *DockerRuntime) setupGPU(ctx context.Context) error {
+	if r.c.Resources.GPU == 0 {
+		return nil
+	}
 	ctx, span := trace.StartSpan(ctx, "DockerRuntime.setupGPU")
 	defer span.End()
 	span.AddAttributes(trace.Int64Attribute("numGPUs", r.c.Resources.GPU))
-
-	nvidiaInfo, err := nvidia.NewNvidiaInfo(ctx)
-	if err != nil {
-		err = fmt.Errorf("Could not get nvidia info: %w", err)
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
 	// Allocate a specific GPU to add to the container
-	gpuInfo, err := nvidiaInfo.AllocDevices(ctx, int(r.c.Resources.GPU))
+	gpuInfo, err := r.gpuManager.AllocDevices(ctx, int(r.c.Resources.GPU))
 	if err != nil {
 		err = fmt.Errorf("Cannot allocate %d requested GPU device: %w", r.c.Resources.GPU, err)
 		tracehelpers.SetStatus(err, span)
@@ -1977,7 +1996,7 @@ func (r *DockerRuntime) setupGPU(ctx context.Context) error {
 	}
 
 	span.AddAttributes(trace.StringAttribute("gpuDevices", fmt.Sprintf("%v", gpuInfo.Devices())))
-	r.c.SetGPUInfo(gpuInfo, r.dockerCfg.nvidiaOciRuntime)
+	r.c.SetGPUInfo(gpuInfo)
 	logger.G(ctx).WithField("numGPUs", r.c.Resources.GPU).WithField("gpuDevices", gpuInfo.Devices()).Info("Allocated GPUs")
 	return nil
 }
@@ -2021,7 +2040,9 @@ stopped:
 
 	if gpuInfo := r.c.GetGPUInfo(); gpuInfo != nil {
 		numDealloc := gpuInfo.Deallocate()
-		log.Infof("Deallocated %d GPU devices for task %s", numDealloc, r.c.TaskID)
+		logger.G(ctx).WithField("numDealloc", numDealloc).Info("Deallocated GPU devices for task")
+	} else {
+		logger.G(ctx).Debug("No GPU devices deallocated")
 	}
 
 	return errs.ErrorOrNil()

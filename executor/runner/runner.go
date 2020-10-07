@@ -15,7 +15,6 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/models"
@@ -51,15 +50,6 @@ type Runner struct {
 	killChan    chan struct{}
 	StoppedChan chan struct{}
 	UpdatesChan chan Update
-}
-
-// StartTask constructs a new Executor object with the default (docker) runtime, and starts the task
-func StartTask(ctx context.Context, task Task, m metrics.Reporter, cfg config.Config, dockerCfg docker.Config) (*Runner, error) {
-	dockerRuntime, err := docker.NewDockerRuntime(ctx, m, dockerCfg, cfg)
-	if err != nil {
-		return nil, err
-	}
-	return StartTaskWithRuntime(ctx, task, m, dockerRuntime, cfg)
 }
 
 // StartTaskWithRuntime builds an Executor using the provided Runtime factory func, and starts the task

@@ -51,7 +51,6 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *Reso
 
 	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
 	// System service systemd units need this to be set in order to run with the right runtime path
-	env[TitusRuntimeEnvVariableName] = DefaultOciRuntime
 	labels[titusTaskInstanceIDKey] = env[titusTaskInstanceIDKey]
 	labels[cpuLabelKey] = strCPU
 	labels[memLabelKey] = strMem
@@ -68,6 +67,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *Reso
 		SecurityGroupIDs:   networkCfgParams.GetSecurityGroups(),
 		BandwidthLimitMbps: resources.Network,
 		Config:             cfg,
+		runtime:            DefaultOciRuntime,
 	}
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
 		titusENIIndex, err := strconv.Atoi(networkCfgParams.GetEniLabel())
