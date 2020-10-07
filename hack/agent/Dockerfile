@@ -45,6 +45,8 @@ RUN systemctl enable docker.service
 
 # TODO(fabio): detect what storage-driver to use at runtime
 RUN mkdir -p /etc/docker /run/metatron/certificates
+COPY hack/agent/fake-gpu-runtime /usr/local/bin/fake-gpu-runtime
+RUN chmod 755 /usr/local/bin/fake-gpu-runtime
 COPY hack/agent/daemon.json /etc/docker/daemon.json
 COPY hack/agent/titus-shared.env /etc/titus-shared.env
 COPY hack/agent/10-disable-atlas-agent.conf /etc/systemd/system/atlas-titus-agent@.service.d/10-disable-atlas-agent.conf

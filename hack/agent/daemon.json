@@ -2,5 +2,10 @@
     "storage-driver": "vfs",
     "debug": true,
     "log-driver": "journald",
-    "init-path": "/apps/titus-executor/bin/tini-static"
+    "init-path": "/apps/titus-executor/bin/tini-static",
+    "runtimes": {
+        "fake-gpu-runtime": {
+            "path": "/usr/bin/runc"
+        }
+    }
 }

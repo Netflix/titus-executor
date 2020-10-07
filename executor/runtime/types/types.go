@@ -43,6 +43,7 @@ const (
 	// TitusRuntimeEnvVariableName is used to pass the name of the oci-compliant runtime used to run a container.
 	// This can be used to construct the root path for runc to use to run system services.
 	TitusRuntimeEnvVariableName = "TITUS_OCI_RUNTIME"
+
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
 
@@ -117,13 +118,22 @@ func (e *InvalidConfigurationError) Error() string {
 	return fmt.Sprintf("Invalid configuration: %s", e.Reason)
 }
 
+type GPUManager interface {
+	AllocDevices(ctx context.Context, n int) (GPUContainer, error)
+}
+
 // GPUContainer manages the GPUs for a container, and frees them
 type GPUContainer interface {
 	Devices() []string
+	// Deallocate GPU Container. Must be idempotent.
 	Deallocate() int
+	Runtime() string
+	// Env returns any GPU specific environment overrides required
+	Env() map[string]string
 }
 
-// Container contains config state for a container. It should be Read Only.
+// Container contains config state for a container. It should be Read Only. It should only be initialized via a
+// constructor, and not directly.
 type Container struct {
 	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
 	ID        string
@@ -154,8 +164,15 @@ type Container struct {
 
 func (c *Container) GetEnv() map[string]string {
 	c.envLock.Lock()
-	defer c.envLock.Unlock()
-	return maps.CopySS(c.env)
+	env := maps.CopySS(c.env)
+	c.envLock.Unlock()
+	if gpuInfo := c.GetGPUInfo(); gpuInfo != nil {
+		for key, value := range gpuInfo.Env() {
+			env[key] = value
+		}
+	}
+	env[TitusRuntimeEnvVariableName] = c.GetRuntime()
+	return env
 }
 
 func (c *Container) SetEnv(key, value string) {
@@ -176,21 +193,14 @@ func (c *Container) GetGPUInfo() GPUContainer {
 	return c.gpuInfo
 }
 
-func (c *Container) SetGPUInfo(gpuInfo GPUContainer, ociRuntime string) {
-	c.runtime = ociRuntime
-
-	c.SetEnv(TitusRuntimeEnvVariableName, c.runtime)
-
-	// Now setup the environment variables that `nvidia-container-runtime` uses to configure itself,
-	// and remove any that may have been set by the user.  See https://github.com/NVIDIA/nvidia-container-runtime
-	c.SetEnv("NVIDIA_VISIBLE_DEVICES", strings.Join(gpuInfo.Devices(), ","))
-
-	// nvidia-docker 1.0 would mount all of `/usr/local/nvidia/`, bringing in all of the shared libs.
-	// Setting this to "all" will mount all of those libs:
-	c.SetEnv("NVIDIA_DRIVER_CAPABILITIES", "all")
+func (c *Container) SetGPUInfo(gpuInfo GPUContainer) {
+	c.gpuInfo = gpuInfo
 }
 
 func (c *Container) GetRuntime() string {
+	if c.gpuInfo != nil {
+		return c.gpuInfo.Runtime()
+	}
 	return c.runtime
 }
 
@@ -600,7 +610,7 @@ type Runtime interface {
 	Prepare(containerCtx context.Context) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
 	Start(containerCtx context.Context) (string, *Details, <-chan StatusMessage, error)
-	// Kill a container
+	// Kill a container. MUST be idempotent.
 	Kill(ctx context.Context) error
 	// Cleanup can be called to tear down resources after a container has been Killed or has naturally
 	// stopped. Must always be called.
