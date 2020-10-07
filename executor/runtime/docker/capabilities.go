@@ -91,7 +91,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 				PathInContainer:   value,
 				CgroupPermissions: "rmw",
 			})
-			c.Env["ROOT_DEVICE_PATH"] = value
+			c.SetEnv("ROOT_DEVICE_PATH", value)
 		}
 
 		hostCfg.Sysctls["net.ipv4.conf.all.accept_local"] = "1"
@@ -101,7 +101,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 
 	if c.IsSystemD {
 		// Tell Tini to exec systemd so it's pid 1
-		c.Env["TINI_HANDOFF"] = trueString
+		c.SetEnv("TINI_HANDOFF", trueString)
 	}
 
 	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)

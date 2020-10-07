@@ -171,7 +171,7 @@ func TestNewContainer(t *testing.T) {
 	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadType))
 
 	// Default to false unless metatron is explicitly configured
-	assert.Equal(t, container.Env["TITUS_METATRON_ENABLED"], "false")
+	assert.Equal(t, container.GetEnv()["TITUS_METATRON_ENABLED"], "false")
 
 	containerConfig, err := container.GetConfig(startTime)
 	assert.NoError(t, err)
@@ -209,5 +209,5 @@ func TestMetatronEnabled(t *testing.T) {
 	}
 
 	container := NewContainer(taskID, containerInfo, resources, labels, config)
-	assert.Equal(t, container.Env["TITUS_METATRON_ENABLED"], "true")
+	assert.Equal(t, container.GetEnv()["TITUS_METATRON_ENABLED"], "true")
 }

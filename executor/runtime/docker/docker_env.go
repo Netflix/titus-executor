@@ -6,7 +6,6 @@ import (
 	"strings"
 	"text/template"
 
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/docker/docker/api/types"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alessio/shellescape.v1"
@@ -43,7 +42,7 @@ type envFileTemplateData struct {
 	ImageEnv     map[string]string
 }
 
-func executeEnvFileTemplate(c *runtimeTypes.Container, imageInfo *types.ImageInspect, buf io.Writer) error {
+func executeEnvFileTemplate(env map[string]string, imageInfo *types.ImageInspect, buf io.Writer) error {
 	imageEnv := make(map[string]string, len(imageInfo.Config.Env))
 
 	for _, environmentVariable := range imageInfo.Config.Env {
@@ -55,6 +54,6 @@ func executeEnvFileTemplate(c *runtimeTypes.Container, imageInfo *types.ImageIns
 		imageEnv[splitEnvironmentVariable[0]] = splitEnvironmentVariable[1]
 	}
 
-	templateData := envFileTemplateData{ContainerEnv: c.Env, ImageEnv: imageEnv}
+	templateData := envFileTemplateData{ContainerEnv: env, ImageEnv: imageEnv}
 	return envFileTemplate.Execute(buf, templateData)
 }

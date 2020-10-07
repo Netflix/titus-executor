@@ -180,8 +180,8 @@ func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, c
 		// Different runtimes have different root paths that need to be passed to runc with `--root`.
 		// In particular, we use the `oci-add-hooks` runtime for GPU containers.
 		runtime := runtimeTypes.DefaultOciRuntime
-		if c.Runtime != "" {
-			runtime = c.Runtime
+		if r := c.GetRuntime(); r != "" {
+			runtime = r
 		}
 		if err := startSystemdUnit(ctx, conn, c.TaskID, c.ID, runtime, svc); err != nil {
 			logrus.WithError(err).Errorf("Error starting %s service", svc.humanName)

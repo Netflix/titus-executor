@@ -21,14 +21,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/titus-executor/logger"
-
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/nvidia"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -40,6 +40,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
@@ -310,10 +311,11 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		return nil, nil, err
 	}
 
-	c.Env["TITUS_IAM_ROLE"], err = c.GetIamProfile()
+	iamRole, err := c.GetIamProfile()
 	if err != nil {
 		return nil, nil, err
 	}
+	c.SetEnv("TITUS_IAM_ROLE", iamRole)
 
 	// hostname style: ip-{ip-addr} or {task ID}
 	hostname, err := c.ComputeHostname()
@@ -413,7 +415,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	hostCfg.Ulimits = []*units.Ulimit{coreLimit}
 
 	// This is just factored out mutation of these objects to make the code cleaner.
-	r.setupLogs(c, containerCfg, hostCfg)
+	r.setupLogs(c, hostCfg)
 
 	if r.cfg.PrivilegedContainersEnabled {
 		// Note: ATM, this is used to enable MCE to use FUSE within a container and
@@ -441,28 +443,28 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	containerCfg.Labels[runtimeTypes.NetIPv4Label] = c.Allocation.IPV4Address.Address.Address
 
 	// TODO(fabio): find a way to avoid regenerating the env map
-	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address.Address.Address
+	c.SetEnv("EC2_LOCAL_IPV4", c.Allocation.IPV4Address.Address.Address)
 	if c.Allocation.IPV6Address != nil {
-		c.Env["EC2_IPV6S"] = c.Allocation.IPV6Address.Address.Address
+		c.SetEnv("EC2_IPV6S", c.Allocation.IPV6Address.Address.Address)
 	}
-	c.Env["EC2_VPC_ID"] = c.Allocation.BranchENIVPC
-	c.Env["EC2_INTERFACE_ID"] = c.Allocation.BranchENIID
-	c.Env["EC2_SUBNET_ID"] = c.Allocation.BranchENISubnet
+	c.SetEnv("EC2_VPC_ID", c.Allocation.BranchENIVPC)
+	c.SetEnv("EC2_INTERFACE_ID", c.Allocation.BranchENIID)
+	c.SetEnv("EC2_SUBNET_ID", c.Allocation.BranchENISubnet)
 
 	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
 	if batch := c.GetBatch(); batch != nil {
-		c.Env["TITUS_BATCH"] = *batch
+		c.SetEnv("TITUS_BATCH", *batch)
 	}
 
 	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
-		c.Env["EC2_OWNER_ID"] = vpcAccountID
+		c.SetEnv("EC2_OWNER_ID", vpcAccountID)
 	}
 
 	if requireToken, ok := c.TitusInfo.GetPassthroughAttributes()[imdsRequireToken]; ok {
-		c.Env["TITUS_IMDS_REQUIRE_TOKEN"] = requireToken
+		c.SetEnv("TITUS_IMDS_REQUIRE_TOKEN", requireToken)
 	}
 
 	// This must got after all setup
@@ -471,7 +473,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	return containerCfg, hostCfg, nil
 }
 
-func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, containerCfg *container.Config, hostCfg *container.HostConfig) {
+func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
 	// TODO(fabio): move this to a daemon-level config
 	hostCfg.LogConfig = container.LogConfig{
 		Type: "journald",
@@ -482,13 +484,16 @@ func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, containerCfg *conta
 	socketFileName := tiniSocketFileName(c)
 
 	hostCfg.Binds = append(hostCfg.Binds, r.tiniSocketDir+":/titus-executor-sockets:ro")
-	c.Env["TITUS_REDIRECT_STDERR"] = "/logs/stderr"
-	c.Env["TITUS_REDIRECT_STDOUT"] = "/logs/stdout"
-	c.Env["TITUS_UNIX_CB_PATH"] = filepath.Join("/titus-executor-sockets/", socketFileName)
-	/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
-	c.Env["TITUS_CONFIRM"] = trueString
+	c.SetEnvs(map[string]string{
+		"TITUS_REDIRECT_STDERR": "/logs/stderr",
+		"TITUS_REDIRECT_STDOUT": "/logs/stdout",
+		"TITUS_UNIX_CB_PATH":    filepath.Join("/titus-executor-sockets/", socketFileName),
+		/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
+		"TITUS_CONFIRM": trueString,
+	})
+
 	if r.dockerCfg.tiniVerbosity > 0 {
-		c.Env["TINI_VERBOSITY"] = strconv.Itoa(r.dockerCfg.tiniVerbosity)
+		c.SetEnv("TINI_VERBOSITY", strconv.Itoa(r.dockerCfg.tiniVerbosity))
 	}
 }
 
@@ -1020,6 +1025,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		logger.G(ctx).Info("Mocking networking configuration in dev mode to IP: ", r.c.Allocation)
 	}
 
+	if r.c.Resources.GPU > 0 {
+		group.Go(r.setupGPU)
+	}
+
 	err = group.Wait()
 	if err != nil {
 		goto error
@@ -1050,17 +1059,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		goto error
 	}
 
-	if r.c.Resources.GPU > 0 {
-		err = r.setupGPU(ctx, r.c, dockerCfg, hostCfg)
-		if err != nil {
-			goto error
-		}
-	}
-
 	logger.G(ctx).WithFields(map[string]interface{}{
 		"dockerCfg": logger.ShouldJSON(ctx, *dockerCfg),
 		"hostCfg":   logger.ShouldJSON(ctx, *hostCfg),
-	}).Info("Creating container")
+	}).Info("Creating container in docker")
 
 	containerCreateBody, err = r.client.ContainerCreate(ctx, dockerCfg, hostCfg, nil, r.c.TaskID)
 	r.c.SetID(containerCreateBody.ID)
@@ -1136,7 +1138,7 @@ func (r *DockerRuntime) createTitusEnvironmentFile(c *runtimeTypes.Container) er
 	})
 
 	/* writeTitusEnvironmentFile closes the file for us */
-	return writeTitusEnvironmentFile(c.Env, f)
+	return writeTitusEnvironmentFile(c.GetEnv(), f)
 }
 
 func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
@@ -1166,7 +1168,7 @@ func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *ty
 
 	//myImageInfo.Config.Env
 
-	if err := executeEnvFileTemplate(c, imageInfo, &envTemplateBuf); err != nil {
+	if err := executeEnvFileTemplate(c.GetEnv(), imageInfo, &envTemplateBuf); err != nil {
 		return err
 	}
 
@@ -1954,22 +1956,29 @@ func launchTini(conn *net.UnixConn) error {
 	return err
 }
 
-func (r *DockerRuntime) setupGPU(ctx context.Context, c *runtimeTypes.Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
-	logger := log.WithField("taskID", c.TaskID)
+func (r *DockerRuntime) setupGPU(ctx context.Context) error {
+	ctx, span := trace.StartSpan(ctx, "DockerRuntime.setupGPU")
+	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("numGPUs", r.c.Resources.GPU))
 
-	gpuInfo, err := nvidia.NewNvidiaInfo(ctx)
+	nvidiaInfo, err := nvidia.NewNvidiaInfo(ctx)
 	if err != nil {
+		err = fmt.Errorf("Could not get nvidia info: %w", err)
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	// Allocate a specific GPU to add to the container
-	c.GPUInfo, err = gpuInfo.AllocDevices(ctx, int(c.TitusInfo.GetNumGpus()))
+	gpuInfo, err := nvidiaInfo.AllocDevices(ctx, int(r.c.Resources.GPU))
 	if err != nil {
-		return fmt.Errorf("Cannot allocate %d requested GPU device: %v", c.TitusInfo.GetNumGpus(), err)
+		err = fmt.Errorf("Cannot allocate %d requested GPU device: %w", r.c.Resources.GPU, err)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 
-	gpuInfo.UpdateContainerConfig(c, dockerCfg, hostCfg, r.dockerCfg.nvidiaOciRuntime)
-	logger.WithField("numGPUs", c.TitusInfo.GetNumGpus()).WithField("gpuDevices", c.GPUInfo.Devices()).Info("Allocated GPUs")
+	span.AddAttributes(trace.StringAttribute("gpuDevices", fmt.Sprintf("%v", gpuInfo.Devices())))
+	r.c.SetGPUInfo(gpuInfo, r.dockerCfg.nvidiaOciRuntime)
+	logger.G(ctx).WithField("numGPUs", r.c.Resources.GPU).WithField("gpuDevices", gpuInfo.Devices()).Info("Allocated GPUs")
 	return nil
 }
 
@@ -2010,8 +2019,8 @@ func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
 
 stopped:
 
-	if r.c.TitusInfo.GetNumGpus() > 0 && r.c.GPUInfo != nil {
-		numDealloc := r.c.GPUInfo.Deallocate()
+	if gpuInfo := r.c.GetGPUInfo(); gpuInfo != nil {
+		numDealloc := gpuInfo.Deallocate()
 		log.Infof("Deallocated %d GPU devices for task %s", numDealloc, r.c.TaskID)
 	}
 

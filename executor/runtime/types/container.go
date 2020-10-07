@@ -63,7 +63,7 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *Reso
 		TaskID:             taskID,
 		TitusInfo:          titusInfo,
 		Resources:          resources,
-		Env:                env,
+		env:                env,
 		Labels:             labels,
 		SecurityGroupIDs:   networkCfgParams.GetSecurityGroups(),
 		BandwidthLimitMbps: resources.Network,
