@@ -1,11 +1,14 @@
 package types
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/aws/aws-sdk-go/aws/arn"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -40,35 +43,43 @@ const (
 	BurstWorkloadType  WorkloadType = "burst"
 )
 
+func itoa(i int64) string {
+	return strconv.FormatInt(i, 10)
+}
+
 // NewContainer allocates and initializes a new container struct object
-func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *Resources, labels map[string]string, cfg config.Config) *Container {
+func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources Resources, labels map[string]string, cfg config.Config) (*Container, error) {
+	return NewContainerWithPod(taskID, titusInfo, resources, labels, cfg, nil)
+}
+
+// NewContainer allocates and initializes a new container struct object. Pod can be optionally passed. If nil, ignored
+func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resources Resources, labels map[string]string, cfg config.Config, pod *corev1.Pod) (*Container, error) {
 	networkCfgParams := titusInfo.GetNetworkConfigInfo()
 
-	strCPU := strconv.FormatInt(resources.CPU, 10)
-	strMem := strconv.FormatInt(resources.Mem, 10)
-	strDisk := strconv.FormatUint(resources.Disk, 10)
-	strNetwork := strconv.FormatUint(resources.Network, 10)
-
-	env := cfg.GetNetflixEnvForTask(titusInfo, strMem, strCPU, strDisk, strNetwork)
-	// System service systemd units need this to be set in order to run with the right runtime path
-	labels[titusTaskInstanceIDKey] = env[titusTaskInstanceIDKey]
-	labels[cpuLabelKey] = strCPU
-	labels[memLabelKey] = strMem
-	labels[diskLabelKey] = strDisk
-	labels[networkLabelKey] = strNetwork
+	labels[cpuLabelKey] = itoa(resources.CPU)
+	labels[memLabelKey] = itoa(resources.Mem)
+	labels[diskLabelKey] = itoa(resources.Disk)
+	labels[networkLabelKey] = itoa(resources.Network)
 	addLabels(titusInfo, labels)
 
 	c := &Container{
 		TaskID:             taskID,
 		TitusInfo:          titusInfo,
 		Resources:          resources,
-		env:                env,
+		envOverrides:       map[string]string{},
 		Labels:             labels,
 		SecurityGroupIDs:   networkCfgParams.GetSecurityGroups(),
 		BandwidthLimitMbps: resources.Network,
 		Config:             cfg,
 		runtime:            DefaultOciRuntime,
 	}
+	if pod != nil {
+		if l := len(pod.Spec.Containers); l != 1 {
+			return nil, fmt.Errorf("Pod has unexpected number of containers (not 1): %d", l)
+		}
+		c.pod = pod.DeepCopy()
+	}
+
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
 		titusENIIndex, err := strconv.Atoi(networkCfgParams.GetEniLabel())
 		if err != nil {
@@ -83,7 +94,19 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources *Reso
 		c.AllocationUUID = titusInfo.SignedAddressAllocation.AddressAllocation.Uuid
 	}
 
-	return c
+	c.Labels[titusTaskInstanceIDKey] = c.GetEnv()[titusTaskInstanceIDKey]
+
+	c.iamRole = c.TitusInfo.GetIamProfile()
+
+	if c.iamRole == "" {
+		return nil, ErrMissingIAMRole
+	}
+
+	if _, err := arn.Parse(c.iamRole); err != nil {
+		return nil, fmt.Errorf("Could not parse iam profile %q, due to %w", c.iamRole, err)
+	}
+
+	return c, nil
 }
 
 func addLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {

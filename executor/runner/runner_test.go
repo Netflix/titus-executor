@@ -128,6 +128,7 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 	taskInfo := &titus.ContainerInfo{
 		ImageName:         &image,
 		IgnoreLaunchGuard: proto.Bool(true),
+		IamProfile:        proto.String("arn:aws:iam::0:role/DefaultContainerRole"),
 	}
 	kills := make(chan chan<- struct{}, 1)
 
@@ -215,6 +216,7 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	taskInfo := &titus.ContainerInfo{
 		ImageName:         &image,
 		IgnoreLaunchGuard: proto.Bool(true),
+		IamProfile:        proto.String("arn:aws:iam::0:role/DefaultContainerRole"),
 	}
 	kills := make(chan chan<- struct{}, 1)
 
@@ -311,6 +313,7 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	taskInfo := &titus.ContainerInfo{
 		ImageName:         &image,
 		IgnoreLaunchGuard: proto.Bool(true),
+		IamProfile:        proto.String("arn:aws:iam::0:role/DefaultContainerRole"),
 	}
 	kills := make(chan chan<- struct{}, 1)
 

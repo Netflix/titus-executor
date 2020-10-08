@@ -3,6 +3,8 @@ package runner
 import (
 	"regexp"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/Netflix/titus-executor/logger"
 
 	"context"
@@ -27,11 +29,12 @@ import (
 type Task struct {
 	TaskID    string
 	TitusInfo *titus.ContainerInfo
+	Pod       *corev1.Pod
 	Mem       int64
 	CPU       int64
 	Gpu       int64
-	Disk      uint64
-	Network   uint64
+	Disk      int64
+	Network   int64
 }
 
 // Runner maintains in memory state for the Task runner
@@ -67,7 +70,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		labels["ec2.iam.role"] = task.TitusInfo.GetIamProfile()
 	}
 
-	resources := &runtimeTypes.Resources{
+	resources := runtimeTypes.Resources{
 		Mem:     task.Mem,
 		CPU:     task.CPU,
 		GPU:     task.Gpu,
@@ -76,6 +79,10 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 	}
 
 	startTime := time.Now()
+	container, err := runtimeTypes.NewContainerWithPod(task.TaskID, task.TitusInfo, resources, labels, cfg, task.Pod)
+	if err != nil {
+		return nil, err
+	}
 	runner := &Runner{
 		metrics:       m,
 		metricsTagger: metricsTagger,
@@ -83,7 +90,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		killChan:      make(chan struct{}),
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
-		container:     runtimeTypes.NewContainer(task.TaskID, task.TitusInfo, resources, labels, cfg),
+		container:     container,
 	}
 
 	rt, err := rp(ctx, runner.container, startTime)

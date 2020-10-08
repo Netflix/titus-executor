@@ -71,11 +71,9 @@ const (
 	defaultRunTmpFsSize     = "134217728" // 128 MiB
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
-	accountID               = "titusParameter.agent.accountId"
 	subnets                 = "titusParameter.agent.subnets"
 	elasticIPPool           = "titusParameter.agent.elasticIPPool"
 	elasticIPs              = "titusParameter.agent.elasticIPs"
-	imdsRequireToken        = "titusParameter.agent.imds.requireToken"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
@@ -336,12 +334,6 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		return nil, nil, err
 	}
 
-	iamRole, err := c.GetIamProfile()
-	if err != nil {
-		return nil, nil, err
-	}
-	c.SetEnv("TITUS_IAM_ROLE", iamRole)
-
 	// hostname style: ip-{ip-addr} or {task ID}
 	hostname, err := c.ComputeHostname()
 	if err != nil {
@@ -429,14 +421,14 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	if r.storageOptEnabled {
 		hostCfg.StorageOpt = map[string]string{
-			"size": fmt.Sprintf("%dM", c.Resources.Disk+builtInDiskBuffer+uint64(imageSize/MiB)),
+			"size": fmt.Sprintf("%dM", c.Resources.Disk+builtInDiskBuffer+(imageSize/MiB)),
 		}
 	}
 
 	coreLimit := &units.Ulimit{
 		Name: "core",
-		Soft: int64((c.Resources.Disk * MiB) + 1*GiB),
-		Hard: int64((c.Resources.Disk * MiB) + 1*GiB),
+		Soft: ((c.Resources.Disk * MiB) + 1*GiB),
+		Hard: ((c.Resources.Disk * MiB) + 1*GiB),
 	}
 	hostCfg.Ulimits = []*units.Ulimit{coreLimit}
 
@@ -468,29 +460,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	containerCfg.Labels[runtimeTypes.VPCIPv4Label] = c.Allocation.IPV4Address.Address.Address // nolint: staticcheck
 	containerCfg.Labels[runtimeTypes.NetIPv4Label] = c.Allocation.IPV4Address.Address.Address
 
-	// TODO(fabio): find a way to avoid regenerating the env map
-	c.SetEnv("EC2_LOCAL_IPV4", c.Allocation.IPV4Address.Address.Address)
-	if c.Allocation.IPV6Address != nil {
-		c.SetEnv("EC2_IPV6S", c.Allocation.IPV6Address.Address.Address)
-	}
-	c.SetEnv("EC2_VPC_ID", c.Allocation.BranchENIVPC)
-	c.SetEnv("EC2_INTERFACE_ID", c.Allocation.BranchENIID)
-	c.SetEnv("EC2_SUBNET_ID", c.Allocation.BranchENISubnet)
-
 	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")
-	}
-
-	if batch := c.GetBatch(); batch != nil {
-		c.SetEnv("TITUS_BATCH", *batch)
-	}
-
-	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
-		c.SetEnv("EC2_OWNER_ID", vpcAccountID)
-	}
-
-	if requireToken, ok := c.TitusInfo.GetPassthroughAttributes()[imdsRequireToken]; ok {
-		c.SetEnv("TITUS_IMDS_REQUIRE_TOKEN", requireToken)
 	}
 
 	// This must got after all setup
@@ -649,7 +620,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		args = append(args, "--ipv4-allocation-uuid", c.AllocationUUID)
 	}
 
-	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
+	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[runtimeTypes.AccountIDParam]; ok {
 		args = append(args, "--interface-account", vpcAccountID)
 	}
 
@@ -1787,7 +1758,7 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 	}
 	args := []string{
 		"setup-container",
-		"--bandwidth", strconv.FormatUint(bw, 10),
+		"--bandwidth", strconv.FormatInt(bw, 10),
 		"--netns", "3",
 	}
 	if burst || c.TitusInfo.GetAllowNetworkBursting() {

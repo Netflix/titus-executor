@@ -395,8 +395,8 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 		gpu = *jobInput.GPU
 		ci.NumGpus = protobuf.Uint32(uint32(*jobInput.GPU))
 	}
-	diskMiB := uint64(100)
-	network := uint64(128)
+	diskMiB := int64(100)
+	network := int64(128)
 
 	// TODO: Replace this config mechanism
 	task := runner.Task{
