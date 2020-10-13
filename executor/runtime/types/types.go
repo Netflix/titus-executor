@@ -244,9 +244,11 @@ func (c *Container) GetEnv() map[string]string {
 	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
 	env["TITUS_IAM_ROLE"] = c.iamRole
 
-	// User provided environment
-	if c.pod == nil || len(c.pod.Spec.Containers[0].Env) == 0 {
-		// titus provided can override user provided
+	// passed environment
+	passedEnv := func() map[string]string {
+		containerInfoEnv := map[string]string{
+			"TITUS_ENV_FROM": "containerInfo",
+		}
 		for key, value := range c.TitusInfo.GetUserProvidedEnv() {
 			if value != "" {
 				env[key] = value
@@ -255,12 +257,38 @@ func (c *Container) GetEnv() map[string]string {
 		for key, value := range c.TitusInfo.GetTitusProvidedEnv() {
 			env[key] = value
 		}
-	} else {
+
+		if c.pod == nil {
+			return containerInfoEnv
+		}
+		// This is a "dumb" check -- that just makes sure 1 container exists so we don't null pointer exception
+		// We probably don't want to blindly source env
+		if len(c.pod.Spec.Containers) != 1 {
+			return containerInfoEnv
+		}
+		if len(c.pod.Spec.Containers[0].Env) == 0 {
+			return containerInfoEnv
+		}
+
+		podEnv := map[string]string{
+			"TITUS_ENV_FROM": "pod",
+		}
 		for _, val := range c.pod.Spec.Containers[0].Env {
 			if val.Value != "" {
-				env[val.Name] = val.Value
+				podEnv[val.Name] = val.Value
 			}
 		}
+		if val, ok := podEnv[titusTaskInstanceIDKey]; !ok {
+			// We need to have the pod env have this variable
+			return containerInfoEnv
+		} else if val == "" {
+			return containerInfoEnv
+		}
+		return podEnv
+	}()
+
+	for key, value := range passedEnv {
+		env[key] = value
 	}
 
 	if c.Config.MetatronEnabled {
