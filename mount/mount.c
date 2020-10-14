@@ -20,11 +20,54 @@
 #include <asm-generic/unistd.h>
 #include <linux/mount.h>
 
+/* WIP */
+#include <sys/capability.h>
+#include <assert.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+
 /* fcntl */
 #include <unistd.h>
 #include <fcntl.h>
 
 char nfs4[] = "nfs4";
+
+int switch_ns() {
+errno = 0;
+	int user_ns_fd;
+	int rc;
+	const char *user_ns = getenv("USER_NS");
+	if (user_ns) {
+		fprintf(stderr, "var for user_ns : '%s'", user_ns);
+		user_ns_fd = strtol(user_ns, NULL, 10);
+		if (errno) {
+			perror("user_ns 1");
+			exit(1);
+			return 1;
+		}
+		fprintf(stderr, "user_ns_fd : %d\n", user_ns_fd);
+		if (user_ns_fd == 0) {
+			fprintf(stderr, "Unable to get user NS fd\n");
+			exit(1);
+			return 1;
+		}
+		/* Validate that we have this file descriptor */
+		if (fcntl(user_ns_fd, F_GETFD) == -1) {
+			perror("user: f_getfd");
+			exit(1);
+			return 1;
+		}
+		fprintf(stderr, "Going for a clone\n");
+		rc = setns(user_ns_fd, CLONE_NEWUSER);
+		if (rc) {
+			perror("setns");
+			exit(1);
+			return 1;
+		}
+		fprintf(stderr, "Now using the user namespace\n");
+	}
+	return 0;
+}
 
 static char* get_fs_type() {
 	char *fs_type = getenv("MOUNT_FS_TYPE");
@@ -43,14 +86,20 @@ static int dns_lookup(const char *hostname, struct sockaddr_in *addr)
 	if (inet_aton(hostname, &addr->sin_addr)) {
 		fprintf(stderr, "titus-mount: %s is already an IP. Not doing a DNS lookup\n", hostname);
 		return 0;
-	}
+	} else {
+		// Reset the errno because inet_aton failed
+		errno = 0;
+}
 	fprintf(stderr, "titus-mount: Decoding and resolving dns hostname for %s\n", hostname);
 	hp = gethostbyname(hostname);
 	if (hp == NULL) {
 		int err_ret = h_errno;
 		fprintf(stderr, "titus-mount: can't get address for %s: %s\n", hostname, hstrerror(err_ret));
 		return -1;
-	}
+	} else {
+		// Reset the errno because we got an hp
+		errno = 0;
+}
 	if (hp->h_length > (int)sizeof(struct in_addr)) {
 		fprintf(stderr, "titus-mount: got bad hp->h_length");
 		return -1;
@@ -135,6 +184,147 @@ bool check_new_mount_api_available() {
         } while (0)
 
 
+int
+recvfd(int sockfd)
+{
+    struct msghdr msgh;
+    struct iovec iov;
+    int data, fd;
+    ssize_t nr;
+
+    /* Allocate a char buffer for the ancillary data. See the comments
+       in sendfd() */
+    union {
+        char   buf[CMSG_SPACE(sizeof(int))];
+        struct cmsghdr align;
+    } controlMsg;
+    struct cmsghdr *cmsgp;
+
+    /* The 'msg_name' field can be used to obtain the address of the
+       sending socket. However, we do not need this information. */
+
+    msgh.msg_name = NULL;
+    msgh.msg_namelen = 0;
+
+    /* Specify buffer for receiving real data */
+
+    msgh.msg_iov = &iov;
+    msgh.msg_iovlen = 1;
+    iov.iov_base = &data;       /* Real data is an 'int' */
+    iov.iov_len = sizeof(int);
+
+    /* Set 'msghdr' fields that describe ancillary data */
+
+    msgh.msg_control = controlMsg.buf;
+    msgh.msg_controllen = sizeof(controlMsg.buf);
+
+    /* Receive real plus ancillary data; content of real data is ignored */
+
+    nr = recvmsg(sockfd, &msgh, 0);
+    if (nr == -1)
+        return -1;
+
+    cmsgp = CMSG_FIRSTHDR(&msgh);
+
+    /* Check the validity of the 'cmsghdr' */
+
+    if (cmsgp == NULL ||
+        cmsgp->cmsg_len != CMSG_LEN(sizeof(int)) ||
+        cmsgp->cmsg_level != SOL_SOCKET ||
+        cmsgp->cmsg_type != SCM_RIGHTS) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    /* Return the received file descriptor to our caller */
+
+    memcpy(&fd, CMSG_DATA(cmsgp), sizeof(int));
+    return fd;
+}
+
+void run_mount_as_a_service(int sock_pair){ 
+
+    fprintf(stderr, "Creating the socket\n");
+    int sfd = socket(AF_UNIX, SOCK_STREAM, 0);      /* Create client socket */
+    if (sfd == -1) {
+        perror("socket");
+	exit(1);
+	}
+    fprintf(stderr, "Created the socket\n");
+	int fsfd = recvfd(sock_pair);
+	fprintf(stderr, "got a fd! %d\n", fsfd);
+	E_fsconfig(fsfd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
+	exit(0);
+
+}
+
+/* Send the file descriptor 'fd' over the connected UNIX domain socket
+   'sockfd'. Returns 0 on success, or -1 on error. */
+
+int
+sendfd(int sockfd, int fd)
+{
+    struct msghdr msgh;
+    struct iovec iov;
+    int data;
+    struct cmsghdr *cmsgp;
+
+    /* Allocate a char array of suitable size to hold the ancillary data.
+       However, since this buffer is in reality a 'struct cmsghdr', use a
+       union to ensure that it is aligned as required for that structure.
+       Alternatively, we could allocate the buffer using malloc(), which
+       returns a buffer that satisfies the strictest alignment requirements
+       of any type. However, if we employ that approach, we must ensure
+       that we free() the buffer on all return paths from this function. */
+    union {
+        char   buf[CMSG_SPACE(sizeof(int))];
+        /* Space large enough to hold an 'int' */
+        struct cmsghdr align;
+    } controlMsg;
+
+    /* The 'msg_name' field can be used to specify the address of the
+       destination socket when sending a datagram. However, we do not
+       need to use this field because we presume that 'sockfd' is a
+       connected socket. */
+
+    msgh.msg_name = NULL;
+    msgh.msg_namelen = 0;
+
+    /* On Linux, we must transmit at least one byte of real data in
+       order to send ancillary data. We transmit an arbitrary integer
+       whose value is ignored by recvfd(). */
+
+    msgh.msg_iov = &iov;
+    msgh.msg_iovlen = 1;
+    iov.iov_base = &data;
+    iov.iov_len = sizeof(int);
+    data = 12345;
+
+    /* Set 'msghdr' fields that describe ancillary data */
+
+    msgh.msg_control = controlMsg.buf;
+    msgh.msg_controllen = sizeof(controlMsg.buf);
+
+    /* Set up ancillary data describing file descriptor to send */
+
+    cmsgp = CMSG_FIRSTHDR(&msgh);
+    cmsgp->cmsg_level = SOL_SOCKET;
+    cmsgp->cmsg_type = SCM_RIGHTS;
+    cmsgp->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(cmsgp), &fd, sizeof(int));
+
+    /* Send real plus ancillary data */
+
+    if (sendmsg(sockfd, &msgh, 0) == -1)
+        return -1;
+
+    return 0;
+}
+
+
+void give_fd_to_do_stuff(int fsfd, int sockfd){
+	sendfd(sockfd, fsfd);
+}
 
 void do_fsconfigs(int fsfd, const char *options) {
 	// TODO parse this for real
@@ -151,11 +341,12 @@ void do_fsconfigs(int fsfd, const char *options) {
 //	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "noresvport", "",  0);
 //	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "fsc", "d85f8159aec7", 0);
 	// TODO: This fails if nsenter'd into the userns, works if not (but uid/gid are wrong)
-	E_fsconfig(fsfd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
+
+//	E_fsconfig(fsfd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
 }
 
 
-int do_fsmount(const char *source, const char *target, const char *fs_type, unsigned long flags_ul, const char *options) {
+int do_fsmount(const char *source, const char *target, const char *fs_type, unsigned long flags_ul, const char *options, int sock_fd) {
 	int fsfd, mfd;
 
 	// Hard coding nfs4 here, the only type we currently support (note: not nfsv4)
@@ -170,25 +361,29 @@ int do_fsmount(const char *source, const char *target, const char *fs_type, unsi
 	}
 
 	/* First we open a fd for holding the new fs */
-	printf("Running fsopen with %s with flags %lu\n", fs_type, flags);
+	fprintf(stderr, "Running fsopen with %s with flags %lu\n", fs_type, flags);
 	fsfd = fsopen("nfs4", 0);
 	if (fsfd == -1) {
                 perror("fsopen");
                 exit(1);
 	}
 
-	printf("Doing fsconfigs with these options: %s\n", options);
+	fprintf(stderr, "Doing fsconfigs with these options: %s\n", options);
 	do_fsconfigs(fsfd, options);
+	give_fd_to_do_stuff(fsfd, sock_fd);
+	fprintf(stderr, "Sleeping a bit to let the other thing work\n");
+	sleep(1);
+
 
 	/* Now we can fsmount it into a mount fd (mfd) */
-	printf("Calling fsmount with %d with args 0, 0\n", fsfd);
+	fprintf(stderr, "Calling fsmount with %d with args 0, 0\n", fsfd);
 	mfd = fsmount(fsfd, 0, MS_NODEV);
         if (mfd < 0)
                 mount_error(fsfd, "fsmount");
         E(close(fsfd));
 
 	/* Last we can move it to the target */
-	printf("Calling move_mount to %s\n", target);
+	fprintf(stderr, "Calling move_mount to %s\n", target);
         if (move_mount(mfd, "", AT_FDCWD, target, MOVE_MOUNT_F_EMPTY_PATH) < 0) {
                 perror("move_mount");
                 exit(1);
@@ -199,7 +394,7 @@ int do_fsmount(const char *source, const char *target, const char *fs_type, unsi
 }
 
 int main() {
-	int mnt_ns_fd, net_ns_fd, user_ns_fd;
+	int mnt_ns_fd, net_ns_fd;
 	unsigned long flags_ul;
 	int rc;
 	/*
@@ -209,7 +404,6 @@ int main() {
 	 */
 	const char *mnt_ns = getenv("MOUNT_NS");
 	const char *net_ns = getenv("NET_NS");
-	const char *user_ns = getenv("USER_NS");
 	const char *source = getenv("MOUNT_SOURCE");
 	const char *nfs_mount_hostname = getenv("MOUNT_NFS_HOSTNAME");
 	const char *target = getenv("MOUNT_TARGET");
@@ -255,7 +449,7 @@ int main() {
 			perror("netns");
 			return 1;
 		}
-		printf("Now using the net namespace\n");
+		fprintf(stderr, "Now using the net namespace\n");
 	}
 
 	if (mnt_ns) {
@@ -278,35 +472,39 @@ int main() {
 			perror("setns");
 			return 1;
 		}
-		printf("Now using the mount namespace\n");
+		fprintf(stderr, "Now using the mount namespace\n");
 	}
 
-		// TODO
-		if (user_ns) {
-			printf("var for user_ns : %s", user_ns);
-			user_ns_fd = strtol(user_ns, NULL, 10);
-			if (errno) {
-				perror("user_ns 1");
-				return 1;
-			}
-			printf("user_ns_fd : %d\n", user_ns_fd);
-			if (user_ns_fd == 0) {
-				fprintf(stderr, "Unable to get user NS fd\n");
-				return 1;
-			}
-			/* Validate that we have this file descriptor */
-			if (fcntl(user_ns_fd, F_GETFD) == -1) {
-				perror("user: f_getfd");
-				return 1;
-			}
-			printf("Going for a clone\n");
-			rc = setns(user_ns_fd, CLONE_NEWUSER);
-			if (rc) {
-				perror("setns");
-				return 1;
-			}
-			printf("Now using the user namespace\n");
-		}
+
+    int sock_pair[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sock_pair) == -1) {
+        perror("socketpair");
+	exit(1);
+	}
+
+
+   if (fork() == 0)  {
+        run_mount_as_a_service(sock_pair[0]); 
+    // parent process because return value non-zero. 
+}    else {
+        fprintf(stderr, "Hello from Parent!\n");
+}
+
+	switch_ns();
+//setgroups(0, NULL);
+setgid(0);
+setuid(0);
+
+//system("/bin/cat /etc/issue");
+//system("/bin/cat /proc/self/status");
+
+cap_flag_value_t sys_admin;
+cap_t caps;
+caps = cap_get_proc();
+assert(caps != NULL);
+assert(cap_get_flag(caps, CAP_SYS_ADMIN, CAP_EFFECTIVE, &sys_admin) == 0);
+assert(sys_admin == CAP_SET);
+
 
 	/* For NFS, we must do the dns resolution *here* while we are inside net ns */
 	if (nfs_mount_hostname) {
@@ -325,7 +523,7 @@ int main() {
 
 	if (check_new_mount_api_available()) {
 		/* Where possible, we try to use the newer fsmount syscalls for newer kernel support */
-		rc = do_fsmount(source, target, fs_type, flags_ul, final_options);
+		rc = do_fsmount(source, target, fs_type, flags_ul, final_options, sock_pair[1]);
 	} else {
 		/* Otherwise we use the traditional mount call */
 		rc = mount(source, target, fs_type, flags_ul, final_options);
@@ -336,6 +534,6 @@ int main() {
 		return 1;
 	}
 
-	printf("All done, mounted on %s\n", target);
+	fprintf(stderr, "All done, mounted on %s\n", target);
 	return 0;
 }
