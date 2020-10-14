@@ -1522,57 +1522,29 @@ func validateMessage(c *runtimeTypes.Container, message events.Message) {
 const (
 	// MS_RDONLY indicates that mount is read-only
 	MS_RDONLY = 1 // nolint: golint
-	// MS_MGC_VAL does nothing, it's just a non-0 value that used to be legacy in the kernel to indicate mount options
-	MS_MGC_VAL = 0xC0ED0000 // nolint: golint
 )
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeTypes.Container, rootFile *os.File, cred *ucred, efsMountInfos []efsMountInfo) error {
-	baseMountOptions := []string{"vers=4.1,nosharecache,rsize=1048576,wsize=1048576,timeo=600,retrans=2,noresvport"}
-
-	mntNSPath := filepath.Join("/proc", strconv.Itoa(int(cred.pid)), "ns", "mnt")
-	mntNSFile, err := os.OpenFile(mntNSPath, os.O_RDONLY, 0444)
-	if err != nil {
-		return err
-	}
-	defer shouldClose(mntNSFile)
-
-	netNSPath := filepath.Join("/proc", strconv.Itoa(int(cred.pid)), "ns", "net")
-	netNSFile, err := os.OpenFile(netNSPath, os.O_RDONLY, 0444)
-	if err != nil {
-		return err
-	}
-	defer shouldClose(netNSFile)
-
+	baseMountOptions := []string{"vers=4.1,rsize=1048576,wsize=1048576,timeo=600,retrans=2"}
 	for _, efsMountInfo := range efsMountInfos {
 		// Todo: Make into a const
-		// TODO: Run this under the container's PID namespace
 		// Although 5 minutes is probably far too much here, this window is okay to be large
 		// because the parent window should be greater
 		ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount") // nolint: gosec
-		// mntNSFD = 3+0 = 3
-		// userNSFD = 3+1 = 4
-		flags := MS_MGC_VAL
+		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount", strconv.Itoa(int(cred.pid))) // nolint: gosec
+		flags := 0
 		if efsMountInfo.readWriteFlags == ro {
 			flags = flags | MS_RDONLY
 		}
-
-		cmd.ExtraFiles = []*os.File{mntNSFile, netNSFile}
-
 		mountOptions := append(
 			baseMountOptions,
 			fmt.Sprintf("fsc=%s", c.TaskID),
+			fmt.Sprintf("source=%s:%s", efsMountInfo.hostname, efsMountInfo.cleanEfsFsRelativeMntPoint),
 		)
 		cmd.Env = []string{
-			// Go-ism
-			// If you pass file descriptors over os/cmd, it will be 3+n where N is the index of the file descriptor in the slice you pass.
-			// See above for "math"
-			"MOUNT_NS=3",
-			"NET_NS=4",
 			fmt.Sprintf("MOUNT_TARGET=%s", efsMountInfo.cleanMountPoint),
 			fmt.Sprintf("MOUNT_NFS_HOSTNAME=%s", efsMountInfo.hostname),
-			fmt.Sprintf("MOUNT_SOURCE=%s:%s", efsMountInfo.hostname, efsMountInfo.cleanEfsFsRelativeMntPoint),
 			fmt.Sprintf("MOUNT_FLAGS=%d", flags),
 			fmt.Sprintf("MOUNT_OPTIONS=%s", strings.Join(mountOptions, ",")),
 		}
@@ -1583,7 +1555,6 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 		}
 		cancel()
 	}
-
 	return nil
 }
 
