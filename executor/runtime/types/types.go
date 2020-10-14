@@ -8,17 +8,19 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-
+	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/kubernetes/pkg/util/maps"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
-	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
 )
 
@@ -33,6 +35,8 @@ const (
 	ttyEnabledParam              = "titusParameter.agent.ttyEnabled"
 	optimisticIAMTokenFetchParam = "titusParameter.agent.optimisticIAMTokenFetch"
 	jumboFrameParam              = "titusParameter.agent.allowNetworkJumbo"
+	AccountIDParam               = "titusParameter.agent.accountId"
+	imdsRequireTokenParam        = "titusParameter.agent.imds.requireToken"
 
 	// TitusEnvironmentsDir is the directory we write Titus environment files and JSON configs to
 	TitusEnvironmentsDir            = "/var/lib/titus-environments"
@@ -40,6 +44,7 @@ const (
 	// TitusRuntimeEnvVariableName is used to pass the name of the oci-compliant runtime used to run a container.
 	// This can be used to construct the root path for runc to use to run system services.
 	TitusRuntimeEnvVariableName = "TITUS_OCI_RUNTIME"
+
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
 
@@ -114,46 +119,251 @@ func (e *InvalidConfigurationError) Error() string {
 	return fmt.Sprintf("Invalid configuration: %s", e.Reason)
 }
 
-// CleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
-type CleanupFunc func() error
+type GPUManager interface {
+	AllocDevices(ctx context.Context, n int) (GPUContainer, error)
+}
 
 // GPUContainer manages the GPUs for a container, and frees them
 type GPUContainer interface {
 	Devices() []string
+	// Deallocate GPU Container. Must be idempotent.
 	Deallocate() int
+	Runtime() string
+	// Env returns any GPU specific environment overrides required
+	Env() map[string]string
 }
 
-// Container contains config state for a container.
-// It is not safe to be used concurrently, synchronization and locking needs to be handled externally.
+// Container contains config state for a container. It should be Read Only. It should only be initialized via a
+// constructor, and not directly.
 type Container struct {
-	// nolint: maligned
-	ID        string
-	TaskID    string
-	Env       map[string]string
-	Labels    map[string]string
-	TitusInfo *titus.ContainerInfo
-	Resources *Resources
-
-	// cleanup callbacks that runtime implementations can register to do cleanup
-	// after a launchGuard on the taskID has been lifted
-	cleanup []CleanupFunc
+	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
+	ID      string
+	TaskID  string
+	envLock sync.Mutex
+	// envOverrides are set by the executor for things like IPv4 / IPv6 address
+	envOverrides map[string]string
+	Labels       map[string]string
+	TitusInfo    *titus.ContainerInfo
+	Resources    Resources
 
 	// VPC driver fields
 	SecurityGroupIDs   []string
 	Allocation         vpcTypes.HybridAllocation
 	NormalizedENIIndex int
-	BandwidthLimitMbps uint64
+	BandwidthLimitMbps int64
 	AllocationUUID     string
 
 	// Is this container meant to run SystemD?
 	IsSystemD bool
 
+	pod *corev1.Pod
+
 	// GPU devices
-	GPUInfo GPUContainer
+	gpuInfo GPUContainer
 	// Set if using a non-runc runtime to run system service init commands
-	Runtime string
+	runtime string
+
+	iamRole string
 
 	Config config.Config
+}
+
+func (c *Container) VPCAccountID() string {
+	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[AccountIDParam]; ok {
+		return vpcAccountID
+	}
+
+	// If the param wasn't passed via pass through attributes, then fall back to pulling it from the host env
+	return c.Config.EC2AccountID
+}
+
+// combineAppStackDetails is a port of the method with the same name from frigga.
+// See: https://github.com/Netflix/frigga/blob/v0.17.0/src/main/java/com/netflix/frigga/NameBuilder.java
+func combineAppStackDetails(taskInfo *titus.ContainerInfo) string {
+	var (
+		stack   = taskInfo.GetJobGroupStack()
+		details = taskInfo.GetJobGroupDetail()
+		appName = taskInfo.GetAppName()
+	)
+	if details != "" {
+		return fmt.Sprintf("%s-%s-%s", appName, stack, details)
+	}
+	if stack != "" {
+		return fmt.Sprintf("%s-%s", appName, stack)
+	}
+	return appName
+}
+
+func (c *Container) GetEnv() map[string]string {
+	// Order goes (least priority, to highest priority:
+	// -Hard coded environment variables
+	// -Copied environment variables from the host
+	// -Resource env variables
+	// -User provided environment in POD (if pod unset, then fall back to containerinfo)
+	// -Network Config
+	// -Executor overrides
+
+	// Hard coded (in executor config)
+	env := c.Config.GetHardcodedEnv()
+
+	// Env copied from host
+	for key, value := range c.Config.GetEnvFromHost() {
+		env[key] = value
+	}
+
+	// Resource environment variables
+	env["TITUS_NUM_MEM"] = itoa(c.Resources.Mem)
+	env["TITUS_NUM_CPU"] = itoa(c.Resources.CPU)
+	env["TITUS_NUM_DISK"] = itoa(c.Resources.Disk)
+	env["TITUS_NUM_NETWORK_BANDWIDTH"] = itoa(c.Resources.Network)
+
+	if name := c.TitusInfo.GetImageName(); name != "" {
+		env["TITUS_IMAGE_NAME"] = name
+	}
+	if tag := c.TitusInfo.GetVersion(); tag != "" {
+		env["TITUS_IMAGE_TAG"] = tag
+	}
+	if digest := c.TitusInfo.GetImageDigest(); digest != "" {
+		env["TITUS_IMAGE_DIGEST"] = digest
+	}
+
+	env["EC2_OWNER_ID"] = c.VPCAccountID()
+
+	cluster := combineAppStackDetails(c.TitusInfo)
+	env["NETFLIX_APP"] = c.TitusInfo.GetAppName()
+	env["NETFLIX_CLUSTER"] = cluster
+	env["NETFLIX_STACK"] = c.TitusInfo.GetJobGroupStack()
+	env["NETFLIX_DETAIL"] = c.TitusInfo.GetJobGroupDetail()
+
+	var asgName string
+	if seq := c.TitusInfo.GetJobGroupSequence(); seq == "" {
+		asgName = cluster + "-v000"
+	} else {
+		asgName = cluster + "-" + seq
+	}
+	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
+	env["TITUS_IAM_ROLE"] = c.iamRole
+
+	// passed environment
+	passedEnv := func() map[string]string {
+		containerInfoEnv := map[string]string{
+			"TITUS_ENV_FROM": "containerInfo",
+		}
+		for key, value := range c.TitusInfo.GetUserProvidedEnv() {
+			if value != "" {
+				env[key] = value
+			}
+		}
+		for key, value := range c.TitusInfo.GetTitusProvidedEnv() {
+			env[key] = value
+		}
+
+		if c.pod == nil {
+			return containerInfoEnv
+		}
+		// This is a "dumb" check -- that just makes sure 1 container exists so we don't null pointer exception
+		// We probably don't want to blindly source env
+		if len(c.pod.Spec.Containers) != 1 {
+			return containerInfoEnv
+		}
+		if len(c.pod.Spec.Containers[0].Env) == 0 {
+			return containerInfoEnv
+		}
+
+		podEnv := map[string]string{
+			"TITUS_ENV_FROM": "pod",
+		}
+		for _, val := range c.pod.Spec.Containers[0].Env {
+			if val.Value != "" {
+				podEnv[val.Name] = val.Value
+			}
+		}
+		if val, ok := podEnv[titusTaskInstanceIDKey]; !ok {
+			// We need to have the pod env have this variable
+			return containerInfoEnv
+		} else if val == "" {
+			return containerInfoEnv
+		}
+		return podEnv
+	}()
+
+	for key, value := range passedEnv {
+		env[key] = value
+	}
+
+	if c.Config.MetatronEnabled {
+		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron
+		env[metadataserverTypes.TitusMetatronVariableName] = "true"
+	} else {
+		env[metadataserverTypes.TitusMetatronVariableName] = "false"
+	}
+
+	if c.Allocation.IPV4Address != nil {
+		env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address.Address.Address
+	}
+
+	if c.Allocation.IPV6Address != nil {
+		env["EC2_IPV6S"] = c.Allocation.IPV6Address.Address.Address
+	}
+
+	// Heads up, this doesn't work in generation v1 instances of VPC Service
+	env["EC2_VPC_ID"] = c.Allocation.BranchENIVPC
+	env["EC2_INTERFACE_ID"] = c.Allocation.BranchENIID
+	env["EC2_SUBNET_ID"] = c.Allocation.BranchENISubnet
+
+	if batch := c.GetBatch(); batch != nil {
+		env["TITUS_BATCH"] = *batch
+	}
+
+	if requireToken, ok := c.TitusInfo.GetPassthroughAttributes()[imdsRequireTokenParam]; ok {
+		env["TITUS_IMDS_REQUIRE_TOKEN"] = requireToken
+	}
+
+	c.envLock.Lock()
+	envOverrides := maps.CopySS(c.envOverrides)
+	c.envLock.Unlock()
+
+	for key, value := range envOverrides {
+		env[key] = value
+	}
+
+	if gpuInfo := c.GetGPUInfo(); gpuInfo != nil {
+		for key, value := range gpuInfo.Env() {
+			env[key] = value
+		}
+	}
+
+	env[TitusRuntimeEnvVariableName] = c.GetRuntime()
+	return env
+}
+
+func (c *Container) SetEnv(key, value string) {
+	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	c.envOverrides[key] = value
+}
+
+func (c *Container) SetEnvs(env map[string]string) {
+	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	for key, value := range env {
+		c.envOverrides[key] = value
+	}
+}
+
+func (c *Container) GetGPUInfo() GPUContainer {
+	return c.gpuInfo
+}
+
+func (c *Container) SetGPUInfo(gpuInfo GPUContainer) {
+	c.gpuInfo = gpuInfo
+}
+
+func (c *Container) GetRuntime() string {
+	if c.gpuInfo != nil {
+		return c.gpuInfo.Runtime()
+	}
+	return c.runtime
 }
 
 // ImageHasDigest returns true if the image was specified by digest
@@ -177,23 +387,6 @@ func (c *Container) QualifiedImageName() string {
 		return baseRef + "@" + c.TitusInfo.GetImageDigest()
 	}
 	return baseRef + ":" + c.TitusInfo.GetVersion()
-}
-
-// RegisterRuntimeCleanup calls registered functions whether or not the container successfully starts
-func (c *Container) RegisterRuntimeCleanup(callback CleanupFunc) {
-	c.cleanup = append(c.cleanup, callback)
-}
-
-// RuntimeCleanup runs cleanup callbacks registered by runtime implementations
-func (c *Container) RuntimeCleanup() []error {
-	var errs []error
-	for idx := range c.cleanup {
-		fn := c.cleanup[len(c.cleanup)-idx-1]
-		if err := fn(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errs
 }
 
 // ImageTagForMetrics returns a map with the image name
@@ -231,29 +424,23 @@ func (c *Container) Process() (entrypoint, cmd []string, err error) {
 
 // GetSortedEnvArray returns the list of environment variables set for the container as a sorted Key=Value list
 func (c *Container) GetSortedEnvArray() []string {
-	retEnv := make([]string, 0, len(c.Env))
-	keys := make([]string, 0, len(c.Env))
-	for k := range c.Env {
+	env := c.GetEnv()
+	retEnv := make([]string, 0, len(env))
+	keys := make([]string, 0, len(env))
+	for k := range env {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		retEnv = append(retEnv, key+"="+c.Env[key])
+		retEnv = append(retEnv, key+"="+env[key])
 	}
 	return retEnv
 
 }
 
 // GetIamProfile retrieves, and validates the format of the IAM profile
-func (c *Container) GetIamProfile() (string, error) {
-	if c.TitusInfo.IamProfile == nil || c.TitusInfo.GetIamProfile() == "" {
-		return "", ErrMissingIAMRole
-	}
-	if _, err := arn.Parse(c.TitusInfo.GetIamProfile()); err != nil {
-		return "", err
-	}
-
-	return c.TitusInfo.GetIamProfile(), nil
+func (c *Container) GetIamProfile() string {
+	return c.iamRole
 }
 
 // GetBatch returns what the environment variable TITUS_BATCH should be set to.
@@ -522,7 +709,7 @@ func (c *Container) GetConfig(startTime time.Time) (*titus.ContainerInfo, error)
 // SetID sets the container ID for this container, updating internal data structures as necessary
 func (c *Container) SetID(id string) {
 	c.ID = id
-	c.Env[titusContainerIDEnvVariableName] = c.ID
+	c.SetEnv(titusContainerIDEnvVariableName, c.ID)
 }
 
 // Resources specify constraints to be applied to a Container
@@ -530,8 +717,8 @@ type Resources struct {
 	Mem     int64 // in MiB
 	CPU     int64
 	GPU     int64
-	Disk    uint64
-	Network uint64
+	Disk    int64
+	Network int64
 }
 
 // NetworkConfigurationDetails used to pass results back to master
@@ -565,6 +752,8 @@ type Details struct {
 	NetworkConfiguration *NetworkConfigurationDetails
 }
 
+type ContainerRuntimeProvider func(ctx context.Context, c *Container, startTime time.Time) (Runtime, error)
+
 // Runtime is the containerization engine
 type Runtime interface {
 	// Prepare the host to run a Container: download images, prepare filesystems, etc.
@@ -573,13 +762,14 @@ type Runtime interface {
 	// TODO(fabio): better (non-Docker specific) abstraction for binds
 	// The context passed to the Prepare, and Start function is valid over the lifetime of the container,
 	// NOT per-operation
-	Prepare(containerCtx context.Context, c *Container, bindMounts []string, startTime time.Time) error
+	Prepare(containerCtx context.Context) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
-	Start(containerCtx context.Context, c *Container) (string, *Details, <-chan StatusMessage, error)
-	// Kill a container
-	Kill(*Container) error
-	// Cleanup can be called to tear down resources after a container has been Killed
-	Cleanup(*Container) error
+	Start(containerCtx context.Context) (string, *Details, <-chan StatusMessage, error)
+	// Kill a container. MUST be idempotent.
+	Kill(ctx context.Context) error
+	// Cleanup can be called to tear down resources after a container has been Killed or has naturally
+	// stopped. Must always be called.
+	Cleanup(ctx context.Context) error
 }
 
 // Status represent a containers state

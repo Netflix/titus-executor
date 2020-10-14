@@ -1,13 +1,9 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"strings"
-	"unicode"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
-	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -231,71 +227,7 @@ func NewConfig() (*Config, []cli.Flag) {
 	return cfg, flags
 }
 
-// GetNetflixEnvForTask fetches the "base" environment configuration, and adds in titus-specific environment variables
-// based on the ContainerInfo, config and resources.
-func (c *Config) GetNetflixEnvForTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string {
-	env := c.getEnvHardcoded()
-	env = appendMap(env, c.getEnvFromHost())
-	env = appendMap(env, c.getEnvBasedOnTask(taskInfo, mem, cpu, disk, networkBandwidth))
-	env = appendMap(env, c.getUserProvided(taskInfo))
-
-	if c.MetatronEnabled {
-		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron
-		env[metadataserverTypes.TitusMetatronVariableName] = "true"
-	} else {
-		env[metadataserverTypes.TitusMetatronVariableName] = "false"
-	}
-
-	return env
-}
-
-func (c *Config) getEnvBasedOnTask(taskInfo *titus.ContainerInfo, mem, cpu, disk, networkBandwidth string) map[string]string {
-	env1 := make(map[string]string)
-
-	c.setClusterInfoBasedOnTask(taskInfo, env1)
-	env1["TITUS_NUM_MEM"] = mem
-	env1["TITUS_NUM_CPU"] = cpu
-	env1["TITUS_NUM_DISK"] = disk
-	env1["TITUS_NUM_NETWORK_BANDWIDTH"] = networkBandwidth
-
-	if name := taskInfo.GetImageName(); name != "" {
-		env1["TITUS_IMAGE_NAME"] = name
-	}
-	if tag := taskInfo.GetVersion(); tag != "" {
-		env1["TITUS_IMAGE_TAG"] = tag
-	}
-	if digest := taskInfo.GetImageDigest(); digest != "" {
-		env1["TITUS_IMAGE_DIGEST"] = digest
-	}
-
-	return env1
-}
-
-// Sets cluster info based on provided task info.
-func (c *Config) setClusterInfoBasedOnTask(taskInfo *titus.ContainerInfo, env map[string]string) {
-	// TODO(Andrew L): Remove this check once appName is required
-	appName := taskInfo.GetAppName()
-	if appName == "" {
-		// Use image name as app name if no app name is provided.
-		appName = getAppName(taskInfo.GetImageName())
-	}
-
-	cluster := combineAppStackDetails(taskInfo, appName)
-	env["NETFLIX_APP"] = appName
-	env["NETFLIX_CLUSTER"] = cluster
-	env["NETFLIX_STACK"] = taskInfo.GetJobGroupStack()
-	env["NETFLIX_DETAIL"] = taskInfo.GetJobGroupDetail()
-
-	var asgName string
-	if seq := taskInfo.GetJobGroupSequence(); seq == "" {
-		asgName = cluster + "-v000"
-	} else {
-		asgName = cluster + "-" + seq
-	}
-	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
-}
-
-func (c *Config) getEnvFromHost() map[string]string {
+func (c *Config) GetEnvFromHost() map[string]string {
 	fromHost := make(map[string]string)
 
 	for _, hostKey := range c.copiedFromHostEnv {
@@ -317,82 +249,15 @@ func addElementFromHost(addTo map[string]string, hostEnvVarName string, containe
 	}
 }
 
-// Merge user and titus provided ENV vars
-func (c *Config) getUserProvided(taskInfo *titus.ContainerInfo) map[string]string {
-	var (
-		userProvided  = taskInfo.GetUserProvidedEnv()
-		titusProvided = taskInfo.GetTitusProvidedEnv()
-	)
-	if len(userProvided) == 0 && len(titusProvided) == 0 {
-		return getUserProvidedDeprecated(taskInfo)
-	}
-
-	delete(userProvided, "") // in case users provided key=nil
-	// titus provided can override user provided
-	return appendMap(userProvided, titusProvided)
-}
-
-// ENV from the deprecated environmentVariable field that had both user and Titus provided values merged
-func getUserProvidedDeprecated(taskInfo *titus.ContainerInfo) map[string]string {
-	vars := make(map[string]string)
-	for _, env := range taskInfo.GetEnvironmentVariable() { // nolint: megacheck
-		vars[env.GetName()] = env.GetValue()
-	}
-	return vars
-}
-
-// appendMap works like the builtin append function, but for maps. nil can be safely passed in.
-func appendMap(m map[string]string, add map[string]string) map[string]string {
-	all := make(map[string]string, len(m)+len(add))
-	for k, v := range m {
-		all[k] = v
-	}
-	for k, v := range add {
-		all[k] = v
-	}
-	return all
-}
-
-// combineAppStackDetails is a port of the method with the same name from frigga.
-// See: https://github.com/Netflix/frigga/blob/v0.17.0/src/main/java/com/netflix/frigga/NameBuilder.java
-func combineAppStackDetails(taskInfo *titus.ContainerInfo, appName string) string {
-	var (
-		stack   = taskInfo.GetJobGroupStack()
-		details = taskInfo.GetJobGroupDetail()
-	)
-	if details != "" {
-		return fmt.Sprintf("%s-%s-%s", appName, stack, details)
-	}
-	if stack != "" {
-		return fmt.Sprintf("%s-%s", appName, stack)
-	}
-	return appName
-}
-
-// TODO: This is deprecated and should be removed as soon as API is redesigned
-func getAppName(imageName string) string {
-	split := strings.Split(imageName, "/")
-	lastWord := split[len(split)-1]
-	appName := ""
-	for _, runeVal := range lastWord {
-		if unicode.IsLetter(runeVal) || unicode.IsDigit(runeVal) {
-			appName += string(runeVal)
-		} else {
-			appName += "_"
-		}
-	}
-	return appName
-}
-
-func (c *Config) getEnvHardcoded() map[string]string {
-	env1 := make(map[string]string)
+func (c *Config) GetHardcodedEnv() map[string]string {
+	env := make(map[string]string)
 
 	for _, line := range c.hardCodedEnv {
 		kv := strings.SplitN(line, "=", 2)
-		env1[kv[0]] = kv[1]
+		env[kv[0]] = kv[1]
 	}
 
-	return env1
+	return env
 }
 
 // GenerateConfiguration is only meant to validate the behaviour of parsing command line arguments

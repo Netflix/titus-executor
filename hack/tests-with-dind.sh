@@ -63,6 +63,6 @@ log "Running integration tests against the $titus_agent_name daemon"
 docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-3m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
-    -coverpkg=github.com/Netflix/... ./executor/mock/standalone/... -standalone=true 2>&1 | tee test-standalone.log
+    -coverpkg=github.com/Netflix/... ./executor/standalone/... -standalone=true 2>&1 | tee test-standalone.log
 
 log "Integration tests complete (rc: $?)"

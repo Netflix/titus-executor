@@ -16,6 +16,7 @@ import (
 	"github.com/Netflix/titus-executor/utils/k8s"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/Netflix/titus-executor/vpc/tool/container2"
 	"github.com/apparentlymart/go-cidr/cidr"
@@ -38,8 +39,9 @@ import (
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
 
 const (
-	kubeletAPIPodsURL = "https://localhost:10250/pods"
-	jumboFrameParam   = "titusParameter.agent.allowNetworkJumbo"
+	kubeletAPIPodsURL          = "https://localhost:10250/pods"
+	jumboFrameParam            = "titusParameter.agent.allowNetworkJumbo"
+	IngressBandwidthAnnotation = "kubernetes.io/ingress-bandwidth"
 )
 
 type Command struct {
@@ -66,6 +68,21 @@ func MakeCommand(ctx context.Context, instanceIdentityProvider identity.Instance
 		iip: instanceIdentityProvider,
 		gsv: gsv,
 	}
+}
+
+func getBandwidthLimitBps(pod *corev1.Pod) (uint64, error) {
+	bwAnnotation, ok := pod.GetAnnotations()[IngressBandwidthAnnotation]
+	if !ok {
+		return 0, errors.New("could not get ingress bandwidth annotation from pod")
+	}
+
+	bwBytes, err := resource.ParseQuantity(bwAnnotation)
+	if err != nil {
+		return 0, err
+	}
+
+	// No conversion necessary - Value() returns bytes
+	return uint64(bwBytes.Value()), nil
 }
 
 func (c *Command) load(ctx context.Context, args *skel.CmdArgs) (*config, error) {
@@ -207,7 +224,11 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	}
 	span.AddAttributes(trace.StringAttribute("securityGroups", strings.Join(securityGroupsList, ",")))
 
-	kbps := uint64(*netInfo.BandwidthLimitMbps) * 1000
+	bwLimitBps, err := getBandwidthLimitBps(pod)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
 
 	ns, err := os.Open(args.Netns)
 	if err != nil {
@@ -247,9 +268,9 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 	ipnet := net.IPNet{IP: ip, Mask: mask}
 	zeroIdx := 0
 	gateway := cidr.Inc(ip.Mask(mask))
-	logger.G(ctx).WithField("gateway", gateway).Debug("Adding default route")
+	logger.G(ctx).WithField("gateway", gateway).WithField("bwLimit", bwLimitBps).Info("Setting up container networking")
 
-	err = container2.DoSetupContainer(ctx, int(ns.Fd()), kbps, kbps, alloc)
+	err = container2.DoSetupContainer(ctx, int(ns.Fd()), bwLimitBps, bwLimitBps, alloc)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not setup network")
 		err = errors.Wrap(err, "Cannot not setup network")

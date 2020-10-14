@@ -18,14 +18,17 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/nvidia"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -37,9 +40,13 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
-	"gopkg.in/urfave/cli.v1"
+)
+
+var (
+	_ runtimeTypes.Runtime = (*DockerRuntime)(nil)
 )
 
 // units
@@ -64,168 +71,14 @@ const (
 	defaultRunTmpFsSize     = "134217728" // 128 MiB
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
-	accountID               = "titusParameter.agent.accountId"
 	subnets                 = "titusParameter.agent.subnets"
 	elasticIPPool           = "titusParameter.agent.elasticIPPool"
 	elasticIPs              = "titusParameter.agent.elasticIPs"
-	imdsRequireToken        = "titusParameter.agent.imds.requireToken"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
-// Config represents the configuration for the Docker titus runtime
-type Config struct { // nolint: maligned
-	cfsBandwidthPeriod              uint64
-	tiniVerbosity                   int
-	burst                           bool
-	nvidiaOciRuntime                string
-	pidLimit                        int
-	prepareTimeout                  time.Duration
-	startTimeout                    time.Duration
-	bumpTiniSchedPriority           bool
-	waitForSecurityGroupLockTimeout time.Duration
-
-	titusIsolateBlockTime   time.Duration
-	enableTitusIsolateBlock bool
-
-	networkTeardownTimeout time.Duration
-}
-
-type volumeContainerConfig struct {
-	serviceName   string
-	image         string
-	containerName *string
-	volumes       map[string]struct{}
-}
-
-// NewConfig generates a configuration, with a set of flags tied to it for the docker runtime
-func NewConfig() (*Config, []cli.Flag) {
-	cfg := &Config{}
-	flags := []cli.Flag{
-		cli.DurationFlag{
-			Name:        "titus.executor.networkTeardownTimeout",
-			EnvVar:      "NETWORK_TEARDOWN_TIMEOUT",
-			Value:       time.Second * 30,
-			Destination: &cfg.networkTeardownTimeout,
-		},
-		cli.Uint64Flag{
-			Name:        "titus.executor.cfsBandwidthPeriod",
-			EnvVar:      "CFS_BANDWIDTH_PERIOD",
-			Value:       100000,
-			Destination: &cfg.cfsBandwidthPeriod,
-		},
-		cli.IntFlag{
-			Name:        "titus.executor.tiniVerbosity",
-			Value:       0,
-			Destination: &cfg.tiniVerbosity,
-		},
-		cli.BoolFlag{
-			Name:        "titus.executor.networking.burst",
-			Destination: &cfg.burst,
-		},
-		cli.StringFlag{
-			Name: "titus.executor.nvidiaOciRuntime",
-			// runc-compliant OCI runtime that's capable of running the `nvidia-container-runtime` hook.
-			// Defaults to https://github.com/Netflix-Skunkworks/oci-add-hooks to avoid running a patched
-			// version of runc, though https://github.com/NVIDIA/nvidia-container-runtime should also work.
-			Value:       "oci-add-hooks",
-			Destination: &cfg.nvidiaOciRuntime,
-			EnvVar:      "NVIDIA_OCI_RUNTIME",
-		},
-		cli.IntFlag{
-			Name:        "titus.executor.pidLimit",
-			Value:       100000,
-			Destination: &cfg.pidLimit,
-		},
-		cli.DurationFlag{
-			Name:        "titus.executor.timeouts.prepare",
-			Value:       time.Minute * 10,
-			Destination: &cfg.prepareTimeout,
-		},
-		cli.DurationFlag{
-			Name:        "titus.executor.timeouts.start",
-			Value:       time.Minute * 10,
-			Destination: &cfg.startTimeout,
-		},
-		cli.DurationFlag{
-			Name:        "titus.executor.waitForSecurityGroupLockTimeout",
-			Value:       time.Minute * 1,
-			Destination: &cfg.waitForSecurityGroupLockTimeout,
-		},
-		cli.DurationFlag{
-			Name:   "titus.executor.titusIsolateBlockTime",
-			EnvVar: "TITUS_EXECUTOR_TITUS_ISOLATE_BLOCK_TIME",
-			// The default value inside of the Titus Isolate code is 10 seconds.
-			// we can wait longer than it
-			Value:       30 * time.Second,
-			Destination: &cfg.titusIsolateBlockTime,
-		},
-		cli.BoolFlag{
-			Name:        "titus.executor.enableTitusIsolateBlock",
-			EnvVar:      "ENABLE_TITUS_ISOLATE_BLOCK",
-			Destination: &cfg.enableTitusIsolateBlock,
-		},
-		// Allow the usage of a realtime scheduling policy to be optional on systems that don't have it properly configured
-		// by default, i.e.: docker-for-mac.
-		cli.BoolTFlag{
-			Name:        "titus.executor.tiniSchedPriority",
-			EnvVar:      "BUMP_TINI_SCHED_PRIORITY",
-			Destination: &cfg.bumpTiniSchedPriority,
-			Usage: "enable a realtime scheduling priority for tini (PID=1), so it can always reap processes on contended " +
-				"systems. Kernels with CONFIG_RT_GROUP_SCHED=y require all cgroups in the hierarchy to have some " +
-				"cpu.rt_runtime_us allocated to each one of them",
-		},
-	}
-	return cfg, flags
-}
-
-// GenerateConfiguration is only meant to validate the behaviour of parsing command line arguments
-func GenerateConfiguration(args []string) (*Config, error) {
-	cfg, flags := NewConfig()
-
-	app := cli.NewApp()
-	app.Flags = flags
-	app.Action = func(c *cli.Context) error {
-		return nil
-	}
-	if args == nil {
-		args = []string{}
-	}
-
-	args = append([]string{"fakename"}, args...)
-
-	return cfg, app.Run(args)
-}
-
-func shouldStartMetatronSync(cfg *config.Config, c *runtimeTypes.Container) bool {
-	if cfg.MetatronEnabled && c.TitusInfo.GetMetatronCreds() != nil {
-		return true
-	}
-
-	return false
-}
-
-func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool {
-	enabled, _ := c.GetServiceMeshEnabled()
-	if !enabled {
-		return false
-	}
-
-	_, err := c.GetServiceMeshImage()
-	return err == nil
-}
-
-func shouldStartAbmetrix(cfg *config.Config, c *runtimeTypes.Container) bool {
-	enabled := cfg.ContainerAbmetrixEnabled
-	if !enabled {
-		return false
-	}
-
-	if cfg.AbmetrixServiceImage == "" {
-		return false
-	}
-	return true
-
-}
+// cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
+type cleanupFunc func() error
 
 // NoEntrypointError indicates that the Titus job does not have an entrypoint, or command
 var NoEntrypointError = &runtimeTypes.BadEntryPointError{Reason: errors.New("Image, and job have no entrypoint, or command")}
@@ -251,6 +104,7 @@ type ucred struct {
 
 // DockerRuntime implements the Runtime interface calling Docker Engine APIs
 type DockerRuntime struct { // nolint: golint
+	// Following fields to be set when NewDockerRuntime is called
 	metrics           metrics.Reporter
 	registryAuthCfg   *types.AuthConfig
 	client            *docker.Client
@@ -261,10 +115,28 @@ type DockerRuntime struct { // nolint: golint
 	pidCgroupPath     string
 	cfg               config.Config
 	dockerCfg         Config
+
+	// cleanup callbacks that runtime implementations can register to do cleanup
+	cleanupFuncLock sync.Mutex
+	cleanup         []cleanupFunc
+
+	// To be set when initializing a specific instance of the runtime provider
+	c          *runtimeTypes.Container
+	startTime  time.Time
+	gpuManager runtimeTypes.GPUManager
 }
 
-// NewDockerRuntime provides a Runtime implementation on Docker
-func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config) (runtimeTypes.Runtime, error) {
+type Opt func(ctx context.Context, runtime *DockerRuntime) error
+
+func WithGPUManager(gpuManager runtimeTypes.GPUManager) Opt {
+	return func(ctx context.Context, runtime *DockerRuntime) error {
+		runtime.gpuManager = gpuManager
+		return nil
+	}
+}
+
+// NewDockerRuntime provides a Runtime implementation on Docker.
+func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config, dockerOpts ...Opt) (runtimeTypes.ContainerRuntimeProvider, error) {
 	log.Info("New Docker client, to host ", cfg.DockerHost)
 	client, err := docker.NewClient(cfg.DockerHost, "1.26", nil, map[string]string{})
 
@@ -272,49 +144,73 @@ func NewDockerRuntime(executorCtx context.Context, m metrics.Reporter, dockerCfg
 		return nil, err
 	}
 
-	info, err := client.Info(executorCtx)
+	info, err := client.Info(ctx)
 
 	if err != nil {
 		return nil, err
 	}
 
-	dockerRuntime := &DockerRuntime{
-		metrics:         m,
-		registryAuthCfg: nil, // we don't need registry authentication yet
-		client:          client,
-		cfg:             cfg,
-		dockerCfg:       dockerCfg,
-	}
-
-	dockerRuntime.pidCgroupPath, err = getOwnCgroup("pids")
+	pidCgroupPath, err := getOwnCgroup("pids")
 	if err != nil {
 		return nil, err
 	}
 
 	// TODO: Check
-	dockerRuntime.awsRegion = os.Getenv("EC2_REGION")
-	err = setupLoggingInfra(dockerRuntime)
-	if err != nil {
-		return nil, err
-	}
+	awsRegion := os.Getenv("EC2_REGION")
+	storageOptEnabled := shouldEnableStorageOpts(info)
 
-	go func() {
-		<-executorCtx.Done()
-		err = os.RemoveAll(dockerRuntime.tiniSocketDir)
-		if err != nil {
-			log.Errorf("Could not cleanup tini socket directory %s because: %v", dockerRuntime.tiniSocketDir, err)
+	runtimeFunc := func(ctx context.Context, c *runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+		dockerRuntime := &DockerRuntime{
+			pidCgroupPath:     pidCgroupPath,
+			awsRegion:         awsRegion,
+			metrics:           m,
+			registryAuthCfg:   nil, // we don't need registry authentication yet
+			client:            client,
+			cfg:               cfg,
+			dockerCfg:         dockerCfg,
+			cleanup:           []cleanupFunc{},
+			c:                 c,
+			startTime:         startTime,
+			storageOptEnabled: storageOptEnabled,
 		}
-	}()
 
-	dockerRuntime.storageOptEnabled = shouldEnableStorageOpts(info)
+		if strings.Contains(info.InitBinary, "tini") {
+			dockerRuntime.tiniEnabled = true
+		} else {
+			log.WithField("initBinary", info.InitBinary).Warning("Docker runtime disabling Tini support")
+		}
 
-	if strings.Contains(info.InitBinary, "tini") {
-		dockerRuntime.tiniEnabled = true
-	} else {
-		log.WithField("initBinary", info.InitBinary).Warning("Docker runtime disabling Tini support")
+		for _, dockerOpt := range dockerOpts {
+			err := dockerOpt(ctx, dockerRuntime)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if dockerRuntime.gpuManager == nil {
+			dockerRuntime.gpuManager, err = nvidia.NewNvidiaInfo(ctx, dockerCfg.nvidiaOciRuntime)
+			if err != nil {
+				return nil, fmt.Errorf("GPU Manager unset, failed to initialize default (nvidia) GPU manager: %w", err)
+			}
+		}
+
+		// Don't reference captured error variable from above
+		err := setupLoggingInfra(dockerRuntime)
+		if err != nil {
+			return nil, err
+		}
+		dockerRuntime.registerRuntimeCleanup(func() error {
+			err = os.RemoveAll(dockerRuntime.tiniSocketDir)
+			if err != nil {
+				log.WithError(err).Errorf("Could not cleanup tini socket directory %s", dockerRuntime.tiniSocketDir)
+				return err
+			}
+			return nil
+		})
+		return dockerRuntime, nil
 	}
 
-	return dockerRuntime, nil
+	return runtimeFunc, nil
 }
 
 func shouldEnableStorageOpts(info types.Info) bool {
@@ -334,6 +230,13 @@ func shouldEnableStorageOpts(info types.Info) bool {
 		}
 	}
 	return false
+}
+
+// RegisterRuntimeCleanup calls registered functions whether or not the container successfully starts
+func (r *DockerRuntime) registerRuntimeCleanup(callback cleanupFunc) {
+	r.cleanupFuncLock.Lock()
+	defer r.cleanupFuncLock.Unlock()
+	r.cleanup = append(r.cleanup, callback)
 }
 
 func (r *DockerRuntime) validateEFSMounts(c *runtimeTypes.Container) error {
@@ -431,11 +334,6 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		return nil, nil, err
 	}
 
-	c.Env["TITUS_IAM_ROLE"], err = c.GetIamProfile()
-	if err != nil {
-		return nil, nil, err
-	}
-
 	// hostname style: ip-{ip-addr} or {task ID}
 	hostname, err := c.ComputeHostname()
 	if err != nil {
@@ -475,7 +373,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 			"net.ipv6.conf.default.accept_dad":    "0",
 			"net.ipv6.conf.all.accept_dad":        "0",
 		},
-		Init: &useInit,
+		Init:    &useInit,
+		Runtime: c.GetRuntime(),
 	}
 
 	// TODO(Sargun): Add IPv6 address
@@ -488,7 +387,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 		hostCfg.VolumesFrom = append(hostCfg.VolumesFrom, fmt.Sprintf("%s:ro", containerName))
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
-	c.RegisterRuntimeCleanup(func() error {
+	r.registerRuntimeCleanup(func() error {
 		return cleanupCgroups(r.pidCgroupPath)
 	})
 
@@ -522,19 +421,19 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 
 	if r.storageOptEnabled {
 		hostCfg.StorageOpt = map[string]string{
-			"size": fmt.Sprintf("%dM", c.Resources.Disk+builtInDiskBuffer+uint64(imageSize/MiB)),
+			"size": fmt.Sprintf("%dM", c.Resources.Disk+builtInDiskBuffer+(imageSize/MiB)),
 		}
 	}
 
 	coreLimit := &units.Ulimit{
 		Name: "core",
-		Soft: int64((c.Resources.Disk * MiB) + 1*GiB),
-		Hard: int64((c.Resources.Disk * MiB) + 1*GiB),
+		Soft: ((c.Resources.Disk * MiB) + 1*GiB),
+		Hard: ((c.Resources.Disk * MiB) + 1*GiB),
 	}
 	hostCfg.Ulimits = []*units.Ulimit{coreLimit}
 
 	// This is just factored out mutation of these objects to make the code cleaner.
-	r.setupLogs(c, containerCfg, hostCfg)
+	r.setupLogs(c, hostCfg)
 
 	if r.cfg.PrivilegedContainersEnabled {
 		// Note: ATM, this is used to enable MCE to use FUSE within a container and
@@ -561,29 +460,8 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	containerCfg.Labels[runtimeTypes.VPCIPv4Label] = c.Allocation.IPV4Address.Address.Address // nolint: staticcheck
 	containerCfg.Labels[runtimeTypes.NetIPv4Label] = c.Allocation.IPV4Address.Address.Address
 
-	// TODO(fabio): find a way to avoid regenerating the env map
-	c.Env["EC2_LOCAL_IPV4"] = c.Allocation.IPV4Address.Address.Address
-	if c.Allocation.IPV6Address != nil {
-		c.Env["EC2_IPV6S"] = c.Allocation.IPV6Address.Address.Address
-	}
-	c.Env["EC2_VPC_ID"] = c.Allocation.BranchENIVPC
-	c.Env["EC2_INTERFACE_ID"] = c.Allocation.BranchENIID
-	c.Env["EC2_SUBNET_ID"] = c.Allocation.BranchENISubnet
-
 	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")
-	}
-
-	if batch := c.GetBatch(); batch != nil {
-		c.Env["TITUS_BATCH"] = *batch
-	}
-
-	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
-		c.Env["EC2_OWNER_ID"] = vpcAccountID
-	}
-
-	if requireToken, ok := c.TitusInfo.GetPassthroughAttributes()[imdsRequireToken]; ok {
-		c.Env["TITUS_IMDS_REQUIRE_TOKEN"] = requireToken
 	}
 
 	// This must got after all setup
@@ -592,7 +470,7 @@ func (r *DockerRuntime) dockerConfig(c *runtimeTypes.Container, binds []string, 
 	return containerCfg, hostCfg, nil
 }
 
-func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, containerCfg *container.Config, hostCfg *container.HostConfig) {
+func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, hostCfg *container.HostConfig) {
 	// TODO(fabio): move this to a daemon-level config
 	hostCfg.LogConfig = container.LogConfig{
 		Type: "journald",
@@ -603,13 +481,16 @@ func (r *DockerRuntime) setupLogs(c *runtimeTypes.Container, containerCfg *conta
 	socketFileName := tiniSocketFileName(c)
 
 	hostCfg.Binds = append(hostCfg.Binds, r.tiniSocketDir+":/titus-executor-sockets:ro")
-	c.Env["TITUS_REDIRECT_STDERR"] = "/logs/stderr"
-	c.Env["TITUS_REDIRECT_STDOUT"] = "/logs/stdout"
-	c.Env["TITUS_UNIX_CB_PATH"] = filepath.Join("/titus-executor-sockets/", socketFileName)
-	/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
-	c.Env["TITUS_CONFIRM"] = trueString
+	c.SetEnvs(map[string]string{
+		"TITUS_REDIRECT_STDERR": "/logs/stderr",
+		"TITUS_REDIRECT_STDOUT": "/logs/stdout",
+		"TITUS_UNIX_CB_PATH":    filepath.Join("/titus-executor-sockets/", socketFileName),
+		/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
+		"TITUS_CONFIRM": trueString,
+	})
+
 	if r.dockerCfg.tiniVerbosity > 0 {
-		c.Env["TINI_VERBOSITY"] = strconv.Itoa(r.dockerCfg.tiniVerbosity)
+		c.SetEnv("TINI_VERBOSITY", strconv.Itoa(r.dockerCfg.tiniVerbosity))
 	}
 }
 
@@ -705,15 +586,15 @@ func vpcToolPath() string {
 }
 
 // Use image labels to determine if the container should be configured to run SystemD
-func setSystemdRunning(log *log.Entry, imageInfo types.ImageInspect, c *runtimeTypes.Container) error {
-	l := log.WithField("imageName", c.QualifiedImageName())
+func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c *runtimeTypes.Container) error {
+	ctx = logger.WithField(ctx, "imageName", c.QualifiedImageName())
 
 	if systemdBool, ok := imageInfo.Config.Labels[systemdImageLabel]; ok {
-		l.WithField("systemdLabel", systemdBool).Info("SystemD image label set")
+		logger.G(ctx).WithField("systemdLabel", systemdBool).Info("SystemD image label set")
 
 		val, err := strconv.ParseBool(systemdBool)
 		if err != nil {
-			l.WithError(err).Error("Error parsing systemd image label")
+			logger.G(ctx).WithError(err).Error("Error parsing systemd image label")
 			return errors.Wrap(err, "error parsing systemd image label")
 		}
 
@@ -725,7 +606,7 @@ func setSystemdRunning(log *log.Entry, imageInfo types.ImageInspect, c *runtimeT
 }
 
 // This will setup c.Allocation
-func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes.Container) error { // nolint: gocyclo
+func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
 	log.Printf("Configuring VPC network for %s", c.TaskID)
 
 	args := []string{
@@ -739,7 +620,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 		args = append(args, "--ipv4-allocation-uuid", c.AllocationUUID)
 	}
 
-	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[accountID]; ok {
+	if vpcAccountID, ok := c.TitusInfo.GetPassthroughAttributes()[runtimeTypes.AccountIDParam]; ok {
 		args = append(args, "--interface-account", vpcAccountID)
 	}
 
@@ -757,7 +638,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 
 	assignIPv6Address, err := c.AssignIPv6Address()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if assignIPv6Address {
 		args = append(args, "--assign-ipv6-address=true")
@@ -776,12 +657,12 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	allocationCommand.Stderr = os.Stderr
 	stdoutPipe, err := allocationCommand.StdoutPipe()
 	if err != nil {
-		return errors.Wrap(err, "Could not setup stdout pipe for allocation command")
+		return nil, errors.Wrap(err, "Could not setup stdout pipe for allocation command")
 	}
 
 	err = allocationCommand.Start()
 	if err != nil {
-		return errors.Wrap(err, "Could not start allocation command")
+		return nil, errors.Wrap(err, "Could not start allocation command")
 	}
 
 	// errCh
@@ -830,13 +711,13 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 	err = json.NewDecoder(stdoutPipe).Decode(&c.Allocation)
 	if err != nil {
 		log.WithError(err).Error("Unable to read JSON from allocate command")
-		return fmt.Errorf("Unable to read json from pipe: %+v", err) // nolint: gosec
+		return nil, fmt.Errorf("Unable to read json from pipe: %+v", err) // nolint: gosec
 	}
 
 	if !killTimer.Stop() {
 		err = errors.New("Kill timer fired. Race condition")
 		log.WithError(err).Error("Accidentally killed the allocation command, leaving us in a 'unknown' state")
-		return err
+		return nil, err
 	}
 
 	if !c.Allocation.Success {
@@ -849,21 +730,21 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 				(strings.Contains(c.Allocation.Error, "Security groups not found"))) {
 			var invalidSg runtimeTypes.InvalidSecurityGroupError
 			invalidSg.Reason = errors.New(c.Allocation.Error)
-			return &invalidSg
+			return nil, &invalidSg
 		}
-		return fmt.Errorf("vpc network configuration error: %s", c.Allocation.Error)
+		return nil, fmt.Errorf("vpc network configuration error: %s", c.Allocation.Error)
 	}
 
 	if c.Allocation.Generation == nil {
 		err = errors.New("Unable to determine allocation generation")
 		log.WithError(err).Warn("Could not process allocation")
 		killCh <- struct{}{}
-		return err
+		return nil, err
 	}
 
 	switch g := (*c.Allocation.Generation); g {
 	case vpcTypes.V1:
-		c.RegisterRuntimeCleanup(func() error {
+		return func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 
@@ -879,14 +760,13 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 				return errors.Wrap(err2, "Could not unassign task IP address")
 			}
 			return nil
-		})
-		return nil
+		}, nil
 	case vpcTypes.V3:
 		err = <-errCh
 		if err != nil {
-			return errors.Wrap(err, "Error experienced when running V3 allocate command")
+			return nil, errors.Wrap(err, "Error experienced when running V3 allocate command")
 		}
-		c.RegisterRuntimeCleanup(func() error {
+		return func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 			unassignCommand := exec.CommandContext(ctx, vpcToolPath(), "unassign", "--task-id", c.TaskID) // nolint: gosec
@@ -896,13 +776,12 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c *runtimeTypes
 				return errors.Wrap(err2, "Could not unassign task IP address")
 			}
 			return nil
-		})
-		return nil
+		}, nil
 	default:
 		err = fmt.Errorf("Unknown generation: %s", g)
 		killCh <- struct{}{}
 		log.WithError(err).Error("Received allocation with unknown generation")
-		return err
+		return nil, err
 	}
 }
 
@@ -917,9 +796,9 @@ func cleanContainerName(prefix string, imageName string) string {
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(ctx context.Context, l *log.Entry, vCfg *volumeContainerConfig) func() error {
-	return func() error {
-		l.Infof("Setting up %s container", vCfg.serviceName)
+func (r *DockerRuntime) createVolumeContainerFunc(vCfg *volumeContainerConfig) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		logger.G(ctx).WithField("serviceName", vCfg.serviceName).Infof("Setting up container")
 		cfg := &container.Config{
 			Hostname:   fmt.Sprintf("titus-%s", vCfg.serviceName),
 			Volumes:    vCfg.volumes,
@@ -930,7 +809,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(ctx context.Context, l *log.En
 			NetworkMode: "none",
 		}
 
-		createErr := r.createVolumeContainer(ctx, l, vCfg.containerName, cfg, hostConfig)
+		createErr := r.createVolumeContainer(ctx, vCfg.containerName, cfg, hostConfig)
 		if createErr != nil {
 			return errors.Wrapf(createErr, "Unable to setup %s container", vCfg.serviceName)
 		}
@@ -940,7 +819,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(ctx context.Context, l *log.En
 }
 
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
-func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
+func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
 	image := cfg.Image
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
@@ -948,10 +827,11 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 	}
 
 	imageSpecifiedByTag := !strings.Contains(image, "@")
-	logger := l.WithField("hostName", cfg.Hostname).WithField("imageName", image)
+	ctx = logger.WithField(ctx, "hostName", cfg.Hostname)
+	ctx = logger.WithField(ctx, "imageName", image)
 
 	if tmpImageInfo == nil || imageSpecifiedByTag {
-		logger.WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
+		logger.G(ctx).WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
 		err = pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
 		if err != nil {
 			return err
@@ -965,16 +845,16 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 		image = resp.RepoDigests[0]
 		cfg.Image = image
 	} else {
-		logger.Info("createVolumeContainer: image exists: not pulling image")
+		logger.G(ctx).Info("createVolumeContainer: image exists: not pulling image")
 	}
 
 	*containerName = cleanContainerName(cfg.Hostname, image)
-	logger = log.WithField("hostName", cfg.Hostname).WithField("imageName", image).WithField("containerName", *containerName)
+	ctx = logger.WithField(ctx, "containerName", *containerName)
 
 	// Check if this container exists, if not create it.
 	_, err = r.client.ContainerInspect(ctx, *containerName)
 	if err == nil {
-		logger.Info("createVolumeContainer: container exists: not creating")
+		logger.G(ctx).Info("createVolumeContainer: container exists: not creating")
 		return nil
 	}
 
@@ -982,7 +862,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 		return err
 	}
 
-	logger.Info("createVolumeContainer: creating container")
+	logger.G(ctx).Info("createVolumeContainer: creating container")
 	// We don't check the error here, because there's no way
 	// to prevent us from accidentally calling this concurrently
 	_, tmpErr := r.client.ContainerCreate(ctx, cfg, hostConfig, nil, *containerName)
@@ -1007,7 +887,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, l *log.Entry,
 }
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
-func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Container, binds []string, startTime time.Time) error { // nolint: gocyclo
+func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
 	var logViewerContainerName string
 	var abmetrixContainerName string
 	var metatronContainerName string
@@ -1015,8 +895,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	var sshdContainerName string
 	var volumeContainers []string
 
-	l := log.WithField("taskID", c.TaskID)
-	l.WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
+	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID)
+	logger.G(parentCtx).WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
 
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.prepareTimeout)
 	defer cancel()
@@ -1029,29 +909,29 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		size                int64
 	)
 	dockerCreateStartTime := time.Now()
-	group, errGroupCtx := errgroup.WithContext(ctx)
-	err := r.validateEFSMounts(c)
+	group := groupWithContext(ctx)
+	err := r.validateEFSMounts(r.c)
 	if err != nil {
 		goto error
 	}
 
-	group.Go(func() error {
-		imageInfo, pullErr := r.DockerPull(errGroupCtx, c)
+	group.Go(func(ctx context.Context) error {
+		imageInfo, pullErr := r.DockerPull(ctx, r.c)
 		if pullErr != nil {
 			return pullErr
 		}
 
 		if imageInfo == nil {
-			inspected, _, inspectErr := r.client.ImageInspectWithRaw(ctx, c.QualifiedImageName())
+			inspected, _, inspectErr := r.client.ImageInspectWithRaw(ctx, r.c.QualifiedImageName())
 			if inspectErr != nil {
-				l.WithField("imageName", c.QualifiedImageName()).WithError(inspectErr).Errorf("Error inspecting docker image")
+				logger.G(ctx).WithField("imageName", r.c.QualifiedImageName()).WithError(inspectErr).Error("Error inspecting docker image")
 				return inspectErr
 			}
 			imageInfo = &inspected
 		}
 
-		size = r.reportDockerImageSizeMetric(c, imageInfo)
-		if !r.hasEntrypointOrCmd(imageInfo, c) {
+		size = r.reportDockerImageSizeMetric(r.c, imageInfo)
+		if !r.hasEntrypointOrCmd(imageInfo, r.c) {
 			return NoEntrypointError
 		}
 
@@ -1059,10 +939,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		return nil
 	})
 
-	if shouldStartMetatronSync(&r.cfg, c) {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+	if shouldStartMetatronSync(&r.cfg, r.c) {
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "metatron",
-			image:         path.Join(c.Config.DockerRegistry, c.Config.MetatronServiceImage),
+			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.MetatronServiceImage),
 			containerName: &metatronContainerName,
 			volumes: map[string]struct{}{
 				"/titus/metatron": {},
@@ -1070,9 +950,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		}))
 	}
 	if r.cfg.ContainerSSHD {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "sshd",
-			image:         path.Join(c.Config.DockerRegistry, c.Config.SSHDServiceImage),
+			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.SSHDServiceImage),
 			containerName: &sshdContainerName,
 			volumes: map[string]struct{}{
 				"/titus/sshd": {},
@@ -1080,9 +960,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		}))
 	}
 	if r.cfg.ContainerLogViewer {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "logviewer",
-			image:         path.Join(c.Config.DockerRegistry, c.Config.LogViewerServiceImage),
+			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.LogViewerServiceImage),
 			containerName: &logViewerContainerName,
 			volumes: map[string]struct{}{
 				"/titus/adminlogs": {},
@@ -1090,11 +970,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		}))
 	}
 
-	if shouldStartServiceMesh(&r.cfg, c) {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+	if shouldStartServiceMesh(&r.cfg, r.c) {
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName: "servicemesh",
 			image: func() string {
-				cimage, _ := c.GetServiceMeshImage()
+				cimage, _ := r.c.GetServiceMeshImage()
 				return cimage
 			}(),
 			containerName: &serviceMeshContainerName,
@@ -1104,10 +984,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		}))
 	}
 
-	if shouldStartAbmetrix(&r.cfg, c) {
-		group.Go(r.createVolumeContainerFunc(ctx, l, &volumeContainerConfig{
+	if shouldStartAbmetrix(&r.cfg, r.c) {
+		group.Go(r.createVolumeContainerFunc(&volumeContainerConfig{
 			serviceName:   "abmetrix",
-			image:         path.Join(c.Config.DockerRegistry, c.Config.AbmetrixServiceImage),
+			image:         path.Join(r.c.Config.DockerRegistry, r.c.Config.AbmetrixServiceImage),
 			containerName: &abmetrixContainerName,
 			volumes: map[string]struct{}{
 				"/titus/abmetrix": {},
@@ -1116,17 +996,18 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 	}
 
 	if r.cfg.UseNewNetworkDriver {
-		group.Go(func() error {
+		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()
-			netErr := prepareNetworkDriver(errGroupCtx, r.dockerCfg, c)
+			cf, netErr := prepareNetworkDriver(ctx, r.dockerCfg, r.c)
 			if netErr == nil {
 				r.metrics.Timer("titus.executor.prepareNetworkTime", time.Since(prepareNetworkStartTime), nil)
+				r.registerRuntimeCleanup(cf)
 			}
 			return netErr
 		})
 	} else {
 		// Don't call out to network driver for local development
-		c.Allocation = vpcTypes.HybridAllocation{
+		r.c.Allocation = vpcTypes.HybridAllocation{
 			IPV4Address: &vpcapi.UsableAddress{
 				Address: &vpcapi.Address{
 					Address: "1.2.3.4",
@@ -1138,18 +1019,19 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 			Error:       "",
 			BranchENIID: "eni-cat-dog",
 		}
-		l.Info("Mocking networking configuration in dev mode to IP: ", c.Allocation)
+		logger.G(ctx).Info("Mocking networking configuration in dev mode to IP: ", r.c.Allocation)
 	}
+
+	group.Go(r.setupGPU)
 
 	err = group.Wait()
 	if err != nil {
 		goto error
 	}
 
-	if err = setSystemdRunning(l, *myImageInfo, c); err != nil {
+	if err = setSystemdRunning(ctx, *myImageInfo, r.c); err != nil {
 		goto error
 	}
-	binds = append(binds, getLXCFsBindMounts()...)
 
 	if metatronContainerName != "" {
 		volumeContainers = append(volumeContainers, metatronContainerName)
@@ -1167,50 +1049,46 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context, c *runtimeTypes.Conta
 		volumeContainers = append(volumeContainers, abmetrixContainerName)
 	}
 
-	dockerCfg, hostCfg, err = r.dockerConfig(c, binds, size, volumeContainers)
+	dockerCfg, hostCfg, err = r.dockerConfig(r.c, getLXCFsBindMounts(), size, volumeContainers)
 	if err != nil {
 		goto error
 	}
 
-	if c.Resources.GPU > 0 {
-		err = r.setupGPU(ctx, c, dockerCfg, hostCfg)
-		if err != nil {
-			goto error
-		}
-	}
+	logger.G(ctx).WithFields(map[string]interface{}{
+		"dockerCfg": logger.ShouldJSON(ctx, *dockerCfg),
+		"hostCfg":   logger.ShouldJSON(ctx, *hostCfg),
+	}).Info("Creating container in docker")
 
-	l.Infof("create with Docker config %#v and Host config: %#v", *dockerCfg, *hostCfg)
+	containerCreateBody, err = r.client.ContainerCreate(ctx, dockerCfg, hostCfg, nil, r.c.TaskID)
+	r.c.SetID(containerCreateBody.ID)
 
-	containerCreateBody, err = r.client.ContainerCreate(ctx, dockerCfg, hostCfg, nil, c.TaskID)
-	c.SetID(containerCreateBody.ID)
-
-	r.metrics.Timer("titus.executor.dockerCreateTime", time.Since(dockerCreateStartTime), c.ImageTagForMetrics())
+	r.metrics.Timer("titus.executor.dockerCreateTime", time.Since(dockerCreateStartTime), r.c.ImageTagForMetrics())
 	if docker.IsErrNotFound(err) {
 		return &runtimeTypes.RegistryImageNotFoundError{Reason: err}
 	}
 	if err != nil {
 		goto error
 	}
-	l = l.WithField("containerID", c.ID)
-	l.Info("Container successfully created")
+	ctx = logger.WithField(ctx, "containerID", r.c.ID)
+	logger.G(ctx).Info("Container successfully created")
 
-	err = r.createTitusEnvironmentFile(c)
+	err = r.createTitusEnvironmentFile(r.c)
 	if err != nil {
 		goto error
 	}
-	l.Info("Titus environment pushed")
+	logger.G(ctx).Info("Titus environment pushed")
 
-	err = r.createTitusContainerConfigFile(c, startTime)
+	err = r.createTitusContainerConfigFile(r.c, r.startTime)
 	if err != nil {
 		goto error
 	}
-	l.Info("Titus Configuration pushed")
+	logger.G(ctx).Info("Titus Configuration pushed")
 
-	err = r.pushEnvironment(c, myImageInfo)
+	err = r.pushEnvironment(r.c, myImageInfo)
 	if err != nil {
 		goto error
 	}
-	l.Info("Titus environment pushed")
+	logger.G(ctx).Info("Titus environment pushed")
 
 error:
 	if err != nil {
@@ -1235,7 +1113,7 @@ func (r *DockerRuntime) createTitusContainerConfigFile(c *runtimeTypes.Container
 		return err
 	}
 	defer shouldClose(f)
-	c.RegisterRuntimeCleanup(func() error {
+	r.registerRuntimeCleanup(func() error {
 		return os.Remove(containerConfigFile)
 	})
 
@@ -1250,12 +1128,12 @@ func (r *DockerRuntime) createTitusEnvironmentFile(c *runtimeTypes.Container) er
 		return err
 	}
 	defer shouldClose(f)
-	c.RegisterRuntimeCleanup(func() error {
+	r.registerRuntimeCleanup(func() error {
 		return os.Remove(envFile)
 	})
 
 	/* writeTitusEnvironmentFile closes the file for us */
-	return writeTitusEnvironmentFile(c.Env, f)
+	return writeTitusEnvironmentFile(c.GetEnv(), f)
 }
 
 func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
@@ -1285,7 +1163,7 @@ func (r *DockerRuntime) pushEnvironment(c *runtimeTypes.Container, imageInfo *ty
 
 	//myImageInfo.Config.Env
 
-	if err := executeEnvFileTemplate(c, imageInfo, &envTemplateBuf); err != nil {
+	if err := executeEnvFileTemplate(c.GetEnv(), imageInfo, &envTemplateBuf); err != nil {
 		return err
 	}
 
@@ -1453,7 +1331,7 @@ func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListe
 
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
 // valid if err == nil, otherwise it will block indefinitely.
-func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)
 	defer cancel()
 	var err error
@@ -1461,16 +1339,16 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 	var details *runtimeTypes.Details
 	statusMessageChan := make(chan runtimeTypes.StatusMessage, 10)
 
-	entry := log.WithField("taskID", c.TaskID)
+	entry := log.WithField("taskID", r.c.TaskID)
 	entry.Info("Starting")
-	efsMountInfos, err := r.processEFSMounts(c)
+	efsMountInfos, err := r.processEFSMounts(r.c)
 	if err != nil {
 		return "", nil, statusMessageChan, err
 	}
 
 	// This sets up the tini listener. It will autoclose whenever the
 	if r.tiniEnabled {
-		listener, err = r.setupPreStartTini(ctx, c)
+		listener, err = r.setupPreStartTini(ctx, r.c)
 		if err != nil {
 			return "", nil, statusMessageChan, err
 		}
@@ -1484,7 +1362,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 	dockerStartStartTime := time.Now()
 	eventCtx, eventCancel := context.WithCancel(context.Background())
 	filters := filters.NewArgs()
-	filters.Add("container", c.ID)
+	filters.Add("container", r.c.ID)
 	filters.Add("type", "container")
 
 	eventOptions := types.EventsOptions{
@@ -1494,7 +1372,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 	// 1. We need to establish a event channel
 	eventChan, eventErrChan := r.client.Events(eventCtx, eventOptions)
 
-	err = r.client.ContainerStart(ctx, c.ID, types.ContainerStartOptions{})
+	err = r.client.ContainerStart(ctx, r.c.ID, types.ContainerStartOptions{})
 	if err != nil {
 		entry.Error("Error starting: ", err)
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
@@ -1503,43 +1381,43 @@ func (r *DockerRuntime) Start(parentCtx context.Context, c *runtimeTypes.Contain
 		return "", nil, statusMessageChan, maybeConvertIntoBadEntryPointError(err)
 	}
 
-	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), c.ImageTagForMetrics())
+	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), r.c.ImageTagForMetrics())
 
-	if c.Allocation.IPV4Address == nil {
+	if r.c.Allocation.IPV4Address == nil {
 		log.Fatal("IP allocation unset")
 	}
-	eniID := c.Allocation.BranchENIID
+	eniID := r.c.Allocation.BranchENIID
 	if eniID == "" {
-		eniID = c.Allocation.ENI
+		eniID = r.c.Allocation.ENI
 	}
 	details = &runtimeTypes.Details{
 		IPAddresses: map[string]string{
-			"nfvpc": c.Allocation.IPV4Address.Address.Address,
+			"nfvpc": r.c.Allocation.IPV4Address.Address.Address,
 		},
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: true,
-			IPAddress:    c.Allocation.IPV4Address.Address.Address,
-			EniIPAddress: c.Allocation.IPV4Address.Address.Address,
-			ResourceID:   fmt.Sprintf("resource-eni-%d", c.Allocation.DeviceIndex-1),
+			IPAddress:    r.c.Allocation.IPV4Address.Address.Address,
+			EniIPAddress: r.c.Allocation.IPV4Address.Address.Address,
+			ResourceID:   fmt.Sprintf("resource-eni-%d", r.c.Allocation.DeviceIndex-1),
 			EniID:        eniID,
 		},
 	}
 
-	if c.Allocation.IPV6Address != nil && c.Allocation.IPV6Address.Address != nil {
-		details.NetworkConfiguration.EniIPv6Address = c.Allocation.IPV6Address.Address.Address
+	if r.c.Allocation.IPV6Address != nil && r.c.Allocation.IPV6Address.Address != nil {
+		details.NetworkConfiguration.EniIPv6Address = r.c.Allocation.IPV6Address.Address.Address
 	}
 
 	if r.tiniEnabled {
-		logDir, err := r.waitForTini(ctx, listener, efsMountInfos, c)
+		logDir, err := r.waitForTini(ctx, listener, efsMountInfos, r.c)
 		if err != nil {
 			eventCancel()
 		} else {
-			go r.statusMonitor(eventCancel, c, eventChan, eventErrChan, statusMessageChan)
+			go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 		}
 		return logDir, details, statusMessageChan, err
 	}
 
-	go r.statusMonitor(eventCancel, c, eventChan, eventErrChan, statusMessageChan)
+	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 	// We already logged above that we aren't using Tini
 	// This means that the log watcher is not started
 	return "", details, statusMessageChan, nil
@@ -1796,7 +1674,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 		return "", nil, nil, errors.New("Timed out waiting for file desciptors")
 	}
 
-	c.RegisterRuntimeCleanup(func() error {
+	r.registerRuntimeCleanup(func() error {
 		shouldClose(unixConn)
 		return nil
 	})
@@ -1806,7 +1684,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 	}
 
 	rootFile := files[0]
-	c.RegisterRuntimeCleanup(rootFile.Close)
+	r.registerRuntimeCleanup(rootFile.Close)
 
 	// r.logDir(c), &cred, rootFile, nil
 	err = r.setupPostStartLogDirTiniHandleConnection2(parentCtx, c, cred, rootFile)
@@ -1817,7 +1695,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	group, errGroupCtx := errgroup.WithContext(parentCtx)
 
 	// This required (write) access to c.RegisterRuntimeCleanup
-	if err := mountContainerProcPid1InTitusInits(parentCtx, c, cred); err != nil {
+	if err := r.mountContainerProcPid1InTitusInits(parentCtx, c, cred); err != nil {
 		return err
 	}
 
@@ -1827,7 +1705,11 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 
 		// afaik, since this is the only one *modifying* data in the container object, we should be okay
 		group.Go(func() error {
-			return setupNetworking(r.dockerCfg.burst, c, cred)
+			cf, err := setupNetworking(r.dockerCfg.burst, c, cred)
+			if err == nil {
+				r.registerRuntimeCleanup(cf)
+			}
+			return err
 		})
 	}
 
@@ -1866,7 +1748,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return err
 	}
 
-	c.RegisterRuntimeCleanup(func() error {
+	r.registerRuntimeCleanup(func() error {
 		return os.Remove(logviewerRoot)
 	})
 
@@ -1884,7 +1766,7 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 	}
 	args := []string{
 		"setup-container",
-		"--bandwidth", strconv.FormatUint(bw, 10),
+		"--bandwidth", strconv.FormatInt(bw, 10),
 		"--netns", "3",
 	}
 	if burst || c.TitusInfo.GetAllowNetworkBursting() {
@@ -1899,25 +1781,25 @@ func setupNetworkingArgs(burst bool, c *runtimeTypes.Container) []string {
 	return args
 }
 
-func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { // nolint: gocyclo
+func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) (cleanupFunc, error) { // nolint: gocyclo
 	log.Info("Setting up container network")
 	var result vpcTypes.WiringStatus
 
 	netnsPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "ns", "net")
 	netnsFile, err := os.Open(netnsPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer shouldClose(netnsFile)
 
 	setupCommand := exec.Command(vpcToolPath(), setupNetworkingArgs(burst, c)...) // nolint: gosec
 	stdin, err := setupCommand.StdinPipe()
 	if err != nil {
-		return err // nolint: vet
+		return nil, err // nolint: vet
 	}
 	stdout, err := setupCommand.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	setupCommand.Stderr = os.Stderr
@@ -1925,7 +1807,7 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 
 	err = setupCommand.Start()
 	if err != nil {
-		return errors.Wrap(err, "Could not start setup command")
+		return nil, errors.Wrap(err, "Could not start setup command")
 	}
 	// errCh
 	errCh := make(chan error, 1)
@@ -1975,12 +1857,12 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	if err := json.NewEncoder(stdin).Encode(c.Allocation); err != nil {
 		go waitForKill()
 		killCh <- struct{}{}
-		return err
+		return nil, err
 	}
 	if err := json.NewDecoder(stdout).Decode(&result); err != nil {
 		go waitForKill()
 		killCh <- struct{}{}
-		return fmt.Errorf("Unable to read json from pipe during setup-container: %+v", err)
+		return nil, fmt.Errorf("Unable to read json from pipe during setup-container: %+v", err)
 	}
 
 	go waitForKill()
@@ -1988,17 +1870,17 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 	if !killTimer.Stop() {
 		err = errors.New("Kill timer fired. Race condition")
 		log.WithError(err).Error("Accidentally killed the setup command, leaving us in a 'unknown' state")
-		return err
+		return nil, err
 	}
 
 	if !result.Success {
 		killCh <- struct{}{}
-		return fmt.Errorf("Network setup error: %s", result.Error)
+		return nil, fmt.Errorf("Network setup error: %s", result.Error)
 	}
 
 	switch g := (*c.Allocation.Generation); g {
 	case vpcTypes.V1:
-		c.RegisterRuntimeCleanup(func() error {
+		return func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 
@@ -2014,28 +1896,26 @@ func setupNetworking(burst bool, c *runtimeTypes.Container, cred ucred) error { 
 				return errors.Wrap(err2, "Could not teardown container networking")
 			}
 			return nil
-		})
-		return nil
+		}, nil
 	case vpcTypes.V3:
 		// No one should have read off errCh before us.
 		err = <-errCh
 		if err != nil {
 			killCh <- struct{}{}
-			return errors.Wrap(err, "Error experienced when running V3 setup command")
+			return nil, errors.Wrap(err, "Error experienced when running V3 setup command")
 		}
 		f2, err := os.Open(netnsPath)
 		if err != nil {
-			return errors.Wrap(err, "Unable to open container network namespace file")
+			return nil, errors.Wrap(err, "Unable to open container network namespace file")
 		}
-		c.RegisterRuntimeCleanup(func() error {
+		return func() error {
 			return teardownCommand(f2, c.Allocation)
-		})
-		return nil
+		}, nil
 	default:
 		err = fmt.Errorf("Unknown generation: %s", g)
 		killCh <- struct{}{}
 		log.WithError(err).Error("Received allocation with unknown generation")
-		return err
+		return nil, err
 	}
 
 }
@@ -2079,37 +1959,39 @@ func launchTini(conn *net.UnixConn) error {
 	return err
 }
 
-func (r *DockerRuntime) setupGPU(ctx context.Context, c *runtimeTypes.Container, dockerCfg *container.Config, hostCfg *container.HostConfig) error {
-	logger := log.WithField("taskID", c.TaskID)
-
-	gpuInfo, err := nvidia.NewNvidiaInfo(ctx)
+func (r *DockerRuntime) setupGPU(ctx context.Context) error {
+	if r.c.Resources.GPU == 0 {
+		return nil
+	}
+	ctx, span := trace.StartSpan(ctx, "DockerRuntime.setupGPU")
+	defer span.End()
+	span.AddAttributes(trace.Int64Attribute("numGPUs", r.c.Resources.GPU))
+	// Allocate a specific GPU to add to the container
+	gpuInfo, err := r.gpuManager.AllocDevices(ctx, int(r.c.Resources.GPU))
 	if err != nil {
+		err = fmt.Errorf("Cannot allocate %d requested GPU device: %w", r.c.Resources.GPU, err)
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	// Allocate a specific GPU to add to the container
-	c.GPUInfo, err = gpuInfo.AllocDevices(ctx, int(c.TitusInfo.GetNumGpus()))
-	if err != nil {
-		return fmt.Errorf("Cannot allocate %d requested GPU device: %v", c.TitusInfo.GetNumGpus(), err)
-	}
-
-	gpuInfo.UpdateContainerConfig(c, dockerCfg, hostCfg, r.dockerCfg.nvidiaOciRuntime)
-	logger.WithField("numGPUs", c.TitusInfo.GetNumGpus()).WithField("gpuDevices", c.GPUInfo.Devices()).Info("Allocated GPUs")
+	span.AddAttributes(trace.StringAttribute("gpuDevices", fmt.Sprintf("%v", gpuInfo.Devices())))
+	r.c.SetGPUInfo(gpuInfo)
+	logger.G(ctx).WithField("numGPUs", r.c.Resources.GPU).WithField("gpuDevices", gpuInfo.Devices()).Info("Allocated GPUs")
 	return nil
 }
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
-func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error { // nolint: gocyclo
-	log.Infof("Killing %s", c.TaskID)
+func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
+	logger.G(ctx).Info("Killing task")
 
 	var errs *multierror.Error
 
-	containerStopTimeout := time.Second * time.Duration(c.TitusInfo.GetKillWaitSeconds())
+	containerStopTimeout := time.Second * time.Duration(r.c.TitusInfo.GetKillWaitSeconds())
 	if containerStopTimeout == 0 {
 		containerStopTimeout = defaultKillWait
 	}
 
-	if containerJSON, err := r.client.ContainerInspect(context.TODO(), c.ID); docker.IsErrNotFound(err) {
+	if containerJSON, err := r.client.ContainerInspect(context.TODO(), r.c.ID); docker.IsErrNotFound(err) {
 		goto stopped
 	} else if err != nil {
 		log.Error("Failed to inspect container: ", err)
@@ -2119,32 +2001,34 @@ func (r *DockerRuntime) Kill(c *runtimeTypes.Container) error { // nolint: gocyc
 		goto stopped
 	}
 
-	if err := r.client.ContainerStop(context.TODO(), c.ID, &containerStopTimeout); err != nil {
+	if err := r.client.ContainerStop(context.TODO(), r.c.ID, &containerStopTimeout); err != nil {
 		r.metrics.Counter("titus.executor.dockerStopContainerError", 1, nil)
-		log.Errorf("container %s : stop %v", c.TaskID, err)
+		log.Errorf("container %s : stop %v", r.c.TaskID, err)
 		errs = multierror.Append(errs, err)
 	} else {
 		goto stopped
 	}
 
-	if err := r.client.ContainerKill(context.TODO(), c.ID, "SIGKILL"); err != nil {
+	if err := r.client.ContainerKill(context.TODO(), r.c.ID, "SIGKILL"); err != nil {
 		r.metrics.Counter("titus.executor.dockerKillContainerError", 1, nil)
-		log.Errorf("container %s : kill %v", c.TaskID, err)
+		log.Errorf("container %s : kill %v", r.c.TaskID, err)
 		errs = multierror.Append(errs, err)
 	}
 
 stopped:
 
-	if c.TitusInfo.GetNumGpus() > 0 && c.GPUInfo != nil {
-		numDealloc := c.GPUInfo.Deallocate()
-		log.Infof("Deallocated %d GPU devices for task %s", numDealloc, c.TaskID)
+	if gpuInfo := r.c.GetGPUInfo(); gpuInfo != nil {
+		numDealloc := gpuInfo.Deallocate()
+		logger.G(ctx).WithField("numDealloc", numDealloc).Info("Deallocated GPU devices for task")
+	} else {
+		logger.G(ctx).Debug("No GPU devices deallocated")
 	}
 
 	return errs.ErrorOrNil()
 }
 
 // Cleanup runs the registered callbacks for a container
-func (r *DockerRuntime) Cleanup(c *runtimeTypes.Container) error {
+func (r *DockerRuntime) Cleanup(ctx context.Context) error {
 	var errs *multierror.Error
 
 	cro := types.ContainerRemoveOptions{
@@ -2153,13 +2037,17 @@ func (r *DockerRuntime) Cleanup(c *runtimeTypes.Container) error {
 		Force:         true,
 	}
 
-	if err := r.client.ContainerRemove(context.TODO(), c.ID, cro); err != nil {
+	if err := r.client.ContainerRemove(context.TODO(), r.c.ID, cro); err != nil {
 		r.metrics.Counter("titus.executor.dockerRemoveContainerError", 1, nil)
-		log.Errorf("Failed to remove container '%s' with ID: %s: %v", c.TaskID, c.ID, err)
+		log.Errorf("Failed to remove container '%s' with ID: %s: %v", r.c.TaskID, r.c.ID, err)
 		errs = multierror.Append(errs, err)
 	}
 
-	errs = multierror.Append(errs, c.RuntimeCleanup()...)
+	r.cleanupFuncLock.Lock()
+	defer r.cleanupFuncLock.Unlock()
+	for i := len(r.cleanup) - 1; i >= 0; i-- {
+		errs = multierror.Append(errs, r.cleanup[i]())
+	}
 
 	return errs.ErrorOrNil()
 }
