@@ -1679,7 +1679,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c *runtimeType
 		// because the parent window should be greater
 		ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount") // nolint: gosec
+		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount", string(cred.pid)) // nolint: gosec
 		// mntNSFD = 3+0 = 3
 		// userNSFD = 3+1 = 4
 		flags := MS_MGC_VAL
