@@ -42,7 +42,8 @@ require (
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.3.0
-	github.com/myitcv/gobin v0.0.9
+	github.com/mattn/go-isatty v0.0.12 // indirect
+	github.com/myitcv/gobin v0.0.14
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/runc v1.0.0-rc10
 	github.com/opencontainers/runtime-spec v1.0.1 // indirect
