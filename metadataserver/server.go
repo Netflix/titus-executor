@@ -227,7 +227,7 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r2 := r.WithContext(ctx)
 	defer cancel()
 	defer func() {
-		log.WithFields(logging.Entry(ctx)).Infof("Request %s %s '%s'", r2.Method, r2.RequestURI, r2.UserAgent())
+		log.WithFields(logging.Entry(ctx)).Infof("Request %s %s '%s' from %s", r2.Method, r2.RequestURI, r2.UserAgent(), r2.RemoteAddr)
 	}()
 	logging.AddFields(ctx, log.Fields{
 		"method":        r.Method,
@@ -235,8 +235,10 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"uri":           r.RequestURI,
 		"path":          r.URL.Path,
 		"token-present": len(r.Header.Get("X-aws-ec2-metadata-token")) > 0,
+		"referer":       r.Header.Get("Referer"),
+		"taskid":        ms.titusTaskInstanceID,
+		"source-addr":   r.RemoteAddr,
 	})
-
 	ms.internalMux.ServeHTTP(w, r2)
 }
 
