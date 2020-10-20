@@ -15,9 +15,6 @@ fi
 
 tag=$(date +%Y%m%d-%s)
 image="titusoss/${image_name}"
-if [[ -v DOCKER_CUSTOM_REGISTRY ]]; then
-	image="${DOCKER_CUSTOM_REGISTRY}/${image}"
-fi
 
 dated_image="${image}:${tag}"
 echo "Image name with tag: ${dated_image}"
@@ -27,9 +24,20 @@ if [[ -n "${BUILD_FROM_CHECKOUT_ROOT}" ]]; then
 else
     docker build -t $dated_image ${image_name}
 fi
-docker push $dated_image
+if [[ -n "${DOCKER_CUSTOM_REGISTRY}" ]]; then
+	IFS=','
+	for registry in ${DOCKER_CUSTOM_REGISTRY}; do
+		docker tag ${dated_image} ${registry}/${dated_image}
+		docker push ${registry}/${dated_image}
 
-docker tag $dated_image ${image}:latest
-docker push ${image}:latest
+		docker tag ${dated_image} ${registry}/${image}:latest
+		docker push ${registry}/${image}:latest
+	done
+else
+	docker push $dated_image
+
+	docker tag $dated_image ${image}:latest
+	docker push ${image}:latest
+fi
 
 echo "Built, and pushed: ${dated_image}"
