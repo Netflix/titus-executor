@@ -27,4 +27,5 @@ type MetadataServerConfiguration struct {
 	RequireToken               bool
 	TokenKey                   string
 	XFordwardedForBlockingMode bool
+	NetflixAccountID           string
 }

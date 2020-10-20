@@ -20,17 +20,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/metadataserver/identity"
+	"github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
-
-	"github.com/Netflix/titus-executor/metadataserver/types"
-
-	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/gogo/protobuf/proto"
 	protobuf "github.com/golang/protobuf/proto"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -193,17 +193,21 @@ nIWkpPRu6QjL3MCv8xQatAjsY8ynXPaGvQiliut5YvWrcbiuh6ccxIdxAOIP+etz
 	},
 }
 
-type stubServerHandler struct {
-	server *stubServer
+type stubServer struct {
+	reqChan                       chan *http.Request
+	fakeEC2MetdataServiceListener net.Listener
+	t                             *testing.T
+	proxyListener                 net.Listener
+	router                        *mux.Router
 }
 
-func (s *stubServerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (s *stubServer) serveHTTP(w http.ResponseWriter, req *http.Request) {
 	now := time.Now()
-	s.server.t.Logf("%s: %s %s %s", now.Format(time.RFC3339), req.Method, req.Host, req.URL.String())
+	s.t.Logf("StubServer: %s: %s %s %s", now.Format(time.RFC3339), req.Method, req.Host, req.URL.String())
 	select {
-	case s.server.reqChan <- req:
+	case s.reqChan <- req:
 	default:
-		s.server.t.Fatal("Received request, while reqChan blocked")
+		s.t.Fatal("Received request, while reqChan blocked")
 	}
 	w.WriteHeader(200)
 	if _, err := w.Write([]byte("Request success!")); err != nil {
@@ -211,19 +215,18 @@ func (s *stubServerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	}
 }
 
-type stubServer struct {
-	reqChan                       chan *http.Request
-	fakeEC2MetdataServiceListener net.Listener
-	t                             *testing.T
-	proxyListener                 net.Listener
-}
-
 // Leaks connections, but this is okay in the time of testing
 func setupStubServer(t *testing.T) (*stubServer, error) {
 	stubServerInstance := &stubServer{
 		reqChan: make(chan *http.Request, 1),
 		t:       t,
+		router:  mux.NewRouter(),
 	}
+
+	stubServerInstance.router.HandleFunc("/latest/api/token", func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("faketoken"))
+	})
+	stubServerInstance.router.PathPrefix("/").HandlerFunc(stubServerInstance.serveHTTP)
 
 	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
 	if err != nil {
@@ -237,8 +240,11 @@ func setupStubServer(t *testing.T) (*stubServer, error) {
 	}
 	stubServerInstance.proxyListener = listener
 
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		(*stubServerInstance.router).ServeHTTP(writer, request)
+	})
 	go func() {
-		if err := http.Serve(stubServerInstance.fakeEC2MetdataServiceListener, &stubServerHandler{stubServerInstance}); err != nil {
+		if err := http.Serve(stubServerInstance.fakeEC2MetdataServiceListener, handler); err != nil {
 			panic(err)
 		}
 	}()
@@ -571,6 +577,8 @@ func TestVCR(t *testing.T) {
 			{makeGetRequest(ss, "/latest/dynamic/instance-identity"), validateRequestProxiedAndSuccess},
 			{makeGetRequest(ss, "/latest/user-data"), validateRequestProxiedAndSuccess},
 			{makeGetRequest(ss, "/latest/not-allowed-end-point"), validateRequestNotProxiedAndForbidden},
+			{makeGetRequest(ss, "/latest/meta-data/placement/availability-zone"), validateRequestProxiedAndSuccess},
+			{makeGetRequest(ss, "/latest/meta-data/placement/region"), validateRequestProxiedAndSuccess},
 			{makeGetRequest(ss, "/latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "//latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest//dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
@@ -767,4 +775,31 @@ func TestXForwardedForBlockingMode(t *testing.T) {
 	ms.ServeHTTP(w, req)
 
 	assert.Equal(t, w.Code, http.StatusForbidden)
+}
+
+func TestInstanceMetadataDocument(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	oldRouter := ess.router
+	router := mux.NewRouter()
+	ess.router = router
+	router.HandleFunc("/latest/meta-data/placement/availability-zone", func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("us-east-1a"))
+	})
+	router.HandleFunc("/latest/meta-data/placement/region", func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("us-east-1"))
+	})
+	router.PathPrefix("/").Handler(oldRouter)
+
+	setupMetadataServer(t, ess, ecdsaCerts[0], true)
+
+	url := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest")
+	endpointConfig := &aws.Config{Endpoint: &url}
+	client := ec2metadata.New(session.Must(session.NewSession(endpointConfig)))
+	doc, err := client.GetInstanceIdentityDocument()
+	require.Nil(t, err)
+	assert.Equal(t, "us-east-1", doc.Region)
 }

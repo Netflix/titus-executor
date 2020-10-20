@@ -14,7 +14,7 @@ require (
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
 	github.com/apparentlymart/go-cidr v1.0.0
-	github.com/aws/aws-sdk-go v1.29.8
+	github.com/aws/aws-sdk-go v1.35.10
 	github.com/bombsimon/wsl/v2 v2.1.0 // indirect
 	github.com/containernetworking/cni v0.7.1
 	github.com/coreos/go-systemd v0.0.0-20200109085637-d657f9650837
@@ -38,7 +38,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
 	github.com/hashicorp/go-multierror v1.0.1-0.20191120192120-72917a1559e1
 	github.com/jirfag/go-printf-func-name v0.0.0-20200119135958-7558a9eaa5af // indirect
-	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
+	github.com/jmespath/go-jmespath v0.4.0
 	github.com/json-iterator/go v1.1.9 // indirect
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
