@@ -118,6 +118,7 @@ func main() {
 		backingMetadataServer      string
 		metatronEnabled            bool
 		region                     string
+		accountID                  string
 		iamARN                     string
 		titusTaskInstanceID        string
 		ipv4Address                string
@@ -157,6 +158,12 @@ func main() {
 			Destination: &region,
 			Value:       "",
 			EnvVar:      "EC2_REGION",
+		},
+		cli.StringFlag{
+			Name:        "account-id",
+			Usage:       "The 'network' account ID the container is running in",
+			Destination: &accountID,
+			EnvVar:      "NETFLIX_ACCOUNT_ID",
 		},
 		cli.StringFlag{
 			Name:        "iam-role",
@@ -244,6 +251,7 @@ func main() {
 			RequireToken:               requireToken,
 			TokenKey:                   titusTaskInstanceID + tokenSalt,
 			XFordwardedForBlockingMode: xFordwardedForBlockingMode,
+			NetflixAccountID:           accountID,
 		}
 		if parsedURL, err := url.Parse(backingMetadataServer); err == nil {
 			mdscfg.BackingMetadataServer = parsedURL

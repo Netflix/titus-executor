@@ -2,6 +2,7 @@ package metadataserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,13 +13,18 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/logging"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/Netflix/titus-executor/metadataserver/types"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
 	set "github.com/deckarep/golang-set"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 )
 
 // Derived from big data portal reports
@@ -30,8 +36,7 @@ var whitelist = set.NewSetFromSlice([]interface{}{
 	"/latest/meta-data/network/interfaces/macs/00:00:00:00:00:00/vpc-id",
 	"/latest/dynamic/instance-identity",
 	"/latest/user-data",
-	"/latest/meta-data/placement/availability-zone",
-	"/latest/dynamic/instance-identity/document",
+	"/latest/meta-data/placement",
 	"/latest/meta-data/iam",
 })
 
@@ -54,6 +59,8 @@ type MetadataServer struct {
 	titusTaskInstanceID string
 	ipv4Address         net.IP
 	ipv6Address         *net.IP
+	accountID           string
+	launched            time.Time
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
 	// Need to hold `signLock` while accessing `signer`
@@ -61,6 +68,12 @@ type MetadataServer struct {
 	tokenRequired             bool
 	tokenKey                  []byte
 	xForwardedForBlockingMode bool
+	ec2metadatasvc            *ec2metadata.EC2Metadata
+	// Dynamically resolved
+	sf                 singleflight.Group
+	availabilityZone   string
+	availabilityZoneID string
+	region             string
 }
 
 func dumpRoutes(r *mux.Router) {
@@ -81,12 +94,22 @@ func dumpRoutes(r *mux.Router) {
 
 // NewMetaDataServer which can be used as an HTTP server's handler
 func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) *MetadataServer {
+	awsConfig := aws.NewConfig()
+	awsConfig.Endpoint = aws.String(config.BackingMetadataServer.String())
+	awsSession, err := session.NewSession(awsConfig)
+	if err != nil {
+		panic(err)
+	}
+	svc := ec2metadata.New(awsSession)
 	ms := &MetadataServer{
 		httpClient:                &http.Client{},
 		internalMux:               mux.NewRouter(),
 		titusTaskInstanceID:       config.TitusTaskInstanceID,
 		ipv4Address:               config.Ipv4Address,
 		ipv6Address:               config.Ipv6Address,
+		accountID:                 config.NetflixAccountID,
+		launched:                  time.Now(),
+		ec2metadatasvc:            svc,
 		container:                 config.Container,
 		signer:                    config.Signer,
 		tokenRequired:             config.RequireToken,
@@ -145,6 +168,9 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 	metaData.HandleFunc("/local-hostname", ms.localHostname)
 	metaData.HandleFunc("/hostname", ms.hostname)
 	metaData.HandleFunc("/public-hostname", ms.publicHostname)
+	metaData.HandleFunc("/placement/region", ms.placementRegion)
+	metaData.HandleFunc("/placement/availability-zone", ms.placementAZ)
+	metaData.HandleFunc("/placement/availability-zone-id", ms.placementAZID)
 
 	/* Specifically return 404 on these endpoints */
 	metaData.Handle("/ami-id", http.NotFoundHandler())
@@ -152,6 +178,15 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 
 	/* IAM Stuffs */
 	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), config)
+
+	/*
+		Instance identity document
+		We do not handle the following paths:
+		* pkcs7
+		* rsa2048
+		* signature
+	*/
+	router.Path("/dynamic/instance-identity/document").HandlerFunc(ms.instanceIdentityDocument)
 
 	/* Catch All */
 	router.PathPrefix("/").Handler(newProxy(config.BackingMetadataServer))
@@ -216,8 +251,156 @@ func (ms *MetadataServer) publicHostname(w http.ResponseWriter, r *http.Request)
 func (ms *MetadataServer) ping(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.ping.count")
 
-	if _, err := fmt.Fprintf(w, "ping called"); err != nil {
+	if _, err := fmt.Fprint(w, "ping called"); err != nil {
 		log.Error("Unable to write output: ", err)
+	}
+}
+
+func (ms *MetadataServer) placementAZ(w http.ResponseWriter, r *http.Request) {
+	metrics.PublishIncrementCounter("handler.placementAZ.count")
+
+	ctx := r.Context()
+	az, err := ms.getAvailabilityZone(ctx)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not get AZ")
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := fmt.Fprint(w, az); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
+}
+
+func (ms *MetadataServer) placementAZID(w http.ResponseWriter, r *http.Request) {
+	metrics.PublishIncrementCounter("handler.placementAZID.count")
+
+	ctx := r.Context()
+	azID, err := ms.getAvailabilityZoneID(ctx)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not get AZ ID")
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := fmt.Fprint(w, azID); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
+}
+
+func (ms *MetadataServer) placementRegion(w http.ResponseWriter, r *http.Request) {
+	metrics.PublishIncrementCounter("handler.placementRegion.count")
+
+	ctx := r.Context()
+	region, err := ms.getRegion(ctx)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not get region")
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := fmt.Fprint(w, region); err != nil {
+		log.Error("Unable to write output: ", err)
+	}
+}
+
+func (ms *MetadataServer) getRegion(ctx context.Context) (string, error) {
+	val, err, _ := ms.sf.Do("region", func() (interface{}, error) {
+		if ms.region != "" {
+			return ms.region, nil
+		}
+		region, err := ms.ec2metadatasvc.GetMetadataWithContext(ctx, "placement/region")
+		if err == nil {
+			ms.region = region
+		}
+		return region, err
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("Could not fetch current region from upstream IMDS: %w", err)
+	}
+
+	return val.(string), nil
+}
+
+func (ms *MetadataServer) getAvailabilityZone(ctx context.Context) (string, error) {
+	val, err, _ := ms.sf.Do("availability-zone", func() (interface{}, error) {
+		if ms.availabilityZone != "" {
+			return ms.availabilityZone, nil
+		}
+		availabilityZone, err := ms.ec2metadatasvc.GetMetadataWithContext(ctx, "placement/availability-zone")
+		if err == nil {
+			ms.availabilityZone = availabilityZone
+		}
+		return availabilityZone, err
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("Could not fetch current availability-zone from upstream IMDS: %w", err)
+	}
+
+	return val.(string), nil
+}
+
+func (ms *MetadataServer) getAvailabilityZoneID(ctx context.Context) (string, error) {
+	val, err, _ := ms.sf.Do("availability-zone-id", func() (interface{}, error) {
+		if ms.availabilityZoneID != "" {
+			return ms.availabilityZoneID, nil
+		}
+		availabilityZoneID, err := ms.ec2metadatasvc.GetMetadataWithContext(ctx, "placement/availability-zone-id")
+		if err == nil {
+			ms.availabilityZoneID = availabilityZoneID
+		}
+		return availabilityZoneID, err
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("Could not fetch current availability zone ID from upstream IMDS: %w", err)
+	}
+
+	return val.(string), nil
+}
+
+func (ms *MetadataServer) instanceIdentityDocument(w http.ResponseWriter, r *http.Request) {
+	metrics.PublishIncrementCounter("handler.instanceIdentityDocument.count")
+	ctx := r.Context()
+	region, err := ms.getRegion(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	az, err := ms.getAvailabilityZone(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	iid := map[string]interface{}{
+		"devpayProductCodes":      nil,
+		"marketplaceProductCodes": nil,
+		"availabilityZone":        az,
+		"privateIp":               ms.ipv4Address.String(),
+		"version":                 "2017-09-30",
+		"region":                  region,
+		"instanceId":              ms.titusTaskInstanceID,
+		"billingProducts":         nil,
+		// This is a good question as to what we should put here
+		"instanceType": "titus.large",
+		"accountId":    ms.accountID,
+		"PendingTime":  ms.launched.Format("2006-01-02T15:04:05Z"),
+		// We might want to put the Docker Image Id here some day, but the chance someone is parsing it is a little
+		// too high
+		"imageId":      "ami-f00f",
+		"kernelId":     nil,
+		"ramdiskId":    nil,
+		"architecture": "x86_64",
+	}
+
+	w.Header().Set("Content-type", "application/json")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	err = enc.Encode(iid)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not encode instance identity document response")
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 	}
 }
 

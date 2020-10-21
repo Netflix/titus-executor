@@ -107,6 +107,13 @@ type Provider interface {
 	IsExpired() bool
 }
 
+// ProviderWithContext is a Provider that can retrieve credentials with a Context
+type ProviderWithContext interface {
+	Provider
+
+	RetrieveWithContext(Context) (Value, error)
+}
+
 // An Expirer is an interface that Providers can implement to expose the expiration
 // time, if known.  If the Provider cannot accurately provide this info,
 // it should not implement this interface.
@@ -166,7 +173,9 @@ type Expiry struct {
 // the expiration time given to ensure no requests are made with expired
 // tokens.
 func (e *Expiry) SetExpiration(expiration time.Time, window time.Duration) {
-	e.expiration = expiration
+	// Passed in expirations should have the monotonic clock values stripped.
+	// This ensures time comparisons will be based on wall-time.
+	e.expiration = expiration.Round(0)
 	if window > 0 {
 		e.expiration = e.expiration.Add(-window)
 	}
@@ -233,7 +242,9 @@ func (c *Credentials) GetWithContext(ctx Context) (Value, error) {
 	// Cannot pass context down to the actual retrieve, because the first
 	// context would cancel the whole group when there is not direct
 	// association of items in the group.
-	resCh := c.sf.DoChan("", c.singleRetrieve)
+	resCh := c.sf.DoChan("", func() (interface{}, error) {
+		return c.singleRetrieve(&suppressedContext{ctx})
+	})
 	select {
 	case res := <-resCh:
 		return res.Val.(Value), res.Err
@@ -243,12 +254,16 @@ func (c *Credentials) GetWithContext(ctx Context) (Value, error) {
 	}
 }
 
-func (c *Credentials) singleRetrieve() (interface{}, error) {
+func (c *Credentials) singleRetrieve(ctx Context) (creds interface{}, err error) {
 	if curCreds := c.creds.Load(); !c.isExpired(curCreds) {
 		return curCreds.(Value), nil
 	}
 
-	creds, err := c.provider.Retrieve()
+	if p, ok := c.provider.(ProviderWithContext); ok {
+		creds, err = p.RetrieveWithContext(ctx)
+	} else {
+		creds, err = c.provider.Retrieve()
+	}
 	if err == nil {
 		c.creds.Store(creds)
 	}
@@ -307,4 +322,20 @@ func (c *Credentials) ExpiresAt() (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return expirer.ExpiresAt(), nil
+}
+
+type suppressedContext struct {
+	Context
+}
+
+func (s *suppressedContext) Deadline() (deadline time.Time, ok bool) {
+	return time.Time{}, false
+}
+
+func (s *suppressedContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (s *suppressedContext) Err() error {
+	return nil
 }
