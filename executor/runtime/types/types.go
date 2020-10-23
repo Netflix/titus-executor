@@ -274,9 +274,7 @@ func (c *Container) GetEnv() map[string]string {
 			"TITUS_ENV_FROM": "pod",
 		}
 		for _, val := range c.pod.Spec.Containers[0].Env {
-			if val.Value != "" {
-				podEnv[val.Name] = val.Value
-			}
+			podEnv[val.Name] = val.Value
 		}
 		if val, ok := podEnv[titusTaskInstanceIDKey]; !ok {
 			// We need to have the pod env have this variable
