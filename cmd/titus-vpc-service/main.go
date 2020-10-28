@@ -24,7 +24,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service"
 	"github.com/Netflix/titus-executor/vpc/service/db"
-	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
 	datadog "github.com/netflix-skunkworks/opencensus-go-exporter-datadog"
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
@@ -259,7 +259,7 @@ func main() {
 				Listener:              listener,
 				DB:                    conn,
 				DBURL:                 dburl,
-				Key:                   signingKey,
+				Key:                   signingKey, // nolint:govet
 				MaxConcurrentRefresh:  v.GetInt64(maxConcurrentRefreshFlagName),
 				MaxConcurrentRequests: v.GetInt(maxConcurrentRequestsFlagName),
 				GCTimeout:             v.GetDuration(gcTimeoutFlagName),
@@ -416,5 +416,6 @@ func getTLSConfig(ctx context.Context, certificateFile, privateKey string, trust
 		},
 		ClientCAs:  certPool,
 		ClientAuth: tls.RequireAndVerifyClientCert,
+		MinVersion: tls.VersionTLS12,
 	}, nil
 }

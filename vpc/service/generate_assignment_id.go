@@ -12,14 +12,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/hashicorp/go-multierror"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -384,7 +383,7 @@ func backOff(ctx context.Context, err error) error {
 	ctx, span := trace.StartSpan(ctx, "backOff")
 	const minSleep = 100 * time.Millisecond
 	const maxSleep = 200 * time.Millisecond
-	sleep := time.Duration(rand.Int63n((maxSleep - minSleep).Nanoseconds())) + minSleep
+	sleep := time.Duration(rand.Int63n((maxSleep - minSleep).Nanoseconds())) + minSleep // nolint: gosec
 	logger.G(ctx).WithField("duration", sleep.String()).Debug("Beginning sleep")
 	sleepTimer := time.NewTimer(sleep)
 	defer sleepTimer.Stop()

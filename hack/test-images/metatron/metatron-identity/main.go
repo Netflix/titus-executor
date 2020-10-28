@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
 )
 
 func checkTaskIdentityPayload(taskIdent *titus.TaskIdentity) error {

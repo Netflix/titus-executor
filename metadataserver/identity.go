@@ -11,7 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/pkg/errors"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	log "github.com/sirupsen/logrus"
 )
 

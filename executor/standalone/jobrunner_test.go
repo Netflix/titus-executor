@@ -22,7 +22,7 @@ import (
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
-	protobuf "github.com/golang/protobuf/proto"
+	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	log "github.com/sirupsen/logrus"
 	"gotest.tools/assert"
 )
@@ -272,7 +272,7 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	return cfg, dockerCfg
 }
 
-var r = rand.New(rand.NewSource(999))
+var r = rand.New(rand.NewSource(999)) // nolint: gosec
 
 // StopExecutor stops a currently running executor
 func (jobRunResponse *JobRunResponse) StopExecutor() {
@@ -353,7 +353,7 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 			Command:    p.Cmd,
 		}
 	} else {
-		ci.EntrypointStr = protobuf.String(jobInput.EntrypointOld)
+		ci.EntrypointStr = protobuf.String(jobInput.EntrypointOld) // nolint: staticcheck
 	}
 	if jobInput.Batch != "" {
 		ci.Batch = protobuf.Bool(true)

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
+	"github.com/golang/protobuf/ptypes" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"

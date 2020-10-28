@@ -49,7 +49,7 @@ func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 		mtu = 1500
 	}
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
 	containerInterfaceName := fmt.Sprintf("tmp-%d", r.Intn(10000))
 	ipvlan := netlink.IPVlan{
 		LinkAttrs: netlink.LinkAttrs{

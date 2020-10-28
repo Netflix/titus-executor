@@ -279,7 +279,7 @@ func (proxy *iamProxy) startRoleAssumer() {
 func (proxy *iamProxy) roleAssumer() {
 	// This is a state machine which will wait until we're in a window of being < 5 minutes until our assumerole window is up,
 	// and when we hit that, it will keep trying to assume role  every minute until succcessful
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
 	for {
 		// Every second, we need to see if we need to do the assumerole dance.
 		proxy.maybeAssumeRole(defaultSessionLifetime)
