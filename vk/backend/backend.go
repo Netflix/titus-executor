@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
@@ -25,10 +25,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
-const (
-	byteUnitsEnabledLabel = "pod.titus.netflix.com/byteUnits"
 )
 
 var (
@@ -52,16 +48,6 @@ func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
 	default:
 		panic(state)
 	}
-}
-
-// Is the control plane indicating that it's sending the resources in bytes?
-func useByteUnits(pod *v1.Pod) (bool, error) {
-	bytesEnabled, ok := pod.GetLabels()[byteUnitsEnabledLabel]
-	if !ok {
-		return false, nil
-	}
-
-	return strconv.ParseBool(bytesEnabled)
 }
 
 func resourceBytesToMiB(r *resource.Quantity) (resource.Quantity, error) {
@@ -142,7 +128,7 @@ func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvide
 		return errors.Wrap(err, "Could not deserialize protobuf")
 	}
 
-	useBytes, err := useByteUnits(pod)
+	useBytes, err := podCommon.ByteUnitsEnabled(pod)
 	if err != nil {
 		return errors.Wrap(err, "Could not parse byte units pod annotation")
 	}

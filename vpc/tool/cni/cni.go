@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/golang/protobuf/proto"
 
 	"github.com/Netflix/titus-executor/utils/k8s"
@@ -39,9 +40,8 @@ import (
 var VersionInfo = version.PluginSupports("0.3.0", "0.3.1")
 
 const (
-	kubeletAPIPodsURL          = "https://localhost:10250/pods"
-	jumboFrameParam            = "titusParameter.agent.allowNetworkJumbo"
-	IngressBandwidthAnnotation = "kubernetes.io/ingress-bandwidth"
+	kubeletAPIPodsURL = "https://localhost:10250/pods"
+	jumboFrameParam   = "titusParameter.agent.allowNetworkJumbo"
 )
 
 type Command struct {
@@ -71,7 +71,7 @@ func MakeCommand(ctx context.Context, instanceIdentityProvider identity.Instance
 }
 
 func getBandwidthLimitBps(pod *corev1.Pod) (uint64, error) {
-	bwAnnotation, ok := pod.GetAnnotations()[IngressBandwidthAnnotation]
+	bwAnnotation, ok := pod.GetAnnotations()[podCommon.AnnotationKeyIngressBandwidth]
 	if !ok {
 		return 0, errors.New("could not get ingress bandwidth annotation from pod")
 	}
