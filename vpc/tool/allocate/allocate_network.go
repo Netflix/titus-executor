@@ -305,7 +305,7 @@ func populateAlloc(ctx context.Context, alloc *allocation, allocateIPv6Address b
 
 	optimisticLockTimeout := time.Duration(0)
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
 
 	timestamps := map[string]time.Time{}
 	records, err := locker.ListFiles(addressesLockPath)

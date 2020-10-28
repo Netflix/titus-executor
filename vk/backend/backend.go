@@ -19,7 +19,7 @@ import (
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	units "github.com/docker/go-units"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"golang.org/x/sys/unix"

@@ -43,7 +43,7 @@ func TestService(t *testing.T) {
 		serverErr := Run(ctx, &Config{
 			Listener:              listener,
 			DB:                    nil,
-			Key:                   key,
+			Key:                   key, // nolint: govet
 			MaxConcurrentRefresh:  10,
 			GCTimeout:             2 * time.Minute,
 			ReconcileInterval:     5 * time.Minute,

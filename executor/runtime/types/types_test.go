@@ -32,7 +32,7 @@ func TestFlatStringEntrypointIsParsed(t *testing.T) {
 
 	result, cmd, err := c.Process()
 	if err != nil {
-		t.Fatalf("Can't parse entrypoint %q: %v", *c.TitusInfo.EntrypointStr, err)
+		t.Fatalf("Can't parse entrypoint %q: %v", *c.TitusInfo.EntrypointStr, err) // nolint: staticcheck
 	}
 	assert.EqualValues(t, result, expectedSlice)
 	assert.Nil(t, cmd)

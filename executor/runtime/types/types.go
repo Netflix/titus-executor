@@ -406,7 +406,7 @@ func (c *Container) UploadDir(namespace string) string {
 //
 // If both are set, EntrypointStr has precedence to allow for smoother transition.
 func (c *Container) Process() (entrypoint, cmd []string, err error) {
-	if c.TitusInfo.EntrypointStr != nil {
+	if c.TitusInfo.EntrypointStr != nil { // nolint: staticcheck
 		// deprecated (old) way of passing entrypoints as a flat string. We need to parse it
 		entrypoint, err = dockershellparser.ProcessWords(c.TitusInfo.GetEntrypointStr(), []string{}) // nolint: megacheck
 		if err != nil {
@@ -687,8 +687,8 @@ func (c *Container) GetConfig(startTime time.Time) (*titus.ContainerInfo, error)
 	// parsing it: this matches how the entrypoint is signed in the first place.
 	//
 	// See Process() above for more details.
-	if ti.EntrypointStr != nil {
-		entrypoint = append(entrypoint, *ti.EntrypointStr)
+	if ti.EntrypointStr != nil { // nolint: staticcheck
+		entrypoint = append(entrypoint, *ti.EntrypointStr) // nolint: staticcheck
 	} else {
 		entrypoint, cmd, err = c.Process()
 		if err != nil {

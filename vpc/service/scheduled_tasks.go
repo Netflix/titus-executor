@@ -65,7 +65,8 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 		return err
 	}
 
-	fudgeFactor := (rand.Float64()/2 + 0.75) // returns a number between 0.75 and 1.25
+	// returns a number between 0.75 and 1.25
+	fudgeFactor := (rand.Float64()/2 + 0.75) // nolint: gosec
 	fudgedInterval := time.Duration(int64(float64(interval.Nanoseconds()) * fudgeFactor))
 
 	if t := time.Since(lastRun); t < interval {

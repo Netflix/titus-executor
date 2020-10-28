@@ -13,7 +13,7 @@ import (
 
 	"github.com/Netflix/titus-executor/utils/k8s"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -205,7 +205,7 @@ func writeContainerInfo(pod *v1.Pod) error {
 		return errors.Wrap(err, "Unable to decode containerInfo protobuf")
 	}
 
-	out, err := json.MarshalIndent(cInfo, "", " ")
+	out, err := json.MarshalIndent(cInfo, "", " ") // nolint: govet
 	if err != nil {
 		return errors.Wrap(err, "Unable to marshal containerInfo as JSON")
 	}

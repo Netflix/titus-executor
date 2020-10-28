@@ -1069,7 +1069,7 @@ func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 		err = row.Scan(&ipAddress)
 		if err == sql.ErrNoRows {
 			// Effectively choose a random one.
-			ipAddress = unusedIPv6AddressesList[rand.Intn(l)]
+			ipAddress = unusedIPv6AddressesList[rand.Intn(l)] // nolint: gosec
 		} else if err != nil {
 			err = errors.Wrap(err, "Could not fetch utilized IPv6 addresses from the database")
 			tracehelpers.SetStatus(err, span)
@@ -1185,7 +1185,7 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 		err = row.Scan(&ipAddress)
 		if err == sql.ErrNoRows {
 			// Effectively choose a random one.
-			ipAddress = unusedIPv4AddressesList[rand.Intn(l)]
+			ipAddress = unusedIPv4AddressesList[rand.Intn(l)] // nolint: gosec
 		} else if err != nil {
 			err = errors.Wrap(err, "Could not fetch utilized IPv4 addresses from the database")
 			tracehelpers.SetStatus(err, span)

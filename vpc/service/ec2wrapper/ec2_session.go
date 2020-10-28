@@ -89,7 +89,7 @@ func (s *EC2Session) GetSubnetByID(ctx context.Context, subnetID string) (*ec2.S
 	span.AddAttributes(trace.BoolAttribute("stale", false))
 
 	subnet := describeSubnetsOutput.Subnets[0]
-	subnetExpirationTime := time.Nanosecond * time.Duration(minSubnetExpirationTime.Nanoseconds()+rand.Int63n(maxSubnetExpirationTime.Nanoseconds()-minSubnetExpirationTime.Nanoseconds()))
+	subnetExpirationTime := time.Nanosecond * time.Duration(minSubnetExpirationTime.Nanoseconds()+rand.Int63n(maxSubnetExpirationTime.Nanoseconds()-minSubnetExpirationTime.Nanoseconds())) // nolint: gosec
 	s.subnetCache.Set(subnetID, subnet, subnetExpirationTime)
 	return subnet, nil
 }
@@ -546,7 +546,7 @@ func (s *EC2Session) getInstanceAndStoreInCache(parentCtx context.Context, insta
 		instance: instance,
 	}
 
-	instanceExpirationTime := time.Duration(minInstanceExpirationTime.Nanoseconds() + rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds()))
+	instanceExpirationTime := time.Duration(minInstanceExpirationTime.Nanoseconds() + rand.Int63n(maxInstanceExpirationTime.Nanoseconds()-minInstanceExpirationTime.Nanoseconds())) // nolint: gosec
 	s.instanceCache.Set(instanceID, ret, instanceExpirationTime)
 
 	return ret, nil

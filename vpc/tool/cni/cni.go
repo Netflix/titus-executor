@@ -12,7 +12,7 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
 
 	"github.com/Netflix/titus-executor/utils/k8s"
 

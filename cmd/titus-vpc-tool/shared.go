@@ -61,7 +61,8 @@ func getSecurityConfiguration(ctx context.Context, v *pkgviper.Viper) (grpc.Dial
 			}
 			return &cert, nil
 		},
-		RootCAs: certpool,
+		RootCAs:    certpool,
+		MinVersion: tls.VersionTLS12,
 	}
 	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
 }

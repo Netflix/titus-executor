@@ -14,8 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/Netflix/titus-executor/vpc/tool/setup2"
-
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -94,7 +93,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 	}
 	defer nsHandle.Delete()
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
 	containerInterfaceName := fmt.Sprintf("tmp-%d", r.Intn(10000))
 	ipvlan := netlink.IPVlan{
 		LinkAttrs: netlink.LinkAttrs{

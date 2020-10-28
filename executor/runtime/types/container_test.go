@@ -10,7 +10,7 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	protobuf "github.com/golang/protobuf/proto"
+	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

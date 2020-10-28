@@ -26,8 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/gogo/protobuf/proto"
-	protobuf "github.com/golang/protobuf/proto"
+	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -397,7 +396,7 @@ func validateTaskIdentityRequest(t *testing.T, keyPair testKeyPair) func(*stubSe
 			return err
 		}
 		taskIdentDoc := new(titus.TaskIdentityDocument)
-		err = proto.Unmarshal(content, taskIdentDoc)
+		err = protobuf.Unmarshal(content, taskIdentDoc)
 		if err != nil {
 			return err
 		}
@@ -408,17 +407,17 @@ func validateTaskIdentityRequest(t *testing.T, keyPair testKeyPair) func(*stubSe
 		// Identity
 
 		taskIdent := new(titus.TaskIdentity)
-		err = proto.Unmarshal(taskIdentDoc.Identity, taskIdent)
+		err = protobuf.Unmarshal(taskIdentDoc.Identity, taskIdent)
 		if err != nil {
 			return err
 		}
 		expectedTaskIdent := fakeTaskIdentity()
 		assert.NotNil(t, taskIdent.UnixTimestampSec)
 		expectedTaskIdent.UnixTimestampSec = taskIdent.UnixTimestampSec
-		assert.Equal(t, *expectedTaskIdent, *taskIdent)
+		assert.Equal(t, *expectedTaskIdent, *taskIdent) // nolint: govet
 		// The identity server checks Process for entrypoint and command:
 		assert.NotNil(t, taskIdent.Container.Process)
-		assert.Equal(t, []string{*expectedTaskIdent.Container.EntrypointStr}, taskIdent.Container.Process.Entrypoint)
+		assert.Equal(t, []string{*expectedTaskIdent.Container.EntrypointStr}, taskIdent.Container.Process.Entrypoint) // nolint: staticcheck
 
 		// Signature
 
@@ -495,7 +494,7 @@ func validateTaskIdentityJSONRequest(t *testing.T) func(*stubServer, *http.Respo
 
 		expectedTaskIdent := fakeTaskIdentity()
 		expectedTaskIdent.UnixTimestampSec = taskIdentDoc.Identity.UnixTimestampSec
-		assert.Equal(t, *expectedTaskIdent, *taskIdentDoc.Identity)
+		assert.Equal(t, *expectedTaskIdent, *taskIdentDoc.Identity) // nolint: govet
 
 		return nil
 	}

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DATA-DOG/go-sqlmock"
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/proto"  // nolint: staticcheck
+	"github.com/golang/protobuf/ptypes" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -32,7 +32,7 @@ func generateLockAndRows(t *testing.T, mock sqlmock.Sqlmock) (*vpcapi.Lock, *sql
 
 	rand.Seed(time.Now().UnixNano())
 	lock := &vpcapi.Lock{
-		Id:        rand.Int63(),
+		Id:        rand.Int63(), // nolint: gosec
 		LockName:  "branch_eni_associate_nilitem",
 		HeldBy:    "titusvpcservice-cell-instance",
 		HeldUntil: protoHeldUntil,

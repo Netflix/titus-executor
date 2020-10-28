@@ -259,7 +259,7 @@ func (locker *FSLocker) mkdirLockDir(path string) (*os.File, error) {
 		if err == nil {
 			return os.OpenFile(lockPath, os.O_RDONLY, 0400)
 		}
-		time.Sleep(time.Millisecond * time.Duration(rand.Intn(100)))
+		time.Sleep(time.Millisecond * time.Duration(rand.Intn(100))) // nolint: gosec
 	}
 	return nil, err
 }

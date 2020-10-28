@@ -61,7 +61,7 @@ func TestWatcher(t *testing.T) {
 
 	helloBytes := []byte("hello\nprana\n")
 	prana1 := filepath.Join(tmp, "/prana-log-20161001-19.log")
-	err = ioutil.WriteFile(prana1, helloBytes, 0644)
+	err = ioutil.WriteFile(prana1, helloBytes, 0644) // nolint: gosec
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestWatcher(t *testing.T) {
 	time.Sleep(time.Second * 10)
 
 	prana2 := filepath.Join(tmp, "/prana-log-20161001-20.log")
-	err = ioutil.WriteFile(prana2, helloBytes, 0644)
+	err = ioutil.WriteFile(prana2, helloBytes, 0644) // nolint: gosec
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestDoubleUpload(t *testing.T) { // nolint: gocyclo
 	}
 
 	helloBytes1 := []byte("hello\nprana1\n")
-	err = ioutil.WriteFile(filepath.Join(tmp, logFileName), helloBytes1, 0644)
+	err = ioutil.WriteFile(filepath.Join(tmp, logFileName), helloBytes1, 0644) // nolint: gosec
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDoubleUpload(t *testing.T) { // nolint: gocyclo
 	}
 
 	helloBytes2 := []byte("hello\nprana2\n")
-	err = ioutil.WriteFile(filepath.Join(tmp, logFileName), helloBytes2, 0644)
+	err = ioutil.WriteFile(filepath.Join(tmp, logFileName), helloBytes2, 0644) // nolint: gosec
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestDoubleUpload(t *testing.T) { // nolint: gocyclo
 	}
 
 	helloBytes3 := []byte("hello\nprana3\n")
-	err = ioutil.WriteFile(filepath.Join(tmp, logFileName), helloBytes3, 0644)
+	err = ioutil.WriteFile(filepath.Join(tmp, logFileName), helloBytes3, 0644) // nolint: gosec
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func setupLogRotate(tmpLogDir, destLogDir string, t *testing.T) (*Watcher, []byt
 		tmpBuf := []byte{}
 		// We do * 2 here, because we want to ensure there's enough space for a \n and to trigger rotation
 		for int64(len(tmpBuf)) < rotateSize*2 {
-			idx := rand.Intn(len(loremIpsum))
+			idx := rand.Intn(len(loremIpsum)) // nolint: gosec
 			tmpBuf = append(tmpBuf, loremIpsum[idx]...)
 		}
 		_, err = file.Write(tmpBuf)

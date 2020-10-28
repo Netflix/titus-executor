@@ -20,7 +20,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	dockerTypes "github.com/docker/docker/api/types"
-	protobuf "github.com/golang/protobuf/proto"
+	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -188,7 +188,7 @@ func wrapTestStandalone(f func(*testing.T)) func(*testing.T) {
 
 func addImageNameToTest(f func(*testing.T, string), funTitle string) func(*testing.T) {
 	return func(t *testing.T) {
-		jobID := fmt.Sprintf("%s-%d-%d", funTitle, rand.Intn(1000), time.Now().Second())
+		jobID := fmt.Sprintf("%s-%d-%d", funTitle, rand.Intn(1000), time.Now().Second()) // nolint: gosec
 		f(t, jobID)
 	}
 }
