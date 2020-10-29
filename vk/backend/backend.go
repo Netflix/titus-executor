@@ -17,6 +17,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/runner"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
+	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
@@ -146,7 +147,7 @@ func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvide
 
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
 	gpu, _ := resource.ParseQuantity("0")
-	for _, k := range []v1.ResourceName{"nvidia.com/gpu", "titus/gpu"} {
+	for _, k := range []v1.ResourceName{resourceCommon.ResourceNameGpu, resourceCommon.ResourceNameGpu} {
 		if v, ok := limits[k]; ok {
 			gpu = v
 			break
@@ -155,7 +156,7 @@ func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvide
 
 	cpu := limits[v1.ResourceCPU]
 	memory := limits[v1.ResourceMemory]
-	network := limits["titus/network"]
+	network := limits[resourceCommon.ResourceNameNetwork]
 
 	if useBytes {
 		// The control plane has passed resource values in bytes, but the runner takes
