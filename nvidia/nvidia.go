@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -13,20 +13,14 @@ import (
 	"github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
+	nvidiaDev        = "/dev/nvidia0"
 	stateDir         = "/run/titus-executor-nvidia"
 	nvidiaSmiCmd     = "nvidia-smi"
 	nvidiaSmiTimeout = 2 * time.Second
-)
-
-const (
-	// AwsGpuInstanceRegex is a regex that should match AWS GPU instance type strings
-	AwsGpuInstanceRegex = "^([g2]|[p2]|[p3]|[g4dn]).[\\S]+"
 )
 
 var (
@@ -34,7 +28,6 @@ var (
 	NoGpusFound error = gpusNotFoundError{}
 	// GpuQueryTimeout indicates a timeout in querying for the system's GPUs
 	GpuQueryTimeout error = gpuQueryTimeoutError{}
-	r                     = regexp.MustCompile(AwsGpuInstanceRegex)
 )
 
 type gpusNotFoundError struct{}
@@ -104,17 +97,12 @@ func NewNvidiaInfo(ctx context.Context, runtime string) (types.GPUManager, error
 }
 
 func isGPUInstance(ctx context.Context) (bool, error) {
-	// Only check if we're on a GPU instance type
-	sess := session.Must(session.NewSession())
-	metadatasvc := ec2metadata.New(sess)
-	instanceType, err := metadatasvc.GetMetadata("instance-type")
-	if err != nil {
+	if _, err := os.Stat(nvidiaDev); err != nil {
+		if os.IsNotExist(err) {
+			logger.G(ctx).Info("Not on a GPU instance type. No GPU info available.")
+			return false, nil
+		}
 		return false, err
-	}
-
-	if !r.MatchString(instanceType) {
-		logger.G(ctx).Info("Not on a GPU instance type. No GPU info available.")
-		return false, nil
 	}
 
 	return true, nil
