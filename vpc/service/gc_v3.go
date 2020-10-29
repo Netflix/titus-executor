@@ -498,7 +498,13 @@ ORDER BY RANDOM()
 			span.SetStatus(traceStatusFromError(err))
 			return err
 		}
-		ch <- eni
+		select {
+		case ch <- eni:
+		case <-ctx.Done():
+			err = fmt.Errorf("Context done while trying to write to gc-able ENIs: %w", ctx.Err())
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
 	}
 
 	err = tx.Commit()
