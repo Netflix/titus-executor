@@ -390,6 +390,8 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 	defer cancel()
 
 	defer time.AfterFunc(11*time.Minute, func() {
+		// TODO: Consider panicing if we hit this condition
+		// TODO: Consider adding such a watchdog to all of these functions
 		logger.G(ctx).Warning("Function running too long")
 	}).Stop()
 
@@ -498,7 +500,13 @@ ORDER BY RANDOM()
 			span.SetStatus(traceStatusFromError(err))
 			return err
 		}
-		ch <- eni
+		select {
+		case ch <- eni:
+		case <-ctx.Done():
+			err = fmt.Errorf("Context done while trying to write to gc-able ENIs: %w", ctx.Err())
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
 	}
 
 	err = tx.Commit()
