@@ -16,6 +16,7 @@ TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
 GOBIN                 ?= $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))/bin
 PATH                  := $(PATH):$(GOBIN)
 GOBIN_TOOL            = $(shell which gobin || echo $(GOBIN)/gobin)
+GOLANGCI_LINT_TIMEOUT := 2m
 ifdef FAST
 	GOLANGCI_LINT_ARGS = --fast
 endif
@@ -81,7 +82,7 @@ validate: metalinter
 
 .PHONY: validate-docker
 validate-docker: | $(builder)
-	$(DOCKER_RUN) -v $(PWD):/builds -w /builds titusoss/titus-executor-builder make -j validate
+	$(DOCKER_RUN) -v $(PWD):/builds -w /builds titusoss/titus-executor-builder make -j lint
 
 .PHONY: fmt
 fmt: $(GOBIN_TOOL)
@@ -89,7 +90,7 @@ fmt: $(GOBIN_TOOL)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOBIN_TOOL)
-	$(GOBIN_TOOL) -m -run github.com/golangci/golangci-lint/cmd/golangci-lint run $(GOLANGCI_LINT_ARGS)
+	$(GOBIN_TOOL) -m -run github.com/golangci/golangci-lint/cmd/golangci-lint run --timeout $(GOLANGCI_LINT_TIMEOUT) $(GOLANGCI_LINT_ARGS)
 
 .PHONY: lint
 lint: golangci-lint
