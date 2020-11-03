@@ -99,12 +99,12 @@ func NewNvidiaInfo(ctx context.Context, runtime string) (types.GPUManager, error
 func isGPUInstance(ctx context.Context) (bool, error) {
 	if _, err := os.Stat(nvidiaDev); err != nil {
 		if os.IsNotExist(err) {
-			logger.G(ctx).Info("Not on a GPU instance type. No GPU info available.")
 			return false, nil
 		}
 		return false, err
 	}
 
+	logger.G(ctx).Info("GPU device found")
 	return true, nil
 }
 
