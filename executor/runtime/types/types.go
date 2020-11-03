@@ -174,7 +174,7 @@ func (c *Container) VPCAccountID() string {
 	}
 
 	// If the param wasn't passed via pass through attributes, then fall back to pulling it from the host env
-	return c.Config.EC2AccountID
+	return c.Config.SSHAccountID
 }
 
 // combineAppStackDetails is a port of the method with the same name from frigga.
