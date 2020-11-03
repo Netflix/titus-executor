@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/gogo/protobuf/proto"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -396,7 +397,7 @@ func validateTaskIdentityRequest(t *testing.T, keyPair testKeyPair) func(*stubSe
 			return err
 		}
 		taskIdentDoc := new(titus.TaskIdentityDocument)
-		err = protobuf.Unmarshal(content, taskIdentDoc)
+		err = proto.Unmarshal(content, taskIdentDoc)
 		if err != nil {
 			return err
 		}
@@ -407,14 +408,14 @@ func validateTaskIdentityRequest(t *testing.T, keyPair testKeyPair) func(*stubSe
 		// Identity
 
 		taskIdent := new(titus.TaskIdentity)
-		err = protobuf.Unmarshal(taskIdentDoc.Identity, taskIdent)
+		err = proto.Unmarshal(taskIdentDoc.Identity, taskIdent)
 		if err != nil {
 			return err
 		}
 		expectedTaskIdent := fakeTaskIdentity()
 		assert.NotNil(t, taskIdent.UnixTimestampSec)
 		expectedTaskIdent.UnixTimestampSec = taskIdent.UnixTimestampSec
-		assert.Equal(t, *expectedTaskIdent, *taskIdent) // nolint: govet
+		assert.Equal(t, expectedTaskIdent, taskIdent)
 		// The identity server checks Process for entrypoint and command:
 		assert.NotNil(t, taskIdent.Container.Process)
 		assert.Equal(t, []string{*expectedTaskIdent.Container.EntrypointStr}, taskIdent.Container.Process.Entrypoint) // nolint: staticcheck
@@ -494,7 +495,7 @@ func validateTaskIdentityJSONRequest(t *testing.T) func(*stubServer, *http.Respo
 
 		expectedTaskIdent := fakeTaskIdentity()
 		expectedTaskIdent.UnixTimestampSec = taskIdentDoc.Identity.UnixTimestampSec
-		assert.Equal(t, *expectedTaskIdent, *taskIdentDoc.Identity) // nolint: govet
+		assert.Equal(t, expectedTaskIdent, taskIdentDoc.Identity)
 
 		return nil
 	}

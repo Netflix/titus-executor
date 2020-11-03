@@ -134,3 +134,5 @@ replace k8s.io/client-go => k8s.io/client-go v0.18.4
 replace k8s.io/kubectl => k8s.io/kubectl v0.18.4
 
 replace k8s.io/api => k8s.io/api v0.18.4
+
+replace github.com/golang/protobuf => github.com/golang/protobuf v1.3.3
