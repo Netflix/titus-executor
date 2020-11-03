@@ -205,7 +205,7 @@ func writeContainerInfo(pod *v1.Pod) error {
 		return errors.Wrap(err, "Unable to decode containerInfo protobuf")
 	}
 
-	out, err := json.MarshalIndent(cInfo, "", " ") // nolint: govet
+	out, err := json.MarshalIndent(&cInfo, "", " ")
 	if err != nil {
 		return errors.Wrap(err, "Unable to marshal containerInfo as JSON")
 	}
