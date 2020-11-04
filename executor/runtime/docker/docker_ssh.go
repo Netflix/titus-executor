@@ -99,7 +99,7 @@ func addContainerSSHDConfig(c *runtimeTypes.Container, tw *tar.Writer, cfg confi
 	if err != nil {
 		return err
 	}
-	return addContainerSSHDConfigWithData(c, tw, caData, iamProfile.AccountID, cfg.EC2AccountID)
+	return addContainerSSHDConfigWithData(c, tw, caData, iamProfile.AccountID, cfg.SSHAccountID)
 }
 
 func addContainerSSHDConfigWithData(c *runtimeTypes.Container, tw *tar.Writer, caData []byte, accountIDs ...string) error {

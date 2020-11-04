@@ -52,7 +52,7 @@ type Config struct {
 
 	ContainerSSHDCAFile string
 	ContainerSSHDUsers  cli.StringSlice
-	EC2AccountID        string
+	SSHAccountID        string
 
 	// CopiedFromHost indicates which environment variables to lift from the current config
 	copiedFromHostEnv cli.StringSlice
@@ -197,9 +197,9 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value: &cfg.ContainerSSHDUsers,
 		},
 		cli.StringFlag{
-			Name:        "ec2-account-id",
-			Destination: &cfg.EC2AccountID,
-			EnvVar:      "EC2_OWNER_ID",
+			Name:        "ssh-account-id",
+			Destination: &cfg.SSHAccountID,
+			EnvVar:      "SSH_ACCOUNT_ID",
 		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",
