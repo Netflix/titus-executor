@@ -27,11 +27,11 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 	return false
 }
 
-func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error {
+func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cfg config.Config, cred ucred) error {
 	return nil
 }
 
-func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
 	return nil
 }
 
@@ -42,10 +42,10 @@ func cleanupCgroups(cgroupPath string) error {
 	return errUnsupported
 }
 
-func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
 	return errUnsupported
 }
 
-func setupOOMAdj(c *runtimeTypes.Container, cred ucred) error {
+func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
 	return errUnsupported
 }

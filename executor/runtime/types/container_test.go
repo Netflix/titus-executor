@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/models"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
@@ -16,70 +14,62 @@ import (
 )
 
 func TestImageNameWithTag(t *testing.T) {
-	cfg, err := config.GenerateConfiguration(nil)
+	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
+
 	expected := "docker.io/titusoss/alpine:latest"
-	c := &Container{
-		Config: *cfg,
-		TitusInfo: &titus.ContainerInfo{
-			ImageName:  protobuf.String("titusoss/alpine"),
-			Version:    protobuf.String("latest"),
-			IamProfile: protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-		},
-	}
+	titusInfo.ImageName = protobuf.String("titusoss/alpine")
+	titusInfo.Version = protobuf.String("latest")
+
+	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
 	}
 }
 
 func TestImageTagLatestByDefault(t *testing.T) {
-	cfg, err := config.GenerateConfiguration(nil)
+	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/titusoss/alpine:latest"
-	c := &Container{
-		Config: *cfg,
-		TitusInfo: &titus.ContainerInfo{
-			ImageName: protobuf.String("titusoss/alpine"),
-		},
-	}
+	titusInfo.ImageName = protobuf.String("titusoss/alpine")
+
+	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
 	}
 }
 
 func TestImageByDigest(t *testing.T) {
-	cfg, err := config.GenerateConfiguration(nil)
+	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/" +
 		"titusoss/alpine@sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
-	c := &Container{
-		Config: *cfg,
-		TitusInfo: &titus.ContainerInfo{
-			ImageName:   protobuf.String("titusoss/alpine"),
-			ImageDigest: protobuf.String("sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"),
-		},
-	}
+	titusInfo.ImageName = protobuf.String("titusoss/alpine")
+	titusInfo.ImageDigest = protobuf.String("sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4")
+
+	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
 	}
 }
 
 func TestImageByDigestIgnoresTag(t *testing.T) {
-	cfg, err := config.GenerateConfiguration(nil)
+	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/" +
 		"titusoss/alpine@sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
-	c := &Container{
-		Config: *cfg,
-		TitusInfo: &titus.ContainerInfo{
-			ImageName:   protobuf.String("titusoss/alpine"),
-			Version:     protobuf.String("latest"),
-			ImageDigest: protobuf.String("sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"),
-		},
-	}
+	titusInfo.ImageName = protobuf.String("titusoss/alpine")
+	titusInfo.Version = protobuf.String("latest")
+	titusInfo.ImageDigest = protobuf.String("sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4")
+
+	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
 	}
@@ -140,46 +130,45 @@ func TestNewContainer(t *testing.T) {
 		Network: int64(expectedNetwork),
 	}
 
-	labels := make(map[string]string)
 	config := config.Config{}
 
-	container, err := NewContainer(taskID, containerInfo, resources, labels, config)
+	container, err := NewContainer(taskID, containerInfo, resources, config)
 	require.Nil(t, err)
 
-	actualAppName := container.Labels[appNameLabelKey]
+	actualAppName := container.Labels()[appNameLabelKey]
 	assert.Equal(t, expectedAppName, actualAppName)
 
-	actualCommand := container.Labels[commandLabelKey]
+	actualCommand := container.Labels()[commandLabelKey]
 	assert.Equal(t, expectedCommand, actualCommand)
 
-	actualEntrypoint := container.Labels[entrypointLabelKey]
+	actualEntrypoint := container.Labels()[entrypointLabelKey]
 	assert.Equal(t, expectedCommand, actualEntrypoint)
 
-	actualOwnerEmail := container.Labels[ownerEmailLabelKey]
+	actualOwnerEmail := container.Labels()[ownerEmailLabelKey]
 	assert.Equal(t, expectedOwnerEmail, actualOwnerEmail)
 
-	actualJobType := container.Labels[jobTypeLabelKey]
+	actualJobType := container.Labels()[jobTypeLabelKey]
 	assert.Equal(t, expectedJobType, actualJobType)
 
-	actualCPU, _ := strconv.ParseInt(container.Labels[cpuLabelKey], 10, 64)
+	actualCPU, _ := strconv.ParseInt(container.Labels()[cpuLabelKey], 10, 64)
 	assert.Equal(t, expectedCPU, actualCPU)
 
-	actualMem, _ := strconv.ParseInt(container.Labels[memLabelKey], 10, 64)
+	actualMem, _ := strconv.ParseInt(container.Labels()[memLabelKey], 10, 64)
 	assert.Equal(t, expectedMem, actualMem)
 
-	actualDisk, _ := strconv.ParseInt(container.Labels[diskLabelKey], 10, 64)
+	actualDisk, _ := strconv.ParseInt(container.Labels()[diskLabelKey], 10, 64)
 	assert.Equal(t, expectedDisk, actualDisk)
 
-	actualNetwork, _ := strconv.ParseUint(container.Labels[networkLabelKey], 10, 32)
+	actualNetwork, _ := strconv.ParseUint(container.Labels()[networkLabelKey], 10, 32)
 	assert.Equal(t, expectedNetwork, uint32(actualNetwork))
 
-	actualWorkloadType := container.Labels[workloadTypeLabelKey]
+	actualWorkloadType := container.Labels()[workloadTypeLabelKey]
 	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadType))
 
 	// Default to false unless metatron is explicitly configured
-	assert.Equal(t, container.GetEnv()["TITUS_METATRON_ENABLED"], "false")
+	assert.Equal(t, container.Env()["TITUS_METATRON_ENABLED"], "false")
 
-	containerConfig, err := container.GetConfig(startTime)
+	containerConfig, err := container.Config(startTime)
 	assert.NoError(t, err)
 
 	assert.Equal(t, containerInfo, containerConfig)
@@ -210,58 +199,65 @@ func TestMetatronEnabled(t *testing.T) {
 		Disk: 15000,
 	}
 
-	labels := make(map[string]string)
 	config := config.Config{
 		MetatronEnabled: true,
 	}
 
-	container, err := NewContainer(taskID, containerInfo, resources, labels, config)
+	container, err := NewContainer(taskID, containerInfo, resources, config)
 	require.Nil(t, err)
-	assert.Equal(t, container.GetEnv()["TITUS_METATRON_ENABLED"], "true")
+	assert.Equal(t, container.Env()["TITUS_METATRON_ENABLED"], "true")
 }
 
 func TestClusterName(t *testing.T) {
 	fixtures := []struct {
-		input *titus.ContainerInfo
-		want  string
+		appName        string
+		jobGroupStack  string
+		jobGroupDetail string
+		expected       string
 	}{
 		{
-			input: &titus.ContainerInfo{
-				AppName:        protobuf.String("app1"),
-				JobGroupStack:  protobuf.String("somestack"),
-				JobGroupDetail: protobuf.String("details"),
-			},
-			want: "app1-somestack-details",
+			appName:        "app1",
+			jobGroupStack:  "somestack",
+			jobGroupDetail: "details",
+			expected:       "app1-somestack-details",
 		},
 		{
 			// no details
-			input: &titus.ContainerInfo{
-				AppName:       protobuf.String("app2"),
-				JobGroupStack: protobuf.String("somestack"),
-			},
-			want: "app2-somestack",
+			appName:       "app2",
+			jobGroupStack: "somestack",
+			expected:      "app2-somestack",
 		},
 		{
 			// no stack
-			input: &titus.ContainerInfo{
-				AppName:        protobuf.String("app3"),
-				JobGroupDetail: protobuf.String("details"),
-			},
-			want: "app3--details",
+			appName:        "app3",
+			jobGroupDetail: "details",
+			expected:       "app3--details",
 		},
 		{
 			// no stack no details
-			input: &titus.ContainerInfo{
-				AppName: protobuf.String("app4"),
-			},
-			want: "app4",
+			appName:  "app4",
+			expected: "app4",
 		},
 	}
 
 	for _, f := range fixtures {
-		if got := combineAppStackDetails(f.input); got != f.want {
-			t.Fatalf("want: %s, got %s", f.want, got)
+		taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+		assert.NoError(t, err)
+		if f.appName != "" {
+			titusInfo.AppName = &f.appName
 		}
+		if f.jobGroupDetail != "" {
+			titusInfo.JobGroupDetail = &f.jobGroupDetail
+		}
+		if f.jobGroupStack != "" {
+			titusInfo.JobGroupStack = &f.jobGroupStack
+		}
+
+		c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+		assert.NoError(t, err)
+
+		got := c.CombinedAppStackDetails()
+		assert.Equal(t, f.expected, got)
 	}
 }
 
@@ -294,9 +290,9 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 			if input.info.IamProfile == nil {
 				input.info.IamProfile = protobuf.String("arn:aws:iam::0:role/DefaultContainerRole")
 			}
-			container, err := NewContainer(name, input.info, resources, map[string]string{models.TaskIDLabel: name}, *cfg)
+			container, err := NewContainer(name, input.info, resources, *cfg)
 			require.Nil(t, err)
-			containerEnv := container.GetEnv()
+			containerEnv := container.Env()
 			for key, value := range want {
 				assert.Contains(t, containerEnv, key)
 				assert.Equalf(t, containerEnv[key], value, "Expected key %s to be equal", key)

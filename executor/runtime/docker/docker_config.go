@@ -26,13 +26,6 @@ type Config struct { // nolint: maligned
 	networkTeardownTimeout time.Duration
 }
 
-type volumeContainerConfig struct {
-	serviceName   string
-	image         string
-	containerName *string
-	volumes       map[string]struct{}
-}
-
 // NewConfig generates a configuration, with a set of flags tied to it for the docker runtime
 func NewConfig() (*Config, []cli.Flag) {
 	cfg := &Config{}
@@ -132,25 +125,19 @@ func GenerateConfiguration(args []string) (*Config, error) {
 	return cfg, app.Run(args)
 }
 
-func shouldStartMetatronSync(cfg *config.Config, c *runtimeTypes.Container) bool {
-	if cfg.MetatronEnabled && c.TitusInfo.GetMetatronCreds() != nil {
+func shouldStartMetatronSync(cfg *config.Config, c runtimeTypes.Container) bool {
+	if cfg.MetatronEnabled && c.MetatronCreds() != nil {
 		return true
 	}
 
 	return false
 }
 
-func shouldStartServiceMesh(cfg *config.Config, c *runtimeTypes.Container) bool {
-	enabled, _ := c.GetServiceMeshEnabled()
-	if !enabled {
-		return false
-	}
-
-	_, err := c.GetServiceMeshImage()
-	return err == nil
+func shouldStartServiceMesh(cfg *config.Config, c runtimeTypes.Container) bool {
+	return c.ServiceMeshEnabled()
 }
 
-func shouldStartAbmetrix(cfg *config.Config, c *runtimeTypes.Container) bool {
+func shouldStartAbmetrix(cfg *config.Config, c runtimeTypes.Container) bool {
 	enabled := cfg.ContainerAbmetrixEnabled
 	if !enabled {
 		return false
