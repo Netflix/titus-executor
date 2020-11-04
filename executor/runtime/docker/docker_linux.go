@@ -40,7 +40,7 @@ type schedParam struct {
 }
 
 // Function to determine if a service should be enabled or not
-type serviceEnabledFunc func(cfg *config.Config, c *runtimeTypes.Container) bool
+type serviceEnabledFunc func(cfg *config.Config, c runtimeTypes.Container) bool
 
 type serviceOpts struct {
 	humanName    string
@@ -56,6 +56,7 @@ const (
 	umountNoFollow            = 0x8
 	sysFsCgroup               = "/sys/fs/cgroup"
 	runcArgFormat             = "--root /var/run/docker/runtime-%s/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s %s"
+	defaultOomScore           = 1000
 )
 
 var systemServices = []serviceOpts{
@@ -67,7 +68,7 @@ var systemServices = []serviceOpts{
 		humanName: "ssh",
 		unitName:  "titus-sshd",
 		required:  true,
-		enabledCheck: func(cfg *config.Config, c *runtimeTypes.Container) bool {
+		enabledCheck: func(cfg *config.Config, c runtimeTypes.Container) bool {
 			return cfg.ContainerSSHD
 		},
 	},
@@ -87,7 +88,7 @@ var systemServices = []serviceOpts{
 		humanName: "logviewer",
 		unitName:  "titus-logviewer",
 		required:  true,
-		enabledCheck: func(cfg *config.Config, c *runtimeTypes.Container) bool {
+		enabledCheck: func(cfg *config.Config, c runtimeTypes.Container) bool {
 			return cfg.ContainerLogViewer
 		},
 	},
@@ -142,9 +143,9 @@ func setupScheduler(cred ucred) error {
 }
 
 // This mounts /proc/${PID1}/ to /var/lib/titus-inits for the container
-func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
+func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
 	pidpath := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10))
-	path := filepath.Join(titusInits, c.TaskID)
+	path := filepath.Join(titusInits, c.TaskID())
 	if err := os.Mkdir(path, 0755); err != nil { // nolint: gosec
 		return err
 	}
@@ -162,7 +163,7 @@ func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Con
 	return nil
 }
 
-func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
+func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 
@@ -180,10 +181,10 @@ func setupSystemServices(parentCtx context.Context, c *runtimeTypes.Container, c
 		// Different runtimes have different root paths that need to be passed to runc with `--root`.
 		// In particular, we use the `oci-add-hooks` runtime for GPU containers.
 		runtime := runtimeTypes.DefaultOciRuntime
-		if r := c.GetRuntime(); r != "" {
+		if r := c.Runtime(); r != "" {
 			runtime = r
 		}
-		if err := startSystemdUnit(ctx, conn, c.TaskID, c.ID, runtime, svc); err != nil {
+		if err := startSystemdUnit(ctx, conn, c.TaskID(), c.ID(), runtime, svc); err != nil {
 			logrus.WithError(err).Errorf("Error starting %s service", svc.humanName)
 			return err
 		}
@@ -290,8 +291,8 @@ func cleanupCgroups(cgroupPath string) error {
 	return nil
 }
 
-func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cred ucred) error {
-	if !c.IsSystemD {
+func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
+	if !c.IsSystemD() {
 		return nil
 	}
 
@@ -330,11 +331,11 @@ func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cr
 	return nil
 }
 
-func setupOOMAdj(c *runtimeTypes.Container, cred ucred) error {
-	oomScore := 1000
+func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
+	oomScore := defaultOomScore
 
-	if c.TitusInfo.OomScoreAdj != nil {
-		oomScore = int(c.TitusInfo.GetOomScoreAdj())
+	if oomScoreAdj := c.OomScoreAdj(); oomScoreAdj != nil {
+		oomScore = int(*oomScoreAdj)
 	}
 
 	pid := strconv.FormatInt(int64(cred.pid), 10)

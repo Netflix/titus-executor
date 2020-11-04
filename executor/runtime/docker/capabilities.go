@@ -3,7 +3,6 @@ package docker
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 
@@ -17,15 +16,11 @@ const (
 	NET_ADMIN = "NET_ADMIN" // nolint: golint
 )
 
-var (
-	errNestedContainers = errors.New("nested containers no longer supported")
-)
-
-func addAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) map[string]struct{} {
+func addAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.HostConfig) map[string]struct{} {
 	addedCapabilities := make(map[string]struct{})
 
 	// Set any additional capabilities for this container
-	if cap := c.TitusInfo.GetCapabilities(); cap != nil {
+	if cap := c.Capabilities(); cap != nil {
 		for _, add := range cap.GetAdd() {
 			addedCapabilities[add.String()] = struct{}{}
 			hostCfg.CapAdd = append(hostCfg.CapAdd, add.String())
@@ -37,26 +32,12 @@ func addAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.Hos
 	return addedCapabilities
 }
 
-func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) error {
-	if c.TitusInfo.GetAllowNestedContainers() {
-		return errNestedContainers
-	}
-
-	fuseEnabled, err := c.GetFuseEnabled()
-	if err != nil {
-		return err
-	}
-
-	kvmEnabled, err := c.GetKvmEnabled()
-	if err != nil {
-		return err
-	}
-
+func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.HostConfig) error {
 	addedCapabilities := addAdditionalCapabilities(c, hostCfg)
 	seccompProfile := "default.json"
 	apparmorProfile := "docker_titus"
 
-	if fuseEnabled {
+	if c.FuseEnabled() {
 		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
 			hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
 		}
@@ -70,7 +51,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		seccompProfile = "fuse-container.json"
 	}
 
-	if kvmEnabled {
+	if c.KvmEnabled() {
 		if _, ok := addedCapabilities[NET_ADMIN]; !ok {
 			hostCfg.CapAdd = append(hostCfg.CapAdd, NET_ADMIN)
 		}
@@ -101,7 +82,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		hostCfg.Sysctls["net.ipv4.conf.all.arp_ignore"] = "1"
 	}
 
-	if c.IsSystemD {
+	if c.IsSystemD() {
 		// Tell Tini to exec systemd so it's pid 1
 		c.SetEnv("TINI_HANDOFF", trueString)
 	}
@@ -109,7 +90,7 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
 	asset := seccomp.MustAsset(seccompProfile)
 	var buf bytes.Buffer
-	err = json.Compact(&buf, asset)
+	err := json.Compact(&buf, asset)
 	if err != nil {
 		return fmt.Errorf("Could not JSON compact seccomp profile string: %w", err)
 	}

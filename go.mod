@@ -83,6 +83,7 @@ require (
 	k8s.io/apimachinery v0.18.4
 	k8s.io/client-go v10.0.0+incompatible
 	k8s.io/kubernetes v1.18.4
+	k8s.io/utils v0.0.0-20201104234853-8146046b121e
 	mvdan.cc/unparam v0.0.0-20191111180625-960b1ec0f2c2 // indirect
 	sourcegraph.com/sqs/pbtypes v1.0.0 // indirect
 )

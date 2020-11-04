@@ -227,16 +227,16 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 
 	drt, ok := rt.(*docker.DockerRuntime)
 	require.True(t, ok, "DockerRuntime cast should succeed")
-	ctr := &runtimeTypes.Container{
-		Config: *cfg,
-		TitusInfo: &titus.ContainerInfo{
-			ImageName:   protobuf.String(imgName),
-			ImageDigest: protobuf.String(imgDigest),
-			IamProfile:  protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-		},
-	}
+	taskID, titusInfo, resources, conf, err := runtimeTypes.ContainerTestArgs()
+	assert.NoError(t, err)
+	titusInfo.ImageName = protobuf.String(imgName)
+	titusInfo.ImageDigest = protobuf.String(imgDigest)
+	titusInfo.IamProfile = protobuf.String("arn:aws:iam::0:role/DefaultContainerRole")
 
-	res, err := drt.DockerPull(ctx, ctr)
+	c, err := runtimeTypes.NewContainer(taskID, titusInfo, *resources, *conf)
+	assert.NoError(t, err)
+
+	res, err := drt.DockerPull(ctx, c)
 	require.NoError(t, err, "No error doing a docker pull")
 
 	return res, err

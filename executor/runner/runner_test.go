@@ -32,7 +32,7 @@ const (
 
 // runtimeMock implements the Runtime interface
 type runtimeMock struct {
-	c *runtimeTypes.Container
+	c runtimeTypes.Container
 
 	t   *testing.T
 	ctx context.Context
@@ -47,15 +47,15 @@ type runtimeMock struct {
 	statusChan chan runtimeTypes.StatusMessage
 
 	prepareCallback func(context.Context) error
-	cleanupCallback func(*runtimeTypes.Container) error
-	killCallback    func(c *runtimeTypes.Container) error
+	cleanupCallback func(c runtimeTypes.Container) error
+	killCallback    func(c runtimeTypes.Container) error
 }
 
 func (r *runtimeMock) Prepare(ctx context.Context) error {
 	if r.c == nil {
 		panic("Container is nil")
 	}
-	r.t.Log("runtimeMock.Prepare", r.c.TaskID)
+	r.t.Log("runtimeMock.Prepare", r.c.TaskID())
 	if r.prepareCallback != nil {
 		return r.prepareCallback(ctx)
 	}
@@ -63,7 +63,7 @@ func (r *runtimeMock) Prepare(ctx context.Context) error {
 }
 
 func (r *runtimeMock) Start(ctx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
-	r.t.Log("runtimeMock.Start", r.c.TaskID)
+	r.t.Log("runtimeMock.Start", r.c.TaskID())
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	close(r.startCalled)
@@ -86,12 +86,12 @@ func (r *runtimeMock) Start(ctx context.Context) (string, *runtimeTypes.Details,
 }
 
 func (r *runtimeMock) Kill(ctx context.Context) error {
-	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, r.c.TaskID)
+	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, r.c.TaskID())
 	if r.killCallback != nil {
 		return r.killCallback(r.c)
 	}
 	defer close(r.statusChan)
-	defer logrus.Info("runtimeMock.Killed: ", r.c.TaskID)
+	defer logrus.Info("runtimeMock.Killed: ", r.c.TaskID())
 	// send a kill request and wait for a grant
 	req := make(chan struct{}, 1)
 	select {
@@ -111,7 +111,7 @@ func (r *runtimeMock) Kill(ctx context.Context) error {
 }
 
 func (r *runtimeMock) Cleanup(ctx context.Context) error {
-	r.t.Log("runtimeMock.Cleanup", r.c.TaskID)
+	r.t.Log("runtimeMock.Cleanup", r.c.TaskID())
 	if r.cleanupCallback != nil {
 		return r.cleanupCallback(r.c)
 	}
@@ -142,13 +142,13 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 	}
 	cleanedup := false
 	killed := false
-	r.killCallback = func(c *runtimeTypes.Container) error {
+	r.killCallback = func(c runtimeTypes.Container) error {
 		logrus.WithField("container", c).Debug("Container being killed")
 		killed = true
 		return nil
 	}
-	r.cleanupCallback = func(c *runtimeTypes.Container) error {
-		assert.True(t, killed) // Make sure the service is killed before cleand up
+	r.cleanupCallback = func(c runtimeTypes.Container) error {
+		assert.True(t, killed) // Make sure the service is killed before cleaned up
 		logrus.WithField("container", c).Debug("Container being cleaned up")
 		cleanedup = true
 		return nil
@@ -163,7 +163,7 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 		Disk:      1,
 		Network:   1,
 	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c *runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
 		return r, nil
 	}, config.Config{})
@@ -243,7 +243,7 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 		Disk:      1,
 		Network:   1,
 	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c *runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
 		return r, nil
 	}, config.Config{})
@@ -335,7 +335,7 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 		Disk:      1,
 		Network:   1,
 	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c *runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
 		return r, nil
 	}, config.Config{})

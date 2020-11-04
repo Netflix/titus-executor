@@ -1,15 +1,8 @@
 package runner
 
 import (
-	"regexp"
-
-	corev1 "k8s.io/api/core/v1"
-
-	"github.com/Netflix/titus-executor/logger"
-
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -19,13 +12,13 @@ import (
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/filesystems"
-	"github.com/Netflix/titus-executor/models"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/uploader"
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
+	corev1 "k8s.io/api/core/v1"
 )
 
-// Config is runner config
-
+// Task contains all information for running a task
 type Task struct {
 	TaskID    string
 	TitusInfo *titus.ContainerInfo
@@ -45,7 +38,7 @@ type Runner struct {
 	runtime       runtimeTypes.Runtime
 	config        config.Config
 
-	container *runtimeTypes.Container
+	container runtimeTypes.Container
 	watcher   *filesystems.Watcher
 
 	// Close this channel to start killing the container
@@ -60,16 +53,6 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 	ctx = logger.WithField(ctx, "taskID", task.TaskID)
 
 	metricsTagger, _ := m.(tagger) // metrics.Reporter may or may not implement tagger interface.  OK to be nil
-	labels := map[string]string{
-		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
-		models.TaskIDLabel:      task.TaskID,
-	}
-
-	// Should we remove this?
-	if len(task.TitusInfo.GetIamProfile()) > 0 {
-		labels["ec2.iam.role"] = task.TitusInfo.GetIamProfile()
-	}
-
 	resources := runtimeTypes.Resources{
 		Mem:     task.Mem,
 		CPU:     task.CPU,
@@ -79,7 +62,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 	}
 
 	startTime := time.Now()
-	container, err := runtimeTypes.NewContainerWithPod(task.TaskID, task.TitusInfo, resources, labels, cfg, task.Pod)
+	container, err := runtimeTypes.NewContainerWithPod(task.TaskID, task.TitusInfo, resources, cfg, task.Pod)
 	if err != nil {
 		return nil, err
 	}
@@ -238,11 +221,11 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 
 func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
 	// If extra Atlas tags is enabled, initialize metrics.Reporter with default tags t.jobId and t.taskId
-	jobID := r.container.TitusInfo.TitusProvidedEnv["TITUS_JOB_ID"]
-	if r.metricsTagger != nil && len(jobID) > 0 {
+	jobID := r.container.JobID()
+	if r.metricsTagger != nil && jobID != nil {
 		tags := map[string]string{
-			"t.jobId":  jobID,
-			"t.taskId": r.container.TaskID,
+			"t.jobId":  *jobID,
+			"t.taskId": r.container.TaskID(),
 		}
 		r.metricsTagger.append(tags)
 		logger.G(ctx).Infof("Set Atlas default tags to: %s", tags)
@@ -385,39 +368,8 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 	}
 	logger.G(ctx).Info("Starting external logger")
 
-	uploadCheckInterval, err := r.container.GetLogUploadCheckInterval()
-	if err != nil {
-		return err
-	}
-	uploadThresholdTime, err := r.container.GetLogUploadThresholdTime()
-	if err != nil {
-		return err
-	}
-	stdioCheckInterval, err := r.container.GetLogStdioCheckInterval()
-	if err != nil {
-		return err
-	}
-	keepAfterUpload, err := r.container.GetKeepLocalFileAfterUpload()
-	if err != nil {
-		return err
-	}
-
-	uploadDir := r.container.UploadDir("logs")
-
-	var uploadRegexp *regexp.Regexp
-
-	uploadRegexpStr := r.container.TitusInfo.GetLogUploadRegexp()
-	if uploadRegexpStr != "" {
-		var err error
-		uploadRegexp, err = regexp.Compile(uploadRegexpStr)
-		if err != nil {
-			return err
-		}
-	}
-
-	wConf := filesystems.NewWatchConfig(logDir, uploadDir, uploadRegexp, uploadCheckInterval, uploadThresholdTime, stdioCheckInterval, keepAfterUpload)
-
-	uploader, err := uploader.NewUploader(&r.config, r.container.TitusInfo, r.container.TaskID, r.metrics)
+	wConf := filesystems.NewWatchConfig(logDir, r.container.UploadDir("logs"), r.container.LogUploadRegexp(), *r.container.LogUploadCheckInterval(), *r.container.LogUploadThresholdTime(), *r.container.LogStdioCheckInterval(), r.container.LogKeepLocalFileAfterUpload())
+	uploader, err := uploader.NewUploader(&r.config, r.container.LogUploaderConfig(), *r.container.IamRole(), r.container.TaskID(), r.metrics)
 	if err != nil {
 		return err
 	}
@@ -434,7 +386,7 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 	l := logger.G(ctx).WithField("msg", msg).WithField("taskStatus", status)
 	select {
 	case r.UpdatesChan <- Update{
-		TaskID:  r.container.TaskID,
+		TaskID:  r.container.TaskID(),
 		State:   status,
 		Mesg:    msg,
 		Details: details,

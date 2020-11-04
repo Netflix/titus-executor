@@ -8,7 +8,6 @@ import (
 	"path"
 	"sync"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/Netflix/metrics-client-go/metrics"
@@ -16,41 +15,34 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	s3WriterRoleParam = "titusParameter.agent.log.s3WriterRole"
-	s3BucketNameParam = "titusParameter.agent.log.s3BucketName"
-	s3PathPrefixParam = "titusParameter.agent.log.s3PathPrefix"
-)
-
 // Wraps the backends used to do log uploading.
 type Uploader struct {
 	backend Backend
 }
 
+// Config specifies the config for the uploader
+type Config struct {
+	S3WriterRole string
+	S3BucketName string
+	S3PathPrefix string
+}
+
 // The upload always prefers s3, then copy, and will use a black hole sink if nothing else is configured. The first
 // s3 location or copy destination specified is used. Rest are ignored.
-func NewUploader(config *config.Config, titusInfo *titus.ContainerInfo, taskID string, m metrics.Reporter) (*Uploader, error) {
-	writerRole, bucketName, pathPrefix, useTitusRole := "", "", "", true
+func NewUploader(config *config.Config, uploaderConfig *Config, iamRole string, taskID string, m metrics.Reporter) (*Uploader, error) {
+	bucketName, useTitusRole := "", true
 
 	if len(config.S3Uploaders) > 0 {
 		bucketName = config.S3Uploaders[0]
 	}
 
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3WriterRoleParam]; ok {
-		writerRole = param
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3BucketNameParam]; ok {
-		bucketName = param
+	if uploaderConfig.S3BucketName != "" {
+		bucketName = uploaderConfig.S3BucketName
 		useTitusRole = false
 	}
 
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3PathPrefixParam]; ok {
-		pathPrefix = param
-	}
-
 	if bucketName != "" {
-		s3, err := NewS3Backend(m, bucketName, pathPrefix, titusInfo.GetIamProfile(), taskID, writerRole, useTitusRole)
+		s3, err := NewS3Backend(m, bucketName, uploaderConfig.S3PathPrefix, iamRole, taskID, uploaderConfig.S3WriterRole, useTitusRole)
 		if err != nil {
 			return nil, err
 		}

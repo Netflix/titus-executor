@@ -9,6 +9,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/aws/aws-sdk-go/aws/arn"
+	"github.com/pkg/errors"
 )
 
 const sshdConfig = `
@@ -88,21 +89,25 @@ Subsystem sftp /titus/sshd/usr/lib64/misc/sftp-server
 PidFile /run/sshd.pid
 `
 
-func addContainerSSHDConfig(c *runtimeTypes.Container, tw *tar.Writer, cfg config.Config) error {
-	iamProfileARN := c.GetIamProfile()
-	iamProfile, err := arn.Parse(iamProfileARN)
+func addContainerSSHDConfig(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config) error {
+	iamProfileARN := c.IamRole()
+	if iamProfileARN == nil {
+		return errors.New("Could not get IAM role from container")
+	}
+
+	iamProfile, err := arn.Parse(*iamProfileARN)
 	if err != nil {
 		return err
 	}
 
-	caData, err := ioutil.ReadFile(c.Config.ContainerSSHDCAFile)
+	caData, err := ioutil.ReadFile(cfg.ContainerSSHDCAFile)
 	if err != nil {
 		return err
 	}
-	return addContainerSSHDConfigWithData(c, tw, caData, iamProfile.AccountID, cfg.SSHAccountID)
+	return addContainerSSHDConfigWithData(c, tw, cfg, caData, iamProfile.AccountID, cfg.SSHAccountID)
 }
 
-func addContainerSSHDConfigWithData(c *runtimeTypes.Container, tw *tar.Writer, caData []byte, accountIDs ...string) error {
+func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config, caData []byte, accountIDs ...string) error {
 	sshConfigBytes := []byte(sshdConfig)
 	err := tw.WriteHeader(&tar.Header{
 		Name: "/titus/etc/ssh/sshd_config",
@@ -133,17 +138,17 @@ func addContainerSSHDConfigWithData(c *runtimeTypes.Container, tw *tar.Writer, c
 	// The format that is used for SSH Users is:
 	// $(unix username):$(app name):$(aws account id):$(task id)
 
-	users := append(c.Config.ContainerSSHDUsers, c.TitusInfo.GetAppName())
+	users := append(cfg.ContainerSSHDUsers, c.AppName())
 	for _, username := range users {
 		lines := []string{}
 		for _, accountID := range accountIDs {
 			lines = append(
 				lines,
-				fmt.Sprintf("%s:%s:%s:%s", username, c.TitusInfo.GetAppName(), accountID, c.TaskID), // key scoped to username, appname, account ID, and task ID
-				fmt.Sprintf("%s:%s:%s", c.TitusInfo.GetAppName(), accountID, c.TaskID),              // key has access to any username for this given app in this given account, with this task ID
-				fmt.Sprintf("%s:%s", c.TitusInfo.GetAppName(), accountID),                           // key has access to any username for this given app in this given account
-				c.TaskID,                                 // key has access to any username on this task ID
-				fmt.Sprintf("%s:%s", username, c.TaskID), // key has access to this given username on this task ID
+				fmt.Sprintf("%s:%s:%s:%s", username, c.AppName(), accountID, c.TaskID()), // key scoped to username, appname, account ID, and task ID
+				fmt.Sprintf("%s:%s:%s", c.AppName(), accountID, c.TaskID()),              // key has access to any username for this given app in this given account, with this task ID
+				fmt.Sprintf("%s:%s", c.AppName(), accountID),                             // key has access to any username for this given app in this given account
+				c.TaskID(), // key has access to any username on this task ID
+				fmt.Sprintf("%s:%s", username, c.TaskID()), // key has access to this given username on this task ID
 			)
 		}
 		line := []byte(strings.Join(lines, "\n"))
