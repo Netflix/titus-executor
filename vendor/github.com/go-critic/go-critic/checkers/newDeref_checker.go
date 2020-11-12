@@ -3,29 +3,29 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
 	"github.com/go-critic/go-critic/checkers/internal/lintutil"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astcast"
 	"golang.org/x/tools/go/ast/astutil"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "newDeref"
 	info.Tags = []string{"style", "experimental"}
 	info.Summary = "Detects immediate dereferencing of `new` expressions"
 	info.Before = `x := *new(bool)`
 	info.After = `x := false`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForExpr(&newDerefChecker{ctx: ctx})
 	})
 }
 
 type newDerefChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *newDerefChecker) VisitExpr(expr ast.Expr) {

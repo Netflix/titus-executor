@@ -70,7 +70,7 @@ func NewWhitespace() *goanalysis.Linter {
 				}
 				issue.Replacement.NewLines = []string{bracketLine}
 
-				res[k] = goanalysis.NewIssue(&issue, pass)
+				res[k] = goanalysis.NewIssue(&issue, pass) //nolint:scopelint
 			}
 
 			mu.Lock()

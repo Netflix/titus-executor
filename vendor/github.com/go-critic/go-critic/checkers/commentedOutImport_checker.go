@@ -5,12 +5,12 @@ import (
 	"go/token"
 	"regexp"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "commentedOutImport"
 	info.Tags = []string{"style", "experimental"}
 	info.Summary = "Detects commented-out imports"
@@ -24,7 +24,7 @@ import (
 	"fmt"
 )`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		const pattern = `(?m)^(?://|/\*)?\s*"([a-zA-Z0-9_/]+)"\s*(?:\*/)?$`
 		return &commentedOutImportChecker{
 			ctx:            ctx,
@@ -35,7 +35,7 @@ import (
 
 type commentedOutImportChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	importStringRE *regexp.Regexp
 }

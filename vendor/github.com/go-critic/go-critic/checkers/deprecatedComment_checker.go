@@ -5,12 +5,12 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "deprecatedComment"
 	info.Tags = []string{"diagnostic", "experimental"}
 	info.Summary = "Detects malformed 'deprecated' doc-comments"
@@ -21,7 +21,7 @@ func FuncOld() int`
 // Deprecated: use FuncNew instead
 func FuncOld() int`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		c := &deprecatedCommentChecker{ctx: ctx}
 
 		c.commonPatterns = []*regexp.Regexp{
@@ -61,7 +61,7 @@ func FuncOld() int`
 
 type deprecatedCommentChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	commonPatterns []*regexp.Regexp
 	commonTypos    []string

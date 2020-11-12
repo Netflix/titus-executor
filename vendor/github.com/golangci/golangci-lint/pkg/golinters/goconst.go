@@ -70,7 +70,7 @@ func checkConstants(pass *analysis.Pass, lintCtx *linter.Context) ([]goanalysis.
 		} else {
 			textEnd = fmt.Sprintf(", but such constant %s already exists", formatCode(i.MatchingConst, lintCtx.Cfg))
 		}
-		res = append(res, goanalysis.NewIssue(&result.Issue{
+		res = append(res, goanalysis.NewIssue(&result.Issue{ //nolint:scopelint
 			Pos:        i.Pos,
 			Text:       textBegin + textEnd,
 			FromLinter: goconstName,

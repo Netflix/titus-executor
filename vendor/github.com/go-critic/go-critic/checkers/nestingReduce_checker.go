@@ -3,15 +3,15 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "nestingReduce"
 	info.Tags = []string{"style", "opinionated", "experimental"}
-	info.Params = linter.CheckerParams{
+	info.Params = lintpack.CheckerParams{
 		"bodyWidth": {
 			Value: 5,
 			Usage: "min number of statements inside a branch to trigger a warning",
@@ -32,7 +32,7 @@ for _, v := range a {
 	body()
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		c := &nestingReduceChecker{ctx: ctx}
 		c.bodyWidth = info.Params.Int("bodyWidth")
 		return astwalk.WalkerForStmt(c)
@@ -41,7 +41,7 @@ for _, v := range a {
 
 type nestingReduceChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	bodyWidth int
 }

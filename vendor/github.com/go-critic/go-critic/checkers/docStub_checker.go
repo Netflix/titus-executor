@@ -6,12 +6,12 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "docStub"
 	info.Tags = []string{"style", "experimental"}
 	info.Summary = "Detects comments that silence go lint complaints about doc-comment"
@@ -26,7 +26,7 @@ func Foo() {}
 // Foo is a demonstration-only function.
 func Foo() {}`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		re := `(?i)^\.\.\.$|^\.$|^xxx\.?$|^whatever\.?$`
 		c := &docStubChecker{
 			ctx:           ctx,
@@ -38,7 +38,7 @@ func Foo() {}`
 
 type docStubChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	stubCommentRE *regexp.Regexp
 }

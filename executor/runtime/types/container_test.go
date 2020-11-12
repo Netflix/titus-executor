@@ -262,6 +262,10 @@ func TestClusterName(t *testing.T) {
 }
 
 func TestEnvBasedOnTaskInfo(t *testing.T) {
+	cfg, err := config.GenerateConfiguration(nil)
+	require.Nil(t, err)
+	cfg.GetHardcodedEnv()
+
 	type input struct {
 		info                             *titus.ContainerInfo
 		cpu, mem, disk, networkBandwidth string
@@ -270,36 +274,6 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 		return func(t *testing.T) {
 			var err error
 			var resources Resources
-
-			cfg, err := config.GenerateConfiguration(nil)
-			require.Nil(t, err)
-			cfg.SSHAccountID = "config"
-			cfg.GetHardcodedEnv()
-
-			if input.cpu == "" {
-				input.cpu = "1"
-				if _, ok := want["TITUS_NUM_CPU"]; !ok {
-					want["TITUS_NUM_CPU"] = "1"
-				}
-			}
-			if input.mem == "" {
-				input.mem = "333"
-				if _, ok := want["TITUS_NUM_MEM"]; !ok {
-					want["TITUS_NUM_MEM"] = "333"
-				}
-			}
-			if input.disk == "" {
-				input.disk = "1000"
-				if _, ok := want["TITUS_NUM_DISK"]; !ok {
-					want["TITUS_NUM_DISK"] = "1000"
-				}
-			}
-			if input.networkBandwidth == "" {
-				input.networkBandwidth = "100"
-				if _, ok := want["TITUS_NUM_NETWORK_BANDWIDTH"]; !ok {
-					want["TITUS_NUM_NETWORK_BANDWIDTH"] = "100"
-				}
-			}
 
 			resources.Mem, err = strconv.ParseInt(input.mem, 10, 64)
 			require.Nil(t, err)
@@ -319,15 +293,10 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 			container, err := NewContainer(name, input.info, resources, *cfg)
 			require.Nil(t, err)
 			containerEnv := container.Env()
-			// Checks if everything in want is in containerEnv
-			// basically, makes sure want is a subset of containerEnv
-			// We merge the maps so we can use assert.equals
-			for key, value := range containerEnv {
-				if _, ok := want[key]; !ok {
-					want[key] = value
-				}
+			for key, value := range want {
+				assert.Contains(t, containerEnv, key)
+				assert.Equalf(t, containerEnv[key], value, "Expected key %s to be equal", key)
 			}
-			assert.Equal(t, want, containerEnv)
 		}
 	}
 
@@ -558,77 +527,6 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 				"TITUS_NUM_NETWORK_BANDWIDTH": "800",
 				"TITUS_IMAGE_NAME":            "image1",
 				"TITUS_IMAGE_TAG":             "latest",
-			},
-		},
-		{
-			name: "CanOverrideResources",
-			input: input{
-				info: &titus.ContainerInfo{
-					UserProvidedEnv: map[string]string{
-						"TITUS_NUM_CPU": "42",
-					},
-				},
-				cpu: "1",
-			},
-			want: map[string]string{
-				"TITUS_NUM_CPU": "42",
-			},
-		},
-		{
-			name: "CannotOverrideIAM",
-			input: input{
-				info: &titus.ContainerInfo{
-					UserProvidedEnv: map[string]string{
-						"TITUS_IAM_ROLE": "arn:aws:iam::0:role/HackerRole",
-					},
-					IamProfile: protobuf.String("arn:aws:iam::0:role/RealRole"),
-				},
-			},
-			want: map[string]string{
-				"TITUS_IAM_ROLE": "arn:aws:iam::0:role/RealRole",
-			},
-		},
-		{
-			// the control plane should set the EC2_OWNER_ID variable
-			name: "PreserveEC2OwnerID",
-			input: input{
-				info: &titus.ContainerInfo{
-					UserProvidedEnv: map[string]string{
-						"EC2_OWNER_ID": "good",
-					},
-					PassthroughAttributes: map[string]string{
-						AccountIDParam: "default",
-					},
-				},
-			},
-			want: map[string]string{
-				"EC2_OWNER_ID": "good",
-			},
-		},
-		{
-			name: "FallbackToAccountIDParam",
-			input: input{
-				info: &titus.ContainerInfo{
-					UserProvidedEnv: map[string]string{},
-					PassthroughAttributes: map[string]string{
-						AccountIDParam: "default",
-					},
-				},
-			},
-			want: map[string]string{
-				"EC2_OWNER_ID": "default",
-			},
-		},
-		{
-			name: "FallbackToConfig",
-			input: input{
-				info: &titus.ContainerInfo{
-					UserProvidedEnv:       map[string]string{},
-					PassthroughAttributes: map[string]string{},
-				},
-			},
-			want: map[string]string{
-				"EC2_OWNER_ID": "config",
 			},
 		},
 	}

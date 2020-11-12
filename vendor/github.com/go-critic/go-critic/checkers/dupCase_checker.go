@@ -3,13 +3,13 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
 	"github.com/go-critic/go-critic/checkers/internal/lintutil"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "dupCase"
 	info.Tags = []string{"diagnostic"}
 	info.Summary = "Detects duplicated case clauses inside switch statements"
@@ -22,14 +22,14 @@ switch x {
 case ys[0], ys[1], ys[2], ys[3], ys[4]:
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&dupCaseChecker{ctx: ctx})
 	})
 }
 
 type dupCaseChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	astSet lintutil.AstSet
 }

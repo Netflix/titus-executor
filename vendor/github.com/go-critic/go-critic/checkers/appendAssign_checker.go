@@ -5,15 +5,15 @@ import (
 	"go/token"
 	"go/types"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astequal"
 	"github.com/go-toolsmith/astp"
 	"golang.org/x/tools/go/ast/astutil"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "appendAssign"
 	info.Tags = []string{"diagnostic"}
 	info.Summary = "Detects suspicious append result assignments"
@@ -24,14 +24,14 @@ p.negatives = append(p.negatives, y)`
 p.positives = append(p.positives, x)
 p.negatives = append(p.negatives, y)`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&appendAssignChecker{ctx: ctx})
 	})
 }
 
 type appendAssignChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *appendAssignChecker) VisitStmt(stmt ast.Stmt) {

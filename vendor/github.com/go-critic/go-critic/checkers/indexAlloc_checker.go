@@ -3,14 +3,14 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astcast"
 	"github.com/go-toolsmith/typep"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "indexAlloc"
 	info.Tags = []string{"performance"}
 	info.Summary = "Detects strings.Index calls that may cause unwanted allocs"
@@ -18,14 +18,14 @@ func init() {
 	info.After = `bytes.Index(x, []byte(y))`
 	info.Note = `See Go issue for details: https://github.com/golang/go/issues/25864`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForExpr(&indexAllocChecker{ctx: ctx})
 	})
 }
 
 type indexAllocChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *indexAllocChecker) VisitExpr(e ast.Expr) {

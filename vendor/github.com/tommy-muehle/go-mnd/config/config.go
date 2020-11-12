@@ -1,14 +1,12 @@
 package config
 
 import (
-	"regexp"
 	"strings"
 )
 
 type Config struct {
 	Checks         map[string]bool
 	IgnoredNumbers map[string]struct{}
-	Excludes       []*regexp.Regexp
 }
 
 type Option func(config *Config)
@@ -18,10 +16,6 @@ func DefaultConfig() *Config {
 		Checks: map[string]bool{},
 		IgnoredNumbers: map[string]struct{}{
 			"0": {},
-			"1": {},
-		},
-		Excludes: []*regexp.Regexp{
-			regexp.MustCompile(`_test.go`),
 		},
 	}
 }
@@ -32,18 +26,6 @@ func WithOptions(options ...Option) *Config {
 		option(c)
 	}
 	return c
-}
-
-func WithExcludes(excludes string) Option {
-	return func(config *Config) {
-		if excludes == "" {
-			return
-		}
-
-		for _, exclude := range strings.Split(excludes, ",") {
-			config.Excludes = append(config.Excludes, regexp.MustCompile(exclude))
-		}
-	}
 }
 
 func WithIgnoredNumbers(numbers string) Option {

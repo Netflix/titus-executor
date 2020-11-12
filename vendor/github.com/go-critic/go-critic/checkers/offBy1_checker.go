@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astcast"
 	"github.com/go-toolsmith/astcopy"
 	"github.com/go-toolsmith/astequal"
@@ -13,21 +13,21 @@ import (
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "offBy1"
 	info.Tags = []string{"diagnostic", "experimental"}
 	info.Summary = "Detects various off-by-one kind of errors"
 	info.Before = `xs[len(xs)]`
 	info.After = `xs[len(xs)-1]`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForExpr(&offBy1Checker{ctx: ctx})
 	})
 }
 
 type offBy1Checker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *offBy1Checker) VisitExpr(e ast.Expr) {

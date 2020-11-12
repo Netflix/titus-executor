@@ -7,25 +7,23 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "commentFormatting"
 	info.Tags = []string{"style", "experimental"}
 	info.Summary = "Detects comments with non-idiomatic formatting"
 	info.Before = `//This is a comment`
 	info.After = `// This is a comment`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		parts := []string{
-			`^//go:generate .*$`, // e.g.: go:generate value
-			`^//\w+:.*$`,         // e.g.: key: value
-			`^//nolint$`,         // e.g.: nolint
-			`^//line /.*:\d+`,    // e.g.: line /path/to/file:123
-			`^//export \w+$`,     // e.g.: export Foo
+			`^//\w+:.*$`,      //key: value
+			`^//nolint$`,      //nolint
+			`^//line /.*:\d+`, //line /path/to/file:123
 		}
 		pat := "(?m)" + strings.Join(parts, "|")
 		pragmaRE := regexp.MustCompile(pat)
@@ -38,7 +36,7 @@ func init() {
 
 type commentFormattingChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	pragmaRE *regexp.Regexp
 }

@@ -4,14 +4,14 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astequal"
 	"github.com/go-toolsmith/typep"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "nilValReturn"
 	info.Tags = []string{"diagnostic", "experimental"}
 	info.Summary = "Detects return statements those results evaluate to nil"
@@ -29,14 +29,14 @@ if err != nil {
 	return err
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&nilValReturnChecker{ctx: ctx})
 	})
 }
 
 type nilValReturnChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *nilValReturnChecker) VisitStmt(stmt ast.Stmt) {

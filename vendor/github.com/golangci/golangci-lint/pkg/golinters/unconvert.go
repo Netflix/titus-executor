@@ -35,7 +35,7 @@ func NewUnconvert() *goanalysis.Linter {
 
 			issues := make([]goanalysis.Issue, 0, len(positions))
 			for _, pos := range positions {
-				issues = append(issues, goanalysis.NewIssue(&result.Issue{
+				issues = append(issues, goanalysis.NewIssue(&result.Issue{ //nolint:scopelint
 					Pos:        pos,
 					Text:       "unnecessary conversion",
 					FromLinter: linterName,

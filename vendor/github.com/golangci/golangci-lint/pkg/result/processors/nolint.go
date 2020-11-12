@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/golangci/golangci-lint/pkg/golinters"
-	"github.com/golangci/golangci-lint/pkg/lint/linter"
 	"github.com/golangci/golangci-lint/pkg/lint/lintersdb"
 	"github.com/golangci/golangci-lint/pkg/logutils"
 	"github.com/golangci/golangci-lint/pkg/result"
@@ -18,8 +16,7 @@ import (
 var nolintDebugf = logutils.Debug("nolint")
 
 type ignoredRange struct {
-	linters                []string
-	matchedIssueFromLinter map[string]bool
+	linters []string
 	result.Range
 	col int
 }
@@ -27,15 +24,6 @@ type ignoredRange struct {
 func (i *ignoredRange) doesMatch(issue *result.Issue) bool {
 	if issue.Line() < i.From || issue.Line() > i.To {
 		return false
-	}
-
-	// handle possible unused nolint directives
-	// nolintlint generates potential issues for every nolint directive and they are filtered out here
-	if issue.ExpectNoLint {
-		if issue.ExpectedNoLintLinter != "" {
-			return i.matchedIssueFromLinter[issue.ExpectedNoLintLinter]
-		}
-		return len(i.matchedIssueFromLinter) > 0
 	}
 
 	if len(i.linters) == 0 {
@@ -58,19 +46,17 @@ type fileData struct {
 type filesCache map[string]*fileData
 
 type Nolint struct {
-	cache          filesCache
-	dbManager      *lintersdb.Manager
-	enabledLinters map[string]*linter.Config
-	log            logutils.Log
+	cache     filesCache
+	dbManager *lintersdb.Manager
+	log       logutils.Log
 
 	unknownLintersSet map[string]bool
 }
 
-func NewNolint(log logutils.Log, dbManager *lintersdb.Manager, enabledLinters map[string]*linter.Config) *Nolint {
+func NewNolint(log logutils.Log, dbManager *lintersdb.Manager) *Nolint {
 	return &Nolint{
 		cache:             filesCache{},
 		dbManager:         dbManager,
-		enabledLinters:    enabledLinters,
 		log:               log,
 		unknownLintersSet: map[string]bool{},
 	}
@@ -83,8 +69,6 @@ func (p Nolint) Name() string {
 }
 
 func (p *Nolint) Process(issues []result.Issue) ([]result.Issue, error) {
-	// put nolintlint issues last because we process other issues first to determine which nolint directives are unused
-	sort.Stable(sortWithNolintlintLast(issues))
 	return filterIssuesErr(issues, p.shouldPassIssue)
 }
 
@@ -140,22 +124,6 @@ func (p *Nolint) buildIgnoredRangesForFile(f *ast.File, fset *token.FileSet, fil
 }
 
 func (p *Nolint) shouldPassIssue(i *result.Issue) (bool, error) {
-	nolintDebugf("got issue: %v", *i)
-	if i.FromLinter == golinters.NolintlintName {
-		// always pass nolintlint issues except ones trying find unused nolint directives
-		if !i.ExpectNoLint {
-			return true, nil
-		}
-		if i.ExpectedNoLintLinter != "" {
-			// don't expect disabled linters to cover their nolint statements
-			nolintDebugf("enabled linters: %v", p.enabledLinters)
-			if p.enabledLinters[i.ExpectedNoLintLinter] == nil {
-				return false, nil
-			}
-			nolintDebugf("checking that lint issue was used for %s: %v", i.ExpectedNoLintLinter, i)
-		}
-	}
-
 	fd, err := p.getOrCreateFileData(i)
 	if err != nil {
 		return false, err
@@ -163,7 +131,6 @@ func (p *Nolint) shouldPassIssue(i *result.Issue) (bool, error) {
 
 	for _, ir := range fd.ignoredRanges {
 		if ir.doesMatch(i) {
-			ir.matchedIssueFromLinter[i.FromLinter] = true
 			return false, nil
 		}
 	}
@@ -236,9 +203,8 @@ func (p *Nolint) extractInlineRangeFromComment(text string, g ast.Node, fset *to
 				From: pos.Line,
 				To:   fset.Position(g.End()).Line,
 			},
-			col:                    pos.Column,
-			linters:                linters,
-			matchedIssueFromLinter: make(map[string]bool),
+			col:     pos.Column,
+			linters: linters,
 		}
 	}
 
@@ -286,19 +252,4 @@ func (p Nolint) Finish() {
 	sort.Strings(unknownLinters)
 
 	p.log.Warnf("Found unknown linters in //nolint directives: %s", strings.Join(unknownLinters, ", "))
-}
-
-// put nolintlint last
-type sortWithNolintlintLast []result.Issue
-
-func (issues sortWithNolintlintLast) Len() int {
-	return len(issues)
-}
-
-func (issues sortWithNolintlintLast) Less(i, j int) bool {
-	return issues[i].FromLinter != golinters.NolintlintName && issues[j].FromLinter == golinters.NolintlintName
-}
-
-func (issues sortWithNolintlintLast) Swap(i, j int) {
-	issues[j], issues[i] = issues[i], issues[j]
 }

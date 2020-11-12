@@ -3,12 +3,12 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "ifElseChain"
 	info.Tags = []string{"style"}
 	info.Summary = "Detects repeated if-else statements and suggests to replace them with switch statement"
@@ -34,14 +34,14 @@ Permits single else or else-if; repeated else-if or else + else-if
 will trigger suggestion to use switch statement.
 See [EffectiveGo#switch](https://golang.org/doc/effective_go.html#switch).`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&ifElseChainChecker{ctx: ctx})
 	})
 }
 
 type ifElseChainChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	cause   *ast.IfStmt
 	visited map[*ast.IfStmt]bool

@@ -3,12 +3,12 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "flagDeref"
 	info.Tags = []string{"diagnostic"}
 	info.Summary = "Detects immediate dereferencing of `flag` package pointers"
@@ -21,7 +21,7 @@ flag.BoolVar(&b, "b", false, "b docs")`
 Dereferencing returned pointers will lead to hard to find errors
 where flag values are not updated after flag.Parse().`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		c := &flagDerefChecker{
 			ctx: ctx,
 			flagPtrFuncs: map[string]bool{
@@ -41,7 +41,7 @@ where flag values are not updated after flag.Parse().`
 
 type flagDerefChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	flagPtrFuncs map[string]bool
 }

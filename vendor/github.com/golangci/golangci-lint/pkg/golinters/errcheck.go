@@ -59,7 +59,7 @@ func NewErrcheck() *goanalysis.Linter {
 				} else {
 					text = "Error return value is not checked"
 				}
-				issues = append(issues, goanalysis.NewIssue(&result.Issue{
+				issues = append(issues, goanalysis.NewIssue(&result.Issue{ //nolint:scopelint
 					FromLinter: linterName,
 					Text:       text,
 					Pos:        i.Pos,

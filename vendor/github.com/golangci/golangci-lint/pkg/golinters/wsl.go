@@ -3,7 +3,7 @@ package golinters
 import (
 	"sync"
 
-	"github.com/bombsimon/wsl/v3"
+	"github.com/bombsimon/wsl/v2"
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/golangci/golangci-lint/pkg/golinters/goanalysis"
@@ -42,17 +42,14 @@ func NewWSL() *goanalysis.Linter {
 					AllowMultiLineAssignCuddle:       linterCfg.AllowMultiLineAssignCuddle,
 					AllowCuddleDeclaration:           linterCfg.AllowCuddleDeclaration,
 					AllowTrailingComment:             linterCfg.AllowTrailingComment,
-					AllowSeparatedLeadingComment:     linterCfg.AllowSeparatedLeadingComment,
-					ForceCuddleErrCheckAndAssign:     linterCfg.ForceCuddleErrCheckAndAssign,
-					ForceCaseTrailingWhitespaceLimit: linterCfg.ForceCaseTrailingWhitespaceLimit,
+					CaseForceTrailingWhitespaceLimit: linterCfg.CaseForceTrailingWhitespaceLimit,
 					AllowCuddleWithCalls:             []string{"Lock", "RLock"},
 					AllowCuddleWithRHS:               []string{"Unlock", "RUnlock"},
-					ErrorVariableNames:               []string{"err"},
 				}
 			)
 
 			for _, file := range pass.Files {
-				files = append(files, pass.Fset.PositionFor(file.Pos(), false).Filename)
+				files = append(files, pass.Fset.Position(file.Pos()).Filename)
 			}
 
 			wslErrors, _ := wsl.NewProcessorWithConfig(processorCfg).
@@ -66,7 +63,7 @@ func NewWSL() *goanalysis.Linter {
 			defer mu.Unlock()
 
 			for _, err := range wslErrors {
-				issues = append(issues, goanalysis.NewIssue(&result.Issue{
+				issues = append(issues, goanalysis.NewIssue(&result.Issue{ //nolint:scopelint
 					FromLinter: name,
 					Pos:        err.Position,
 					Text:       err.Reason,

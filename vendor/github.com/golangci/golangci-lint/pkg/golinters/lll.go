@@ -92,7 +92,7 @@ func NewLLL() *goanalysis.Linter {
 		analyzer.Run = func(pass *analysis.Pass) (interface{}, error) {
 			var fileNames []string
 			for _, f := range pass.Files {
-				pos := pass.Fset.PositionFor(f.Pos(), false)
+				pos := pass.Fset.Position(f.Pos())
 				fileNames = append(fileNames, pos.Filename)
 			}
 

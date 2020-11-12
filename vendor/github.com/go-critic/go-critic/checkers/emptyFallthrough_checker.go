@@ -4,12 +4,12 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "emptyFallthrough"
 	info.Tags = []string{"style", "experimental"}
 	info.Summary = "Detects fallthrough that can be avoided by using multi case values"
@@ -24,14 +24,14 @@ case reflect.Int, reflect.Int32:
 	return Int
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&emptyFallthroughChecker{ctx: ctx})
 	})
 }
 
 type emptyFallthroughChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *emptyFallthroughChecker) VisitStmt(stmt ast.Stmt) {

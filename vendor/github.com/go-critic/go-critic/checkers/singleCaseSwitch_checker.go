@@ -3,12 +3,12 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "singleCaseSwitch"
 	info.Tags = []string{"style"}
 	info.Summary = "Detects switch statements that could be better written as if statement"
@@ -22,14 +22,14 @@ if x, ok := x.(int); ok {
 	body()
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&singleCaseSwitchChecker{ctx: ctx})
 	})
 }
 
 type singleCaseSwitchChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *singleCaseSwitchChecker) VisitStmt(stmt ast.Stmt) {

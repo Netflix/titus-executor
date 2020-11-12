@@ -602,6 +602,33 @@ func (c *TitusInfoContainer) Env() map[string]string {
 	env["TITUS_NUM_DISK"] = itoa(resources.Disk)
 	env["TITUS_NUM_NETWORK_BANDWIDTH"] = itoa(resources.Network)
 
+	if name := c.ImageName(); name != nil {
+		env["TITUS_IMAGE_NAME"] = *name
+	}
+	if tag := c.ImageVersion(); tag != nil {
+		env["TITUS_IMAGE_TAG"] = *tag
+	}
+	if digest := c.ImageDigest(); digest != nil {
+		env["TITUS_IMAGE_DIGEST"] = *digest
+	}
+
+	env["EC2_OWNER_ID"] = ptr.StringPtrDerefOr(c.VPCAccountID(), "")
+
+	cluster := c.CombinedAppStackDetails()
+	env["NETFLIX_APP"] = c.AppName()
+	env["NETFLIX_CLUSTER"] = cluster
+	env["NETFLIX_STACK"] = c.JobGroupStack()
+	env["NETFLIX_DETAIL"] = c.JobGroupDetail()
+
+	var asgName string
+	if seq := c.JobGroupSequence(); seq == "" {
+		asgName = cluster + "-v000"
+	} else {
+		asgName = cluster + "-" + seq
+	}
+	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
+	env["TITUS_IAM_ROLE"] = ptr.StringPtrDerefOr(c.IamRole(), "")
+
 	// passed environment
 	passedEnv := func() map[string]string {
 		containerInfoEnv := map[string]string{
@@ -646,39 +673,6 @@ func (c *TitusInfoContainer) Env() map[string]string {
 	for key, value := range passedEnv {
 		env[key] = value
 	}
-
-	// These environment variables may be looked at things like sidecars and they should override user environment
-	if name := c.ImageName(); name != nil {
-		env["TITUS_IMAGE_NAME"] = *name
-	}
-	if tag := c.ImageVersion(); tag != nil {
-		env["TITUS_IMAGE_TAG"] = *tag
-	}
-	if digest := c.ImageDigest(); digest != nil {
-		env["TITUS_IMAGE_DIGEST"] = *digest
-	}
-
-	// The control plane should set this environment variable.
-	// If it doesn't, we should set it. It shouldn't create
-	// any problems if it is set to an "incorrect" value
-	if _, ok := env["EC2_OWNER_ID"]; !ok {
-		env["EC2_OWNER_ID"] = ptr.StringPtrDerefOr(c.VPCAccountID(), "")
-	}
-
-	cluster := c.CombinedAppStackDetails()
-	env["NETFLIX_APP"] = c.AppName()
-	env["NETFLIX_CLUSTER"] = cluster
-	env["NETFLIX_STACK"] = c.JobGroupStack()
-	env["NETFLIX_DETAIL"] = c.JobGroupDetail()
-
-	var asgName string
-	if seq := c.JobGroupSequence(); seq == "" {
-		asgName = cluster + "-v000"
-	} else {
-		asgName = cluster + "-" + seq
-	}
-	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
-	env["TITUS_IAM_ROLE"] = ptr.StringPtrDerefOr(c.IamRole(), "")
 
 	if c.config.MetatronEnabled {
 		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron

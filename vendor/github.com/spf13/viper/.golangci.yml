@@ -22,6 +22,3 @@ linters:
         - gocyclo
         - gocognit
         - gocritic
-
-service:
-    golangci-lint-version: 1.21.x

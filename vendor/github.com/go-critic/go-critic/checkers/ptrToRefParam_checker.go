@@ -4,26 +4,26 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "ptrToRefParam"
 	info.Tags = []string{"style", "opinionated", "experimental"}
 	info.Summary = "Detects input and output parameters that have a type of pointer to referential type"
 	info.Before = `func f(m *map[string]int) (*chan *int)`
 	info.After = `func f(m map[string]int) (chan *int)`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForFuncDecl(&ptrToRefParamChecker{ctx: ctx})
 	})
 }
 
 type ptrToRefParamChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *ptrToRefParamChecker) VisitFuncDecl(fn *ast.FuncDecl) {

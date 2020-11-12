@@ -4,14 +4,14 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astcopy"
 	"github.com/go-toolsmith/astfmt"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "sloppyLen"
 	info.Tags = []string{"style"}
 	info.Summary = "Detects usage of `len` when result is obvious or doesn't make sense"
@@ -23,14 +23,14 @@ len(arr) < 0  // Doesn't make sense at all`
 len(arr) > 0
 len(arr) == 0`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForExpr(&sloppyLenChecker{ctx: ctx})
 	})
 }
 
 type sloppyLenChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *sloppyLenChecker) VisitExpr(x ast.Expr) {

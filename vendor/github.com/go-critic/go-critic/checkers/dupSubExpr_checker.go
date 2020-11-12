@@ -5,14 +5,14 @@ import (
 	"go/token"
 	"go/types"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astequal"
 	"github.com/go-toolsmith/typep"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "dupSubExpr"
 	info.Tags = []string{"diagnostic"}
 	info.Summary = "Detects suspicious duplicated sub-expressions"
@@ -25,7 +25,7 @@ sort.Slice(xs, func(i, j int) bool {
 	return xs[i].v < xs[j].v
 })`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		c := &dupSubExprChecker{ctx: ctx}
 
 		ops := []struct {
@@ -65,7 +65,7 @@ sort.Slice(xs, func(i, j int) bool {
 
 type dupSubExprChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	// opSet is a set of binary operations that do not make
 	// sense with duplicated (same) RHS and LHS.

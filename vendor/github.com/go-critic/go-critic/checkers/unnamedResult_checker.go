@@ -4,15 +4,15 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "unnamedResult"
 	info.Tags = []string{"style", "opinionated", "experimental"}
-	info.Params = linter.CheckerParams{
+	info.Params = lintpack.CheckerParams{
 		"checkExported": {
 			Value: false,
 			Usage: "whether to check exported functions",
@@ -22,7 +22,7 @@ func init() {
 	info.Before = `func f() (float64, float64)`
 	info.After = `func f() (x, y float64)`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		c := &unnamedResultChecker{ctx: ctx}
 		c.checkExported = info.Params.Bool("checkExported")
 		return astwalk.WalkerForFuncDecl(c)
@@ -31,7 +31,7 @@ func init() {
 
 type unnamedResultChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	checkExported bool
 }

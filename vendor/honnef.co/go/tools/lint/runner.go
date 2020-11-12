@@ -1031,7 +1031,7 @@ func parseDirectives(pkg *packages.Package) ([]Ignore, []Problem) {
 							File:   pos.Filename,
 							Line:   pos.Line,
 							Checks: checks,
-							Pos:    DisplayPosition(pkg.Fset, c.Pos()),
+							Pos:    c.Pos(),
 						}
 					case "file-ignore":
 						ig = &FileIgnore{

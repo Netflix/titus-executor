@@ -37,7 +37,7 @@ func NewStructcheck() *goanalysis.Linter {
 
 			issues := make([]goanalysis.Issue, 0, len(structcheckIssues))
 			for _, i := range structcheckIssues {
-				issues = append(issues, goanalysis.NewIssue(&result.Issue{
+				issues = append(issues, goanalysis.NewIssue(&result.Issue{ //nolint:scopelint
 					Pos:        i.Pos,
 					Text:       fmt.Sprintf("%s is unused", formatCode(i.FieldName, lintCtx.Cfg)),
 					FromLinter: linterName,

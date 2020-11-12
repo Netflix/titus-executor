@@ -30,7 +30,6 @@ type Checker interface {
 
 func options() flag.FlagSet {
 	options := flag.NewFlagSet("", flag.ExitOnError)
-	options.String("excludes", "", "comma separated list of patterns to exclude from analysis")
 	options.String("ignored-numbers", "", "comma separated list of numbers excluded from analysis")
 	options.String(
 		"checks",
@@ -49,7 +48,6 @@ func options() flag.FlagSet {
 func run(pass *analysis.Pass) (interface{}, error) {
 	conf := config.WithOptions(
 		config.WithCustomChecks(pass.Analyzer.Flags.Lookup("checks").Value.String()),
-		config.WithExcludes(pass.Analyzer.Flags.Lookup("excludes").Value.String()),
 		config.WithIgnoredNumbers(pass.Analyzer.Flags.Lookup("ignored-numbers").Value.String()),
 	)
 
@@ -77,12 +75,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	for _, c := range checker {
 		i.Preorder(c.NodeFilter(), func(node ast.Node) {
-			for _, exclude := range conf.Excludes {
-				if exclude.MatchString(pass.Fset.Position(node.Pos()).Filename) {
-					return
-				}
-			}
-
 			c.Check(node)
 		})
 	}

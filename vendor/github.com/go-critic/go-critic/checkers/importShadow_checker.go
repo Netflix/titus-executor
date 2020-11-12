@@ -4,12 +4,12 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "importShadow"
 	info.Tags = []string{"style", "opinionated"}
 	info.Summary = "Detects when imported package names shadowed in the assignments"
@@ -19,7 +19,7 @@ filepath := "foo.txt"`
 	info.After = `
 filename := "foo.txt"`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		ctx.Require.PkgObjects = true
 		return astwalk.WalkerForLocalDef(&importShadowChecker{ctx: ctx}, ctx.TypesInfo)
 	})
@@ -27,7 +27,7 @@ filename := "foo.txt"`
 
 type importShadowChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *importShadowChecker) VisitLocalDef(def astwalk.Name, _ ast.Expr) {

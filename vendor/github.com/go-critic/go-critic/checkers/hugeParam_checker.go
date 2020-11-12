@@ -3,15 +3,15 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "hugeParam"
 	info.Tags = []string{"performance"}
-	info.Params = linter.CheckerParams{
+	info.Params = lintpack.CheckerParams{
 		"sizeThreshold": {
 			Value: 80,
 			Usage: "size in bytes that makes the warning trigger",
@@ -21,7 +21,7 @@ func init() {
 	info.Before = `func f(x [1024]int) {}`
 	info.After = `func f(x *[1024]int) {}`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForFuncDecl(&hugeParamChecker{
 			ctx:           ctx,
 			sizeThreshold: int64(info.Params.Int("sizeThreshold")),
@@ -31,7 +31,7 @@ func init() {
 
 type hugeParamChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 
 	sizeThreshold int64
 }

@@ -3,10 +3,9 @@
 package imports // import "golang.org/x/tools/imports"
 
 import (
-	"io/ioutil"
-	"log"
+	"go/build"
+	"os"
 
-	"golang.org/x/tools/internal/gocommand"
 	intimp "golang.org/x/tools/internal/imports"
 )
 
@@ -31,37 +30,32 @@ var Debug = false
 var LocalPrefix string
 
 // Process formats and adjusts imports for the provided file.
-// If opt is nil the defaults are used, and if src is nil the source
-// is read from the filesystem.
+// If opt is nil the defaults are used.
 //
 // Note that filename's directory influences which imports can be chosen,
 // so it is important that filename be accurate.
 // To process data ``as if'' it were in filename, pass the data as a non-nil src.
 func Process(filename string, src []byte, opt *Options) ([]byte, error) {
-	var err error
-	if src == nil {
-		src, err = ioutil.ReadFile(filename)
-		if err != nil {
-			return nil, err
-		}
-	}
 	if opt == nil {
 		opt = &Options{Comments: true, TabIndent: true, TabWidth: 8}
 	}
 	intopt := &intimp.Options{
 		Env: &intimp.ProcessEnv{
-			GocmdRunner: &gocommand.Runner{},
+			GOPATH:      build.Default.GOPATH,
+			GOROOT:      build.Default.GOROOT,
+			GOFLAGS:     os.Getenv("GOFLAGS"),
+			GO111MODULE: os.Getenv("GO111MODULE"),
+			GOPROXY:     os.Getenv("GOPROXY"),
+			GOSUMDB:     os.Getenv("GOSUMDB"),
+			Debug:       Debug,
+			LocalPrefix: LocalPrefix,
 		},
-		LocalPrefix: LocalPrefix,
-		AllErrors:   opt.AllErrors,
-		Comments:    opt.Comments,
-		FormatOnly:  opt.FormatOnly,
-		Fragment:    opt.Fragment,
-		TabIndent:   opt.TabIndent,
-		TabWidth:    opt.TabWidth,
-	}
-	if Debug {
-		intopt.Env.Logf = log.Printf
+		AllErrors:  opt.AllErrors,
+		Comments:   opt.Comments,
+		FormatOnly: opt.FormatOnly,
+		Fragment:   opt.Fragment,
+		TabIndent:  opt.TabIndent,
+		TabWidth:   opt.TabWidth,
 	}
 	return intimp.Process(filename, src, intopt)
 }

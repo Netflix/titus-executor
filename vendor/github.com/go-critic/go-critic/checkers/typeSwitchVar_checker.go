@@ -3,15 +3,15 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
 	"github.com/go-critic/go-critic/checkers/internal/lintutil"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astequal"
 	"github.com/go-toolsmith/astp"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "typeSwitchVar"
 	info.Tags = []string{"style"}
 	info.Summary = "Detects type switches that can benefit from type guard clause with variable"
@@ -34,20 +34,18 @@ default:
 	return 0
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&typeSwitchVarChecker{ctx: ctx})
 	})
 }
 
 type typeSwitchVarChecker struct {
 	astwalk.WalkHandler
-	ctx   *linter.CheckerContext
-	count int
+	ctx *lintpack.CheckerContext
 }
 
 func (c *typeSwitchVarChecker) VisitStmt(stmt ast.Stmt) {
 	if stmt, ok := stmt.(*ast.TypeSwitchStmt); ok {
-		c.count = 0
 		c.checkTypeSwitch(stmt)
 	}
 }
@@ -63,7 +61,7 @@ func (c *typeSwitchVarChecker) checkTypeSwitch(root *ast.TypeSwitchStmt) {
 		return // Give up: can't handle shadowing without object
 	}
 
-	for _, clause := range root.Body.List {
+	for i, clause := range root.Body.List {
 		clause := clause.(*ast.CaseClause)
 		// Multiple types in a list mean that assert.X will have
 		// a type of interface{} inside clause body.
@@ -78,20 +76,13 @@ func (c *typeSwitchVarChecker) checkTypeSwitch(root *ast.TypeSwitchStmt) {
 				return astequal.Node(&assert1, x)
 			})
 			if object == c.ctx.TypesInfo.ObjectOf(identOf(assert2)) {
-				c.count++
+				c.warn(root, i)
 				break
 			}
 		}
 	}
-	if c.count > 0 {
-		c.warn(root)
-	}
 }
 
-func (c *typeSwitchVarChecker) warn(n ast.Node) {
-	msg := "case"
-	if c.count > 1 {
-		msg = "cases"
-	}
-	c.ctx.Warn(n, "%d "+msg+" can benefit from type switch with assignment", c.count)
+func (c *typeSwitchVarChecker) warn(n ast.Node, caseIndex int) {
+	c.ctx.Warn(n, "case %d can benefit from type switch with assignment", caseIndex)
 }

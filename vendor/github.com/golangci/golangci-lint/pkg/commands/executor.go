@@ -5,10 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -31,9 +31,8 @@ import (
 )
 
 type Executor struct {
-	rootCmd    *cobra.Command
-	runCmd     *cobra.Command
-	lintersCmd *cobra.Command
+	rootCmd *cobra.Command
+	runCmd  *cobra.Command
 
 	exitCode              int
 	version, commit, date string
@@ -56,7 +55,6 @@ type Executor struct {
 }
 
 func NewExecutor(version, commit, date string) *Executor {
-	startedAt := time.Now()
 	e := &Executor{
 		cfg:       config.NewDefault(),
 		version:   version,
@@ -68,6 +66,9 @@ func NewExecutor(version, commit, date string) *Executor {
 
 	e.debugf("Starting execution...")
 	e.log = report.NewLogWrapper(logutils.NewStderrLog(""), &e.reportData)
+	if ok := e.acquireFileLock(); !ok {
+		e.log.Fatalf("Parallel golangci-lint is running")
+	}
 
 	// to setup log level early we need to parse config from command line extra time to
 	// find `-v` option
@@ -120,7 +121,6 @@ func NewExecutor(version, commit, date string) *Executor {
 
 	// Slice options must be explicitly set for proper merging of config and command-line options.
 	fixSlicesFlags(e.runCmd.Flags())
-	fixSlicesFlags(e.lintersCmd.Flags())
 
 	e.EnabledLintersSet = lintersdb.NewEnabledSet(e.DBManager,
 		lintersdb.NewValidator(e.DBManager), e.log.Child("lintersdb"), e.cfg)
@@ -139,7 +139,7 @@ func NewExecutor(version, commit, date string) *Executor {
 	if err = e.initHashSalt(version); err != nil {
 		e.log.Fatalf("Failed to init hash salt: %s", err)
 	}
-	e.debugf("Initialized executor in %s", time.Since(startedAt))
+	e.debugf("Initialized executor")
 	return e
 }
 
@@ -191,39 +191,27 @@ func computeBinarySalt(version string) ([]byte, error) {
 }
 
 func computeConfigSalt(cfg *config.Config) ([]byte, error) {
-	// We don't hash all config fields to reduce meaningless cache
-	// invalidations. At least, it has a huge impact on tests speed.
-
-	lintersSettingsBytes, err := json.Marshal(cfg.LintersSettings)
+	configBytes, err := json.Marshal(cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to json marshal config linter settings")
+		return nil, errors.Wrap(err, "failed to json marshal config")
 	}
 
-	var configData bytes.Buffer
-	configData.WriteString("linters-settings=")
-	configData.Write(lintersSettingsBytes)
-	configData.WriteString("\nbuild-tags=%s" + strings.Join(cfg.Run.BuildTags, ","))
-
 	h := sha256.New()
-	h.Write(configData.Bytes()) //nolint:errcheck
+	if n, err := h.Write(configBytes); n != len(configBytes) {
+		return nil, fmt.Errorf("failed to hash config bytes: wrote %d/%d bytes, error: %s", n, len(configBytes), err)
+	}
 	return h.Sum(nil), nil
 }
 
 func (e *Executor) acquireFileLock() bool {
-	if e.cfg.Run.AllowParallelRunners {
-		e.debugf("Parallel runners are allowed, no locking")
-		return true
-	}
-
 	lockFile := filepath.Join(os.TempDir(), "golangci-lint.lock")
 	e.debugf("Locking on file %s...", lockFile)
 	f := flock.New(lockFile)
-	const totalTimeout = 5 * time.Second
-	const retryDelay = time.Second
-	ctx, finish := context.WithTimeout(context.Background(), totalTimeout)
+	ctx, finish := context.WithTimeout(context.Background(), time.Minute)
 	defer finish()
 
-	if ok, _ := f.TryLockContext(ctx, retryDelay); !ok {
+	timeout := time.Second * 3
+	if ok, _ := f.TryLockContext(ctx, timeout); !ok {
 		return false
 	}
 
@@ -232,10 +220,6 @@ func (e *Executor) acquireFileLock() bool {
 }
 
 func (e *Executor) releaseFileLock() {
-	if e.cfg.Run.AllowParallelRunners {
-		return
-	}
-
 	if err := e.flock.Unlock(); err != nil {
 		e.debugf("Failed to unlock on file: %s", err)
 	}

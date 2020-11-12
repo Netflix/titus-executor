@@ -4,13 +4,13 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
 	"github.com/go-critic/go-critic/checkers/internal/lintutil"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "unlabelStmt"
 	info.Tags = []string{"style", "experimental"}
 	info.Summary = "Detects redundant statement labels"
@@ -28,14 +28,14 @@ for x := range xs {
 	}
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&unlabelStmtChecker{ctx: ctx})
 	})
 }
 
 type unlabelStmtChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *unlabelStmtChecker) EnterFunc(fn *ast.FuncDecl) bool {

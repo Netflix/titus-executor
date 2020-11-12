@@ -3,13 +3,13 @@ package checkers
 import (
 	"go/ast"
 
-	"github.com/go-critic/go-critic/checkers/internal/astwalk"
-	"github.com/go-critic/go-critic/framework/linter"
+	"github.com/go-lintpack/lintpack"
+	"github.com/go-lintpack/lintpack/astwalk"
 	"github.com/go-toolsmith/astequal"
 )
 
 func init() {
-	var info linter.CheckerInfo
+	var info lintpack.CheckerInfo
 	info.Name = "dupBranchBody"
 	info.Tags = []string{"diagnostic"}
 	info.Summary = "Detects duplicated branch bodies inside conditional statements"
@@ -26,14 +26,14 @@ if cond {
 	println("cond=false")
 }`
 
-	collection.AddChecker(&info, func(ctx *linter.CheckerContext) linter.FileWalker {
+	collection.AddChecker(&info, func(ctx *lintpack.CheckerContext) lintpack.FileWalker {
 		return astwalk.WalkerForStmt(&dupBranchBodyChecker{ctx: ctx})
 	})
 }
 
 type dupBranchBodyChecker struct {
 	astwalk.WalkHandler
-	ctx *linter.CheckerContext
+	ctx *lintpack.CheckerContext
 }
 
 func (c *dupBranchBodyChecker) VisitStmt(stmt ast.Stmt) {

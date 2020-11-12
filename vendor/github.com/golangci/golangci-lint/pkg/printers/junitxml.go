@@ -17,9 +17,6 @@ type testSuitesXML struct {
 type testSuiteXML struct {
 	XMLName   xml.Name      `xml:"testsuite"`
 	Suite     string        `xml:"name,attr"`
-	Tests     int           `xml:"tests,attr"`
-	Errors    int           `xml:"errors,attr"`
-	Failures  int           `xml:"failures,attr"`
 	TestCases []testCaseXML `xml:"testcase"`
 }
 
@@ -49,8 +46,6 @@ func (JunitXML) Print(ctx context.Context, issues []result.Issue) error {
 		suiteName := i.FilePath()
 		testSuite := suites[suiteName]
 		testSuite.Suite = i.FilePath()
-		testSuite.Tests++
-		testSuite.Failures++
 
 		tc := testCaseXML{
 			Name:      i.FromLinter,
