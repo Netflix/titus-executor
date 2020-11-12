@@ -17,13 +17,14 @@ archives:
         - goos: windows
           format: zip
 
-brew:
-    name: mnd
-    github:
+brews:
+    -
+      name: mnd
+      github:
         owner: tommy-muehle
         name: homebrew-tap
-    folder: Formula
-    homepage:  https://github.com/tommy-muehle/go-mnd
-    description: Magic number detector for Go
-    test: |
+      folder: Formula
+      homepage:  https://github.com/tommy-muehle/go-mnd
+      description: Magic number detector for Go
+      test: |
         system "#{bin}/mnd --version"
