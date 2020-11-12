@@ -436,7 +436,7 @@ github.com/spf13/viper
 github.com/ssgreg/nlreturn/v2/pkg/nlreturn
 # github.com/stretchr/objx v0.2.0
 github.com/stretchr/objx
-# github.com/stretchr/testify v1.6.1
+# github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/mock
 github.com/stretchr/testify/require

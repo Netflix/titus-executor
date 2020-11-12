@@ -57,7 +57,7 @@ require (
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.0
-	github.com/stretchr/testify v1.6.1
+	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
