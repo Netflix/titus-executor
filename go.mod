@@ -16,7 +16,6 @@ require (
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
 	github.com/apparentlymart/go-cidr v1.0.0
 	github.com/aws/aws-sdk-go v1.35.10
-	github.com/bombsimon/wsl/v2 v2.1.0 // indirect
 	github.com/containernetworking/cni v0.7.1
 	github.com/coreos/go-systemd v0.0.0-20200109085637-d657f9650837
 	github.com/cyphar/filepath-securejoin v0.2.2
@@ -50,7 +49,6 @@ require (
 	github.com/openzipkin/zipkin-go v0.2.2
 	github.com/pelletier/go-toml v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1
-	github.com/securego/gosec v0.0.0-20200203094520-d13bb6d2420c // indirect
 	github.com/shurcooL/go v0.0.0-20191216061654-b114cc39af9f // indirect
 	github.com/sirupsen/logrus v1.7.0
 	github.com/smartystreets/assertions v1.0.1 // indirect
@@ -59,7 +57,7 @@ require (
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.0
-	github.com/stretchr/testify v1.6.1
+	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
