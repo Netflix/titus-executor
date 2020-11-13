@@ -29,6 +29,11 @@ func main() {
 		logrus.Fatal(err)
 	}
 
+	logrus.WithFields(logrus.Fields{
+		"watchConfig":  wconf,
+		"uploadConfig": uc,
+	}).Info("Booting with config")
+
 	s3Backend, err := uploader.NewS3Backend(m, uc.bucketName, uc.pathPrefix, uc.taskRole, uc.taskID, uc.writerRole, uc.useDefaultRole)
 	if err != nil {
 		logrus.Fatal(err)

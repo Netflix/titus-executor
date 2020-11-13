@@ -12,26 +12,6 @@ import (
 )
 
 const (
-	defaultLocalDir            = "/var/log"
-	defaultUploadDir           = "."
-	defaultUploadCheckInterval = 15 * time.Minute
-	defaultUploadThresholdTime = 6 * time.Hour
-	defaultStdioCheckInterval  = 1 * time.Minute
-	defaultKeepFileAfterUpload = true
-
-	defaultBucketName     = ""
-	defaultPathPrefix     = ""
-	defaultTaskRole       = ""
-	defaultTaskID         = ""
-	defaultWriterRole     = ""
-	defaultUseDefaultRole = true
-)
-
-var (
-	defaultUploadRegexp *regexp.Regexp = nil
-)
-
-const (
 	envKeyLocalDir            = "WATCH_LOCAL_DIR"
 	envKeyUploadDir           = "WATCH_UPLOAD_DIR"
 	envKeyUploadRegexp        = "WATCH_UPLOAD_REGEXP"
@@ -48,75 +28,93 @@ const (
 	envKeyUseDefaultRole = "UPLOAD_USE_DEFAULT_ROLE"
 )
 
-func readStringFromEnv(envKey string, defaultValue string) string {
+func mustReadStringFromEnv(envKey string) string {
 	if val, ok := os.LookupEnv(envKey); ok {
 		return val
 	}
-	return defaultValue
+
+	logrus.WithFields(logrus.Fields{
+		"variable": envKey,
+		"type":     "string",
+	}).Fatal("Missing required environment variable")
+
+	return ""
 }
 
-func readDurationFromEnv(envKey string, defaultValue time.Duration) time.Duration {
+func mustReadDurationFromEnv(envKey string) time.Duration {
 	if val, ok := os.LookupEnv(envKey); ok {
 		dur, err := time.ParseDuration(val)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
-				"key":     envKey,
-				"value":   val,
-				"default": defaultValue,
-				"err":     err,
-			}).Error("Unable to parse valid duration from key, using default")
-			return defaultValue
+				"key":   envKey,
+				"value": val,
+				"err":   err,
+			}).Fatal("Unable to parse valid duration from environment variable")
+			return 0
 		}
 		return dur
 	}
-	return defaultValue
+
+	logrus.WithFields(logrus.Fields{
+		"variable": envKey,
+		"type":     "duration",
+	}).Fatal("Missing required environment variable")
+	return 0
 }
 
-func readRegexpFromEnv(envKey string, defaultValue *regexp.Regexp) *regexp.Regexp {
+func mustReadRegexpFromEnv(envKey string) *regexp.Regexp {
 	if val, ok := os.LookupEnv(envKey); ok {
 		r, err := regexp.Compile(val)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
-				"key":     envKey,
-				"value":   val,
-				"default": defaultValue,
-				"err":     err,
-			}).Error("Unable to parse valid regexp from key, using default")
-			return defaultValue
+				"key":   envKey,
+				"value": val,
+				"err":   err,
+			}).Error("Unable to parse valid regular expression from environment variable")
+			return nil
 		}
 		return r
 	}
-	return defaultValue
+
+	logrus.WithFields(logrus.Fields{
+		"variable": envKey,
+		"type":     "regexp",
+	}).Fatal("Missing required environment variable")
+	return nil
 }
 
-func readBoolFromEnv(envKey string, defaultValue bool) bool {
+func mustReadBoolFromEnv(envKey string) bool {
 	if val, ok := os.LookupEnv(envKey); ok {
 		b, err := strconv.ParseBool(val)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
-				"key":     envKey,
-				"value":   val,
-				"default": defaultValue,
-				"err":     err,
-			}).Error("Unable to parse valid boolean from key, using default")
-			return defaultValue
+				"key":   envKey,
+				"value": val,
+				"err":   err,
+			}).Error("Unable to parse valid bool from environment variable")
+			return false
 		}
 		return b
 	}
-	return defaultValue
+
+	logrus.WithFields(logrus.Fields{
+		"variable": envKey,
+		"type":     "bool",
+	}).Fatal("Missing required environment variable")
+	return false
 }
 
 // titus-log-rotator is an application that extracts the job of uploading files from a specific directory to
 // s3.  It expects the files to be rotated written to and rotated by an external application.
 
 func watchConfigFromEnvironment() (filesystems.WatchConfig, error) {
-	localDir := readStringFromEnv(envKeyLocalDir, defaultLocalDir)
-	uploadDir := readStringFromEnv(envKeyUploadDir, defaultUploadDir)
-	uploadRegexp := readRegexpFromEnv(envKeyUploadRegexp, defaultUploadRegexp)
-	uploadCheckInterval := readDurationFromEnv(envKeyUploadCheckInterval, defaultUploadCheckInterval)
-	uploadThresholdTime := readDurationFromEnv(envKeyUploadThresholdTime, defaultUploadThresholdTime)
-	stdioLogCheckInterval := readDurationFromEnv(envKeyStdioCheckInterval, defaultStdioCheckInterval)
-	keepFileAfterUpload := readBoolFromEnv(envKeyKeepFileAfterUpload, defaultKeepFileAfterUpload)
+	localDir := mustReadStringFromEnv(envKeyLocalDir)
+	uploadDir := mustReadStringFromEnv(envKeyUploadDir)
+	uploadRegexp := mustReadRegexpFromEnv(envKeyUploadRegexp)
+	uploadCheckInterval := mustReadDurationFromEnv(envKeyUploadCheckInterval)
+	uploadThresholdTime := mustReadDurationFromEnv(envKeyUploadThresholdTime)
+	stdioLogCheckInterval := mustReadDurationFromEnv(envKeyStdioCheckInterval)
+	keepFileAfterUpload := mustReadBoolFromEnv(envKeyKeepFileAfterUpload)
 
 	return filesystems.NewWatchConfig(
 		localDir,
@@ -139,12 +137,12 @@ type s3UploadConfig struct {
 }
 
 func uploadConfigFromEnvironment() (s3UploadConfig, error) {
-	bucketName := readStringFromEnv(envKeyBucketName, defaultBucketName)
-	pathPrefix := readStringFromEnv(envKeyPathPrefix, defaultPathPrefix)
-	taskRole := readStringFromEnv(envKeyTaskRole, defaultTaskRole)
-	taskID := readStringFromEnv(envKeyTaskID, defaultTaskID)
-	writerRole := readStringFromEnv(envKeyWriterRole, defaultWriterRole)
-	useDefaultRole := readBoolFromEnv(envKeyUseDefaultRole, defaultUseDefaultRole)
+	bucketName := mustReadStringFromEnv(envKeyBucketName)
+	pathPrefix := mustReadStringFromEnv(envKeyPathPrefix)
+	taskRole := mustReadStringFromEnv(envKeyTaskRole)
+	taskID := mustReadStringFromEnv(envKeyTaskID)
+	writerRole := mustReadStringFromEnv(envKeyWriterRole)
+	useDefaultRole := mustReadBoolFromEnv(envKeyUseDefaultRole)
 
 	return s3UploadConfig{
 		bucketName:     bucketName,
