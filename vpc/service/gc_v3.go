@@ -414,7 +414,6 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 		return err
 	}
 
-	ec2client := ec2.New(session.Session)
 	group, ctx := errgroup.WithContext(ctx)
 	eniWQ := make(chan string, 10000)
 	describeWQ := make(chan []string, 100)
@@ -424,7 +423,7 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 	})
 
 	group.Go(func() error {
-		return vpcService.describeENIsFoGCWorker(ctx, ec2client, describeWQ, gcWQ)
+		return vpcService.describeENIsFoGCWorker(ctx, session, describeWQ, gcWQ)
 	})
 
 	group.Go(func() error {
@@ -433,7 +432,7 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 
 	for i := 0; i < gcWorkers; i++ {
 		group.Go(func() error {
-			vpcService.gcWorker(ctx, ec2client, gcWQ)
+			vpcService.gcWorker(ctx, session, gcWQ)
 			return nil
 		})
 	}
@@ -551,7 +550,7 @@ func (vpcService *vpcService) describeCollector(ctx context.Context, eniWQ chan 
 	}
 }
 
-func (vpcService *vpcService) describeENIsFoGCWorker(ctx context.Context, ec2client *ec2.EC2, describeWQ chan []string, gcWQ chan *ec2.NetworkInterface) error {
+func (vpcService *vpcService) describeENIsFoGCWorker(ctx context.Context, session *ec2wrapper.EC2Session, describeWQ chan []string, gcWQ chan *ec2.NetworkInterface) error {
 	defer close(gcWQ)
 	for {
 		select {
@@ -561,7 +560,7 @@ func (vpcService *vpcService) describeENIsFoGCWorker(ctx context.Context, ec2cli
 			if !ok {
 				return nil
 			}
-			err := vpcService.describeENIsFoGC(ctx, ec2client, describeRQ, gcWQ)
+			err := vpcService.describeENIsFoGC(ctx, session, describeRQ, gcWQ)
 			if err != nil {
 				return err
 			}
@@ -569,7 +568,7 @@ func (vpcService *vpcService) describeENIsFoGCWorker(ctx context.Context, ec2cli
 	}
 }
 
-func (vpcService *vpcService) describeENIsFoGC(ctx context.Context, ec2client *ec2.EC2, eniList []string, gcWQ chan *ec2.NetworkInterface) error {
+func (vpcService *vpcService) describeENIsFoGC(ctx context.Context, session *ec2wrapper.EC2Session, eniList []string, gcWQ chan *ec2.NetworkInterface) error {
 	ctx, span := trace.StartSpan(ctx, "describer")
 	defer span.End()
 	span.AddAttributes(
@@ -581,7 +580,7 @@ func (vpcService *vpcService) describeENIsFoGC(ctx context.Context, ec2client *e
 	}
 
 	for {
-		describeNetworkInterfacesOutput, err := ec2client.DescribeNetworkInterfacesWithContext(ctx, &describeNetworkInterfacesInput)
+		describeNetworkInterfacesOutput, err := session.DescribeNetworkInterfaces(ctx, describeNetworkInterfacesInput)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot describe ENIs")
 			return err
@@ -602,7 +601,7 @@ func (vpcService *vpcService) describeENIsFoGC(ctx context.Context, ec2client *e
 
 }
 
-func (vpcService *vpcService) gcWorker(ctx context.Context, ec2client *ec2.EC2, wq chan *ec2.NetworkInterface) {
+func (vpcService *vpcService) gcWorker(ctx context.Context, session *ec2wrapper.EC2Session, wq chan *ec2.NetworkInterface) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -611,14 +610,14 @@ func (vpcService *vpcService) gcWorker(ctx context.Context, ec2client *ec2.EC2, 
 			if !ok {
 				return
 			}
-			if err := vpcService.doGCENI(ctx, ec2client, eni, vpcService.dbRateLimiter); err != nil {
+			if err := vpcService.doGCENI(ctx, session, eni, vpcService.dbRateLimiter); err != nil {
 				logger.G(ctx).WithError(err).Error("Cannot GC ENI")
 			}
 		}
 	}
 }
 
-func (vpcService *vpcService) doGCUnattachedENI(ctx context.Context, tx *sql.Tx, ec2client *ec2.EC2, iface *ec2.NetworkInterface, interfaceIPv4Addresses, interfaceIPv6Addresses sets.String) error {
+func (vpcService *vpcService) doGCUnattachedENI(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, interfaceIPv4Addresses, interfaceIPv6Addresses sets.String) error {
 	ctx, span := trace.StartSpan(ctx, "doGCUnattachedENI")
 	defer span.End()
 
@@ -653,7 +652,7 @@ FOR NO KEY UPDATE OF branch_enis
 
 	group := newErrGroupIsh()
 	var result *multierror.Error
-	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, ec2client, iface, interfaceIPv4Addresses, group)
+	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, session, iface, interfaceIPv4Addresses, group)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot remove static addresses")
 		span.SetStatus(traceStatusFromError(err))
@@ -665,24 +664,24 @@ FOR NO KEY UPDATE OF branch_enis
 		if aws.BoolValue(ip.Primary) && ip.Association != nil {
 			association := ip.Association
 			group.run(func() error {
-				return removeAssociation(ctx, ec2client, association)
+				return removeAssociation(ctx, session, association)
 			})
 		}
 	}
 
 	interfaceIPv4Addresses = interfaceIPv4Addresses.Difference(removedStaticAddresses)
 	if interfaceIPv4Addresses.Len() > 0 {
-		result = multierror.Append(result, removeIPv4Addresses(ctx, tx, ec2client, iface, interfaceIPv4Addresses.UnsortedList(), group))
+		result = multierror.Append(result, removeIPv4Addresses(ctx, tx, session, iface, interfaceIPv4Addresses.UnsortedList(), group))
 	}
 
 	if interfaceIPv6Addresses.Len() > 0 {
-		result = multierror.Append(result, removeIPv6Addresses(ctx, tx, ec2client, iface, interfaceIPv6Addresses.UnsortedList(), group))
+		result = multierror.Append(result, removeIPv6Addresses(ctx, tx, session, iface, interfaceIPv6Addresses.UnsortedList(), group))
 	}
 
 	return multierror.Append(result, group.wait(ctx)).ErrorOrNil()
 }
 
-func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, tx *sql.Tx, ec2client *ec2.EC2, iface *ec2.NetworkInterface, interfaceIPv4Addresses, interfaceIPv6Addresses sets.String) error {
+func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, interfaceIPv4Addresses, interfaceIPv6Addresses sets.String) error {
 	ctx, span := trace.StartSpan(ctx, "doGCAttachedENI")
 	defer span.End()
 
@@ -714,7 +713,7 @@ WHERE branch_eni_attachments.branch_eni = $1
 
 	group := newErrGroupIsh()
 	var result *multierror.Error
-	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, ec2client, iface, interfaceIPv4Addresses, group)
+	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, session, iface, interfaceIPv4Addresses, group)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot remove static addresses")
 		span.SetStatus(traceStatusFromError(err))
@@ -762,7 +761,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 		}
 
 		if len(ipv4AddressesToRemove) > 0 {
-			result = multierror.Append(err, removeIPv4Addresses(ctx, tx, ec2client, iface, ipv4AddressesToRemove.UnsortedList(), group))
+			result = multierror.Append(err, removeIPv4Addresses(ctx, tx, session, iface, ipv4AddressesToRemove.UnsortedList(), group))
 		}
 	}
 
@@ -788,7 +787,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 		if c == 0 {
 			association := ip.Association
 			group.run(func() error {
-				return removeAssociation(ctx, ec2client, association)
+				return removeAssociation(ctx, session, association)
 			})
 		}
 	}
@@ -833,14 +832,14 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 		}
 
 		if len(ipv6AddressesToRemove) > 0 {
-			result = multierror.Append(err, removeIPv6Addresses(ctx, tx, ec2client, iface, ipv6AddressesToRemove, group))
+			result = multierror.Append(err, removeIPv6Addresses(ctx, tx, session, iface, ipv6AddressesToRemove, group))
 		}
 	}
 
 	return multierror.Append(result, group.wait(ctx)).ErrorOrNil()
 }
 
-func removeStaticAddresses(ctx context.Context, tx *sql.Tx, ec2client *ec2.EC2, iface *ec2.NetworkInterface, interfaceIPv4Addresses sets.String, groupish *errGroupish) (sets.String, error) {
+func removeStaticAddresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, interfaceIPv4Addresses sets.String, groupish *errGroupish) (sets.String, error) {
 	removedStaticAddresses := sets.NewString()
 	if interfaceIPv4Addresses.Len() == 0 {
 		return removedStaticAddresses, nil
@@ -878,14 +877,14 @@ FROM unassigned_ip_addresses
 		}
 		removedStaticAddresses.Insert(ipAddress)
 		groupish.run(func() error {
-			return relocateIPAddress(ctx, ec2client, iface, ipAddress, homeENI)
+			return relocateIPAddress(ctx, session, iface, ipAddress, homeENI)
 		})
 	}
 
 	return removedStaticAddresses, nil
 }
 
-func (vpcService *vpcService) doGCENI(ctx context.Context, ec2client *ec2.EC2, iface *ec2.NetworkInterface, limiter *rate.Limiter) error { // nolint: gocyclo
+func (vpcService *vpcService) doGCENI(ctx context.Context, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, limiter *rate.Limiter) error { // nolint: gocyclo
 	ctx, span := trace.StartSpan(ctx, "doGCENI")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
@@ -928,9 +927,9 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, ec2client *ec2.EC2, i
 
 	switch s := aws.StringValue(iface.Status); s {
 	case available:
-		err = vpcService.doGCUnattachedENI(ctx, tx, ec2client, iface, interfaceIPv4Addresses, interfaceIPv6Addresses)
+		err = vpcService.doGCUnattachedENI(ctx, tx, session, iface, interfaceIPv4Addresses, interfaceIPv6Addresses)
 	case inUse:
-		err = vpcService.doGCAttachedENI(ctx, tx, ec2client, iface, interfaceIPv4Addresses, interfaceIPv6Addresses)
+		err = vpcService.doGCAttachedENI(ctx, tx, session, iface, interfaceIPv4Addresses, interfaceIPv6Addresses)
 	case associated:
 		logger.G(ctx).WithField("iface", iface.String()).Warning("Interface is associate with trunk ENI which is not associated with instance. Trunk ENI must be reconciled prior to GC")
 		err = nil
@@ -949,12 +948,12 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, ec2client *ec2.EC2, i
 	return err
 }
 
-func relocateIPAddress(ctx context.Context, ec2client *ec2.EC2, iface *ec2.NetworkInterface, ipAddress, homeENI string) error {
+func relocateIPAddress(ctx context.Context, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, ipAddress, homeENI string) error {
 	ctx, span := trace.StartSpan(ctx, "relocateIPAddress")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("ipAddress", ipAddress))
 	logger.G(ctx).WithField("ipAddress", ipAddress).Debug("Relocating IP Address")
-	_, err := ec2client.UnassignPrivateIpAddressesWithContext(ctx, &ec2.UnassignPrivateIpAddressesInput{
+	_, err := session.UnassignPrivateIPAddresses(ctx, ec2.UnassignPrivateIpAddressesInput{
 		NetworkInterfaceId: iface.NetworkInterfaceId,
 		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
 	})
@@ -965,7 +964,7 @@ func relocateIPAddress(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Netwo
 		return err
 	}
 
-	_, err = ec2client.AssignPrivateIpAddressesWithContext(ctx, &ec2.AssignPrivateIpAddressesInput{
+	_, err = session.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
 		AllowReassignment:  aws.Bool(false),
 		NetworkInterfaceId: aws.String(homeENI),
 		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
@@ -974,13 +973,13 @@ func relocateIPAddress(ctx context.Context, ec2client *ec2.EC2, iface *ec2.Netwo
 	return err
 }
 
-func removeAssociation(ctx context.Context, ec2client *ec2.EC2, association *ec2.NetworkInterfaceAssociation) error {
+func removeAssociation(ctx context.Context, session *ec2wrapper.EC2Session, association *ec2.NetworkInterfaceAssociation) error {
 	ctx, span := trace.StartSpan(ctx, "removeAssociation")
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("association", aws.StringValue(association.AssociationId)))
 
 	logger.G(ctx).WithField("association", aws.StringValue(association.AssociationId)).Debug("Removing association")
-	_, err := ec2client.DisassociateAddressWithContext(ctx, &ec2.DisassociateAddressInput{
+	_, err := session.DisassociateAddress(ctx, ec2.DisassociateAddressInput{
 		AssociationId: association.AssociationId,
 	})
 	logger.G(ctx).WithError(err).Debug("Removed association")
@@ -988,7 +987,7 @@ func removeAssociation(ctx context.Context, ec2client *ec2.EC2, association *ec2
 	return err
 }
 
-func removeIPv4Addresses(ctx context.Context, tx *sql.Tx, ec2client *ec2.EC2, iface *ec2.NetworkInterface, ipv4AddressesToRemove []string, group *errGroupish) error {
+func removeIPv4Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, ipv4AddressesToRemove []string, group *errGroupish) error {
 	ctx, span := trace.StartSpan(ctx, "removeIPv4Addresses")
 	span.AddAttributes(trace.StringAttribute("ipv4AddressesToRemove", fmt.Sprint(ipv4AddressesToRemove)))
 
@@ -1018,7 +1017,7 @@ WHERE ipv4addr = any($1::inet[])
 	group.run(func() error {
 		defer span.End()
 		logger.G(ctx).WithField("ipv4AddressesToRemove", ipv4AddressesToRemove).Debug("Removing IPv4 Addresses")
-		_, err := ec2client.UnassignPrivateIpAddresses(&ec2.UnassignPrivateIpAddressesInput{
+		_, err := session.UnassignPrivateIPAddresses(ctx, ec2.UnassignPrivateIpAddressesInput{
 			PrivateIpAddresses: aws.StringSlice(ipv4AddressesToRemove),
 			NetworkInterfaceId: iface.NetworkInterfaceId,
 		})
@@ -1030,7 +1029,7 @@ WHERE ipv4addr = any($1::inet[])
 	return nil
 }
 
-func removeIPv6Addresses(ctx context.Context, tx *sql.Tx, ec2client *ec2.EC2, iface *ec2.NetworkInterface, ipv6AddressesToRemove []string, group *errGroupish) error {
+func removeIPv6Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, ipv6AddressesToRemove []string, group *errGroupish) error {
 	ctx, span := trace.StartSpan(ctx, "removeIPv6Addresses")
 	span.AddAttributes(trace.StringAttribute("ipv6AddressesToRemove", fmt.Sprint(ipv6AddressesToRemove)))
 
@@ -1061,7 +1060,7 @@ WHERE ipv4addr = any($1::inet[])
 		defer span.End()
 		logger.G(ctx).WithField("ipv6AddressesToRemove", ipv6AddressesToRemove).Debug("Removing IPv6 Addresses")
 
-		_, err := ec2client.UnassignIpv6Addresses(&ec2.UnassignIpv6AddressesInput{
+		_, err := session.UnassignIpv6Addresses(ctx, ec2.UnassignIpv6AddressesInput{
 			Ipv6Addresses:      aws.StringSlice(ipv6AddressesToRemove),
 			NetworkInterfaceId: iface.NetworkInterfaceId,
 		})

@@ -911,8 +911,7 @@ UPDATE OF elastic_ips
 		return nil, err
 	}
 
-	ec2client := ec2.New(session.Session)
-	associateAddressOutput, err := ec2client.AssociateAddress(&ec2.AssociateAddressInput{
+	associateAddressOutput, err := session.AssociateAddress(ctx, ec2.AssociateAddressInput{
 		AllocationId:       aws.String(allocationID),
 		AllowReassociation: aws.Bool(true),
 		NetworkInterfaceId: branchENI.NetworkInterfaceId,
@@ -981,8 +980,7 @@ UPDATE of elastic_ips
 		return nil, err
 	}
 
-	ec2client := ec2.New(session.Session)
-	associateAddressOutput, err := ec2client.AssociateAddress(&ec2.AssociateAddressInput{
+	associateAddressOutput, err := session.AssociateAddress(ctx, ec2.AssociateAddressInput{
 		AllocationId:       aws.String(allocationID),
 		AllowReassociation: aws.Bool(true),
 		NetworkInterfaceId: branchENI.NetworkInterfaceId,

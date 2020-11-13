@@ -573,8 +573,7 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 	}
 
 	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", trunkENIAccountID, eni.accountID)
-	ec2client := ec2.New(branchENISession.Session)
-	_, err = ec2client.CreateNetworkInterfacePermissionWithContext(ctx, &ec2.CreateNetworkInterfacePermissionInput{
+	_, err = branchENISession.CreateNetworkInterfacePermission(ctx, ec2.CreateNetworkInterfacePermissionInput{
 		AwsAccountId:       aws.String(trunkENIAccountID),
 		NetworkInterfaceId: aws.String(eni.id),
 		Permission:         aws.String("INSTANCE-ATTACH"),

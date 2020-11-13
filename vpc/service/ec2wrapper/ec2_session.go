@@ -473,6 +473,26 @@ func (s *EC2Session) AssociateAddress(ctx context.Context, input ec2.AssociateAd
 	return output, nil
 }
 
+func (s *EC2Session) CreateNetworkInterfacePermission(ctx context.Context, input ec2.CreateNetworkInterfacePermissionInput) (*ec2.CreateNetworkInterfacePermissionOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "CreateNetworkInterfacePermission")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("accountID", aws.StringValue(input.AwsAccountId)),
+		trace.StringAttribute("eni", aws.StringValue(input.NetworkInterfaceId)),
+		trace.StringAttribute("permission", aws.StringValue(input.Permission)),
+	)
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.CreateNetworkInterfacePermissionWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create network interface permission")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
 type EC2InstanceCacheValue struct {
 	ownerID  string
 	instance *ec2.Instance
