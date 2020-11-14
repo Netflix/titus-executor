@@ -21,7 +21,7 @@ github.com/Netflix/metrics-client-go/metrics
 github.com/Netflix/spectator-go
 # github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200520235959-0ab6f1129886
 github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
-# github.com/Netflix/titus-kube-common v0.2.0
+# github.com/Netflix/titus-kube-common v0.5.0
 github.com/Netflix/titus-kube-common/pod
 github.com/Netflix/titus-kube-common/resource
 # github.com/OpenPeeDeeP/depguard v1.0.1
