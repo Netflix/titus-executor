@@ -21,6 +21,7 @@ import (
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
@@ -912,7 +913,7 @@ func (c *TitusInfoContainer) ServiceMeshEnabled() bool {
 		return false
 	}
 	_, err := c.serviceMeshImageName()
-	return err != nil
+	return err == nil
 }
 
 func (c *TitusInfoContainer) serviceMeshImageName() (string, error) {
@@ -992,6 +993,7 @@ func (c *TitusInfoContainer) SidecarConfigs() (map[string]*SidecarContainerConfi
 		sc.Image = path.Join(c.config.DockerRegistry, imageMap[sc.ServiceName])
 		scAddr := sc
 		scMap[sc.ServiceName] = &scAddr
+		log.Infof("sidecar name=%s image=%s", sc.ServiceName, sc.Image)
 	}
 
 	return scMap, nil
