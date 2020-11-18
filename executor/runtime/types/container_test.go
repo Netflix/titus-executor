@@ -176,6 +176,14 @@ func TestNewContainer(t *testing.T) {
 	assert.Equal(t, *containerConfig.RunState.LaunchTimeUnixSec, uint64(startTime.Unix()))
 	assert.Equal(t, *containerConfig.RunState.TaskId, taskID)
 	assert.Equal(t, *containerConfig.RunState.HostName, taskID)
+
+	assert.False(t, container.ServiceMeshEnabled())
+	scConfs, err := container.SidecarConfigs()
+	require.Nil(t, err)
+	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	assert.NotNil(t, svcMeshConf)
+	// service mesh image should be unset by default
+	assert.Equal(t, svcMeshConf.Image, "")
 }
 
 func TestMetatronEnabled(t *testing.T) {
@@ -636,4 +644,27 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 	for _, f := range fixtures {
 		t.Run(f.name, check(f.name, f.input, f.want))
 	}
+}
+
+func TestServiceMeshEnabled(t *testing.T) {
+	imgName := "titusoss/test-svcmesh:latest"
+	config := config.Config{
+		ContainerServiceMeshEnabled: true,
+	}
+
+	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	require.Nil(t, err)
+	titusInfo.PassthroughAttributes = map[string]string{
+		serviceMeshContainerParam: imgName,
+		serviceMeshEnabledParam:   "true",
+	}
+
+	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	require.Nil(t, err)
+	assert.True(t, c.ServiceMeshEnabled())
+	scConfs, err := c.SidecarConfigs()
+	require.Nil(t, err)
+	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	assert.NotNil(t, svcMeshConf)
+	assert.Equal(t, svcMeshConf.Image, imgName)
 }
