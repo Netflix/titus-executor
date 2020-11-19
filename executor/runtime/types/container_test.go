@@ -668,3 +668,41 @@ func TestServiceMeshEnabled(t *testing.T) {
 	assert.NotNil(t, svcMeshConf)
 	assert.Equal(t, svcMeshConf.Image, imgName)
 }
+
+func TestServiceMeshEnabledWithConfig(t *testing.T) {
+	// If service mesh is set to enabled, but neither the `ProxydServiceImage` config value
+	// or the passhtrough property are set, service mesh should end up disabled
+	config := config.Config{
+		ContainerServiceMeshEnabled: true,
+	}
+
+	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	require.Nil(t, err)
+	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	require.Nil(t, err)
+	assert.False(t, c.ServiceMeshEnabled())
+	scConfs, err := c.SidecarConfigs()
+	require.Nil(t, err)
+	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	assert.NotNil(t, svcMeshConf)
+	assert.Equal(t, svcMeshConf.Image, "")
+}
+
+func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
+	// Setting proxyd image to the empty string should result servicemesh being disabled
+	config := config.Config{
+		ContainerServiceMeshEnabled: true,
+		ProxydServiceImage:          "",
+	}
+
+	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	require.Nil(t, err)
+	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	require.Nil(t, err)
+	assert.False(t, c.ServiceMeshEnabled())
+	scConfs, err := c.SidecarConfigs()
+	require.Nil(t, err)
+	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	assert.NotNil(t, svcMeshConf)
+	assert.Equal(t, svcMeshConf.Image, "")
+}
