@@ -615,6 +615,8 @@ func (c *TitusInfoContainer) Env() map[string]string {
 		asgName = cluster + "-" + seq
 	}
 	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
+	env["NETFLIX_APP"] = c.AppName()
+
 	// passed environment
 	passedEnv := func() map[string]string {
 		containerInfoEnv := map[string]string{
@@ -678,7 +680,6 @@ func (c *TitusInfoContainer) Env() map[string]string {
 		env["EC2_OWNER_ID"] = ptr.StringPtrDerefOr(c.VPCAccountID(), "")
 	}
 
-	env["NETFLIX_APP"] = c.AppName()
 	env["TITUS_IAM_ROLE"] = ptr.StringPtrDerefOr(c.IamRole(), "")
 
 	if c.config.MetatronEnabled {
