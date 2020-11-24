@@ -56,8 +56,8 @@ var (
 	invalidSessionNameRegexp = regexp.MustCompile(`[^\w+=,.@-]`)
 )
 
-/* This sets up an iam "proxy" and sets up the routes under /{apiVersion}/meta-data/iam/... */
-func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataServerConfiguration) {
+/* This sets up an iam "proxy", but does not setup the routes */
+func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) *iamProxy {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
 	parsedArn, err := arn.Parse(config.IAMARN)
 	if err != nil {
@@ -75,9 +75,19 @@ func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataS
 	s := session.Must(session.NewSession())
 
 	if config.Region != "" {
+		endpoint := fmt.Sprintf("sts.%s.amazonaws.com", config.Region)
+		if config.STSEndpoint != "" {
+			endpoint = config.STSEndpoint
+		}
+
 		stsAwsCfg := aws.NewConfig().
 			WithRegion(config.Region).
-			WithEndpoint(fmt.Sprintf("sts.%s.amazonaws.com", config.Region))
+			WithEndpoint(endpoint)
+
+		if config.DisableSTSEndpointSSL {
+			stsAwsCfg.DisableSSL = &config.DisableSTSEndpointSSL
+		}
+
 		c := s.ClientConfig(sts.EndpointsID, stsAwsCfg)
 		log.WithField("region", config.Region).WithField("endpoint", c.Endpoint).Info("Configure STS client with region")
 		proxy.sts = sts.New(s, stsAwsCfg)
@@ -91,6 +101,13 @@ func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataS
 	}
 	proxy.roleName = splitRole[1]
 
+	// No need to block here
+	go proxy.startRoleAssumer()
+	return proxy
+}
+
+/* This sets up the routes under /{apiVersion}/meta-data/iam/... */
+func (proxy *iamProxy) AttachRoutes(router *mux.Router) {
 	router.HandleFunc("/info", proxy.info)
 	router.HandleFunc("/policy", proxy.policy)
 	router.HandleFunc("/security-credentials/", proxy.securityCredentials)
@@ -100,9 +117,6 @@ func newIamProxy(ctx context.Context, router *mux.Router, config types.MetadataS
 	   than just blindly returning
 	*/
 	router.HandleFunc("/security-credentials/{iamProfile}", proxy.specificInstanceProfile)
-
-	// No need to block here
-	go proxy.startRoleAssumer()
 }
 
 // An EC2IAMInfo provides the shape for marshaling
