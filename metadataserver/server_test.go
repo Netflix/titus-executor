@@ -237,7 +237,9 @@ func (s *stubServer) serveHTTP(w http.ResponseWriter, req *http.Request) {
 
 // Leaks connections, but this is okay in the time of testing
 func setupStubServer(t *testing.T) (*stubServer, error) {
-	stsHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	stsHandler := http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+		now := time.Now()
+		t.Logf("FakeSTSserver: %s: %s %s %s", now.Format(time.RFC3339), req.Method, req.Host, req.URL.String())
 		writer.Header().Set("Content-Type", "text/xml")
 		_, _ = writer.Write([]byte(assumeRoleResponse))
 	})
