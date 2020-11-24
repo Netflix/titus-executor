@@ -218,6 +218,7 @@ type stubServer struct {
 	t                             *testing.T
 	proxyListener                 net.Listener
 	router                        *mux.Router
+	fakeSTSserver                 *httptest.Server
 }
 
 func (s *stubServer) serveHTTP(w http.ResponseWriter, req *http.Request) {
@@ -236,19 +237,20 @@ func (s *stubServer) serveHTTP(w http.ResponseWriter, req *http.Request) {
 
 // Leaks connections, but this is okay in the time of testing
 func setupStubServer(t *testing.T) (*stubServer, error) {
+	stsHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/xml")
+		_, _ = writer.Write([]byte(assumeRoleResponse))
+	})
+
 	stubServerInstance := &stubServer{
-		reqChan: make(chan *http.Request, 1),
-		t:       t,
-		router:  mux.NewRouter(),
+		reqChan:       make(chan *http.Request, 1),
+		t:             t,
+		router:        mux.NewRouter(),
+		fakeSTSserver: httptest.NewTLSServer(stsHandler),
 	}
 
 	stubServerInstance.router.HandleFunc("/latest/api/token", func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write([]byte("faketoken"))
-	})
-
-	stubServerInstance.router.PathPrefix("/sts").HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "text/xml")
-		_, _ = writer.Write([]byte(assumeRoleResponse))
 	})
 
 	stubServerInstance.router.PathPrefix("/").HandlerFunc(stubServerInstance.serveHTTP)
@@ -554,11 +556,11 @@ func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair, requ
 			Scheme: "http",
 			Host:   ss.fakeEC2MetdataServiceListener.Addr().String(),
 		},
-		Container:             fakeTaskIdent.Container,
-		RequireToken:          requireToken,
-		Region:                "us-east-1",
-		STSEndpoint:           ss.fakeEC2MetdataServiceListener.Addr().String() + "/sts",
-		DisableSTSEndpointSSL: true,
+		Container:     fakeTaskIdent.Container,
+		RequireToken:  requireToken,
+		Region:        "us-east-1",
+		STSEndpoint:   ss.fakeSTSserver.URL,
+		STSHTTPClient: ss.fakeSTSserver.Client(),
 	}
 
 	if keyPair.certType != "" {

@@ -40,7 +40,6 @@ type iamProxy struct {
 	roleAssumptionState     *roleAssumptionState
 	roleAssumptionStateLock *sync.RWMutex
 	// This is used to start the role assumer
-	roleAssumerOnce *sync.Once
 }
 
 const (
@@ -69,7 +68,6 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 		titusTaskInstanceID: config.TitusTaskInstanceID,
 		arn:                 parsedArn,
 
-		roleAssumerOnce:         &sync.Once{},
 		roleAssumptionStateLock: &sync.RWMutex{},
 	}
 	s := session.Must(session.NewSession())
@@ -84,8 +82,8 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 			WithRegion(config.Region).
 			WithEndpoint(endpoint)
 
-		if config.DisableSTSEndpointSSL {
-			stsAwsCfg.DisableSSL = &config.DisableSTSEndpointSSL
+		if config.STSHTTPClient != nil {
+			stsAwsCfg.HTTPClient = config.STSHTTPClient
 		}
 
 		c := s.ClientConfig(sts.EndpointsID, stsAwsCfg)
@@ -101,8 +99,11 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 	}
 	proxy.roleName = splitRole[1]
 
-	// No need to block here
-	go proxy.startRoleAssumer()
+	log.Info("Doing first assume role")
+	proxy.doAssumeRole(defaultSessionLifetime)
+	log.Info("Starting role assumer")
+	go proxy.roleAssumer()
+
 	return proxy
 }
 
@@ -282,16 +283,6 @@ func (proxy *iamProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Re
 
 }
 
-func (proxy *iamProxy) startRoleAssumer() {
-	proxy.roleAssumerOnce.Do(func() {
-		log.Info("Starting role assumer")
-		proxy.doAssumeRole(defaultSessionLifetime)
-		log.Info("Ran first assume role")
-
-		go proxy.roleAssumer()
-	})
-}
-
 func (proxy *iamProxy) roleAssumer() {
 	// This is a state machine which will wait until we're in a window of being < 5 minutes until our assumerole window is up,
 	// and when we hit that, it will keep trying to assume role  every minute until succcessful
@@ -366,7 +357,6 @@ func (proxy *iamProxy) getRoleAssumptionState(ctx context.Context) *roleAssumpti
 	startTime := time.Now()
 
 	// So this can potentially block for up to the upper bound of the request timeout
-	proxy.startRoleAssumer()
 	proxy.roleAssumptionStateLock.RLock()
 	defer proxy.roleAssumptionStateLock.RUnlock()
 
