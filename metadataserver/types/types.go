@@ -25,6 +25,8 @@ type MetadataServerConfiguration struct {
 	Container                  *titus.ContainerInfo
 	Signer                     *identity.Signer
 	RequireToken               bool
+	STSEndpoint                string
+	DisableSTSEndpointSSL      bool
 	TokenKey                   string
 	XFordwardedForBlockingMode bool
 	NetflixAccountID           string

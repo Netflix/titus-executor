@@ -43,6 +43,25 @@ type testKeyPair struct {
 	keyPem   []byte
 }
 
+const assumeRoleResponse = `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+  <AssumeRoleResult>
+    <AssumedRoleUser>
+      <AssumedRoleId>fakeRoleID</AssumedRoleId>
+      <Arn>arn:aws:iam::8675309:role/thisIsAFakeRole</Arn>
+    </AssumedRoleUser>
+    <Credentials>
+      <AccessKeyId>fakeAccessKey</AccessKeyId>
+      <SecretAccessKey>fakeSecret</SecretAccessKey>
+      <SessionToken>fakeSessionToken</SessionToken>
+      <Expiration>2030-11-24T23:07:23Z</Expiration>
+    </Credentials>
+  </AssumeRoleResult>
+  <ResponseMetadata>
+    <RequestId>fakeRequestId</RequestId>
+  </ResponseMetadata>
+</AssumeRoleResponse>
+`
+
 // Certs generated with this code that ships with the golang source: https://golang.org/src/crypto/tls/generate_cert.go
 
 var ecdsaCerts = []testKeyPair{
@@ -226,6 +245,12 @@ func setupStubServer(t *testing.T) (*stubServer, error) {
 	stubServerInstance.router.HandleFunc("/latest/api/token", func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write([]byte("faketoken"))
 	})
+
+	stubServerInstance.router.PathPrefix("/sts").HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/xml")
+		_, _ = writer.Write([]byte(assumeRoleResponse))
+	})
+
 	stubServerInstance.router.PathPrefix("/").HandlerFunc(stubServerInstance.serveHTTP)
 
 	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
@@ -529,8 +554,11 @@ func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair, requ
 			Scheme: "http",
 			Host:   ss.fakeEC2MetdataServiceListener.Addr().String(),
 		},
-		Container:    fakeTaskIdent.Container,
-		RequireToken: requireToken,
+		Container:             fakeTaskIdent.Container,
+		RequireToken:          requireToken,
+		Region:                "us-east-1",
+		STSEndpoint:           ss.fakeEC2MetdataServiceListener.Addr().String() + "/sts",
+		DisableSTSEndpointSSL: true,
 	}
 
 	if keyPair.certType != "" {
@@ -591,7 +619,8 @@ func TestVCR(t *testing.T) {
 			{makeGetRequest(ss, "/latest/meta-data/hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
 			{makeGetRequest(ss, "/latest/meta-data/instance-id"), validateRequestNotProxiedAndSuccessWithContent("e3c16590-0e2f-440d-9797-a68a19f6101e")},
 			{makeGetRequest(ss, "/latest/meta-data/iam/security-credentials"), validateRequestNotProxiedAndSuccessWithContent("thisIsAFakeRole")},
-			{makeGetRequest(ss, "/latest/meta-data/iam/security-credentials"), validateRequestNotProxiedAndSuccessWithContent("thisIsAFakeRole")},
+			{makeGetRequest(ss, "/1.0/meta-data/iam/security-credentials"), validateRequestNotProxiedAndSuccessWithContent("thisIsAFakeRole")},
+			{makeGetRequest(ss, "/latest/meta-data/iam/security-credentials/thisIsAFakeRole"), validateRequestNotProxiedAndSuccessWithContent("fakeAccessKey")},
 			{makeGetRequest(ss, "/nflx/v1/task-identity"), validateRequestNotProxiedAndNotFound},
 		}
 	play(t, ss, tapes)

@@ -52,6 +52,7 @@ var whitelist = set.NewSetFromSlice([]interface{}{
 type MetadataServer struct {
 	httpClient  *http.Client
 	internalMux *mux.Router
+	iamProxy    *iamProxy
 	/*
 		The below stuff could be called *instance specific metadata*
 		I'd rather not break it into owns struct
@@ -118,6 +119,9 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 
 	ms.tokenKey = []byte(config.TokenKey)
 
+	// Create the IAM proxy - we'll attach routes to it for the different versions when we install handlers below
+	ms.iamProxy = newIamProxy(ctx, config)
+
 	/* IMDS routes */
 	ms.internalMux.Use(ms.serverHeader)
 
@@ -177,7 +181,7 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 	metaData.Handle("/instance-type", http.NotFoundHandler())
 
 	/* IAM Stuffs */
-	newIamProxy(ctx, metaData.PathPrefix("/iam").Subrouter(), config)
+	ms.iamProxy.AttachRoutes(metaData.PathPrefix("/iam").Subrouter())
 
 	/*
 		Instance identity document
