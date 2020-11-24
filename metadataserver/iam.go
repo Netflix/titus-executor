@@ -12,9 +12,9 @@ import (
 
 	"sync"
 
-	"github.com/Netflix/titus-executor/metadataserver/types"
-
+	"github.com/Netflix/titus-executor/metadataserver/logging"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
+	"github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -127,6 +127,7 @@ func (proxy *iamProxy) info(w http.ResponseWriter, r *http.Request) {
 	roleAssumptionState := proxy.getRoleAssumptionState(ctx)
 
 	if roleAssumptionState == nil {
+		log.Error("info: role assumption state is nil")
 		http.Error(w, "Role assumption state is nil", http.StatusServiceUnavailable)
 		return
 	}
@@ -211,6 +212,7 @@ func (proxy *iamProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Re
 	roleAssumptionState := proxy.getRoleAssumptionState(ctx)
 
 	if roleAssumptionState == nil {
+		log.Error("security-credentials: role assumption state is nil")
 		http.Error(w, "Role assumption state is nil", http.StatusServiceUnavailable)
 		return
 	}
@@ -347,10 +349,16 @@ func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
 }
 
 func (proxy *iamProxy) getRoleAssumptionState(ctx context.Context) *roleAssumptionState {
+	startTime := time.Now()
+
 	// So this can potentially block for up to the upper bound of the request timeout
 	proxy.startRoleAssumer()
 	proxy.roleAssumptionStateLock.RLock()
 	defer proxy.roleAssumptionStateLock.RUnlock()
+
+	logging.AddFields(ctx, log.Fields{
+		"acquire-time": time.Since(startTime).Milliseconds(),
+	})
 	return proxy.roleAssumptionState
 }
 

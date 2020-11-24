@@ -408,9 +408,10 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	/* Ensure no request lasts longer than 10 seconds */
 	ctx, cancel := context.WithTimeout(logging.WithConcurrentFields(r.Context()), 10*time.Second)
 	r2 := r.WithContext(ctx)
+	startTime := time.Now()
 	defer cancel()
 	defer func() {
-		log.WithFields(logging.Entry(ctx)).Infof("Request %s %s '%s' from %s", r2.Method, r2.RequestURI, r2.UserAgent(), r2.RemoteAddr)
+		log.WithFields(logging.Entry(ctx)).WithField("request-time", time.Since(startTime).Milliseconds()).Infof("Request %s %s '%s' from %s", r2.Method, r2.RequestURI, r2.UserAgent(), r2.RemoteAddr)
 	}()
 	logging.AddFields(ctx, log.Fields{
 		"method":        r.Method,
