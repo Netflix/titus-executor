@@ -255,6 +255,14 @@ func setupStubServer(t *testing.T) (*stubServer, error) {
 		_, _ = writer.Write([]byte("faketoken"))
 	})
 
+	// The two security-credentials handlers are so the metadata server client passed to the STS client can do its AssumeRole correctly
+	stubServerInstance.router.HandleFunc("/latest/meta-data/iam/security-credentials/", func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("fakecreds"))
+	})
+	stubServerInstance.router.HandleFunc("/latest/meta-data/iam/security-credentials/fakecreds", func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"Expiration":"2030-11-24T21:07:34Z","AccessKeyId":"fakeAccessKey","SecretAccessKey":"fakeSecretAccessKey","Type":"AWS-HMAC","LastUpdated":"2020-11-24T20:07:34Z","Code":"Success"}`))
+	})
+
 	stubServerInstance.router.PathPrefix("/").HandlerFunc(stubServerInstance.serveHTTP)
 
 	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec

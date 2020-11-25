@@ -18,6 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/gorilla/mux"
@@ -78,9 +80,17 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 			endpoint = config.STSEndpoint
 		}
 
+		// Explicitly pass credentials indicating that we want to use the metadata service only,
+		// so that it doesn't pick up on environment variables or credential files
+		creds := ec2rolecreds.NewCredentialsWithClient(
+			ec2metadata.New(s, &aws.Config{
+				Endpoint: aws.String(config.BackingMetadataServer.String()),
+			}))
+
 		stsAwsCfg := aws.NewConfig().
 			WithRegion(config.Region).
-			WithEndpoint(endpoint)
+			WithEndpoint(endpoint).
+			WithCredentials(creds)
 
 		if config.STSHTTPClient != nil {
 			stsAwsCfg.HTTPClient = config.STSHTTPClient
