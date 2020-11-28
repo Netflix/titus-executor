@@ -54,8 +54,8 @@ func testCustomCmdWithEntrypoint(entrypoint []string) func(*testing.T) {
 		c, err := NewContainer(taskID, titusInfo, *resources, *conf)
 		assert.NoError(t, err)
 
-		entrypoint, cmd := c.Process()
-		assert.Len(t, entrypoint, len(entrypoint))
+		entry, cmd := c.Process()
+		assert.Len(t, entry, len(entrypoint))
 		assert.Len(t, cmd, 2)
 		assert.Equal(t, cmd[0], "sleep")
 		assert.Equal(t, cmd[1], "1")
@@ -99,7 +99,7 @@ func TestDefaultHostnameStyle(t *testing.T) {
 	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
 	assert.NoError(t, err)
 
-	hostname, err := c.ComputeHostname()
+	hostname, err := ComputeHostname(c)
 	assert.Nil(t, err)
 	assert.Equal(t, c.TaskID(), hostname)
 }
@@ -119,7 +119,7 @@ func TestEc2HostnameStyle(t *testing.T) {
 		},
 	})
 
-	hostname, err := c.ComputeHostname()
+	hostname, err := ComputeHostname(c)
 	assert.Nil(t, err)
 	assert.Equal(t, "ip-1-2-3-4", hostname)
 }
@@ -129,9 +129,13 @@ func TestInvalidHostnameStyle(t *testing.T) {
 	assert.NoError(t, err)
 	titusInfo.PassthroughAttributes[hostnameStyleParam] = "foo"
 
-	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
-	assert.NoError(t, err)
-	hostname, err := c.ComputeHostname()
+	_, err = NewContainer(taskID, titusInfo, *resources, *conf)
+	assert.Error(t, err, "unknown hostname style: foo")
+
+	tc := &TitusInfoContainer{
+		hostnameStyle: "foo",
+	}
+	hostname, err := ComputeHostname(tc)
 	assert.Empty(t, hostname)
 	assert.NotNil(t, err)
 	assert.IsType(t, &InvalidConfigurationError{}, err)

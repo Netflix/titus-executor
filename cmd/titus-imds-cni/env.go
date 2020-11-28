@@ -4,20 +4,18 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/Netflix/titus-executor/utils/k8s"
 
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	tt "github.com/Netflix/titus-executor/executor/runtime/types"
 	mt "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/containernetworking/cni/pkg/skel"
@@ -91,7 +89,7 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	for _, ip := range prev.IPs {
 		switch ip.Version {
 		case "4":
-			env["EC2_LOCAL_IPV4"] = ip.Address.String()
+			env[mt.EC2IPv4EnvVarName] = ip.Address.String()
 			ok = true
 		case "6":
 			env["EC2_IPV6S"] = ip.Address.String()
@@ -109,7 +107,34 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	env["TITUS_IAM_ROLE"] = pod.Annotations[mt.IamRoleArnAnnotation]
 	env["X_FORWARDED_FOR_BLOCKING_MODE"] = pod.Annotations[mt.XForwardedForBlockingModeAnnotation]
 
+	c := getUserContainer(pod)
+	if mEnvVal, ok := getEnvVal(c, mt.TitusMetatronVariableName); ok {
+		env[mt.TitusMetatronVariableName] = mEnvVal
+	}
+
 	return env, nil
+}
+
+func getEnvVal(c *v1.Container, name string) (string, bool) {
+	for _, e := range c.Env {
+		if e.Name == name {
+			return e.Value, true
+		}
+	}
+
+	return "", false
+}
+
+func getUserContainer(pod *v1.Pod) *v1.Container {
+	firstContainer := pod.Spec.Containers[0]
+	for _, c := range pod.Spec.Containers {
+		if c.Name == pod.Name {
+			ctr := c
+			return &ctr
+		}
+	}
+
+	return &firstContainer
 }
 
 func setupEnv(pod *v1.Pod, env map[string]string) error {
@@ -130,10 +155,11 @@ func setupEnv(pod *v1.Pod, env map[string]string) error {
 	}
 
 	if !metatronOn {
+		logrus.Info("metatron disabled: not writing containerInfo")
 		return nil
 	}
 
-	err = writeContainerInfo(pod)
+	err = writeContainerInfo(pod, env)
 	if err != nil {
 		return errors.Wrap(err, "Unable to write containerInfo file")
 	}
@@ -188,36 +214,37 @@ func openFile(dname, fname string) (*os.File, error) {
 	return fd, nil
 }
 
-func writeContainerInfo(pod *v1.Pod) error {
-	str, ok := pod.Annotations["containerInfo"]
+func writeContainerInfo(pod *v1.Pod, env map[string]string) error {
+	ipv4Addr, ok := env[mt.EC2IPv4EnvVarName]
 	if !ok {
-		return errors.New("Unable to find containerInfo annotation")
+		return errors.New("Unable to get IPv4 address")
 	}
 
-	data, err := base64.StdEncoding.DecodeString(str)
+	c, err := tt.NewPodContainer(pod, &ipv4Addr)
 	if err != nil {
-		return errors.Wrap(err, "Unable to base64 decode containerInfo")
+		return err
 	}
 
-	var cInfo titus.ContainerInfo
-	err = proto.Unmarshal(data, &cInfo)
+	startTime := time.Now()
+	cfg, err := tt.ContainerConfig(c, startTime)
 	if err != nil {
-		return errors.Wrap(err, "Unable to decode containerInfo protobuf")
+		return err
 	}
+	fname := path.Join(tt.TitusEnvironmentsDir, pod.Name+".json")
 
-	out, err := json.MarshalIndent(&cInfo, "", " ")
+	out, err := json.MarshalIndent(cfg, "", " ")
 	if err != nil {
 		return errors.Wrap(err, "Unable to marshal containerInfo as JSON")
 	}
-
-	fname := path.Join(tt.TitusEnvironmentsDir, pod.Name+".json")
 
 	fd, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // nolint: gosec
 	if err != nil {
 		return err
 	}
 	defer func() {
-		_ = fd.Close()
+		if err := fd.Close(); err != nil {
+			logrus.WithError(err).Errorf("Could not close file: %s", fname)
+		}
 	}()
 
 	_, err = fd.Write(out)
