@@ -329,7 +329,7 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 	entrypoint, cmd := c.Process()
 
 	// hostname style: ip-{ip-addr} or {task ID}
-	hostname, err := c.ComputeHostname()
+	hostname, err := runtimeTypes.ComputeHostname(c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -367,8 +367,9 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 	}
 
 	// TODO(Sargun): Add IPv6 address
-	if c.VPCAllocation().IPV4Address != nil {
-		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, c.VPCAllocation().IPV4Address.Address.Address))
+	ipv4Addr := c.IPv4Address()
+	if ipv4Addr != nil {
+		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv4Addr))
 	}
 
 	for _, containerName := range volumeContainers {
@@ -445,8 +446,10 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 	}
 
 	// label is necessary for metadata proxy compatibility
-	containerCfg.Labels[runtimeTypes.VPCIPv4Label] = c.VPCAllocation().IPV4Address.Address.Address // nolint: staticcheck
-	containerCfg.Labels[runtimeTypes.NetIPv4Label] = c.VPCAllocation().IPV4Address.Address.Address
+	if ipv4Addr != nil {
+		containerCfg.Labels[runtimeTypes.VPCIPv4Label] = *ipv4Addr // nolint: staticcheck
+		containerCfg.Labels[runtimeTypes.NetIPv4Label] = *ipv4Addr
+	}
 
 	if r.cfg.UseNewNetworkDriver {
 		hostCfg.NetworkMode = container.NetworkMode("none")
@@ -1057,7 +1060,7 @@ error:
 func (r *DockerRuntime) createTitusContainerConfigFile(c runtimeTypes.Container, startTime time.Time) error {
 	containerConfigFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", c.TaskID()))
 
-	cfg, err := c.Config(startTime)
+	cfg, err := runtimeTypes.ContainerConfig(c, startTime)
 	if err != nil {
 		return err
 	}

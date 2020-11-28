@@ -177,7 +177,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:        "ipv4-address",
-			EnvVar:      "EC2_LOCAL_IPV4",
+			EnvVar:      types.EC2IPv4EnvVarName,
 			Destination: &ipv4Address,
 		},
 		cli.BoolFlag{

@@ -12,6 +12,7 @@ import (
 const (
 	// TitusMetatronVariableName is the name of the environment variable that indicates if metatron is enabled for a container
 	TitusMetatronVariableName = "TITUS_METATRON_ENABLED"
+	EC2IPv4EnvVarName         = "EC2_LOCAL_IPV4"
 )
 
 // MetadataServerConfiguration is a configuration for metadata service + IAM Proxy

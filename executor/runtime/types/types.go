@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -35,8 +36,9 @@ const (
 	NetIPv4Label = "titus.net.ipv4"
 
 	// Make the linter happy
-	True  = "true"
-	False = "false"
+	True             = "true"
+	False            = "false"
+	ec2HostnameStyle = "ec2"
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
@@ -119,20 +121,21 @@ type Container interface {
 	BatchPriority() *string
 	Capabilities() *titus.ContainerInfo_Capabilities
 	CombinedAppStackDetails() string
-	ComputeHostname() (string, error)
-	Config(time.Time) (*titus.ContainerInfo, error)
+	ContainerInfo() (*titus.ContainerInfo, error)
 	EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo
 	Env() map[string]string
 	ElasticIPPool() *string
 	ElasticIPs() *string
 	FuseEnabled() bool
 	GPUInfo() GPUContainer
+	HostnameStyle() *string
 	IamRole() *string
 	ID() string
 	ImageDigest() *string
 	ImageName() *string
 	ImageVersion() *string
 	ImageTagForMetrics() map[string]string
+	IPv4Address() *string
 	IsSystemD() bool
 	JobGroupDetail() string
 	JobGroupStack() string
@@ -174,6 +177,91 @@ type Container interface {
 	UseJumboFrames() bool
 	VPCAllocation() *vpcTypes.HybridAllocation
 	VPCAccountID() *string
+}
+
+func validateHostnameStyle(style string) error {
+	if style == "" || style == ec2HostnameStyle {
+		return nil
+	}
+
+	return fmt.Errorf("unknown hostname style: %s", style)
+}
+
+// ComputeHostname computes a hostname in the container using container ID or ec2 style
+// depending on titusParameter.agent.hostnameStyle setting.  Return error if style is unrecognized.
+func ComputeHostname(c Container) (string, error) {
+	hostnameStyle := ""
+	if style := c.HostnameStyle(); style != nil {
+		hostnameStyle = strings.ToLower(*style)
+	}
+
+	if err := validateHostnameStyle(hostnameStyle); err != nil {
+		return "", &InvalidConfigurationError{Reason: err}
+	}
+
+	switch hostnameStyle {
+	case "":
+		return strings.ToLower(c.TaskID()), nil
+	case ec2HostnameStyle:
+		ipAddr := c.IPv4Address()
+		if ipAddr == nil {
+			return "", &InvalidConfigurationError{Reason: errors.New("Unable to get container IP address")}
+		}
+
+		hostname := fmt.Sprintf("ip-%s", strings.Replace(*ipAddr, ".", "-", 3))
+		return hostname, nil
+	default:
+		return "", &InvalidConfigurationError{Reason: fmt.Errorf("Unknown hostname style: %s", hostnameStyle)}
+	}
+}
+
+// Generates a ContainerInfo config suitable for writing out to disk so the metadata proxy can use it
+func ContainerConfig(c Container, startTime time.Time) (*titus.ContainerInfo, error) {
+	launchTime := uint64(startTime.Unix())
+	ti, err := c.ContainerInfo()
+	if err != nil {
+		return nil, err
+	}
+	containerHostname, err := ComputeHostname(c)
+	if err != nil {
+		return nil, err
+	}
+
+	if ti.GetRunState() == nil {
+		ti.RunState = &titus.RunningContainerInfo{}
+	}
+
+	if ti.RunState.LaunchTimeUnixSec == nil {
+		ti.RunState.LaunchTimeUnixSec = &launchTime
+	}
+	if ti.RunState.TaskId == nil {
+		tid := c.TaskID()
+		ti.RunState.TaskId = &tid
+	}
+	if ti.RunState.HostName == nil {
+		ti.RunState.HostName = &containerHostname
+	}
+
+	var cmd []string
+	var entrypoint []string
+
+	// The identity server looks at the Process object for the entrypoint. For legacy apps
+	// that pass entrypoint as a string, use the whole string as the entrypoint rather than
+	// parsing it: this matches how the entrypoint is signed in the first place.
+	//
+	// See Container's Process() method for more details.
+	if ti.EntrypointStr != nil {
+		entrypoint = append(entrypoint, *ti.EntrypointStr)
+	} else {
+		entrypoint, cmd = c.Process()
+	}
+
+	ti.Process = &titus.ContainerInfo_Process{
+		Entrypoint: entrypoint,
+		Command:    cmd,
+	}
+
+	return ti, nil
 }
 
 // ContainerTestArgs generates test arguments appropriate for passing to NewContainer()

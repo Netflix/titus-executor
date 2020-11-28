@@ -85,7 +85,7 @@ func TestNewContainer(t *testing.T) {
 	expectedWorkloadType := BurstWorkloadType
 	batch := true
 	startTime := time.Now()
-	expectedCmd := "/usr/bin/yes"
+	cmd := "/usr/bin/yes"
 	expectedUserEnv := map[string]string{
 		"MY_ENV": "is set",
 	}
@@ -100,6 +100,7 @@ func TestNewContainer(t *testing.T) {
 	expectedPassthroughAttributes[ownerEmailPassThroughKey] = expectedOwnerEmail
 	expectedPassthroughAttributes[jobTypePassThroughKey] = expectedJobType
 	expectedCommand := "cmd arg0 arg1"
+	expectedEntrypoint := "entrypoint arg0 arg1"
 
 	containerInfo := &titus.ContainerInfo{
 		AppName:   &expectedAppName,
@@ -109,7 +110,7 @@ func TestNewContainer(t *testing.T) {
 			BandwidthLimitMbps: &expectedNetwork,
 		},
 		AllowCpuBursting:      &batch,
-		Command:               &expectedCmd,
+		Command:               &cmd,
 		UserProvidedEnv:       expectedUserEnv,
 		JobGroupDetail:        &expectedJobDetail,
 		JobGroupStack:         &expectedJobStack,
@@ -118,7 +119,7 @@ func TestNewContainer(t *testing.T) {
 		PassthroughAttributes: expectedPassthroughAttributes,
 		Process: &titus.ContainerInfo_Process{
 			Command:    strings.Split(expectedCommand, " "),
-			Entrypoint: strings.Split(expectedCommand, " "),
+			Entrypoint: strings.Split(expectedEntrypoint, " "),
 		},
 		IamProfile: protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
 	}
@@ -135,40 +136,44 @@ func TestNewContainer(t *testing.T) {
 	container, err := NewContainer(taskID, containerInfo, resources, config)
 	require.Nil(t, err)
 
-	actualAppName := container.Labels()[appNameLabelKey]
-	assert.Equal(t, expectedAppName, actualAppName)
+	actualAppNameLabel := container.Labels()[appNameLabelKey]
+	assert.Equal(t, expectedAppName, actualAppNameLabel)
 
-	actualCommand := container.Labels()[commandLabelKey]
-	assert.Equal(t, expectedCommand, actualCommand)
+	actualCommandLabel := container.Labels()[commandLabelKey]
+	assert.Equal(t, expectedCommand, actualCommandLabel)
 
-	actualEntrypoint := container.Labels()[entrypointLabelKey]
-	assert.Equal(t, expectedCommand, actualEntrypoint)
+	actualEntrypointLabel := container.Labels()[entrypointLabelKey]
+	assert.Equal(t, expectedEntrypoint, actualEntrypointLabel)
 
-	actualOwnerEmail := container.Labels()[ownerEmailLabelKey]
-	assert.Equal(t, expectedOwnerEmail, actualOwnerEmail)
+	actualOwnerEmailLabel := container.Labels()[ownerEmailLabelKey]
+	assert.Equal(t, expectedOwnerEmail, actualOwnerEmailLabel)
 
-	actualJobType := container.Labels()[jobTypeLabelKey]
-	assert.Equal(t, expectedJobType, actualJobType)
+	actualJobTypeLabel := container.Labels()[jobTypeLabelKey]
+	assert.Equal(t, expectedJobType, actualJobTypeLabel)
 
-	actualCPU, _ := strconv.ParseInt(container.Labels()[cpuLabelKey], 10, 64)
-	assert.Equal(t, expectedCPU, actualCPU)
+	actualCPULabel, _ := strconv.ParseInt(container.Labels()[cpuLabelKey], 10, 64)
+	assert.Equal(t, expectedCPU, actualCPULabel)
 
-	actualMem, _ := strconv.ParseInt(container.Labels()[memLabelKey], 10, 64)
-	assert.Equal(t, expectedMem, actualMem)
+	actualMemLabel, _ := strconv.ParseInt(container.Labels()[memLabelKey], 10, 64)
+	assert.Equal(t, expectedMem, actualMemLabel)
 
-	actualDisk, _ := strconv.ParseInt(container.Labels()[diskLabelKey], 10, 64)
-	assert.Equal(t, expectedDisk, actualDisk)
+	actualDiskLabel, _ := strconv.ParseInt(container.Labels()[diskLabelKey], 10, 64)
+	assert.Equal(t, expectedDisk, actualDiskLabel)
 
-	actualNetwork, _ := strconv.ParseUint(container.Labels()[networkLabelKey], 10, 32)
-	assert.Equal(t, expectedNetwork, uint32(actualNetwork))
+	actualNetworkLabel, _ := strconv.ParseUint(container.Labels()[networkLabelKey], 10, 32)
+	assert.Equal(t, expectedNetwork, uint32(actualNetworkLabel))
 
-	actualWorkloadType := container.Labels()[workloadTypeLabelKey]
-	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadType))
+	actualWorkloadTypeLabel := container.Labels()[workloadTypeLabelKey]
+	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadTypeLabel))
 
 	// Default to false unless metatron is explicitly configured
 	assert.Equal(t, container.Env()["TITUS_METATRON_ENABLED"], "false")
 
-	containerConfig, err := container.Config(startTime)
+	actualProcessEntrypoint, actualProcessCmd := container.Process()
+	assert.Equal(t, actualProcessEntrypoint, []string{"entrypoint", "arg0", "arg1"})
+	assert.Equal(t, actualProcessCmd, []string{"cmd", "arg0", "arg1"})
+
+	containerConfig, err := ContainerConfig(container, startTime)
 	assert.NoError(t, err)
 
 	assert.Equal(t, containerInfo, containerConfig)

@@ -313,9 +313,9 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	ctx = logger.WithField(ctx, "taskID", taskID)
 
 	env := map[string]string{
-		"TITUS_TASK_ID":          taskID,
-		"TITUS_TASK_INSTANCE_ID": taskID,
-		"EC2_LOCAL_IPV4":         "1.2.3.4",
+		"TITUS_TASK_ID":                       taskID,
+		"TITUS_TASK_INSTANCE_ID":              taskID,
+		metadataserverTypes.EC2IPv4EnvVarName: "1.2.3.4",
 	}
 
 	if jobInput.MetatronEnabled {

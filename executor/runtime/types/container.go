@@ -225,8 +225,15 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		return nil, err
 	}
 
-	if err := parseEntryPointAndCommand(titusInfo, c); err != nil {
+	entrypoint, command, err := parseEntryPointAndCommand(titusInfo)
+	if err != nil {
 		return nil, err
+	}
+	if entrypoint != nil {
+		c.entrypoint = entrypoint
+	}
+	if command != nil {
+		c.command = command
 	}
 
 	stringPassthroughs := []struct {
@@ -271,6 +278,10 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		if val, ok := titusInfo.GetPassthroughAttributes()[pt.paramName]; ok {
 			*pt.containerAttr = val
 		}
+	}
+
+	if err := validateHostnameStyle(c.hostnameStyle); err != nil {
+		return nil, err
 	}
 
 	boolPassthroughs := []struct {
@@ -378,7 +389,7 @@ func addProcessLabels(containerInfo *titus.ContainerInfo, labels map[string]stri
 
 		command := process.GetCommand()
 		if command != nil {
-			commandStr := strings.Join(entryPoint[:], " ")
+			commandStr := strings.Join(command[:], " ")
 			labels[commandLabelKey] = commandStr
 		}
 	}
@@ -503,64 +514,9 @@ func (c *TitusInfoContainer) CombinedAppStackDetails() string {
 	return c.AppName()
 }
 
-// ComputeHostname computes a hostname in the container using container ID or ec2 style
-// depending on titusParameter.agent.hostnameStyle setting.  Return error if style is unrecognized.
-func (c *TitusInfoContainer) ComputeHostname() (string, error) {
-	hostnameStyle := strings.ToLower(c.hostnameStyle)
-	switch hostnameStyle {
-	case "":
-		return strings.ToLower(c.TaskID()), nil
-	case "ec2":
-		hostname := fmt.Sprintf("ip-%s", strings.Replace(c.vpcAllocation.IPV4Address.Address.Address, ".", "-", 3))
-		return hostname, nil
-	default:
-		return "", &InvalidConfigurationError{Reason: fmt.Errorf("Unknown hostname style: %s", hostnameStyle)}
-	}
-}
-
 // Config returns the container config with all necessary fields for validating its identity with Metatron
-func (c *TitusInfoContainer) Config(startTime time.Time) (*titus.ContainerInfo, error) {
-	launchTime := uint64(startTime.Unix())
-	ti := c.titusInfo
-	containerHostname, err := c.ComputeHostname()
-	if err != nil {
-		return nil, err
-	}
-
-	if ti.GetRunState() == nil {
-		ti.RunState = &titus.RunningContainerInfo{}
-	}
-
-	if ti.RunState.LaunchTimeUnixSec == nil {
-		ti.RunState.LaunchTimeUnixSec = &launchTime
-	}
-	if ti.RunState.TaskId == nil {
-		ti.RunState.TaskId = &c.taskID
-	}
-	if ti.RunState.HostName == nil {
-		ti.RunState.HostName = &containerHostname
-	}
-
-	var cmd []string
-	var entrypoint []string
-
-	// The identity server looks at the Process object for the entrypoint. For legacy apps
-	// that pass entrypoint as a string, use the whole string as the entrypoint rather than
-	// parsing it: this matches how the entrypoint is signed in the first place.
-	//
-	// See Process() above for more details.
-	if ti.EntrypointStr != nil {
-		entrypoint = append(entrypoint, *ti.EntrypointStr)
-	} else {
-		entrypoint, cmd = c.Process()
-	}
-
-	ti.Process = &titus.ContainerInfo_Process{
-		Entrypoint: entrypoint,
-		Command:    cmd,
-	}
-
-	return ti, nil
+func (c *TitusInfoContainer) ContainerInfo() (*titus.ContainerInfo, error) {
+	return c.titusInfo, nil
 }
 
 func (c *TitusInfoContainer) Capabilities() *titus.ContainerInfo_Capabilities {
@@ -690,7 +646,7 @@ func (c *TitusInfoContainer) Env() map[string]string {
 	}
 
 	if c.vpcAllocation.IPV4Address != nil {
-		env["EC2_LOCAL_IPV4"] = c.vpcAllocation.IPV4Address.Address.Address
+		env[metadataserverTypes.EC2IPv4EnvVarName] = c.vpcAllocation.IPV4Address.Address.Address
 	}
 
 	if c.vpcAllocation.IPV6Address != nil {
@@ -736,6 +692,10 @@ func (c *TitusInfoContainer) GPUInfo() GPUContainer {
 	return c.gpuInfo
 }
 
+func (c *TitusInfoContainer) HostnameStyle() *string {
+	return &c.hostnameStyle
+}
+
 func (c *TitusInfoContainer) IamRole() *string {
 	return ptr.StringPtr(c.titusInfo.GetIamProfile())
 }
@@ -768,6 +728,14 @@ func (c *TitusInfoContainer) ImageTagForMetrics() map[string]string {
 	}
 
 	return map[string]string{"image": imageName}
+}
+
+func (c *TitusInfoContainer) IPv4Address() *string {
+	if c.vpcAllocation.IPV4Address == nil {
+		return nil
+	}
+
+	return &c.vpcAllocation.IPV4Address.Address.Address
 }
 
 func (c *TitusInfoContainer) IsSystemD() bool {
@@ -1075,23 +1043,22 @@ func getPassthroughBool(titusInfo *titus.ContainerInfo, key string) (bool, bool,
 //   apply
 //
 // If both are set, EntrypointStr has precedence to allow for smoother transition.
-func parseEntryPointAndCommand(titusInfo *titus.ContainerInfo, c *TitusInfoContainer) error {
+func parseEntryPointAndCommand(titusInfo *titus.ContainerInfo) ([]string, []string, error) {
 	if titusInfo.EntrypointStr != nil { // nolint: staticcheck
 		// deprecated (old) way of passing entrypoints as a flat string. We need to parse it
 		entrypoint, err := dockershellparser.ProcessWords(titusInfo.GetEntrypointStr(), []string{}) // nolint: megacheck
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 
 		// nil cmd because everything is in the entrypoint
-		c.entrypoint = entrypoint
-		return nil
+		return entrypoint, nil, nil
 	}
 
 	process := titusInfo.GetProcess()
-	c.command = process.GetCommand()
-	c.entrypoint = process.GetEntrypoint()
-	return nil
+	command := process.GetCommand()
+	entrypoint := process.GetEntrypoint()
+	return entrypoint, command, nil
 }
 
 func (c *TitusInfoContainer) parseLogUploadThresholdTime(logUploadThresholdTimeStr string) (time.Duration, error) {
