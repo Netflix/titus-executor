@@ -45,7 +45,7 @@ require (
 	github.com/myitcv/gobin v0.0.9
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/runc v1.0.0-rc10
-	github.com/opencontainers/runtime-spec v1.0.1 // indirect
+	github.com/opencontainers/runtime-spec v1.0.1
 	github.com/openzipkin/zipkin-go v0.2.2
 	github.com/pelletier/go-toml v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1
