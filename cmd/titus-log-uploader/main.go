@@ -101,7 +101,10 @@ func main() {
 	case <-ctx.Done():
 	}
 
-	watcher.Stop()
+	err = watcher.Stop()
+	if err != nil {
+		logrus.Errorf("Error stopping watcher: %s", err)
+	}
 	err = server.Shutdown(ctx)
 	if err != nil {
 		logrus.Errorf("Error shutting down webserver: %s", err)
