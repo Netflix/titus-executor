@@ -104,9 +104,6 @@ func mustReadBoolFromEnv(envKey string) bool {
 	return false
 }
 
-// titus-log-rotator is an application that extracts the job of uploading files from a specific directory to
-// s3.  It expects the files to be rotated written to and rotated by an external application.
-
 func watchConfigFromEnvironment() (filesystems.WatchConfig, error) {
 	localDir := mustReadStringFromEnv(envKeyLocalDir)
 	uploadDir := mustReadStringFromEnv(envKeyUploadDir)
@@ -151,5 +148,17 @@ func uploadConfigFromEnvironment() (s3UploadConfig, error) {
 		taskID:         taskID,
 		writerRole:     writerRole,
 		useDefaultRole: useDefaultRole,
+	}, nil
+}
+
+type logViewerConfig struct {
+	Volume string
+}
+
+func logViewerConfigFromEnvironment() (logViewerConfig, error) {
+	volume := mustReadStringFromEnv(envKeyLocalDir)
+
+	return logViewerConfig{
+		Volume: volume,
 	}, nil
 }

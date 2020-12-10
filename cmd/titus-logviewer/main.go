@@ -35,6 +35,11 @@ func newMux() *http.ServeMux {
 		return r
 	}
 
+	if conf.KubeletMode {
+		api.RegisterPodHandlers(r)
+		return r
+	}
+
 	api.RegisterHandlers(r)
 	return r
 }
