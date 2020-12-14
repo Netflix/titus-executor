@@ -361,7 +361,12 @@ func cmdDel(args *skel.CmdArgs) error {
 	peerNsPath := getPeerNsPath(podName)
 
 	fi, err := os.Stat(peerNsPath)
+
 	if err != nil {
+		if os.IsNotExist(err) {
+			logrus.Warnf("peerNS %s does not exist. NOOP.", peerNsPath)
+			return nil
+		}
 		logrus.Errorf("Cannot find peer namespace %s", err)
 		return err
 	}
