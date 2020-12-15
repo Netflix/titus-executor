@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -207,6 +209,35 @@ func (vpcService *vpcService) ProvisionInstanceV3(ctx context.Context, req *vpca
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
+	maxNetworkbps, err := vpc.GetMaxNetworkbps(req.InstanceIdentity.InstanceType)
+	if err != nil {
+		err = fmt.Errorf("Cannot get max network kbps: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	hz := float64(req.Hz)
+	if hz == 0 {
+		hz = 250
+	}
+
+	/*
+		Borrowed from iproute2:
+		compute minimal allowed burst from rate; mtu is added here to make
+		   sute that buffer is larger than mtu and to have some safeguard space
+		if (!buffer)
+			buffer = rate64 / get_hz() + mtu;
+		if (!cbuffer)
+			cbuffer = ceil64 / get_hz() + mtu;
+	*/
+	bytespersecond := math.Ceil(float64(maxNetworkbps) / 8.0)
+	htbClassConfiguration := &vpcapi.HTBClassConfiguration{
+		// TODO: Sargun, set quantum, right now uses r2q of 10, which is 287 megabytes at 23 gigabits/sec of rate.
+		Rate: uint64(bytespersecond),
+		// 9001, plus some headroom for vlan (I think it's 4 bytes?
+		Buffer:  uint32((bytespersecond / hz) + 9005),
+		Cbuffer: uint32((bytespersecond / hz) + 9005),
+	}
+
 	networkInterface, err := vpcService.provisionInstanceShared(ctx, req.InstanceIdentity, 3)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
@@ -215,6 +246,7 @@ func (vpcService *vpcService) ProvisionInstanceV3(ctx context.Context, req *vpca
 
 	return &vpcapi.ProvisionInstanceResponseV3{
 		TrunkNetworkInterface: networkInterface,
+		HtbClassConfiguration: htbClassConfiguration,
 	}, nil
 }
 

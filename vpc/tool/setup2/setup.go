@@ -6,6 +6,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/vishvananda/netlink"
+
 	"github.com/pkg/errors"
 
 	"github.com/Netflix/titus-executor/fslocker"
@@ -38,26 +40,23 @@ func Setup(ctx context.Context, instanceIdentityProvider identity.InstanceIdenti
 	}
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	var trunkENI *vpcapi.NetworkInterface
-	switch generation {
-	case 3:
-		provisionInstanceRequest := &vpcapi.ProvisionInstanceRequestV3{
-			InstanceIdentity: instanceIdentity,
-		}
-		provisionInstanceResponse, err := client.ProvisionInstanceV3(ctx, provisionInstanceRequest)
-		if err != nil {
-			return err
-		}
-		trunkENI = provisionInstanceResponse.TrunkNetworkInterface
-	default:
+	if generation != 3 {
 		return fmt.Errorf("This generation instance (%d) not supported", generation)
 	}
-
-	err = waitForInterfaceUp(ctx, trunkENI)
+	provisionInstanceRequest := &vpcapi.ProvisionInstanceRequestV3{
+		InstanceIdentity: instanceIdentity,
+		Hz:               uint32(netlink.Hz()),
+	}
+	provisionInstanceResponse, err := client.ProvisionInstanceV3(ctx, provisionInstanceRequest)
 	if err != nil {
 		return err
 	}
-	err = configureQdiscs(ctx, trunkENI, instanceIdentity.InstanceType)
+
+	err = waitForInterfaceUp(ctx, provisionInstanceResponse.TrunkNetworkInterface)
+	if err != nil {
+		return err
+	}
+	err = configureQdiscs(ctx, provisionInstanceResponse)
 	if err != nil {
 		return errors.Wrap(err, "Unable to setup QDiscs")
 	}

@@ -66,10 +66,32 @@ message ProvisionInstanceResponse {
 
 message ProvisionInstanceRequestV3 {
     InstanceIdentity instanceIdentity = 1;
+    uint32 hz = 2;
 }
+
+message HTBClassConfiguration {
+    uint64 rate = 1;
+    uint64 ceil = 2;
+    uint32 buffer = 3;
+    uint32 cbuffer = 4;
+    uint32 quantum = 5;
+};
+
+message FQCodelConfiguration {
+    // Arguably, these are 0 (default) in our environment
+    uint32 target = 1;
+    uint32 limit = 2;
+    uint32 interval = 3;
+    uint32 flows = 4;
+    uint32 quantum = 5;
+    uint32 ceThreshold = 6;
+    uint32 dropBatchSize = 7;
+    uint32 memoryLimit = 8;
+};
 
 message ProvisionInstanceResponseV3 {
     NetworkInterface trunkNetworkInterface = 1;
+    HTBClassConfiguration htbClassConfiguration = 2;
 };
 
 message UtilizedAddress {
@@ -126,6 +148,9 @@ message AssignIPRequestV3 {
     bool idempotent = 13;
     // Jumbo: I want "default routes" with an MTU of "Jumbo"
     bool jumbo = 14;
+    bool burst = 15;
+    uint32 hz = 16;
+    uint64 bitsPerSecond = 17;
 };
 
 message ElasticAddress {
@@ -158,6 +183,8 @@ message AssignIPResponseV3 {
     // Routes act as overrides. There may be an override for default, but it if it not present, one should still be
     // assigned.
     repeated Route routes = 9;
+    HTBClassConfiguration htbClassConfiguration = 10;
+    FQCodelConfiguration fqCodelConfiguration = 11;
 };
 
 message UnassignIPRequestV3 {

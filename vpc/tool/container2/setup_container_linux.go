@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"math/rand"
 	"net"
 	"runtime"
@@ -34,7 +33,6 @@ const (
 
 var (
 	errNoRoutesReceived = errors.New("No routes receives from Titus VPC Service")
-	errNoDefaultRoute   = errors.New("No default route installed")
 )
 
 func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.Link, error) {
@@ -140,7 +138,6 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	}
 
 	gateway := cidr.Inc(ip.Mask(mask))
-	var mtu uint64
 	if len(routes) == 0 {
 		return errNoRoutesReceived
 	}
@@ -153,9 +150,6 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Could not parse route")
 			return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
-		}
-		if routeNet.String() == "0.0.0.0/0" {
-			mtu = uint64(route.Mtu)
 		}
 		newRoute := netlink.Route{
 			Gw:        gateway.To4(),
@@ -171,7 +165,6 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 		}
 	}
 
-
 	// Add a /32 route on the link to *only* the virtual gateway / phantom router
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding gateway route")
 	gatewayRoute := netlink.Route{
@@ -183,7 +176,7 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	err = nsHandle.RouteAdd(&gatewayRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add route to link")
-		return 0, errors.Wrap(err, "Unable to add gateway route to link")
+		return errors.Wrap(err, "Unable to add gateway route to link")
 	}
 
 	// Removing this forces all traffic through the gateway, which is the AWS virtual gateway / phantom router
@@ -204,10 +197,10 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	err = nsHandle.RouteDel(&oldLinkRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to delete route on link")
-		return 0, errors.Wrap(err, "Unable to add delete existing 'link' route to link")
+		return errors.Wrap(err, "Unable to add delete existing 'link' route to link")
 	}
 
-	return mtu, nil
+	return nil
 }
 
 func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, allocation types.Allocation, netnsfd int) error {
@@ -243,7 +236,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return err
 	}
 
-	err = setupHTBClasses(ctx, bandwidth, ceil, allocation.AllocationIndex, allocation.TrunkENIMAC)
+	err = setupHTBClasses(ctx, allocation.HTBClassConfiguration, allocation.FQCodelConfiguration, allocation.AllocationIndex, allocation.TrunkENIMAC)
 	if err != nil {
 		return err
 	}
@@ -496,7 +489,7 @@ func updateBPFMaps(ctx context.Context, allocation types.Allocation) error {
 	return nil
 }
 
-func setupHTBClasses(ctx context.Context, bandwidth, ceil, mtu uint64, allocationIndex uint16, trunkENIMac string) error {
+func setupHTBClasses(ctx context.Context, htbClassConfiguration *vpcapi.HTBClassConfiguration, fqCodelConfiguration *vpcapi.FQCodelConfiguration, allocationIndex uint16, trunkENIMac string) error {
 	trunkENI, err := setup2.GetLinkByMac(trunkENIMac)
 	if err != nil {
 		return err
@@ -507,23 +500,23 @@ func setupHTBClasses(ctx context.Context, bandwidth, ceil, mtu uint64, allocatio
 		return err
 	}
 
-	err = setupClass(ctx, bandwidth, ceil, mtu, allocationIndex, trunkENI)
+	err = setupClass(ctx, htbClassConfiguration, allocationIndex, trunkENI)
 	if err != nil {
 		return err
 	}
-	err = setupSubqdisc(ctx, allocationIndex, trunkENI, uint32(mtu))
+	err = setupSubqdisc(ctx, allocationIndex, trunkENI, fqCodelConfiguration)
 	if err != nil {
 		return err
 	}
 
-	err = setupClass(ctx, bandwidth, ceil, mtu, allocationIndex, ifbIngress)
+	err = setupClass(ctx, htbClassConfiguration, allocationIndex, ifbIngress)
 	if err != nil {
 		return err
 	}
-	return setupSubqdisc(ctx, allocationIndex, ifbIngress, uint32(mtu))
+	return setupSubqdisc(ctx, allocationIndex, ifbIngress, fqCodelConfiguration)
 }
 
-func setupClass(ctx context.Context, bandwidth, ceil, mtu uint64, allocationIndex uint16, link netlink.Link) error {
+func setupClass(ctx context.Context, htbClassConfiguration *vpcapi.HTBClassConfiguration, allocationIndex uint16, link netlink.Link) error {
 	classattrs := netlink.ClassAttrs{
 		LinkIndex: link.Attrs().Index,
 		Parent:    netlink.MakeHandle(1, 1),
@@ -531,13 +524,12 @@ func setupClass(ctx context.Context, bandwidth, ceil, mtu uint64, allocationInde
 		Handle: netlink.MakeHandle(1, allocationIndex),
 	}
 
-	bytespersecond := float64(bandwidth) / 8.0
-	ceilbytespersecond := float64(ceil) / 8.0
 	htbclassattrs := netlink.HtbClassAttrs{
-		Rate:    bandwidth,
-		Ceil:    ceil,
-		Buffer:  uint32(math.Ceil(bytespersecond/netlink.Hz()+float64(mtu)) + 1),
-		Cbuffer: uint32(math.Ceil(ceilbytespersecond/netlink.Hz()+10*float64(mtu)) + 1),
+		Rate:    htbClassConfiguration.Rate,
+		Ceil:    htbClassConfiguration.Ceil,
+		Buffer:  htbClassConfiguration.Buffer,
+		Cbuffer: htbClassConfiguration.Cbuffer,
+		Quantum: htbClassConfiguration.Quantum,
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	logger.G(ctx).Debug("Setting up HTB class: ", class)
@@ -550,8 +542,7 @@ func setupClass(ctx context.Context, bandwidth, ceil, mtu uint64, allocationInde
 	return nil
 }
 
-func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Link, mtu uint32) error {
-
+func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Link, fqCodelConfiguration *vpcapi.FQCodelConfiguration) error {
 	// The qdisc wasn't found, add it
 	attrs := netlink.QdiscAttrs{
 		LinkIndex: link.Attrs().Index,
@@ -559,10 +550,37 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 		Parent:    netlink.MakeHandle(1, allocationIndex),
 	}
 	qdisc := netlink.NewFqCodel(attrs)
-	qdisc.Quantum = mtu
+	if fqCodelConfiguration.Target > 0 {
+		qdisc.Target = fqCodelConfiguration.Target
+	}
+	if fqCodelConfiguration.Limit > 0 {
+		qdisc.Limit = fqCodelConfiguration.Limit
+	}
+	if fqCodelConfiguration.Interval > 0 {
+		qdisc.Interval = fqCodelConfiguration.Interval
+	}
+	if fqCodelConfiguration.Flows > 0 {
+		qdisc.Flows = fqCodelConfiguration.Flows
+	}
+	if fqCodelConfiguration.Quantum > 0 {
+		qdisc.Quantum = fqCodelConfiguration.Quantum
+	}
+	if fqCodelConfiguration.CeThreshold > 0 {
+		qdisc.CEThreshold = fqCodelConfiguration.CeThreshold
+	}
+	if fqCodelConfiguration.DropBatchSize > 0 {
+		qdisc.DropBatchSize = fqCodelConfiguration.DropBatchSize
+	}
+	if fqCodelConfiguration.MemoryLimit > 0 {
+		qdisc.MemoryLimit = fqCodelConfiguration.MemoryLimit
+	}
 
 	err := netlink.QdiscAdd(qdisc)
-	if err != nil && err != unix.EEXIST {
+	if err == unix.EEXIST { // Try to gracefully recover by replacing
+		logger.G(ctx).WithError(err).Warning("Qdisc already exists")
+		err = netlink.QdiscReplace(qdisc)
+	}
+	if err != nil {
 		return err
 	}
 

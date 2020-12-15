@@ -5,7 +5,6 @@ package setup2
 import (
 	"context"
 	"io/ioutil"
-	"math"
 	"os"
 	"os/exec"
 
@@ -22,12 +21,12 @@ var (
 	rootHtbClass = netlink.MakeHandle(1, 1)
 )
 
-func configureQdiscs(ctx context.Context, trunkNetworkInterface *vpcapi.NetworkInterface, instanceType string) error {
+func configureQdiscs(ctx context.Context, provisionInstanceResponse *vpcapi.ProvisionInstanceResponseV3) error {
 	ingressIFB, err := setupIngressIFB(ctx)
 	if err != nil {
 		return err
 	}
-	trunkInterface, err := GetLinkByMac(trunkNetworkInterface.MacAddress)
+	trunkInterface, err := GetLinkByMac(provisionInstanceResponse.TrunkNetworkInterface.MacAddress)
 	if err != nil {
 		return errors.Wrap(err, "Cannot get trunk interface")
 	}
@@ -68,12 +67,12 @@ func configureQdiscs(ctx context.Context, trunkNetworkInterface *vpcapi.NetworkI
 		return errors.Wrap(err, "Could not setup HTB Qdisc on ifb interface")
 	}
 
-	err = setupIFBHTBRootClass(ctx, instanceType, trunkInterface)
+	err = setupIFBHTBRootClass(ctx, provisionInstanceResponse.HtbClassConfiguration, trunkInterface)
 	if err != nil {
 		return errors.Wrap(err, "Could not setup HTB root class on trunk interface")
 	}
 
-	err = setupIFBHTBRootClass(ctx, instanceType, ingressIFB)
+	err = setupIFBHTBRootClass(ctx, provisionInstanceResponse.HtbClassConfiguration, ingressIFB)
 	if err != nil {
 		return errors.Wrap(err, "Could not setup HTB root class on ingress ifb interface")
 	}
@@ -192,20 +191,20 @@ func setupHTBQdisc(ctx context.Context, link netlink.Link) error {
 	return netlink.QdiscAdd(qdisc)
 }
 
-func setupIFBHTBRootClass(ctx context.Context, instanceType string, link netlink.Link) error {
-
+func setupIFBHTBRootClass(ctx context.Context, htbConfiguration *vpcapi.HTBClassConfiguration, link netlink.Link) error {
 	classattrs := netlink.ClassAttrs{
 		LinkIndex: link.Attrs().Index,
 		Parent:    netlink.HANDLE_ROOT,
 		Handle:    rootHtbClass,
 	}
 
-	rate := vpc.MustGetMaxNetworkbps(instanceType)
-	bytespersecond := math.Ceil(float64(rate) / 8.0)
+	// Here is finally where Golang's default = 0, and protobuf's default = 0 align :).
 	htbclassattrs := netlink.HtbClassAttrs{
-		Rate:    rate,
-		Buffer:  uint32(bytespersecond/netlink.Hz() + float64(link.Attrs().MTU) + 1),
-		Cbuffer: uint32(bytespersecond/netlink.Hz() + 10*float64(link.Attrs().MTU) + 1),
+		Rate:    htbConfiguration.Rate,
+		Ceil:    htbConfiguration.Ceil,
+		Buffer:  htbConfiguration.Buffer,
+		Cbuffer: htbConfiguration.Cbuffer,
+		Quantum: htbConfiguration.Quantum,
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	return netlink.ClassReplace(class)

@@ -635,6 +635,17 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 		args = append(args, "--jumbo=true")
 	}
 
+	if c.AllowNetworkBursting() {
+		args = append(args, "--burst=true")
+	}
+
+	bw := int64(defaultNetworkBandwidth)
+	if bwLim := c.BandwidthLimitMbps(); bwLim != nil && *bwLim != 0 {
+		bw = *bwLim * 1000 * 1000
+	}
+
+	args = append(args, "--bandwidth", strconv.FormatInt(bw, 10))
+
 	// We intentionally don't use context here, because context only KILLs.
 	// Instead we rely on the idea of the cleanup function below.
 

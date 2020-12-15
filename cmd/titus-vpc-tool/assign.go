@@ -49,6 +49,8 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						ElasticIPs:         v.GetStringSlice("elastic-ips"),
 						Idempotent:         v.GetBool("idempotent"),
 						Jumbo:              v.GetBool("jumbo"),
+						Burst:              v.GetBool("burst"),
+						BitsPerSecond:      v.GetInt64("bandwidth"),
 					},
 				)
 			default:
@@ -68,6 +70,8 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().String("elastic-ip-pool", "", "The elastic IP pool to allocate from")
 	cmd.Flags().Bool("idempotent", false, "Try to allocate the assignment idempotently")
 	cmd.Flags().Bool("jumbo", false, "Container needs jumbo frames")
+	cmd.Flags().Bool("burst", false, "Container needs bursting")
+	cmd.Flags().Int64("bandwidth", 128*1024*1024, "Bandwidth to allocate to the device, in bps")
 
 	addSharedFlags(cmd.Flags())
 

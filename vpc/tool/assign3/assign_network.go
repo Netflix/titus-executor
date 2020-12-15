@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/vishvananda/netlink"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -31,6 +33,8 @@ type Arguments struct {
 	ElasticIPs         []string
 	Idempotent         bool
 	Jumbo              bool
+	Burst              bool
+	BitsPerSecond      int64
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, args Arguments) error {
@@ -113,6 +117,9 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		AccountID:        args.InterfaceAccount,
 		Idempotent:       args.Idempotent,
 		Jumbo:            args.Jumbo,
+		Burst:            args.Burst,
+		BitsPerSecond:    uint64(args.BitsPerSecond),
+		Hz:               uint32(netlink.Hz()),
 	}
 
 	if args.ElasticIPPool != "" {

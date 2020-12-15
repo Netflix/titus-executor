@@ -61,14 +61,14 @@ require (
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
-	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
+	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 	go.opencensus.io v0.22.3
 	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/net v0.0.0-20200625001655-4c5254603344
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
-	golang.org/x/sys v0.0.0-20200602100848-8d3cce7afc34
+	golang.org/x/sys v0.0.0-20200728102440-3e129f6d46b1
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
 	golang.org/x/tools v0.0.0-20200724022722-7017fd6b1305
 	google.golang.org/genproto v0.0.0-20200218151345-dad8c97a84f5 // indirect
@@ -136,3 +136,5 @@ replace k8s.io/kubectl => k8s.io/kubectl v0.18.4
 replace k8s.io/api => k8s.io/api v0.18.4
 
 replace github.com/golang/protobuf => github.com/golang/protobuf v1.3.3
+
+replace github.com/vishvananda/netlink => github.com/sargun/netlink-1 v0.0.0-20201215085742-0c9553071f65

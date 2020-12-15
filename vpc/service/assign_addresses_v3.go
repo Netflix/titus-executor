@@ -617,6 +617,46 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	return vpcService.assignIPsToENI(ctx, req, ass, maxIPAddresses, instance, trunkENI)
 }
 
+func addQdiscConfiguration(ctx context.Context, maxNetworkBps uint64, req *vpcapi.AssignIPRequestV3, ass *vpcapi.AssignIPResponseV3) {
+	// If bits per second is not set, do not return htb configuration parameters
+	if req.BitsPerSecond == 0 {
+		return
+	}
+	hz := float64(req.Hz)
+	if hz == 0 {
+		logger.G(ctx).WithField("hz", hz).Info("Hertz is 0")
+		hz = 250
+	}
+
+	rate := float64(req.BitsPerSecond) / 8.0
+	ceil := rate
+	if req.Burst {
+		ceil = float64(maxNetworkBps) / 8.0
+	}
+	mtu := 1500.0
+	if req.Jumbo {
+		mtu = 9000
+	}
+
+	quantum := rate / 10
+	if quantum < 10000 {
+		quantum = 10000
+	}
+	ass.HtbClassConfiguration = &vpcapi.HTBClassConfiguration{
+		Rate:    uint64(rate),
+		Ceil:    uint64(ceil),
+		Buffer:  uint32(rate/hz + mtu + 4 + 1),
+		Cbuffer: uint32(ceil/hz + mtu + 4 + 1),
+		Quantum: uint32(quantum),
+	}
+
+	// TODO: Don't set a ceiling at all if in burst mode
+
+	ass.FqCodelConfiguration = &vpcapi.FQCodelConfiguration{
+		Quantum: uint32(quantum),
+	}
+}
+
 func addDefaultRoute(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *vpcapi.AssignIPResponseV3) {
 	if req.Jumbo {
 		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
@@ -675,7 +715,7 @@ func lockAssignment(ctx context.Context, tx *sql.Tx, assignmentID int) error {
 	return nil
 }
 
-func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *assignment, maxIPAddresses int, instance *ec2.Instance, trunkENI *ec2.InstanceNetworkInterface) (*vpcapi.AssignIPResponseV3, error) {
+func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *assignment, maxIPAddresses int, instance *ec2.Instance, trunkENI *ec2.InstanceNetworkInterface) (*vpcapi.AssignIPResponseV3, error) { // nolint:gocyclo
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "assignIPsToENI")
@@ -686,6 +726,14 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		trace.StringAttribute("trunk", aws.StringValue(trunkENI.NetworkInterfaceId)),
 		trace.StringAttribute("branch", ass.branch.id),
 	)
+
+	maxNetworkBps, err := vpc.GetMaxNetworkbps(req.InstanceIdentity.InstanceType)
+	if err != nil {
+		err = fmt.Errorf("Cannot get max network bps: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot start transaction")
@@ -867,6 +915,7 @@ WHERE id=
 	}
 
 	addDefaultRoute(ctx, req, &resp)
+	addQdiscConfiguration(ctx, maxNetworkBps, req, &resp)
 	return &resp, nil
 }
 
