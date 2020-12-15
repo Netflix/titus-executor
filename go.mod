@@ -42,6 +42,7 @@ require (
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.3.0
+	github.com/mdlayher/ndp v0.0.0-20200602162440-17ab9e3e5567
 	github.com/myitcv/gobin v0.0.9
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/runc v1.0.0-rc10
@@ -67,7 +68,7 @@ require (
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/net v0.0.0-20200625001655-4c5254603344
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
-	golang.org/x/sys v0.0.0-20200519105757-fe76b779f299
+	golang.org/x/sys v0.0.0-20200602100848-8d3cce7afc34
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
 	golang.org/x/tools v0.0.0-20200724022722-7017fd6b1305
 	google.golang.org/genproto v0.0.0-20200218151345-dad8c97a84f5 // indirect

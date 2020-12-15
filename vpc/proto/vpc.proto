@@ -138,9 +138,8 @@ message AssignIPResponseV3 {
     // Right now this is just to over-ride the MTU per-route.
     message Route {
         enum Family {
-            // Right now, we always / already configure IPv6 with a natively jumbo frame
-            // MTU
             IPv4 = 0;
+            IPv6 = 1;
         }
         // Destination, formatted as CIDR, like 10.0.0.0/8. Unfortunately, this is somewhat ambigious
         // because say 10.0.250.0/8 is kind of equivalent from a routing perspective

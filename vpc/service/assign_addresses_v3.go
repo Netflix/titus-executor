@@ -625,6 +625,11 @@ func addDefaultRoute(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *vp
 				Mtu:         9000,
 				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
 			},
+			{
+				Destination: "::/0",
+				Mtu:         9000,
+				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
+			},
 		}
 	} else {
 		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
@@ -632,6 +637,11 @@ func addDefaultRoute(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *vp
 				Destination: "0.0.0.0/0",
 				Mtu:         1500,
 				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
+			},
+			{
+				Destination: "::/0",
+				Mtu:         1500,
+				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
 			},
 		}
 	}
