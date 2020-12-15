@@ -122,7 +122,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, allocation, netnsfd)
 }
 
-func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) (uint64, error) {
+func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) error {
 	mask := net.CIDRMask(int(address.PrefixLength), 32)
 	ip := net.ParseIP(address.Address.Address)
 
@@ -136,13 +136,13 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	err := nsHandle.AddrAdd(link, &new4Addr)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add IPv4 addr to link")
-		return 0, errors.Wrap(err, "Unable to add IPv4 addr to link")
+		return errors.Wrap(err, "Unable to add IPv4 addr to link")
 	}
 
 	gateway := cidr.Inc(ip.Mask(mask))
 	var mtu uint64
 	if len(routes) == 0 {
-		return 0, errNoRoutesReceived
+		return errNoRoutesReceived
 	}
 	for _, route := range routes {
 		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv4 {
@@ -152,7 +152,7 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 		_, routeNet, err := net.ParseCIDR(route.Destination)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Could not parse route")
-			return 0, fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
+			return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
 		}
 		if routeNet.String() == "0.0.0.0/0" {
 			mtu = uint64(route.Mtu)
@@ -167,13 +167,10 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 		err = nsHandle.RouteAdd(&newRoute)
 		if err != nil {
 			logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
-			return 0, fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
+			return fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
 		}
 	}
 
-	if mtu == 0 {
-		return 0, errNoDefaultRoute
-	}
 
 	// Add a /32 route on the link to *only* the virtual gateway / phantom router
 	logger.G(ctx).WithField("gateway", gateway).Debug("Adding gateway route")
@@ -226,9 +223,11 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return errors.Wrap(err, "Unable to set link up")
 	}
 
-	defaultMTU, err := addIPv4AddressAndRoutes(ctx, nsHandle, link, allocation.IPV4Address, allocation.Routes)
-	if err != nil {
-		return err
+	if allocation.IPV4Address != nil {
+		err = addIPv4AddressAndRoutes(ctx, nsHandle, link, allocation.IPV4Address, allocation.Routes)
+		if err != nil {
+			return err
+		}
 	}
 
 	if allocation.IPV6Address != nil {
@@ -244,7 +243,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return err
 	}
 
-	err = setupHTBClasses(ctx, bandwidth, ceil, defaultMTU, allocation.AllocationIndex, allocation.TrunkENIMAC)
+	err = setupHTBClasses(ctx, bandwidth, ceil, allocation.AllocationIndex, allocation.TrunkENIMAC)
 	if err != nil {
 		return err
 	}
