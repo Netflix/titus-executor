@@ -28,14 +28,11 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang-migrate/migrate v3.5.4+incompatible
 	github.com/golang/protobuf v1.4.2
-	github.com/golangci/golangci-lint v1.30.0
-	github.com/golangci/revgrep v0.0.0-20180812185044-276a5c0a1039 // indirect
 	github.com/google/uuid v1.1.2
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/gorilla/mux v1.7.4
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
 	github.com/hashicorp/go-multierror v1.0.1-0.20191120192120-72917a1559e1
-	github.com/jirfag/go-printf-func-name v0.0.0-20200119135958-7558a9eaa5af // indirect
 	github.com/jmespath/go-jmespath v0.4.0
 	github.com/json-iterator/go v1.1.9 // indirect
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
@@ -49,7 +46,6 @@ require (
 	github.com/openzipkin/zipkin-go v0.2.2
 	github.com/pelletier/go-toml v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1
-	github.com/shurcooL/go v0.0.0-20191216061654-b114cc39af9f // indirect
 	github.com/sirupsen/logrus v1.7.0
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/soheilhy/cmux v0.1.4
@@ -82,8 +78,6 @@ require (
 	k8s.io/client-go v10.0.0+incompatible
 	k8s.io/kubernetes v1.18.4
 	k8s.io/utils v0.0.0-20201104234853-8146046b121e
-	mvdan.cc/unparam v0.0.0-20191111180625-960b1ec0f2c2 // indirect
-	sourcegraph.com/sqs/pbtypes v1.0.0 // indirect
 )
 
 replace github.com/docker/docker => github.com/moby/moby v0.0.0-20190408150954-50ebe4562dfc
