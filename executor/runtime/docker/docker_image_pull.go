@@ -44,13 +44,20 @@ func isBadImageErr(err error) bool {
 }
 
 func doDockerPull(ctx context.Context, metrics metrics.Reporter, client *docker.Client, ref string) error {
+
+	start := time.Now()
 	resp, err := client.ImagePull(ctx, ref, types.ImagePullOptions{})
+	duration := time.Since(start)
+
 	defer func() {
 		if resp != nil {
 			// We really don't care what the error is here, we can't do anything about it
 			shouldClose(resp)
 		}
 	}()
+
+	metrics.Timer("titus.executor.dockerPullDuration", duration, map[string]string{"image": ref})
+
 	if err != nil {
 		metrics.Counter("titus.executor.dockerPullImageError", 1, nil)
 		log.Warningf("Error pulling image '%s', due to reason: %+v", ref, err)
