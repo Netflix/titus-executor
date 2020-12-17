@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -40,7 +41,11 @@ var (
 	fDownload = flag.Bool("d", false, "stop after installing main packages to the gobin install cache")
 	fUpgrade  = flag.Bool("u", false, "check for the latest tagged version of main packages")
 	fNoNet    = flag.Bool("nonet", false, "prevent network access")
-	fDebug    = flag.Bool("debug", false, "print debug information")
+	fDebug    = flag.Bool("debug", debug, "print debug information")
+	fTags     = flag.String("tags", "", "build tags to apply; go help build for more information")
+
+	// envGOFLAGS is the value of GOENV passed to gobin with -tags= values stripped out
+	envGOFLAGS string
 )
 
 func main() {
@@ -64,6 +69,25 @@ func main1() int {
 }
 
 func mainerr() error {
+	goenv, err := getGoEnv()
+	if err != nil {
+		return err
+	}
+	// Set the default value of the -tags value to be the last -tags= value in
+	// GOFLAGS. Also, strip any -tags= values from GOFLAGS to ensure a "clean"
+	// value that can then be used for any cmd/go calls.
+	if goenv.GOFLAGS != "" {
+		var goenvVals []string
+		for _, v := range strings.Fields(goenv.GOFLAGS) {
+			if strings.HasPrefix(v, "-tags=") {
+				*fTags = strings.TrimPrefix(v, "-tags=")
+				continue
+			}
+			goenvVals = append(goenvVals, v)
+		}
+		envGOFLAGS = strings.Join(goenvVals, " ")
+	}
+
 	flag.Usage = func() {
 		mainUsage(os.Stderr)
 	}
@@ -89,6 +113,8 @@ func mainerr() error {
 		}
 	}
 
+	*fTags = strings.TrimSpace(*fTags)
+
 	if *fMod != "" {
 		switch *fMod {
 		case "readonly", "vendor":
@@ -113,7 +139,7 @@ func mainerr() error {
 
 	// cache path discovery
 	{
-		gopath = os.Getenv("GOPATH")
+		gopath = goenv.GOPATH
 		if gopath != "" {
 			gopath = filepath.SplitList(gopath)[0]
 		} else {
@@ -123,10 +149,15 @@ func mainerr() error {
 			}
 			gopath = filepath.Join(uhd, "go")
 		}
-
 		// TODO I don't think the module cache path is advertised anywhere public...
 		// intentionally but in case it is, replace what follows
-		localCacheProxy = "GOPROXY=file://" + path.Join(filepath.ToSlash(gopath), "pkg", "mod", "cache", "download")
+		cachePath := path.Join(filepath.ToSlash(gopath), "pkg", "mod", "cache", "download")
+		if goenv.ReleaseTags["go1.13"] && cachePath[0] != '/' {
+			// in Go 1.13 the handling of file:// proxy URLs changed to require a /
+			cachePath = "/" + cachePath
+		}
+
+		localCacheProxy = "GOPROXY=file://" + cachePath
 
 		if *fMainMod {
 			md := cwd
@@ -249,7 +280,7 @@ func mainerr() error {
 
 	// network resolution step
 	for _, pkg := range netPkgs {
-		proxy := os.Getenv("GOPROXY")
+		proxy := goenv.GOPROXY
 		if proxy != "" {
 			proxy = "GOPROXY=" + proxy
 		}
@@ -306,40 +337,78 @@ func mainerr() error {
 					md = filepath.Join(md, "@v", emv)
 				}
 
-				epp, err := module.EncodePath(mp.ImportPath)
-				if err != nil {
-					return fmt.Errorf("failed to encode package relative path %v: %v", mp.ImportPath, err)
+				if mp.Module.Path != mp.ImportPath {
+					// We don't need to encode what remains in the pkg path because
+					// we've already uniquely identified the module. If there are
+					// case flips within a module then...  well, we'll see.
+					pkgRem := strings.TrimPrefix(mp.ImportPath, mp.Module.Path+"/")
+					mainrel = filepath.Join(md, filepath.FromSlash(pkgRem))
+				} else {
+					mainrel = md
 				}
-				mainrel = filepath.Join(md, filepath.FromSlash(epp))
 			}
 
 			gobin := filepath.Join(gobinCache, mainrel)
-			pref, _, ok := module.SplitPathVersion(mp.ImportPath)
-			if !ok {
-				return fmt.Errorf("failed to derive non-version prefix from %v", mp.ImportPath)
+
+			// If we have non-zero -tags then we need to hash the path
+			if *fTags != "" {
+				// TODO we could get smart about building a sorted, uniq list of build constraints
+				// but for now let's just be stupid
+				h := sha256.New()
+				fmt.Fprintln(h, mainrel)
+				fmt.Fprintln(h, *fTags)
+				gobin = filepath.Join(gobinCache, fmt.Sprintf("%x", h.Sum(nil)))
 			}
-			base := path.Base(pref)
+
+			// mp.Target already has .exe for Windows
+			base := filepath.Base(mp.Target)
 			target := filepath.Join(gobin, base)
 
-			if runtime.GOOS == "windows" {
-				target += ".exe"
+			// Only install if the target (within the gobin cache) does not
+			// exist. For now this cache is not read-only so this isn't as
+			// safe as it could/should be, but people shouldn't be messing with
+			// the cache anyway. The target in the cache is already hash by
+			// build tags so we should never have "overlapping" gobin runs.
+			//
+			// Always install if we are in -m mode, because the main module is
+			// responsible for resolving versions. We therefore utilise the
+			// install step to effectively ensure the target binary is up to date.
+			// This logic would change if were to adopt
+			// https://github.com/myitcv/gobin/issues/81 because we would then
+			// only install non-versioned module packages (i.e. non-main module,
+			// non-directory replaced), or in the case a versioned target does not
+			// exist in the gobin cache.
+			var install bool
+			if *fMainMod {
+				install = true
+			} else {
+				if _, err := os.Stat(target); err != nil {
+					if !os.IsNotExist(err) {
+						return fmt.Errorf("failed to read %v: %v", target, err)
+					}
+					install = true
+				}
 			}
-
-			// optimistically remove our target in case we are installing over self
-			// TODO work out what to do for Windows
-			if mp.ImportPath == "github.com/myitcv/gobin" {
-				_ = os.Remove(target)
-			}
-
-			var stdout bytes.Buffer
-
-			installCmd := goCommand("install", mp.ImportPath)
-			installCmd.Dir = pkg.wd
-			installCmd.Env = append(buildEnv(localCacheProxy), "GOBIN="+gobin)
-			installCmd.Stdout = &stdout
-
-			if err := installCmd.run(); err != nil {
-				return err
+			if install {
+				// optimistically remove our target in case we are installing over self
+				// TODO work out what to do for Windows
+				if mp.ImportPath == "github.com/myitcv/gobin" {
+					_ = os.Remove(target)
+				}
+				installCmd := goCommand("install")
+				if *fTags != "" {
+					installCmd.Args = append(installCmd.Args, "-tags", *fTags)
+				}
+				installCmd.Args = append(installCmd.Args, mp.ImportPath)
+				installCmd.Dir = pkg.wd
+				proxy := ""
+				if *fNoNet {
+					proxy = localCacheProxy
+				}
+				installCmd.Env = append(buildEnv(proxy), "GOBIN="+gobin)
+				if err := installCmd.run(); err != nil {
+					return err
+				}
 			}
 
 			switch {
@@ -351,7 +420,7 @@ func mainerr() error {
 				fmt.Printf("%v %v\n", mp.Module.Path, mp.Module.Version)
 			case *fRun:
 				run := exec.Command(target, runArgs...)
-				run.Args[0] = path.Base(mp.ImportPath)
+				run.Args[0] = filepath.Base(mp.Target)
 				run.Stdin = os.Stdin
 				run.Stdout = os.Stdout
 				run.Stderr = os.Stderr
@@ -375,12 +444,8 @@ func mainerr() error {
 					return fmt.Errorf("failed to open %v: %v", target, err)
 				}
 				defer src.Close()
-				bin := filepath.Join(installBin, path.Base(mp.ImportPath))
 
-				if runtime.GOOS == "windows" {
-					bin += ".exe"
-				}
-
+				bin := filepath.Join(installBin, filepath.Base(mp.Target))
 				openMode := os.O_CREATE | os.O_WRONLY
 
 				// optimistically remove our target in case we are installing over self
@@ -411,11 +476,25 @@ type listPkg struct {
 	ImportPath string
 	Name       string
 	Dir        string
+	Target     string
 	Module     struct {
 		Path    string
 		Dir     string
 		Version string
 		GoMod   string
+	}
+}
+
+type modEditModule struct {
+	Path    string
+	Version string
+}
+
+type modEdit struct {
+	Module  modEditModule
+	Replace []struct {
+		Old modEditModule
+		New modEditModule
 	}
 }
 
@@ -458,7 +537,7 @@ func (a *arg) list(proxy string) error {
 
 	var stdout bytes.Buffer
 
-	listCmd := goCommand("list", "-json", a.pkgPatt)
+	listCmd := goCommand("list", "-find", "-json", a.pkgPatt)
 	listCmd.Dir = a.wd
 	listCmd.Stdout = &stdout
 	listCmd.Env = env
@@ -555,11 +634,48 @@ func (a *arg) list(proxy string) error {
 				return err
 			}
 
+			// now we need to drop all the replacements for which the RHS value does
+			// not include a version... because these are directory replacements
+			{
+				var out bytes.Buffer
+				gmeCmd := goCommand("mod", "edit", "-json")
+				gmeCmd.Dir = a.wd
+				gmeCmd.Stdout = &out
+				gmeCmd.Env = buildEnv("")
+				if err := gmeCmd.run(); err != nil {
+					return err
+				}
+				var mod modEdit
+				if err := json.Unmarshal(out.Bytes(), &mod); err != nil {
+					return fmt.Errorf("failed to process output of %v: %v\n%s", strings.Join(gmeCmd.Args, " "), err, out.Bytes())
+				}
+				var todrop []string
+				for _, r := range mod.Replace {
+					if r.New.Version != "" {
+						continue
+					}
+					drop := r.Old.Path
+					if r.Old.Version != "" {
+						drop += "@" + r.Old.Version
+					}
+					todrop = append(todrop, "-dropreplace="+drop)
+				}
+				if len(todrop) > 0 {
+					gmeCmd := goCommand("mod", "edit")
+					gmeCmd.Args = append(gmeCmd.Args, todrop...)
+					gmeCmd.Dir = a.wd
+					gmeCmd.Env = buildEnv("")
+					if err := gmeCmd.run(); err != nil {
+						return err
+					}
+				}
+			}
+
 			// now that we effectively have a copy of everything relevant in the
 			// target module (including replace directives), list to ensure they
 			// have been resolved
 
-			listCmd := goCommand("list", "-json", pkg.ImportPath)
+			listCmd := goCommand("list", "-find", "-json", pkg.ImportPath)
 			listCmd.Dir = a.wd
 			listCmd.Env = buildEnv(proxy)
 
@@ -582,7 +698,7 @@ func buildEnv(proxy string) []string {
 	if proxy != "" {
 		env = append(env, proxy)
 	}
-	goflags := os.Getenv("GOFLAGS")
+	goflags := envGOFLAGS
 	if *fMainMod && *fMod != "" {
 		goflags += " -mod=" + *fMod
 	}
@@ -623,7 +739,7 @@ func (cmd *goCmd) run() error {
 
 	end := time.Now()
 
-	if !debug && !*fDebug {
+	if !*fDebug {
 		return nil
 	}
 
@@ -636,4 +752,46 @@ func (cmd *goCmd) run() error {
 	fmt.Fprintf(os.Stderr, "+ cd %v; %v %v # took %v\n%s", cmd.Dir, strings.Join(goenv, " "), strings.Join(cmd.Args, " "), end.Sub(start), stderr.String())
 
 	return nil
+}
+
+type goEnv struct {
+	ReleaseTags map[string]bool
+	GOFLAGS     string
+	GOPATH      string
+	GOPROXY     string
+	GOBIN       string
+}
+
+func getGoEnv() (goEnv, error) {
+	var res goEnv
+	{
+		cmd := exec.Command("go", "env", "-json")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return goEnv{}, fmt.Errorf("failed to get go env: %v\n%s", err, out)
+		}
+		if err := json.Unmarshal(out, &res); err != nil {
+			return goEnv{}, fmt.Errorf("failed to unmarshal go env: %v (output was %q)", err, out)
+		}
+	}
+	{
+		// Create a temp dir that is not a module for the simple
+		// results we need from a go list of runtime
+		td, err := ioutil.TempDir("", "gobin-release-tags-")
+		if err != nil {
+			return goEnv{}, fmt.Errorf("failed to create temp dir for release tags derivation: %v", err)
+		}
+		defer os.RemoveAll(td)
+		cmd := exec.Command("go", "list", `-f={{join context.ReleaseTags "\n"}}`, "runtime")
+		cmd.Dir = td
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return goEnv{}, fmt.Errorf("failed to get release tags: %v\n%s", err, out)
+		}
+		res.ReleaseTags = make(map[string]bool)
+		for _, t := range strings.Fields(string(out)) {
+			res.ReleaseTags[t] = true
+		}
+	}
+	return res, nil
 }

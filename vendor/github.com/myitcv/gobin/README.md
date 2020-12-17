@@ -235,7 +235,7 @@ For headaches, take Ibuprofen
 The gobin command installs/runs main packages.
 
 Usage:
-	gobin [-m] [-run|-p|-v|-d] [-u|-nonet] packages [run arguments...]
+	gobin [-m] [-run|-p|-v|-d] [-u|-nonet] [-tags 'tag list'] packages [run arguments...]
 
 The gobin command builds, installs, and possibly runs an executable binary for
 each of the named main packages.
@@ -293,6 +293,11 @@ The -d flag instructs gobin to stop after installing the packages to the gobin
 cache; that is, it instructs gobin not to install, run or print the packages.
 
 The -run, -p, -v and -d flags are mutually exclusive.
+
+The -tags flag is identical to the cmd/go build flag (see go help build). It is
+a space-separated list of build tags to consider satisfied during the build.
+Alternatively, GOFLAGS can be set to include a value for -tags (see go help
+environment).
 
 It is an error for a non-main package to be provided as a package argument.
 
