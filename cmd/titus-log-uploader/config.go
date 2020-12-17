@@ -1,15 +1,23 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strconv"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/Netflix/titus-executor/filesystems"
 )
+
+// ErrorMissingEnvVariable is a error type for reporting a missing environment variable.
+type ErrorMissingEnvVariable struct {
+	Key string
+}
+
+func (e *ErrorMissingEnvVariable) Error() string {
+	return fmt.Sprintf("missing environment variable %s", e.Key)
+}
 
 const (
 	envKeyLocalDir            = "WATCH_LOCAL_DIR"
@@ -28,92 +36,81 @@ const (
 	envKeyUseDefaultRole = "UPLOAD_USE_DEFAULT_ROLE"
 )
 
-func mustReadStringFromEnv(envKey string) string {
+func readStringFromEnv(envKey string) (string, error) {
 	if val, ok := os.LookupEnv(envKey); ok {
-		return val
+		return val, nil
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"variable": envKey,
-		"type":     "string",
-	}).Fatal("Missing required environment variable")
-
-	return ""
+	return "", &ErrorMissingEnvVariable{Key: envKey}
 }
 
-func mustReadDurationFromEnv(envKey string) time.Duration {
+func readDurationFromEnv(envKey string) (time.Duration, error) {
 	if val, ok := os.LookupEnv(envKey); ok {
 		dur, err := time.ParseDuration(val)
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"key":   envKey,
-				"value": val,
-				"err":   err,
-			}).Fatal("Unable to parse valid duration from environment variable")
-			return 0
+			return 0, fmt.Errorf("parsing time %s from %s: %w", val, envKey, err)
 		}
-		return dur
+		return dur, nil
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"variable": envKey,
-		"type":     "duration",
-	}).Fatal("Missing required environment variable")
-	return 0
+	return 0, &ErrorMissingEnvVariable{Key: envKey}
 }
 
-func mustReadRegexpFromEnv(envKey string) *regexp.Regexp {
+func readRegexpFromEnv(envKey string) (*regexp.Regexp, error) {
 	if val, ok := os.LookupEnv(envKey); ok {
 		r, err := regexp.Compile(val)
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"key":   envKey,
-				"value": val,
-				"err":   err,
-			}).Error("Unable to parse valid regular expression from environment variable")
-			return nil
+			return nil, fmt.Errorf("parsing regular expression %s from %s: %w", val, envKey, err)
 		}
-		return r
+		return r, nil
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"variable": envKey,
-		"type":     "regexp",
-	}).Fatal("Missing required environment variable")
-	return nil
+	return nil, &ErrorMissingEnvVariable{Key: envKey}
 }
 
-func mustReadBoolFromEnv(envKey string) bool {
+func readBoolFromEnv(envKey string) (bool, error) {
 	if val, ok := os.LookupEnv(envKey); ok {
 		b, err := strconv.ParseBool(val)
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"key":   envKey,
-				"value": val,
-				"err":   err,
-			}).Error("Unable to parse valid bool from environment variable")
-			return false
+			return false, fmt.Errorf("paring bool %s from %s: %w", val, envKey, err)
 		}
-		return b
+		return b, nil
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"variable": envKey,
-		"type":     "bool",
-	}).Fatal("Missing required environment variable")
-	return false
+	return false, &ErrorMissingEnvVariable{Key: envKey}
 }
 
-func watchConfigFromEnvironment() (filesystems.WatchConfig, error) {
-	localDir := mustReadStringFromEnv(envKeyLocalDir)
-	uploadDir := mustReadStringFromEnv(envKeyUploadDir)
-	uploadRegexp := mustReadRegexpFromEnv(envKeyUploadRegexp)
-	uploadCheckInterval := mustReadDurationFromEnv(envKeyUploadCheckInterval)
-	uploadThresholdTime := mustReadDurationFromEnv(envKeyUploadThresholdTime)
-	stdioLogCheckInterval := mustReadDurationFromEnv(envKeyStdioCheckInterval)
-	keepFileAfterUpload := mustReadBoolFromEnv(envKeyKeepFileAfterUpload)
+func watchConfigFromEnvironment() (*filesystems.WatchConfig, error) {
+	localDir, err := readStringFromEnv(envKeyLocalDir)
+	if err != nil {
+		return nil, err
+	}
+	uploadDir, err := readStringFromEnv(envKeyUploadDir)
+	if err != nil {
+		return nil, err
+	}
+	uploadRegexp, err := readRegexpFromEnv(envKeyUploadRegexp)
+	if err != nil {
+		return nil, err
+	}
+	uploadCheckInterval, err := readDurationFromEnv(envKeyUploadCheckInterval)
+	if err != nil {
+		return nil, err
+	}
+	uploadThresholdTime, err := readDurationFromEnv(envKeyUploadThresholdTime)
+	if err != nil {
+		return nil, err
+	}
+	stdioLogCheckInterval, err := readDurationFromEnv(envKeyStdioCheckInterval)
+	if err != nil {
+		return nil, err
+	}
+	keepFileAfterUpload, err := readBoolFromEnv(envKeyKeepFileAfterUpload)
+	if err != nil {
+		return nil, err
+	}
 
-	return filesystems.NewWatchConfig(
+	config := filesystems.NewWatchConfig(
 		localDir,
 		uploadDir,
 		uploadRegexp,
@@ -121,7 +118,8 @@ func watchConfigFromEnvironment() (filesystems.WatchConfig, error) {
 		uploadThresholdTime,
 		stdioLogCheckInterval,
 		keepFileAfterUpload,
-	), nil
+	)
+	return &config, nil
 }
 
 type s3UploadConfig struct {
@@ -133,32 +131,38 @@ type s3UploadConfig struct {
 	useDefaultRole bool
 }
 
-func uploadConfigFromEnvironment() (s3UploadConfig, error) {
-	bucketName := mustReadStringFromEnv(envKeyBucketName)
-	pathPrefix := mustReadStringFromEnv(envKeyPathPrefix)
-	taskRole := mustReadStringFromEnv(envKeyTaskRole)
-	taskID := mustReadStringFromEnv(envKeyTaskID)
-	writerRole := mustReadStringFromEnv(envKeyWriterRole)
-	useDefaultRole := mustReadBoolFromEnv(envKeyUseDefaultRole)
+func uploadConfigFromEnvironment() (*s3UploadConfig, error) {
+	bucketName, err := readStringFromEnv(envKeyBucketName)
+	if err != nil {
+		return nil, err
+	}
+	pathPrefix, err := readStringFromEnv(envKeyPathPrefix)
+	if err != nil {
+		return nil, err
+	}
+	taskRole, err := readStringFromEnv(envKeyTaskRole)
+	if err != nil {
+		return nil, err
+	}
+	taskID, err := readStringFromEnv(envKeyTaskID)
+	if err != nil {
+		return nil, err
+	}
+	writerRole, err := readStringFromEnv(envKeyWriterRole)
+	if err != nil {
+		return nil, err
+	}
+	useDefaultRole, err := readBoolFromEnv(envKeyUseDefaultRole)
+	if err != nil {
+		return nil, err
+	}
 
-	return s3UploadConfig{
+	return &s3UploadConfig{
 		bucketName:     bucketName,
 		pathPrefix:     pathPrefix,
 		taskRole:       taskRole,
 		taskID:         taskID,
 		writerRole:     writerRole,
 		useDefaultRole: useDefaultRole,
-	}, nil
-}
-
-type logViewerConfig struct {
-	Volume string
-}
-
-func logViewerConfigFromEnvironment() (logViewerConfig, error) {
-	volume := mustReadStringFromEnv(envKeyLocalDir)
-
-	return logViewerConfig{
-		Volume: volume,
 	}, nil
 }
