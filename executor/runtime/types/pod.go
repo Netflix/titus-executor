@@ -195,6 +195,10 @@ func (c *PodContainer) LogKeepLocalFileAfterUpload() bool {
 	return false
 }
 
+func (c *PodContainer) FinalUploadMatchRegexp() bool {
+	return false
+}
+
 func (c *PodContainer) LogStdioCheckInterval() *time.Duration {
 	return nil
 }

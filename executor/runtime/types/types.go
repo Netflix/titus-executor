@@ -145,6 +145,7 @@ type Container interface {
 	KvmEnabled() bool
 	Labels() map[string]string
 	LogKeepLocalFileAfterUpload() bool
+	FinalUploadMatchRegexp() bool
 	LogStdioCheckInterval() *time.Duration
 	LogUploadCheckInterval() *time.Duration
 	LogUploaderConfig() *uploader.Config

@@ -68,24 +68,26 @@ var defaultUploadRegexpList = []*regexp.Regexp{
 }
 
 type WatchConfig struct {
-	localDir              string
-	uploadDir             string
-	uploadRegexp          *regexp.Regexp
-	uploadCheckInterval   time.Duration // The interval at which we check for files that need uploading.
-	uploadThresholdTime   time.Duration // Duration for which a file must be untouched to be uploader.
-	stdioLogCheckInterval time.Duration
-	keepFileAfterUpload   bool
+	localDir               string
+	uploadDir              string
+	uploadRegexp           *regexp.Regexp
+	uploadCheckInterval    time.Duration // The interval at which we check for files that need uploading.
+	uploadThresholdTime    time.Duration // Duration for which a file must be untouched to be uploader.
+	stdioLogCheckInterval  time.Duration
+	keepFileAfterUpload    bool
+	finalUploadMatchRegexp bool
 }
 
-func NewWatchConfig(localDir, uploadDir string, uploadRegexp *regexp.Regexp, uploadCheckInterval, uploadThresholdTime, stdioLogCheckInterval time.Duration, keepFileAfterUpload bool) WatchConfig {
+func NewWatchConfig(localDir, uploadDir string, uploadRegexp *regexp.Regexp, uploadCheckInterval, uploadThresholdTime, stdioLogCheckInterval time.Duration, keepFileAfterUpload, finalUploadMatchRegexp bool) WatchConfig {
 	return WatchConfig{
-		localDir:              localDir,
-		uploadDir:             uploadDir,
-		uploadRegexp:          uploadRegexp,
-		uploadCheckInterval:   uploadCheckInterval,
-		uploadThresholdTime:   uploadThresholdTime,
-		stdioLogCheckInterval: stdioLogCheckInterval,
-		keepFileAfterUpload:   keepFileAfterUpload,
+		localDir:               localDir,
+		uploadDir:              uploadDir,
+		uploadRegexp:           uploadRegexp,
+		uploadCheckInterval:    uploadCheckInterval,
+		uploadThresholdTime:    uploadThresholdTime,
+		stdioLogCheckInterval:  stdioLogCheckInterval,
+		keepFileAfterUpload:    keepFileAfterUpload,
+		finalUploadMatchRegexp: finalUploadMatchRegexp,
 	}
 }
 
@@ -113,7 +115,7 @@ func NewWatcher(m metrics.Reporter, c WatchConfig, u *uploader.Uploader) (*Watch
 }
 
 func (w *Watcher) shouldRotate(file string) bool {
-	return CheckFileForRotation(file, w.config.uploadRegexp)
+	return CheckRegexpMatch(file, w.config.uploadRegexp)
 }
 
 /*
@@ -167,7 +169,7 @@ func CheckFileForStdio(fileName string) bool {
 	return true
 }
 
-func CheckFileForRotation(fileName string, regexp *regexp.Regexp) bool { // nolint: golint
+func CheckRegexpMatch(fileName string, regexp *regexp.Regexp) bool { // nolint: golint
 	fileNameBytes := []byte(fileName)
 	rotateIt := regexp != nil && regexp.Match(fileNameBytes)
 	if rotateIt {
@@ -595,6 +597,10 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 			continue
 		}
 		if CheckFileForStdio(logFile) {
+			continue
+		}
+
+		if w.config.finalUploadMatchRegexp && !CheckRegexpMatch(logFile, w.config.uploadRegexp) {
 			continue
 		}
 

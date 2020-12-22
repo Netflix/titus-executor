@@ -50,6 +50,7 @@ const (
 	hostnameStyleParam               = "titusParameter.agent.hostnameStyle"
 	logUploadThresholdTimeParam      = "titusParameter.agent.log.uploadThresholdTime"
 	logUploadCheckIntervalParam      = "titusParameter.agent.log.uploadCheckInterval"
+	finalUploadMatchRegex            = "titusParameter.agent.log.finalUploadMatchRegex"
 	logStdioCheckIntervalParam       = "titusParameter.agent.log.stdioCheckInterval"
 	LogKeepLocalFileAfterUploadParam = "titusParameter.agent.log.keepLocalFileAfterUpload"
 	FuseEnabledParam                 = "titusParameter.agent.fuseEnabled"
@@ -141,7 +142,9 @@ type TitusInfoContainer struct {
 	// LogLocalFileAfterUpload indicates whether or not we should delete log files after uploading them
 	logKeepLocalFileAfterUpload bool
 	logUploadRegexp             *regexp.Regexp
-	logUploaderConfig           uploader.Config
+	finalUploadMatchRegexp      bool
+
+	logUploaderConfig uploader.Config
 
 	pod *corev1.Pod
 
@@ -432,6 +435,15 @@ func (c *TitusInfoContainer) updateLogAttributes(titusInfo *titus.ContainerInfo)
 			return err
 		}
 		c.logUploadRegexp = uploadRegexp
+	}
+
+	finalUploadMatchRegexStr, ok := titusInfo.GetPassthroughAttributes()[finalUploadMatchRegex]
+	if ok {
+		match, err := strconv.ParseBool(finalUploadMatchRegexStr)
+		if err != nil {
+			return err
+		}
+		c.finalUploadMatchRegexp = match
 	}
 
 	if param, ok := titusInfo.GetPassthroughAttributes()[s3WriterRoleParam]; ok {
@@ -776,6 +788,10 @@ func (c *TitusInfoContainer) Labels() map[string]string {
 
 func (c *TitusInfoContainer) LogKeepLocalFileAfterUpload() bool {
 	return c.logKeepLocalFileAfterUpload
+}
+
+func (c *TitusInfoContainer) FinalUploadMatchRegexp() bool {
+	return c.finalUploadMatchRegexp
 }
 
 // LogStdioCheckInterval indicates how often we should scan the stdio log files to determine whether they should be uploaded

@@ -229,7 +229,7 @@ func TestRotateRegexp(t *testing.T) {
 	}
 
 	for _, td := range testData {
-		shouldRotate := CheckFileForRotation(td.filename, td.regexp)
+		shouldRotate := CheckRegexpMatch(td.filename, td.regexp)
 		if td.result {
 			assert.True(t, shouldRotate, "%s should rotate", td.filename)
 		} else {

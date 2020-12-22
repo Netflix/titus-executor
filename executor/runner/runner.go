@@ -368,7 +368,7 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 	}
 	logger.G(ctx).Info("Starting external logger")
 
-	wConf := filesystems.NewWatchConfig(logDir, r.container.UploadDir("logs"), r.container.LogUploadRegexp(), *r.container.LogUploadCheckInterval(), *r.container.LogUploadThresholdTime(), *r.container.LogStdioCheckInterval(), r.container.LogKeepLocalFileAfterUpload())
+	wConf := filesystems.NewWatchConfig(logDir, r.container.UploadDir("logs"), r.container.LogUploadRegexp(), *r.container.LogUploadCheckInterval(), *r.container.LogUploadThresholdTime(), *r.container.LogStdioCheckInterval(), r.container.LogKeepLocalFileAfterUpload(), r.container.FinalUploadMatchRegexp())
 	uploader, err := uploader.NewUploader(&r.config, r.container.LogUploaderConfig(), *r.container.IamRole(), r.container.TaskID(), r.metrics)
 	if err != nil {
 		return err
