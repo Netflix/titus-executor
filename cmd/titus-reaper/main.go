@@ -1,32 +1,34 @@
 package main
 
 import (
+	"context"
 	"flag"
-	"fmt"
-	"os"
-
-	log2 "github.com/Netflix/titus-executor/utils/log"
+	"time"
 
 	"github.com/Netflix/titus-executor/reaper"
-	log "github.com/sirupsen/logrus"
+	log "github.com/Netflix/titus-executor/utils/log"
+	"github.com/sirupsen/logrus"
 )
 
 var dockerHost string
 var debug bool
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	flag.StringVar(&dockerHost, "docker-host", "unix:///var/run/docker.sock", "Docker Daemon URI")
 	flag.BoolVar(&debug, "debug", false, "Turn on debug logging")
 	flag.Parse()
 
 	if debug {
-		log.SetLevel(log.DebugLevel)
+		logrus.SetLevel(logrus.DebugLevel)
 	} else {
-		log2.MaybeSetupLoggerIfOnJournaldAvailable()
+		log.MaybeSetupLoggerIfOnJournaldAvailable()
 	}
-	path := os.Getenv("PATH")
-	if err := os.Setenv("PATH", fmt.Sprintf("%s%s", path, ":/usr/sbin:/sbin:/usr/local/sbin")); err != nil {
-		log.Fatal("Unable to set path: ", err)
+
+	err := reaper.RunReaper(ctx, dockerHost)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to run repear")
 	}
-	reaper.RunReaper(dockerHost)
+	time.Sleep(100 * time.Millisecond)
 }

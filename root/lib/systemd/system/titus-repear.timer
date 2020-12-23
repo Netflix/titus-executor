@@ -1,0 +1,9 @@
+[Unit]
+Description=Runs Titus Container Repear
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=1m
+
+[Install]
+WantedBy=timers.target

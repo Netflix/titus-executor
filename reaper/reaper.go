@@ -2,77 +2,38 @@ package reaper
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"strconv"
-	"syscall"
+	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
-	log "github.com/sirupsen/logrus"
-
 	docker "github.com/docker/docker/client"
+	"github.com/hashicorp/go-multierror"
+	"github.com/sirupsen/logrus"
 )
 
-// Reaper is a holder struct for the internal configuration of the reaper
-type Reaper struct {
-	reporter metrics.Reporter
-	log      log.Entry
-}
+var (
+	timeout = 30 * time.Second
+)
 
-func newReaper(ctx context.Context) *Reaper {
-	l := log.NewEntry(log.New())
-
-	return &Reaper{
-		reporter: metrics.New(ctx, l, nil),
-		log:      *l,
-	}
-
-}
-
-// RunReaper runs the reap loop
-func RunReaper(dockerHost string) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	reaper := newReaper(ctx)
-	reaper.watchLoop(ctx, dockerHost)
-}
-
-// Watches state from Docker
-func (reaper *Reaper) watchLoop(parentCtx context.Context, dockerHost string) {
-	/*
-		If we get disconnected from Dockerd, it probably means Dockerd has crashed (or the computer has paused / gone to sleep).
-		It is not our job to fix this, and given we restart quickly, it shouldn't be a problem.
-
-		Serving no data is better than serving bad (stale) data.
-	*/
-	ctx, cancel := context.WithCancel(parentCtx)
+// RunReaper runs reaper as a one-shot
+func RunReaper(ctx context.Context, dockerHost string) error {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	dockerClient, err := docker.NewClient(dockerHost, "", nil, nil)
+	client, err := docker.NewClientWithOpts(docker.WithHost(dockerHost))
 	if err != nil {
-		log.Fatal("Unable to connect to Docker: ", err)
+		return fmt.Errorf("Cannot initialize docker client")
 	}
-	ticker := time.After(1 * time.Second)
 
-	for {
-		select {
-		case <-ticker:
-			reaper.log.Info("Beginning cycle")
-			reaper.runReapCycle(ctx, dockerClient)
-
-			ticker = time.After(time.Minute)
-		case <-ctx.Done():
-			return
-		}
-	}
+	return reap(ctx, client)
 }
 
-func (reaper *Reaper) runReapCycle(parentCtx context.Context, dockerClient *docker.Client) {
-	ctx, cancel := context.WithTimeout(parentCtx, 60*time.Second)
-	defer cancel()
+func reap(ctx context.Context, dockerClient *docker.Client) error {
 	filter := filters.NewArgs()
 	filter.Add("status", "running")
 	filter.Add("status", "paused")
@@ -82,14 +43,20 @@ func (reaper *Reaper) runReapCycle(parentCtx context.Context, dockerClient *dock
 
 	containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{Filters: filter, All: true})
 	if err != nil {
-		reaper.log.Fatal("Unable to get containers: ", err)
+		return fmt.Errorf("Unable to get containers: %w", err)
 	}
 
 	titusContainers := filterTitusContainers(containers)
 	/* Now we have to inspect these to get the container JSON */
+	var result *multierror.Error
 	for _, container := range titusContainers {
-		reaper.processContainer(ctx, container, dockerClient)
+		err = processContainer(ctx, container, dockerClient)
+		if err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
+
+	return result.ErrorOrNil()
 }
 
 func filterTitusContainers(containers []types.Container) []types.Container {
@@ -104,66 +71,79 @@ func filterTitusContainers(containers []types.Container) []types.Container {
 	return ret
 }
 
-func (reaper *Reaper) processContainer(ctx context.Context, container types.Container, dockerClient *docker.Client) {
+func processContainer(ctx context.Context, container types.Container, dockerClient *docker.Client) error {
+	logrus.WithField("container", container).Debug("Checking container")
 	containerJSON, err := dockerClient.ContainerInspect(ctx, container.ID)
 	if docker.IsErrNotFound(err) {
-		return
-	} else if err != nil {
-		reaper.log.Fatal("Unable to fetch container JSON: ", err)
+		return nil
 	}
 
-	taskID := containerJSON.Config.Labels[models.TaskIDLabel]
-	l := reaper.log.WithField("taskID", taskID)
-
-	if shouldTerminate(ctx, &reaper.log, containerJSON) {
-		l.Info("Terminating container")
-		timeout := 30 * time.Second
-		if err := dockerClient.ContainerStop(ctx, containerJSON.ID, &timeout); err != nil {
-			l.Warning("Unable to stop container: ", err)
-		}
-		if err := dockerClient.ContainerRemove(ctx, containerJSON.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
-			l.Warning("Unable to remove container: ", err)
-		}
-		reaper.reporter.Counter("titusAgent.containersTerminatedSuccess", 1, nil)
+	if err != nil {
+		return fmt.Errorf("Unable to fetch container JSON: %w", err)
 	}
+
+	return processContainerJSON(ctx, containerJSON, dockerClient)
 }
 
-func shouldTerminate(ctx context.Context, logger *log.Entry, container types.ContainerJSON) bool {
+type client interface {
+	ContainerStop(ctx context.Context, containerID string, timeout *time.Duration) error
+	ContainerRemove(ctx context.Context, container string, options types.ContainerRemoveOptions) error
+}
+
+func processContainerJSON(ctx context.Context, container types.ContainerJSON, dockerClient client) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	taskID, ok := container.Config.Labels[models.TaskIDLabel]
+	if !ok {
+		return fmt.Errorf("Did not find task ID label on container %q", container.ID)
+	}
+	l := logrus.WithField("taskID", taskID)
+
+	// We filter for this label in filterContainers above
 	executorPid := container.Config.Labels[models.ExecutorPidLabel]
-	/*
-		Steps:
-		1. Check if the executor PID exists
-		2. Check if we can hit the Executor bind URI, and find out about the container
-		3. Check if the container status is "right"
-	*/
-	return !isPidAlive(executorPid)
-}
 
-func isPidAlive(pidStr string) bool {
-	pid, err := strconv.Atoi(pidStr)
+	exe := filepath.Join("/proc", executorPid, "exe")
+	stat, err := os.Stat(exe)
+	if os.IsNotExist(err) {
+		var result *multierror.Error
+		l.Info("Terminating container")
+		if err := dockerClient.ContainerStop(ctx, container.ID, &timeout); err != nil {
+			l.WithError(err).Warning("Unable to stop container")
+			result = multierror.Append(result, fmt.Errorf("Unable to stop container %q: %w", container.ID, err))
+		}
+		if err := dockerClient.ContainerRemove(ctx, container.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+			l.WithError(err).Warning("Unable to remove container")
+			result = multierror.Append(result, fmt.Errorf("Unable to remove container %q: %w", container.ID, err))
+		}
+		err = result.ErrorOrNil()
+		if err != nil {
+			l.WithError(err).Error("Unable to terminate container")
+		}
+		return err
+	}
+
 	if err != nil {
-		panic(err)
+		l.WithError(err).Error("Unable to determine if container is running or not")
+		return fmt.Errorf("Unable to determine if container is running or not: %w", err)
 	}
-	process, err := os.FindProcess(pid)
+
+	link, err := os.Readlink(exe)
 	if err != nil {
-		/*
-			On Unix systems, FindProcess always succeeds and returns a Process for the given pid, regardless of whether the process exists.
-			https://golang.org/pkg/os/#FindProcess
-		*/
-		log.Error("OS.FindProcess should never return an error, but: ", err)
-		return false
+		l.WithError(err).Error("Could not readlink exe path")
+		return fmt.Errorf("Could not readlink exe path: %w", err)
 	}
 
-	ret := process.Signal(syscall.Signal(0))
-
-	if ret == nil {
-		return true
-	} else if os.IsPermission(ret) {
-		return true
-	} else if os.IsNotExist(ret) {
-		return false
+	if !strings.HasPrefix(link, "/apps/titus-executor") {
+		l.WithField("exe", exe).Warning("Could not determine is process is titus executor")
+		return fmt.Errorf("Could not determine whether or not process with exe %q / and stat %v was a titus executor", link, stat)
 	}
-	log.Debug("Unknown error in response to kill 0: ", ret)
-	return false
 
+	l.WithFields(map[string]interface{}{
+		"link": link,
+		"exe":  exe,
+		"stat": stat,
+	}).Debug("Processed container and found consistent state")
+
+	return nil
 }
