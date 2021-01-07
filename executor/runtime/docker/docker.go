@@ -5,11 +5,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"net"
 	"os"
 	"os/exec"
@@ -313,7 +313,7 @@ func setShares(logEntry *log.Entry, c runtimeTypes.Container, hostCfg *container
 func stableSecret() string {
 	ipBuf := make([]byte, 16)
 	// We can use math/rand here because this doesn't have to be cryptographically secure
-	n, err := rand.Read(ipBuf) // nolint: gosec
+	n, err := rand.Read(ipBuf)
 	if err != nil {
 		panic(err)
 	}
@@ -321,6 +321,18 @@ func stableSecret() string {
 		panic(fmt.Sprintf("rand.Read only read %d bytes, not %d bytes", n, len(ipBuf)))
 	}
 	return net.IP(ipBuf).String()
+}
+func maybeAddOptimisticDad(sysctl map[string]string) {
+	if unix.Access("/proc/sys/net/ipv6/conf/default/use_optimistic", 0) == nil {
+		sysctl["net.ipv6.conf.default.use_optimistic"] = "1"
+	} else {
+		log.Warning("Not enabling use_optimistic")
+	}
+	if unix.Access("/proc/sys/net/ipv6/conf/default/optimistic_dad", 0) == nil {
+		sysctl["net.ipv6.conf.default.optimistic_dad"] = "1"
+	} else {
+		log.Warning("Not enabling optimistic_dad")
+	}
 }
 
 func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
@@ -359,12 +371,12 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 			"net.ipv6.conf.default.stable_secret": stableSecret(), // This is to ensure each container sets their addresses differently
 			"net.ipv6.conf.all.use_tempaddr":      "0",
 			"net.ipv6.conf.default.use_tempaddr":  "0",
-			"net.ipv6.conf.default.accept_dad":    "0",
-			"net.ipv6.conf.all.accept_dad":        "0",
 		},
 		Init:    &useInit,
 		Runtime: c.Runtime(),
 	}
+
+	maybeAddOptimisticDad(hostCfg.Sysctls)
 
 	// TODO(Sargun): Add IPv6 address
 	ipv4Addr := c.IPv4Address()
