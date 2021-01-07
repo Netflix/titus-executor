@@ -282,7 +282,7 @@ func addIPv6AddressAndRoutes(ctx context.Context, allocation types.Allocation, n
 		}
 
 		for _, addr := range addrs {
-			if (addr.Scope == unix.RT_SCOPE_LINK) && (addr.Flags&(unix.IFA_F_TENTATIVE|unix.IFA_F_PERMANENT) == unix.IFA_F_PERMANENT) {
+			if addr.Scope == unix.RT_SCOPE_LINK {
 				linkLocalAddr = addr
 				goto out
 			}
