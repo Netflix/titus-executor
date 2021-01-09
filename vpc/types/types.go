@@ -58,6 +58,7 @@ func GenerationPointer(g Generation) *Generation {
 type Allocation struct {
 	IPV4Address     *vpcapi.UsableAddress              `json:"ipv4Address"`
 	IPV6Address     *vpcapi.UsableAddress              `json:"ipv6Address"`
+	ElasticAddress  *vpcapi.ElasticAddress             `json:"elasticAddress"`
 	Routes          []*vpcapi.AssignIPResponseV3_Route `json:"routes"`
 	DeviceIndex     int                                `json:"deviceIndex"`
 	Success         bool                               `json:"success"`
@@ -99,6 +100,7 @@ type LegacyAllocation struct {
 type HybridAllocation struct {
 	IPV4Address     *vpcapi.UsableAddress              `json:"ipv4Address"`
 	IPV6Address     *vpcapi.UsableAddress              `json:"ipv6Address"`
+	ElasticAddress  *vpcapi.ElasticAddress             `json:"elasticAddress"`
 	Routes          []*vpcapi.AssignIPResponseV3_Route `json:"routes"`
 	DeviceIndex     int                                `json:"deviceIndex"`
 	Success         bool                               `json:"success"`

@@ -986,6 +986,9 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 			Success:     true,
 			Error:       "",
 			BranchENIID: "eni-cat-dog",
+			ElasticAddress: &vpcapi.ElasticAddress{
+				Ip: "203.0.113.11",
+			},
 		}
 		r.c.SetVPCAllocation(allocation)
 		logger.G(ctx).Info("Mocking networking configuration in dev mode to IP: ", allocation)

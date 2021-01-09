@@ -650,7 +650,12 @@ func (c *TitusInfoContainer) Env() map[string]string {
 	}
 
 	if c.vpcAllocation.IPV6Address != nil {
-		env["EC2_IPV6S"] = c.vpcAllocation.IPV6Address.Address.Address
+		env[metadataserverTypes.EC2IPv6sEnvVarName] = c.vpcAllocation.IPV6Address.Address.Address
+	}
+
+	if c.vpcAllocation.ElasticAddress != nil {
+		env[metadataserverTypes.EC2PublicIPv4EnvVarName] = c.vpcAllocation.ElasticAddress.Ip
+		env[metadataserverTypes.EC2PublicIPv4sEnvVarName] = c.vpcAllocation.ElasticAddress.Ip
 	}
 
 	// Heads up, this doesn't work in generation v1 instances of VPC Service

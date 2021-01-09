@@ -221,6 +221,13 @@ type stubServer struct {
 	fakeSTSserver                 *httptest.Server
 }
 
+type testServerConfig struct {
+	ss           *stubServer
+	keyPair      testKeyPair
+	requireToken bool
+	publicIP     bool
+}
+
 func (s *stubServer) serveHTTP(w http.ResponseWriter, req *http.Request) {
 	now := time.Now()
 	s.t.Logf("StubServer: %s: %s %s %s", now.Format(time.RFC3339), req.Method, req.Host, req.URL.String())
@@ -233,6 +240,10 @@ func (s *stubServer) serveHTTP(w http.ResponseWriter, req *http.Request) {
 	if _, err := w.Write([]byte("Request success!")); err != nil {
 		panic(err)
 	}
+}
+
+func (s *stubServer) httpPath(path string) string {
+	return fmt.Sprintf("http://%s%s", s.proxyListener.Addr().String(), path)
 }
 
 // Leaks connections, but this is okay in the time of testing
@@ -299,7 +310,7 @@ func makeGetRequest(ss *stubServer, path string) *http.Request {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	fullPath := fmt.Sprintf("http://%s%s", ss.proxyListener.Addr().String(), path)
+	fullPath := ss.httpPath(path)
 	if req, err := http.NewRequest("GET", fullPath, nil); err != nil {
 		panic(err)
 	} else {
@@ -552,7 +563,7 @@ func signerFromTestKeyPair(keyPair testKeyPair) *identity.Signer {
 	return signer
 }
 
-func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair, requireToken bool) *MetadataServer {
+func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 	// 8675309 is a fake account ID
 	fakeARN := "arn:aws:iam::8675309:role/thisIsAFakeRole"
 	fakeTitusTaskInstanceIPAddress := "1.2.3.4"
@@ -564,28 +575,32 @@ func setupMetadataServer(t *testing.T, ss *stubServer, keyPair testKeyPair, requ
 		Ipv4Address:         net.ParseIP(fakeTitusTaskInstanceIPAddress),
 		BackingMetadataServer: &url.URL{
 			Scheme: "http",
-			Host:   ss.fakeEC2MetdataServiceListener.Addr().String(),
+			Host:   conf.ss.fakeEC2MetdataServiceListener.Addr().String(),
 		},
 		Container:     fakeTaskIdent.Container,
-		RequireToken:  requireToken,
+		RequireToken:  conf.requireToken,
 		Region:        "us-east-1",
-		STSEndpoint:   ss.fakeSTSserver.URL,
-		STSHTTPClient: ss.fakeSTSserver.Client(),
+		STSEndpoint:   conf.ss.fakeSTSserver.URL,
+		STSHTTPClient: conf.ss.fakeSTSserver.Client(),
 	}
 
-	if keyPair.certType != "" {
-		mdsCfg.Signer = signerFromTestKeyPair(keyPair)
+	if conf.publicIP {
+		mdsCfg.PublicIpv4Address = net.ParseIP("203.0.113.11")
+	}
+
+	if conf.keyPair.certType != "" {
+		mdsCfg.Signer = signerFromTestKeyPair(conf.keyPair)
 	}
 
 	ms := NewMetaDataServer(context.Background(), mdsCfg)
 
 	// Leaks connections, but this is okay in the time of testing
 	go func() {
-		if err := http.Serve(ss.proxyListener, ms); err != nil {
+		if err := http.Serve(conf.ss.proxyListener, ms); err != nil {
 			panic(err)
 		}
 	}()
-	t.Log("Metadata server running on: ", ss.proxyListener.Addr().String())
+	t.Log("Metadata server running on: ", conf.ss.proxyListener.Addr().String())
 	return ms
 }
 
@@ -608,7 +623,11 @@ func TestVCR(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	setupMetadataServer(t, ss, testKeyPair{}, false)
+	setupMetadataServer(t, testServerConfig{
+		ss:       ss,
+		keyPair:  testKeyPair{},
+		publicIP: true,
+	})
 
 	tapes :=
 		[]vcrTape{
@@ -625,7 +644,7 @@ func TestVCR(t *testing.T) {
 			{makeGetRequest(ss, "/latest/dynamic/./instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/../latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/meta-data/local-ipv4"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
+			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent("203.0.113.11")},
 			{makeGetRequest(ss, "/latest/meta-data/local-hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
 			{makeGetRequest(ss, "/latest/meta-data/public-hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
 			{makeGetRequest(ss, "/latest/meta-data/hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
@@ -644,7 +663,10 @@ func TestTaskIdentityWithRSA(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, rss, rsaCerts[0], false)
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:      rss,
+		keyPair: rsaCerts[0],
+	})
 	tapes :=
 		[]vcrTape{
 			{makeGetRequest(rss, "/nflx/v1/task-identity"), validateTaskIdentityRequest(t, rsaCerts[0])},
@@ -669,7 +691,10 @@ func TestTaskIdentityWithECDSA(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, ess, ecdsaCerts[0], false)
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:      ess,
+		keyPair: ecdsaCerts[0],
+	})
 	tapes :=
 		[]vcrTape{
 			{makeGetRequest(ess, "/nflx/v1/task-identity"), validateTaskIdentityRequest(t, ecdsaCerts[0])},
@@ -688,15 +713,41 @@ func TestTaskIdentityWithECDSA(t *testing.T) {
 	play(t, ess, tapes)
 }
 
+func TestNoPublicIPv4Returns404(t *testing.T) {
+	ess, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:      ess,
+		keyPair: ecdsaCerts[0],
+		// This defaults to false, but might as well be explicit about what we're testing:
+		publicIP: false,
+	})
+
+	req := makeGetRequest(ess, "/latest/meta-data/public-ipv4")
+	w := httptest.NewRecorder()
+	ms.ServeHTTP(w, req)
+
+	// The AWS IMDS returns 404 when no public IPv4 address is assigned, so match that behaviour
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "404")
+}
+
 func TestTokenWorksWithAWSSDK(t *testing.T) {
 	ess, err := setupStubServer(t)
 	if err != nil {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	setupMetadataServer(t, testServerConfig{
+		ss:           ess,
+		keyPair:      ecdsaCerts[0],
+		requireToken: true,
+	})
 
-	url := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest")
+	url := ess.httpPath("/latest")
 	endpointConfig := &aws.Config{Endpoint: &url}
 	client := ec2metadata.New(session.Must(session.NewSession(endpointConfig)))
 
@@ -713,10 +764,14 @@ func TestRequireToken(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:           ess,
+		keyPair:      ecdsaCerts[0],
+		requireToken: true,
+	})
 
 	// Get Token
-	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	tokenPath := ess.httpPath("/latest/api/token")
 	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
 	assert.Nil(t, err)
 	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
@@ -726,11 +781,7 @@ func TestRequireToken(t *testing.T) {
 	assert.Equal(t, w.Header().Get("X-Aws-Ec2-Metadata-Token-Ttl-Seconds"), "20")
 	token := w.Body.String()
 
-	instancePath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
-	req, err = http.NewRequest("GET", instancePath, nil)
-	assert.Nil(t, err)
-	req.Header.Add("X-aws-ec2-metadata-token", token)
-
+	req = makeGetRequestWithHeader(ess, "/latest/meta-data/instance-id", "X-aws-ec2-metadata-token", token)
 	w = httptest.NewRecorder()
 	ms.ServeHTTP(w, req)
 
@@ -743,12 +794,13 @@ func TestNoTokenReturns401(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:           ess,
+		keyPair:      ecdsaCerts[0],
+		requireToken: true,
+	})
 
-	fullPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
-	req, err := http.NewRequest("GET", fullPath, nil)
-	assert.Nil(t, err)
-
+	req := makeGetRequest(ess, "/latest/meta-data/instance-id")
 	w := httptest.NewRecorder()
 	ms.ServeHTTP(w, req)
 
@@ -761,13 +813,13 @@ func TestInvalidTokenReturns401(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:           ess,
+		keyPair:      ecdsaCerts[0],
+		requireToken: true,
+	})
 
-	fullPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/meta-data/instance-id")
-	req, err := http.NewRequest("GET", fullPath, nil)
-	assert.Nil(t, err)
-	req.Header.Add("X-aws-ec2-metadata-token", "invalid-token")
-
+	req := makeGetRequestWithHeader(ess, "/latest/meta-data/instance-id", "X-aws-ec2-metadata-token", "invalid-token")
 	w := httptest.NewRecorder()
 	ms.ServeHTTP(w, req)
 
@@ -780,10 +832,14 @@ func TestXForwardedForAllowedByDefault(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:           ess,
+		keyPair:      ecdsaCerts[0],
+		requireToken: true,
+	})
 
 	// Get Token
-	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	tokenPath := ess.httpPath("/latest/api/token")
 	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
 	assert.Nil(t, err)
 	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
@@ -802,11 +858,15 @@ func TestXForwardedForBlockingMode(t *testing.T) {
 		t.Fatal("Could not get stub server: ", err)
 	}
 
-	ms := setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:           ess,
+		keyPair:      ecdsaCerts[0],
+		requireToken: true,
+	})
 	ms.xForwardedForBlockingMode = true
 
 	// Get Token
-	tokenPath := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest/api/token")
+	tokenPath := ess.httpPath("/latest/api/token")
 	req, err := http.NewRequest("PUT", tokenPath, strings.NewReader(""))
 	assert.Nil(t, err)
 	req.Header.Add("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "20")
@@ -835,9 +895,13 @@ func TestInstanceMetadataDocument(t *testing.T) {
 	})
 	router.PathPrefix("/").Handler(oldRouter)
 
-	setupMetadataServer(t, ess, ecdsaCerts[0], true)
+	setupMetadataServer(t, testServerConfig{
+		ss:           ess,
+		keyPair:      ecdsaCerts[0],
+		requireToken: true,
+	})
 
-	url := fmt.Sprintf("http://%s%s", ess.proxyListener.Addr().String(), "/latest")
+	url := ess.httpPath("/latest")
 	endpointConfig := &aws.Config{Endpoint: &url}
 	client := ec2metadata.New(session.Must(session.NewSession(endpointConfig)))
 	doc, err := client.GetInstanceIdentityDocument()
