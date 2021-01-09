@@ -27,5 +27,9 @@ func AssignmentToAllocation(assignment *vpcapi.AssignIPResponseV3) Allocation {
 		alloc.IPV4Address = assignment.Ipv4Address
 	}
 
+	if assignment.ElasticAddress != nil {
+		alloc.ElasticAddress = assignment.ElasticAddress
+	}
+
 	return alloc
 }

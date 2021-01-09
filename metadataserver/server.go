@@ -29,6 +29,17 @@ import (
 
 // Derived from big data portal reports
 const defaultMacAddress = "00:00:00:00:00:00"
+const notFoundBody = `<?xml version="1.0" encoding="iso-8859-1"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+                 "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+ <head>
+  <title>404 - Not Found</title>
+ </head>
+ <body>
+  <h1>404 - Not Found</h1>
+ </body>
+</html>`
 
 var whitelist = set.NewSetFromSlice([]interface{}{
 	"/latest/meta-data",
@@ -59,6 +70,7 @@ type MetadataServer struct {
 	*/
 	titusTaskInstanceID string
 	ipv4Address         net.IP
+	publicIpv4Address   net.IP
 	ipv6Address         *net.IP
 	accountID           string
 	launched            time.Time
@@ -107,6 +119,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		internalMux:               mux.NewRouter(),
 		titusTaskInstanceID:       config.TitusTaskInstanceID,
 		ipv4Address:               config.Ipv4Address,
+		publicIpv4Address:         config.PublicIpv4Address,
 		ipv6Address:               config.Ipv6Address,
 		accountID:                 config.NetflixAccountID,
 		launched:                  time.Now(),
@@ -220,7 +233,13 @@ func (ms *MetadataServer) localIPV4(w http.ResponseWriter, r *http.Request) {
 
 func (ms *MetadataServer) publicIPV4(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.publicIPV4.count")
-	if _, err := fmt.Fprint(w, ms.ipv4Address); err != nil {
+	if ms.publicIpv4Address == nil {
+		// The EC2 IMDS returns 404 if there's no public IPv4 address attached
+		http.Error(w, notFoundBody, http.StatusNotFound)
+		return
+	}
+
+	if _, err := fmt.Fprint(w, ms.publicIpv4Address); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 }

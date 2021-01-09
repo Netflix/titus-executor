@@ -131,6 +131,7 @@ func TestStandalone(t *testing.T) {
 		testCancelPullBigImage,
 		testMetadataProxyInjection,
 		testMetdataProxyDefaultRoute,
+		testMetadataProxyPublicIP,
 		testTerminateTimeout,
 		testMakesPTY,
 		testTerminateTimeoutNotTooSlow,
@@ -701,6 +702,18 @@ func testMetdataProxyDefaultRoute(t *testing.T, jobID string) {
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'curl -sf --interface $(ip route get 4.2.2.2|grep -E -o "src [0-9.]+"|cut -f2 -d" ") http://169.254.169.254/latest/meta-data/local-ipv4'`,
+		JobID:         jobID,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}
+
+func testMetadataProxyPublicIP(t *testing.T, jobID string) {
+	ji := &JobInput{
+		ImageName:     ubuntu.name,
+		Version:       ubuntu.tag,
+		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 | grep 203.0.113.11",
 		JobID:         jobID,
 	}
 	if !RunJobExpectingSuccess(t, ji) {

@@ -122,6 +122,7 @@ func main() {
 		iamARN                     string
 		titusTaskInstanceID        string
 		ipv4Address                string
+		publicIpv4Address          string
 		ipv6Addresses              string
 		xFordwardedForBlockingMode bool
 		peerNs                     string
@@ -179,6 +180,11 @@ func main() {
 			Name:        "ipv4-address",
 			EnvVar:      types.EC2IPv4EnvVarName,
 			Destination: &ipv4Address,
+		},
+		cli.StringFlag{
+			Name:        "public-ipv4-address",
+			EnvVar:      types.EC2PublicIPv4EnvVarName,
+			Destination: &publicIpv4Address,
 		},
 		cli.BoolFlag{
 			Name:        "metatron",
@@ -247,6 +253,7 @@ func main() {
 			IAMARN:                     iamARN,
 			TitusTaskInstanceID:        titusTaskInstanceID,
 			Ipv4Address:                net.ParseIP(ipv4Address),
+			PublicIpv4Address:          net.ParseIP(publicIpv4Address),
 			Region:                     region,
 			RequireToken:               requireToken,
 			TokenKey:                   titusTaskInstanceID + tokenSalt,
