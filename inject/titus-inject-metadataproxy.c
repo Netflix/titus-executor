@@ -126,7 +126,14 @@ static void setup_veth(int private_ns_fd, int container_ns_fd) {
 	rtnl_link_set_name(peer, IN_CONTAINER_INTERFACE_NAME);
 	rtnl_link_set_ns_fd(peer, container_ns_fd);
 
-	err = rtnl_link_add(nls, veth, NLM_F_CREATE | NLM_F_EXCL);
+	for (int i = 0; i < 5; i++) {
+		err = rtnl_link_add(nls, veth, NLM_F_CREATE | NLM_F_EXCL);
+		if (err == 0) {
+			break;
+		}
+		WARN_ON(err < 0, "%s: unable to add link", nl_geterror(err));
+		sleep(1);
+	}
 	BUG_ON(err < 0, "%s: unable to add link", nl_geterror(err));
 
 	rtnl_link_put(peer);
