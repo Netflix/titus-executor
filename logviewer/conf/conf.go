@@ -12,6 +12,7 @@ var (
 	ContainerID        = ""
 	RunningInContainer = false
 	ProxyMode          = true
+	KubeletMode        = false
 )
 
 func init() {
@@ -27,6 +28,12 @@ func init() {
 		ContainerID = cID
 		RunningInContainer = true
 		ContainersHome = "/"
+	}
+
+	kubeMode := os.Getenv("KUBELET_MODE")
+	if kubeMode != "" {
+		log.Println("KUBELET_MODE set")
+		KubeletMode = true
 	}
 
 	proxyMode := os.Getenv("DISABLE_PROXY_MODE")

@@ -6,6 +6,10 @@ import (
 	"github.com/Netflix/titus-executor/vpc/types"
 )
 
+func NSAliasPath(podName string) {
+	return ""
+}
+
 func createNetNSAlias(podName string, netnsPath string) error {
 	return types.ErrUnsupported
 }
