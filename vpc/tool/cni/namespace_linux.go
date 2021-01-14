@@ -10,12 +10,12 @@ import (
 
 const namespacePath string = "/var/run/pods/"
 
-func getNSAlias(podName string) string {
+func NSAliasPath(podName string) string {
 	return filepath.Join(namespacePath, "netns-"+podName)
 }
 
 func createNetNSAlias(podName string, netnsPath string) error {
-	aliasPath := getNSAlias(podName)
+	aliasPath := NSAliasPath(podName)
 	err := os.Symlink(netnsPath, aliasPath)
 
 	if errors.Is(err, os.ErrNotExist) {
@@ -31,7 +31,7 @@ func createNetNSAlias(podName string, netnsPath string) error {
 }
 
 func deleteNetNSAlias(podName string) error {
-	err := os.Remove(getNSAlias(podName))
+	err := os.Remove(NSAliasPath(podName))
 	if errors.Is(err, os.ErrNotExist) {
 		// No fail if the file is already gone
 		return nil
