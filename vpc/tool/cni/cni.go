@@ -278,6 +278,12 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 		return err
 	}
 
+	err = createNetNSAlias(pod.Name, args.Netns)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not create symlink for network nameespace")
+		// Do not return
+	}
+
 	result := current.Result{
 		CNIVersion: "0.3.1",
 		Interfaces: []*current.Interface{
@@ -368,6 +374,11 @@ func (c *Command) Del(args *skel.CmdArgs) (e error) {
 		err = errors.Wrap(err, "Could not tear down container state")
 		tracehelpers.SetStatus(err, span)
 		return err
+	}
+
+	err = deleteNetNSAlias(string(cfg.k8sArgs.K8S_POD_NAME))
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not delete symlink to network namespace")
 	}
 
 	logger.G(ctx).Info("Successfully tore down networking")
