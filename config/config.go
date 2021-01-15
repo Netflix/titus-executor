@@ -54,6 +54,10 @@ type Config struct {
 	ContainerSSHDUsers  cli.StringSlice
 	SSHAccountID        string
 
+	// Do we enable spectator rootless image?
+	ContainerSpectatord      bool
+	ContainerSpectatordImage string
+
 	// CopiedFromHost indicates which environment variables to lift from the current config
 	copiedFromHostEnv cli.StringSlice
 	hardCodedEnv      cli.StringSlice
@@ -200,6 +204,16 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "ssh-account-id",
 			Destination: &cfg.SSHAccountID,
 			EnvVar:      "SSH_ACCOUNT_ID",
+		},
+		cli.BoolFlag{
+			Name:        "container-spectatord",
+			EnvVar:      "CONTAINER_SPECTATORD",
+			Destination: &cfg.ContainerSpectatord,
+		},
+		cli.StringFlag{
+			Name:        "container-spectatord-image",
+			EnvVar:      "SPECTATORD_SERVICE_IMAGE",
+			Destination: &cfg.ContainerSpectatordImage,
 		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",

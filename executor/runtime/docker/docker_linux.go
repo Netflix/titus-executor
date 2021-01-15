@@ -61,16 +61,18 @@ const (
 
 var systemServices = []serviceOpts{
 	{
+		humanName:    "spectatord",
+		unitName:     "titus-spectatord",
+		enabledCheck: shouldStartSpectatord,
+	},
+	{
 		humanName: "atlas",
 		unitName:  "atlas-titus-agent",
 	},
 	{
-		humanName: "ssh",
-		unitName:  "titus-sshd",
-		required:  true,
-		enabledCheck: func(cfg *config.Config, c runtimeTypes.Container) bool {
-			return cfg.ContainerSSHD
-		},
+		humanName:    "ssh",
+		unitName:     "titus-sshd",
+		enabledCheck: shouldStartSSHD,
 	},
 	{
 		humanName: "metadata proxy",
@@ -85,12 +87,10 @@ var systemServices = []serviceOpts{
 		enabledCheck: shouldStartMetatronSync,
 	},
 	{
-		humanName: "logviewer",
-		unitName:  "titus-logviewer",
-		required:  true,
-		enabledCheck: func(cfg *config.Config, c runtimeTypes.Container) bool {
-			return cfg.ContainerLogViewer
-		},
+		humanName:    "logviewer",
+		unitName:     "titus-logviewer",
+		required:     true,
+		enabledCheck: shouldStartLogViewer,
 	},
 	{
 		humanName:    "service mesh",
