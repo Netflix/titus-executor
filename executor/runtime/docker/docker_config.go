@@ -156,7 +156,7 @@ func shouldStartSpectatord(cfg *config.Config, c runtimeTypes.Container) bool {
 		return false
 	}
 
-	if cfg.ContainerSpectatordImage == "" {
+	if cfg.SpectatordServiceImage == "" {
 		return false
 	}
 	return true
