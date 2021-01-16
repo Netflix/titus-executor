@@ -280,7 +280,7 @@ func (c *Command) Add(args *skel.CmdArgs) error {
 
 	err = createNetNSAlias(pod.Name, args.Netns)
 	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not create symlink for network nameespace")
+		logger.G(ctx).WithError(err).Error("Could not create symlink for network namespace")
 		// Do not return
 	}
 
