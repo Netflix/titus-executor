@@ -6,7 +6,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/types"
 )
 
-func NSAliasPath(podName string) {
+func NSAliasPath(podName string) string {
 	return ""
 }
 
