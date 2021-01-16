@@ -15,16 +15,22 @@ var (
 	KubeletMode        = false
 )
 
+const confTemplate = `Starting with config:
+ContainersHome     = %s
+ContainerID        = %s
+RunningInContainer = %t
+ProxyMode          = %t
+KubeletMode        = %t
+`
+
 func init() {
 	loc := os.Getenv("CONTAINER_HOME")
 	if loc != "" {
-		log.Println("CONTAINER_HOME set: ContainersHome=" + loc)
 		ContainersHome = loc
 	}
 
 	cID := os.Getenv("TITUS_TASK_ID")
 	if cID != "" {
-		log.Println("TITUS_TASK_ID set: RunningInContainer=true, ContainerID=" + cID)
 		ContainerID = cID
 		RunningInContainer = true
 		ContainersHome = "/"
@@ -32,13 +38,19 @@ func init() {
 
 	kubeMode := os.Getenv("KUBELET_MODE")
 	if kubeMode != "" {
-		log.Println("KUBELET_MODE set")
 		KubeletMode = true
 	}
 
 	proxyMode := os.Getenv("DISABLE_PROXY_MODE")
 	if proxyMode != "" {
-		log.Println("DISABLE_PROXY_MODE set")
 		ProxyMode = false
 	}
+
+	log.WithFields(log.Fields{
+		"ContainersHome":     ContainersHome,
+		"ContainerID":        ContainerID,
+		"RunningInContainer": RunningInContainer,
+		"ProxyMode":          ProxyMode,
+		"KubeletMode":        KubeletMode,
+	}).Info("Config loaded")
 }

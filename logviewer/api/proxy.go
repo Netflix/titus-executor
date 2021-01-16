@@ -24,10 +24,6 @@ func getNetNsPath(containerID string) string {
 	return fmt.Sprintf("%s/%s/ns/net", utils.TitusInits, containerID)
 }
 
-func getKubeletNetNsPath(podID string) string {
-	return fmt.Sprintf("/var/run/pod/netns-%s", podID)
-}
-
 func doProxy(w http.ResponseWriter, r *http.Request, containerID string, proxy *httputil.ReverseProxy) {
 	proxyURL, _ := url.Parse(inContainerURL)
 
