@@ -15,14 +15,6 @@ var (
 	KubeletMode        = false
 )
 
-const confTemplate = `Starting with config:
-ContainersHome     = %s
-ContainerID        = %s
-RunningInContainer = %t
-ProxyMode          = %t
-KubeletMode        = %t
-`
-
 func init() {
 	loc := os.Getenv("CONTAINER_HOME")
 	if loc != "" {
