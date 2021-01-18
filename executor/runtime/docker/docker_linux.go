@@ -104,6 +104,12 @@ var systemServices = []serviceOpts{
 		required:     false,
 		enabledCheck: shouldStartAbmetrix,
 	},
+	{
+		humanName:    "seccomp agent",
+		unitName:     "titus-seccomp-agent",
+		required:     true,
+		enabledCheck: shouldStartTitusSeccompAgent,
+	},
 }
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {

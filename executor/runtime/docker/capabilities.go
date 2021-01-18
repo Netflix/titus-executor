@@ -51,6 +51,13 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 		seccompProfile = "fuse-container.json"
 	}
 
+	if c.SeccompAgentEnabledForPerfSyscalls() {
+		if c.FuseEnabled() {
+			return fmt.Errorf("Enabling the seccomp agent is currently not compatible with enabling Fuse too")
+		}
+		seccompProfile = "allow-perf-syscalls.json"
+	}
+
 	if c.KvmEnabled() {
 		if _, ok := addedCapabilities[NET_ADMIN]; !ok {
 			hostCfg.CapAdd = append(hostCfg.CapAdd, NET_ADMIN)
