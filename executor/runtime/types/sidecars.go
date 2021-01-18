@@ -6,6 +6,7 @@ const (
 	SidecarServiceMetatron    = "metatron"
 	SidecarServiceServiceMesh = "servicemesh"
 	SidecarServiceSshd        = "sshd"
+	SidecarServiceSpectatord  = "spectatord"
 )
 
 var sideCars = []SidecarContainerConfig{
@@ -37,6 +38,12 @@ var sideCars = []SidecarContainerConfig{
 		ServiceName: SidecarServiceServiceMesh,
 		Volumes: map[string]struct{}{
 			"/titus/proxyd": {},
+		},
+	},
+	{
+		ServiceName: SidecarServiceSpectatord,
+		Volumes: map[string]struct{}{
+			"/titus/spectatord": {},
 		},
 	},
 }

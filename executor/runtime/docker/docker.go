@@ -892,6 +892,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	var metatronContainerName string
 	var serviceMeshContainerName string
 	var sshdContainerName string
+	var spectatordContainerName string
 	var volumeContainers []string
 
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
@@ -944,14 +945,18 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		return nil
 	})
 
+	if shouldStartSpectatord(&r.cfg, r.c) {
+		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSpectatord], &spectatordContainerName))
+	}
 	if shouldStartMetatronSync(&r.cfg, r.c) {
 		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceMetatron], &metatronContainerName))
 	}
 
-	if r.cfg.ContainerSSHD {
+	if shouldStartSSHD(&r.cfg, r.c) {
 		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSshd], &sshdContainerName))
 	}
-	if r.cfg.ContainerLogViewer {
+
+	if shouldStartLogViewer(&r.cfg, r.c) {
 		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceLogViewer], &logViewerContainerName))
 	}
 
@@ -1003,6 +1008,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	if err = setSystemdRunning(ctx, *myImageInfo, r.c); err != nil {
 		goto error
+	}
+
+	if spectatordContainerName != "" {
+		volumeContainers = append(volumeContainers, spectatordContainerName)
 	}
 
 	if metatronContainerName != "" {

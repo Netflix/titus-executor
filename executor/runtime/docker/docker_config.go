@@ -149,3 +149,23 @@ func shouldStartAbmetrix(cfg *config.Config, c runtimeTypes.Container) bool {
 	return true
 
 }
+
+func shouldStartSpectatord(cfg *config.Config, c runtimeTypes.Container) bool {
+	enabled := cfg.ContainerSpectatord
+	if !enabled {
+		return false
+	}
+
+	if cfg.SpectatordServiceImage == "" {
+		return false
+	}
+	return true
+}
+
+func shouldStartSSHD(cfg *config.Config, c runtimeTypes.Container) bool {
+	return cfg.ContainerSSHD
+}
+
+func shouldStartLogViewer(cfg *config.Config, c runtimeTypes.Container) bool {
+	return cfg.ContainerLogViewer
+}

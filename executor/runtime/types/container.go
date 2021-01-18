@@ -961,6 +961,7 @@ func (c *TitusInfoContainer) SidecarConfigs() (map[string]*SidecarContainerConfi
 		SidecarServiceMetatron:    c.config.MetatronServiceImage,
 		SidecarServiceServiceMesh: svcMeshImage,
 		SidecarServiceSshd:        c.config.SSHDServiceImage,
+		SidecarServiceSpectatord:  c.config.SpectatordServiceImage,
 	}
 
 	for _, sc := range sideCars {
