@@ -17,6 +17,7 @@
 #include <sched.h>
 #include <unistd.h>
 /* Netlink */
+#include <netlink/handlers.h>
 #include <netlink/socket.h>
 #include <netlink/route/link.h>
 #include <netlink/route/link/veth.h>
@@ -109,9 +110,22 @@ static void setup_veth(int private_ns_fd, int container_ns_fd) {
 	struct rtnl_link *veth, *peer;
 	struct nl_sock *nls;
 	int err;
+	char obj_buf[4096];
+	struct nl_cb *nl_cb;
 
 	BUG_ON_PERROR(setns(private_ns_fd, CLONE_NEWNET), "Unable to switch to Private Namespace");
-	nls = nl_socket_alloc();
+
+	// Setup netlink to log messages to stderr on errors
+	nl_cb = nl_cb_alloc(NL_CB_VERBOSE);
+	BUG_ON(nl_cb == NULL, "Could not allocate netlink callback struct");
+	err = nl_cb_err(nl_cb, NL_CB_DEBUG, NULL, stderr);
+	BUG_ON(err < 0, "%s: unable to setup netlink error callback", nl_geterror(err));
+	nl_cb_set(nl_cb, NL_CB_MSG_IN, NL_CB_DEBUG, NULL, NULL);
+	BUG_ON(err < 0, "%s: unable to setup NL_CB_MSG_IN callback", nl_geterror(err));
+	nl_cb_set(nl_cb, NL_CB_MSG_OUT, NL_CB_DEBUG, NULL, NULL);
+	BUG_ON(err < 0, "%s: unable to setup NL_CB_MSG_OUT callback", nl_geterror(err));
+
+	nls = nl_socket_alloc_cb(nl_cb);
 	BUG_ON(!nls, "Could not allocate netlink socket");
 
 	err = nl_connect(nls, NETLINK_ROUTE);
@@ -128,10 +142,12 @@ static void setup_veth(int private_ns_fd, int container_ns_fd) {
 
 	for (int i = 0; i < 5; i++) {
 		err = rtnl_link_add(nls, veth, NLM_F_CREATE | NLM_F_EXCL);
-		if (err == 0) {
+		if (!err) {
 			break;
 		}
-		WARN_ON(err < 0, "%s: unable to add link", nl_geterror(err));
+
+		nl_object_dump_buf(OBJ_CAST(veth), obj_buf, sizeof(obj_buf));
+		WARN_ON(err < 0, "%s: unable to add link: try=%d, veth=[%s]", nl_geterror(err), i, obj_buf);
 		sleep(1);
 	}
 	BUG_ON(err < 0, "%s: unable to add link", nl_geterror(err));
