@@ -24,21 +24,26 @@ func waitForTitusIsolateWithHost(parentCtx context.Context, taskID, host string,
 	defer cancel()
 
 	ticker := time.NewTicker(retryTime)
+	tries := 0
 
 	firstTry := make(chan struct{}, 1)
 	firstTry <- struct{}{}
 	for {
 		select {
 		case <-ctx.Done():
-			logrus.WithError(ctx.Err()).Warn("Context completed prior to getting a successful result from titus isolate")
+			logrus.WithError(ctx.Err()).WithField("tries", tries).Warn("Context completed prior to getting a successful result from titus isolate")
 			return false
 
 		case <-ticker.C:
+			tries++
 			if workloadIsolated(ctx, taskID, host) {
+				logrus.WithField("tries", tries).Info("Titus Isolate returned success")
 				return true
 			}
 		case <-firstTry:
+			tries++
 			if workloadIsolated(ctx, taskID, host) {
+				logrus.WithField("tries", tries).Info("Titus Isolate returned success")
 				return true
 			}
 		}
@@ -80,6 +85,11 @@ func workloadIsolated(ctx context.Context, taskID, host string) bool {
 
 	if resp.StatusCode == 200 {
 		return true
+	}
+
+	if resp.StatusCode == 404 {
+		// Only log unexpected status codes below
+		return false
 	}
 
 	logrus.WithFields(map[string]interface{}{
