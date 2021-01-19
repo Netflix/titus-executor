@@ -27,7 +27,7 @@ func createNetNSAlias(podName string, netnsPath string) error {
 		return os.Symlink(netnsPath, aliasPath)
 	}
 
-	return nil
+	return err
 }
 
 func deleteNetNSAlias(podName string) error {
