@@ -14,6 +14,14 @@ type limits struct {
 }
 
 var interfaceLimits = map[string]map[string]limits{
+	"p4": {
+		"24xlarge": limits{
+			interfaces:              15,
+			ipAddressesPerInterface: 50,
+			networkThroughput:       100000,
+			branchENIs:              120,
+		},
+	},
 	"g4dn": {
 		"xlarge": limits{
 			interfaces:              3,
