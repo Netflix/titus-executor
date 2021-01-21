@@ -64,6 +64,7 @@ type MetadataServer struct {
 	httpClient  *http.Client
 	internalMux *mux.Router
 	iamProxy    *iamProxy
+	logIAMProxy *iamProxy
 	/*
 		The below stuff could be called *instance specific metadata*
 		I'd rather not break it into owns struct
@@ -133,7 +134,12 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	ms.tokenKey = []byte(config.TokenKey)
 
 	// Create the IAM proxy - we'll attach routes to it for the different versions when we install handlers below
-	ms.iamProxy = newIamProxy(ctx, config)
+	ms.iamProxy = newIamProxy(ctx, config.IAMARN, config)
+
+	// Create a secondary IAM Proxy for the role to be used for logging.
+	if config.LogIAMARN != "" {
+		ms.logIAMProxy = newIamProxy(ctx, config.LogIAMARN, config)
+	}
 
 	/* IMDS routes */
 	ms.internalMux.Use(ms.serverHeader)
@@ -195,6 +201,9 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 
 	/* IAM Stuffs */
 	ms.iamProxy.AttachRoutes(metaData.PathPrefix("/iam").Subrouter())
+	if ms.logIAMProxy != nil {
+		ms.logIAMProxy.AttachRoutes(metaData.PathPrefix("/iam/logging").Subrouter())
+	}
 
 	/*
 		Instance identity document

@@ -18,6 +18,7 @@ import (
 
 	tt "github.com/Netflix/titus-executor/executor/runtime/types"
 	mt "github.com/Netflix/titus-executor/metadataserver/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
@@ -106,6 +107,7 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 
 	env["TITUS_IAM_ROLE"] = pod.Annotations[mt.IamRoleArnAnnotation]
 	env["X_FORWARDED_FOR_BLOCKING_MODE"] = pod.Annotations[mt.XForwardedForBlockingModeAnnotation]
+	env["TITUS_LOG_IAM_ROLE"] = pod.Annotations[podCommon.AnnotationKeyLogS3WriterIAMRole]
 
 	c := getUserContainer(pod)
 	if mEnvVal, ok := getEnvVal(c, mt.TitusMetatronVariableName); ok {

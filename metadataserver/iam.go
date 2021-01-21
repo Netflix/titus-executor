@@ -58,9 +58,9 @@ var (
 )
 
 /* This sets up an iam "proxy", but does not setup the routes */
-func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) *iamProxy {
+func newIamProxy(ctx context.Context, iamARN string, config types.MetadataServerConfiguration) *iamProxy {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
-	parsedArn, err := arn.Parse(config.IAMARN)
+	parsedArn, err := arn.Parse(iamARN)
 	if err != nil {
 		log.Fatal("Unable to parse ARN: ", err)
 	}
