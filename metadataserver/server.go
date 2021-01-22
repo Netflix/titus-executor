@@ -134,12 +134,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	ms.tokenKey = []byte(config.TokenKey)
 
 	// Create the IAM proxy - we'll attach routes to it for the different versions when we install handlers below
-	ms.iamProxy = newIamProxy(ctx, config.IAMARN, config)
-
-	// Create a secondary IAM Proxy for the role to be used for logging.
-	if config.LogIAMARN != "" {
-		ms.logIAMProxy = newIamProxy(ctx, config.LogIAMARN, config)
-	}
+	ms.iamProxy = newIamProxy(ctx, config)
 
 	/* IMDS routes */
 	ms.internalMux.Use(ms.serverHeader)
