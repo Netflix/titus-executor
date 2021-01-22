@@ -998,7 +998,15 @@ func (c *TitusInfoContainer) SortedEnvArray() []string {
 }
 
 func (c *TitusInfoContainer) SubnetIDs() *string {
-	return strPtrOr(c.subnetIDs, nil)
+	if c.subnetIDs == "" {
+		return nil
+	}
+	subnetIDs := strings.Split(c.subnetIDs, ",")
+	for idx, subnetID := range subnetIDs {
+		subnetIDs[idx] = strings.TrimSpace(subnetID)
+	}
+	joinedSubnetIDString := strings.Join(subnetIDs, ",")
+	return &joinedSubnetIDString
 }
 
 func (c *TitusInfoContainer) TaskID() string {

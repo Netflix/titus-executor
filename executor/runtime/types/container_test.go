@@ -711,3 +711,16 @@ func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 	assert.NotNil(t, svcMeshConf)
 	assert.Equal(t, svcMeshConf.Image, "")
 }
+
+func TestSubnetIDHasSpaces(t *testing.T) {
+	config := config.Config{}
+
+	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	require.Nil(t, err)
+	titusInfo.PassthroughAttributes[subnetsParam] = "subnet-foo, subnet-bar "
+	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	require.Nil(t, err)
+	ret := c.SubnetIDs()
+	require.NotNil(t, ret)
+	assert.Equal(t, "subnet-foo,subnet-bar", *ret)
+}
