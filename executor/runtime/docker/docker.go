@@ -968,6 +968,18 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAbMetrix], &abmetrixContainerName))
 	}
 
+	if shouldStartTitusSeccompAgent(&r.cfg, r.c) {
+		r.c.SetEnvs(map[string]string{
+			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
+			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
+		})
+		if r.c.SeccompAgentEnabledForPerfSyscalls() {
+			r.c.SetEnvs(map[string]string{
+				"TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS": "true",
+			})
+		}
+	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()

@@ -133,6 +133,11 @@ func shouldStartMetatronSync(cfg *config.Config, c runtimeTypes.Container) bool 
 	return false
 }
 
+func shouldStartTitusSeccompAgent(cfg *config.Config, c runtimeTypes.Container) bool {
+	// Starting off with just perf, but there will be more in the future
+	return c.SeccompAgentEnabledForPerfSyscalls()
+}
+
 func shouldStartServiceMesh(cfg *config.Config, c runtimeTypes.Container) bool {
 	return c.ServiceMeshEnabled()
 }
