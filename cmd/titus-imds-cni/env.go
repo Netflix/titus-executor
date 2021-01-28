@@ -89,10 +89,10 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	for _, ip := range prev.IPs {
 		switch ip.Version {
 		case "4":
-			env[mt.EC2IPv4EnvVarName] = ip.Address.String()
+			env[mt.EC2IPv4EnvVarName] = ip.Address.IP.String()
 			ok = true
 		case "6":
-			env["EC2_IPV6S"] = ip.Address.String()
+			env[mt.EC2IPv6sEnvVarName] = ip.Address.IP.String()
 			ok = true
 		}
 	}
