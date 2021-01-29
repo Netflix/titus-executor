@@ -16,6 +16,7 @@ const (
 	EC2PublicIPv4EnvVarName   = "EC2_PUBLIC_IPV4"
 	EC2PublicIPv4sEnvVarName  = "EC2_PUBLIC_IPV4S"
 	EC2IPv6sEnvVarName        = "EC2_IPV6S"
+	NetflixAccountIDVarName   = "NETFLIX_ACCOUNT_ID"
 )
 
 // MetadataServerConfiguration is a configuration for metadata service + IAM Proxy
