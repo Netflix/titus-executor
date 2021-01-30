@@ -196,9 +196,6 @@ func (ms *MetadataServer) installIMDSCommonHandlers(ctx context.Context, router 
 
 	/* IAM Stuffs */
 	ms.iamProxy.AttachRoutes(metaData.PathPrefix("/iam").Subrouter())
-	if ms.logIAMProxy != nil {
-		ms.logIAMProxy.AttachRoutes(metaData.PathPrefix("/iam/logging").Subrouter())
-	}
 
 	/*
 		Instance identity document

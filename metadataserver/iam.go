@@ -123,7 +123,7 @@ func newRoleProxy(ctx context.Context, iamARN, taskID string, stsClient *sts.STS
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
 	parsedArn, err := arn.Parse(iamARN)
 	if err != nil {
-		log.Fatal("Unable to parse ARN: ", err)
+		log.WithError(err).Fatal("unable to parse arn")
 	}
 
 	proxy := &roleProxy{
