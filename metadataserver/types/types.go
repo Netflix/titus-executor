@@ -23,6 +23,7 @@ const (
 type MetadataServerConfiguration struct {
 	BackingMetadataServer      *url.URL
 	IAMARN                     string
+	LogIAMARN                  string
 	TitusTaskInstanceID        string
 	Ipv4Address                net.IP
 	PublicIpv4Address          net.IP

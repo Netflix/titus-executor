@@ -64,7 +64,12 @@ func NewS3Backend(m metrics.Reporter, bucket, prefix, taskRole, taskID, writerRo
 		return nil, err
 	}
 
-	s3Uploader := s3manager.NewUploader(session, func(u *s3manager.Uploader) {
+	return NewS3BackendWithSession(session, m, bucket, prefix), nil
+}
+
+// NewS3BackendWithSession creates a new instance of an S3 manager to upload to a given location given a configured session.
+func NewS3BackendWithSession(s *session.Session, m metrics.Reporter, bucket, prefix string) Backend {
+	s3Uploader := s3manager.NewUploader(s, func(u *s3manager.Uploader) {
 		u.PartSize = defaultS3PartSize
 	})
 
@@ -74,7 +79,7 @@ func NewS3Backend(m metrics.Reporter, bucket, prefix, taskRole, taskID, writerRo
 		pathPrefix: prefix,
 		metrics:    m,
 		s3Uploader: s3Uploader,
-	}, nil
+	}
 }
 
 func getDefaultSession(region string) (*session.Session, error) {
