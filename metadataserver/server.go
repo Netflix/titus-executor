@@ -64,7 +64,6 @@ type MetadataServer struct {
 	httpClient  *http.Client
 	internalMux *mux.Router
 	iamProxy    *iamProxy
-	logIAMProxy *iamProxy
 	/*
 		The below stuff could be called *instance specific metadata*
 		I'd rather not break it into owns struct
