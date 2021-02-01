@@ -81,12 +81,10 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	env := map[string]string{}
 
 	env["LISTEN_PORT"] = "80"
-
 	env["PEER_NAMESPACE"] = getPeerNsPath(pod.Name)
 	env["EC2_REGION"] = os.Getenv("EC2_REGION")
 
 	var ok bool
-
 	for _, ip := range prev.IPs {
 		switch ip.Version {
 		case "4":
@@ -97,14 +95,12 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 			ok = true
 		}
 	}
-
 	if !ok {
 		return nil, errors.New("No IP information in chained CNI result")
 	}
 
 	// pod specific configuration
 	env["TITUS_TASK_INSTANCE_ID"] = pod.Name
-
 	env["TITUS_IAM_ROLE"] = pod.Annotations[mt.IamRoleArnAnnotation]
 	env["X_FORWARDED_FOR_BLOCKING_MODE"] = pod.Annotations[mt.XForwardedForBlockingModeAnnotation]
 	env["TITUS_LOG_IAM_ROLE"] = pod.Annotations[podCommon.AnnotationKeyLogS3WriterIAMRole]
@@ -112,6 +108,14 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	c := getUserContainer(pod)
 	if mEnvVal, ok := getEnvVal(c, mt.TitusMetatronVariableName); ok {
 		env[mt.TitusMetatronVariableName] = mEnvVal
+	}
+	// We can't use the NETFLIX_ACCOUNT_ID variable present in the global env,
+	// as that represents at titus_agent account ID. For the IMDS, we want to
+	// reflect the account id of the *pod*, so for that we reach in and copy it.
+	if mEnvVal, ok := getEnvVal(c, mt.NetflixAccountIDVarName); ok {
+		env[mt.NetflixAccountIDVarName] = mEnvVal
+	} else {
+		env[mt.NetflixAccountIDVarName] = fmt.Sprintf("Unknown, %s not set for the main container", mt.NetflixAccountIDVarName)
 	}
 
 	return env, nil
