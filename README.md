@@ -1,6 +1,9 @@
-# Mesos executor for Titus
+# Virtual-Kubelet executor for Titus
 
-Currently runs titus containers using Docker.
+[![Build status](https://badge.buildkite.com/378856785cd7805f1efad9b69086205f82ec69ac8ba18e9479.svg)](https://buildkite.com/netflix/titus-executor)
+[![Packge Cloud](https://img.shields.io/badge/deb-packagecloud.io-844fec.svg)](https://packagecloud.io/netflix/titus)
+
+Runs [Titus](https://netflix.github.io/titus/) containers using Docker.
 
 ## Building
 ### Prerequisites
@@ -129,7 +132,7 @@ To use with nvidia devices, you must have an OCI runtime installed that supports
 
 ## LICENSE
 
-Copyright (c) 2020 Netflix, Inc.
+Copyright (c) 2021 Netflix, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
