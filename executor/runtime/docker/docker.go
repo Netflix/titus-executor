@@ -978,6 +978,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 				"TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS": "true",
 			})
 		}
+		if r.c.SeccompAgentEnabledForPerfSyscalls() {
+			r.c.SetEnvs(map[string]string{
+				"TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS": "true",
+			})
+		}
 	}
 
 	if r.cfg.UseNewNetworkDriver {

@@ -54,6 +54,7 @@ const (
 	LogKeepLocalFileAfterUploadParam        = "titusParameter.agent.log.keepLocalFileAfterUpload"
 	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
 	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
+	SeccompAgentEnabledForNetSyscallsParam  = "titusParameter.agent.seccompAgentEnabledForNetSyscalls"
 	SeccompAgentEnabledForPerfSyscallsParam = "titusParameter.agent.seccompAgentEnabledForPerfSyscalls"
 	assignIPv6AddressParam                  = "titusParameter.agent.assignIPv6Address"
 	batchPriorityParam                      = "titusParameter.agent.batchPriority"
@@ -161,6 +162,7 @@ type TitusInfoContainer struct {
 	// KvmEnabled determines whether the container has KVM exposed to it
 	kvmEnabled                         bool
 	requireIMDSToken                   string
+	seccompAgentEnabledForNetSyscalls  bool
 	seccompAgentEnabledForPerfSyscalls bool
 	serviceMeshEnabled                 *bool
 	serviceMeshImage                   string
@@ -301,6 +303,10 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		{
 			paramName:     KvmEnabledParam,
 			containerAttr: &c.kvmEnabled,
+		},
+		{
+			paramName:     SeccompAgentEnabledForNetSyscallsParam,
+			containerAttr: &c.seccompAgentEnabledForNetSyscalls,
 		},
 		{
 			paramName:     SeccompAgentEnabledForPerfSyscallsParam,
@@ -879,6 +885,10 @@ func (c *TitusInfoContainer) Runtime() string {
 
 func (c *TitusInfoContainer) SeccompAgentEnabledForPerfSyscalls() bool {
 	return c.seccompAgentEnabledForPerfSyscalls
+}
+
+func (c *TitusInfoContainer) SeccompAgentEnabledForNetSyscalls() bool {
+	return c.seccompAgentEnabledForNetSyscalls
 }
 
 func (c *TitusInfoContainer) SecurityGroupIDs() *[]string {

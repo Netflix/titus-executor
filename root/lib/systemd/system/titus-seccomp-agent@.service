@@ -5,6 +5,7 @@ StartLimitIntervalSec=30
 StartLimitBurst=10
 
 [Service]
+Type=notify
 EnvironmentFile=/var/lib/titus-environments/%i.env
 ExecStart=/usr/bin/tsa
 
