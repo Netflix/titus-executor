@@ -49,14 +49,19 @@ terminate_titus_docker() {
 trap terminate_titus_docker EXIT
 
 debug=${DEBUG:-false}
+metatron_cert_mnt=""
+if [[ $(uname) == "Darwin" ]]; then
+  metatron_cert_mnt="-v ${HOME}/.metatron:/mnt/metatron"
+fi
 
 log "Running a docker daemon named $titus_agent_name"
 docker run --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
-  -v ${GOPATH}:${GOPATH} -w ${PWD} -v ${PWD}:${PWD} --rm --name "$titus_agent_name" -e DEBUG=${debug} \
+  -v ${GOPATH}:${GOPATH} -w ${PWD} -v ${PWD}:${PWD} ${metatron_cert_mnt} \
+  --rm --name "$titus_agent_name" -e DEBUG=${debug} \
   -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} --label "$run_id" -d titusoss/titus-agent
 
 log "Copying test metatron certs to their correct location"
-docker exec "$titus_agent_name" /metatron/certificates/setup-metatron-certs.sh
+docker exec "$titus_agent_name" ${PWD}/hack/agent/certs/setup-metatron-certs.sh
 
 log "Running integration tests against the $titus_agent_name daemon"
 # --privileged is needed here since we are reading FDs from a unix socket

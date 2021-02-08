@@ -12,7 +12,13 @@ function die() {
 }
 
 SRC_CERT_DIR=/metatron/certificates
+# Allow metatron certs to be mounted in to override the default location
+MNT_SRC_CERT_DIR=/mnt/metatron/certificates
 DEST_CERT_DIR=/run/metatron/certificates
+
+if [[ -e $MNT_SRC_CERT_DIR ]]; then
+    SRC_CERT_DIR=$MNT_SRC_CERT_DIR
+fi
 
 if [[ ! -d $SRC_CERT_DIR ]]; then
     die "Source certificate directory does not exist: $SRC_CERT_DIR"
