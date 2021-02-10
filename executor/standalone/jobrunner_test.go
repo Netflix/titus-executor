@@ -16,15 +16,21 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
+	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	log "github.com/sirupsen/logrus"
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
@@ -227,6 +233,74 @@ func (jobRunResponse *JobRunResponse) logContainerStdErrOut() {
 
 }
 
+func addPodToTask(task *runner.Task, jobInput *JobInput, cfg *config.Config) error {
+	// XXX: make this conditional
+
+	cpu := resource.NewQuantity(task.CPU, resource.DecimalSI)
+	mem := resource.NewQuantity(task.Mem*1024*1024, resource.BinarySI)
+	disk := resource.NewQuantity(task.Disk*1024*1024, resource.BinarySI)
+	//gpu := resource.NewQuantity(0, resource.DecimalSI)
+	//network, _ := resource.ParseQuantity("128Mi")
+	net := resource.NewScaledQuantity(task.Network, resource.Mega)
+
+	image := cfg.DockerRegistry + "/" + *task.TitusInfo.ImageName
+	if jobInput.ImageDigest != "" {
+		image = image + "@" + jobInput.ImageDigest
+	} else {
+		image = image + ":" + jobInput.Version
+	}
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      task.TaskID,
+			Namespace: "default",
+			Annotations: map[string]string{
+				podCommon.AnnotationKeyPodSchemaVersion: "1",
+				podCommon.AnnotationKeyIAMRole:          task.TitusInfo.GetIamProfile(),
+			},
+			Labels: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  task.TaskID,
+					Image: image,
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:                 *cpu,
+							corev1.ResourceMemory:              *mem,
+							corev1.ResourceEphemeralStorage:    *disk,
+							resourceCommon.ResourceNameNetwork: *net,
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:                 *cpu,
+							corev1.ResourceMemory:              *mem,
+							corev1.ResourceEphemeralStorage:    *disk,
+							resourceCommon.ResourceNameNetwork: *net,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := runtimeTypes.AddContainerInfoToPod(pod, task.TitusInfo)
+	if err != nil {
+		return err
+	}
+
+	if jobInput.EntrypointOld != "" {
+		entrypoint, err := dockershellparser.ProcessWords(jobInput.EntrypointOld, []string{})
+		if err != nil {
+			return err
+		}
+		pod.Spec.Containers[0].Command = entrypoint
+	}
+
+	task.Pod = pod
+	return nil
+}
+
 // GenerateConfigs generates test configs
 func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	configArgs := []string{"--copy-uploader", logUploadDir}
@@ -407,6 +481,11 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 		Gpu:       gpu,
 		Disk:      diskMiB,
 		Network:   network,
+	}
+
+	if err := addPodToTask(&task, jobInput, cfg); err != nil {
+		cancel()
+		return nil, err
 	}
 
 	opts := []docker.Opt{}

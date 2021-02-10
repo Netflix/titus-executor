@@ -115,6 +115,7 @@ type SidecarContainerConfig struct {
 type Container interface {
 	AllowCPUBursting() bool
 	AllowNetworkBursting() bool
+	AppArmorProfile() *string
 	AppName() string
 	AssignIPv6Address() bool
 	BandwidthLimitMbps() *int64
@@ -124,6 +125,7 @@ type Container interface {
 	ContainerInfo() (*titus.ContainerInfo, error)
 	EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo
 	Env() map[string]string
+	EnvOverrides() map[string]string
 	ElasticIPPool() *string
 	ElasticIPs() *string
 	FuseEnabled() bool
@@ -229,7 +231,7 @@ func ContainerConfig(c Container, startTime time.Time) (*titus.ContainerInfo, er
 		return nil, err
 	}
 
-	if ti.GetRunState() == nil {
+	if ti.RunState == nil {
 		ti.RunState = &titus.RunningContainerInfo{}
 	}
 

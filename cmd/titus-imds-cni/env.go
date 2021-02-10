@@ -105,7 +105,7 @@ func extractEnv(prev *current.Result, pod *v1.Pod) (map[string]string, error) {
 	env["X_FORWARDED_FOR_BLOCKING_MODE"] = pod.Annotations[mt.XForwardedForBlockingModeAnnotation]
 	env["TITUS_LOG_IAM_ROLE"] = pod.Annotations[podCommon.AnnotationKeyLogS3WriterIAMRole]
 
-	c := getUserContainer(pod)
+	c := podCommon.GetUserContainer(pod)
 	if mEnvVal, ok := getEnvVal(c, mt.TitusMetatronVariableName); ok {
 		env[mt.TitusMetatronVariableName] = mEnvVal
 	}
@@ -129,18 +129,6 @@ func getEnvVal(c *v1.Container, name string) (string, bool) {
 	}
 
 	return "", false
-}
-
-func getUserContainer(pod *v1.Pod) *v1.Container {
-	firstContainer := pod.Spec.Containers[0]
-	for _, c := range pod.Spec.Containers {
-		if c.Name == pod.Name {
-			ctr := c
-			return &ctr
-		}
-	}
-
-	return &firstContainer
 }
 
 func setupEnv(pod *v1.Pod, env map[string]string) error {
@@ -226,7 +214,7 @@ func writeContainerInfo(pod *v1.Pod, env map[string]string) error {
 		return errors.New("Unable to get IPv4 address")
 	}
 
-	c, err := tt.NewPodContainer(pod, &ipv4Addr)
+	c, err := tt.NewPodContainerInfoContainer(pod, &ipv4Addr)
 	if err != nil {
 		return err
 	}

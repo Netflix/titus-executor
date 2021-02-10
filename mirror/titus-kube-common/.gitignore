@@ -1,0 +1,4 @@
+.idea/
+.gobincache/
+.DS_Store
+*.out

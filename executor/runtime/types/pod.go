@@ -1,16 +1,24 @@
 package types
 
 import (
-	"encoding/base64"
+	"fmt"
+	"path"
+	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	podCommon "github.com/Netflix/titus-kube-common/pod"
+	resourceCommon "github.com/Netflix/titus-kube-common/resource"
+	"github.com/docker/distribution/reference"
+	units "github.com/docker/go-units"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/kubernetes/pkg/util/maps"
 )
 
 // Compile-time check that PodContainer implements the Container interface:
@@ -19,51 +27,74 @@ var _ Container = (*PodContainer)(nil)
 // PodContainer is an implementation of Container backed only by a kubernetes pod.
 // This is currently using the base64'ed ContainerInfo until all fields are ported over to annotations
 type PodContainer struct {
-	command       []string
-	entrypoint    []string
-	hostnameStyle string
-	ipv4Address   *string
-	pod           *corev1.Pod
-	titusInfo     *titus.ContainerInfo
+	config         config.Config
+	containerImage reference.Reference
+	envLock        sync.Mutex
+	// envOverrides are set by the executor for things like IPv4 / IPv6 address
+	envOverrides map[string]string
+	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
+	id    string
+	image string
+	// Is this container meant to run SystemD?
+	isSystemD bool
+	// GPU devices
+	gpuInfo           GPUContainer
+	logUploaderConfig *uploader.Config
+	pod               *corev1.Pod
+	podConfig         *podCommon.Config
+	resources         *Resources
+	titusInfo         *titus.ContainerInfo
+	// userEnv is the environment passed in by the user in the pod spec
+	userEnv       map[string]string
+	vpcAllocation vpcTypes.HybridAllocation
 }
 
-func NewPodContainer(pod *corev1.Pod, ipv4Address *string) (*PodContainer, error) {
+func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) {
 	if pod == nil {
 		return nil, errors.New("missing pod")
 	}
-	if ipv4Address == nil {
-		return nil, errors.New("missing ipv4 address")
+
+	pConf, err := podCommon.PodToConfig(pod)
+	if err != nil {
+		return nil, err
 	}
 
-	c := &PodContainer{
-		ipv4Address: ipv4Address,
-		pod:         pod,
+	// XXX: maybe error out if things don't look right?
+	userContainer := podCommon.GetUserContainer(pod)
+	resources, err := getContainerResources(userContainer)
+	if err != nil {
+		return nil, err
 	}
+
+	userEnv := map[string]string{}
+	for _, envVar := range userContainer.Env {
+		userEnv[envVar.Name] = userEnv[envVar.Value]
+	}
+
 	cInfo, err := extractContainerInfoFromPod(pod)
 	if err != nil {
 		return nil, err
 	}
-	c.titusInfo = cInfo
 
-	if val, ok := c.titusInfo.GetPassthroughAttributes()[hostnameStyleParam]; ok {
-		if err := validateHostnameStyle(val); err != nil {
-			return nil, err
-		}
-
-		c.hostnameStyle = val
-	}
-
-	entrypoint, command, err := parseEntryPointAndCommand(c.titusInfo)
+	imgRef, err := reference.Parse(userContainer.Image)
 	if err != nil {
-		return nil, err
-	}
-	if entrypoint != nil {
-		c.entrypoint = entrypoint
-	}
-	if command != nil {
-		c.command = command
+		return nil, fmt.Errorf("error parsing docker image for container %s: %w", userContainer.Name, err)
 	}
 
+	c := &PodContainer{
+		config:            cfg,
+		containerImage:    imgRef,
+		envOverrides:      map[string]string{},
+		image:             userContainer.Image,
+		logUploaderConfig: createLogUploadConfig(pConf),
+		pod:               pod,
+		podConfig:         pConf,
+		resources:         resources,
+		titusInfo:         cInfo,
+		userEnv:           userEnv,
+	}
+
+	// XXX: add labels like in `container.go`
 	return c, nil
 }
 
@@ -75,7 +106,14 @@ func (c *PodContainer) AllowNetworkBursting() bool {
 	return false
 }
 
+func (c *PodContainer) AppArmorProfile() *string {
+	return c.podConfig.AppArmorProfile
+}
+
 func (c *PodContainer) AppName() string {
+	if c.podConfig.AppName != nil {
+		return *c.podConfig.AppName
+	}
 	return ""
 }
 
@@ -96,10 +134,11 @@ func (c *PodContainer) Capabilities() *titus.ContainerInfo_Capabilities {
 }
 
 func (c *PodContainer) CombinedAppStackDetails() string {
-	return ""
+	return combinedAppStackDetails(c)
 }
 
 func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
+	// TODO: this needs to be removed once Metatron supports pods
 	return c.titusInfo, nil
 }
 
@@ -108,7 +147,14 @@ func (c *PodContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo {
 }
 
 func (c *PodContainer) Env() map[string]string {
-	return map[string]string{}
+	return populateContainerEnv(c, c.config, c.userEnv)
+}
+
+func (c *PodContainer) EnvOverrides() map[string]string {
+	c.envLock.Lock()
+	envOverrides := maps.CopySS(c.envOverrides)
+	c.envLock.Unlock()
+	return envOverrides
 }
 
 func (c *PodContainer) ElasticIPPool() *string {
@@ -124,23 +170,29 @@ func (c *PodContainer) FuseEnabled() bool {
 }
 
 func (c *PodContainer) GPUInfo() GPUContainer {
-	return nil
+	return c.gpuInfo
 }
 
 func (c *PodContainer) HostnameStyle() *string {
-	return &c.hostnameStyle
+	return c.podConfig.HostnameStyle
 }
 
 func (c *PodContainer) IamRole() *string {
-	return nil
+	return c.podConfig.IAMRole
 }
 
 func (c *PodContainer) ID() string {
-	return ""
+	return c.id
 }
 
 func (c *PodContainer) ImageDigest() *string {
-	return nil
+	digest, ok := c.containerImage.(reference.Digested)
+	if !ok {
+		return nil
+	}
+
+	digestStr := digest.Digest().String()
+	return &digestStr
 }
 
 func (c *PodContainer) ImageName() *string {
@@ -156,22 +208,35 @@ func (c *PodContainer) ImageTagForMetrics() map[string]string {
 }
 
 func (c *PodContainer) IPv4Address() *string {
-	return c.ipv4Address
+	if c.vpcAllocation.IPV4Address == nil {
+		return nil
+	}
+
+	return &c.vpcAllocation.IPV4Address.Address.Address
 }
 
 func (c *PodContainer) IsSystemD() bool {
-	return false
+	return c.isSystemD
 }
 
 func (c *PodContainer) JobGroupDetail() string {
+	if c.podConfig.AppDetail != nil {
+		return *c.podConfig.AppDetail
+	}
 	return ""
 }
 
 func (c *PodContainer) JobGroupStack() string {
+	if c.podConfig.AppStack != nil {
+		return *c.podConfig.AppStack
+	}
 	return ""
 }
 
 func (c *PodContainer) JobGroupSequence() string {
+	if c.podConfig.AppSequence != nil {
+		return *c.podConfig.AppSequence
+	}
 	return ""
 }
 
@@ -192,31 +257,43 @@ func (c *PodContainer) Labels() map[string]string {
 }
 
 func (c *PodContainer) LogKeepLocalFileAfterUpload() bool {
+	if c.podConfig.LogKeepLocalFile != nil {
+		return *c.podConfig.LogKeepLocalFile
+	}
 	return false
 }
 
 func (c *PodContainer) LogStdioCheckInterval() *time.Duration {
-	return nil
+	if c.podConfig.LogStdioCheckInterval != nil {
+		return c.podConfig.LogStdioCheckInterval
+	}
+	return &defaultStdioLogCheckInterval
 }
 
 func (c *PodContainer) LogUploadCheckInterval() *time.Duration {
-	return nil
+	if c.podConfig.LogUploadCheckInterval != nil {
+		return c.podConfig.LogUploadCheckInterval
+	}
+	return &defaultLogUploadCheckInterval
 }
 
 func (c *PodContainer) LogUploaderConfig() *uploader.Config {
-	return nil
+	return c.logUploaderConfig
 }
 
 func (c *PodContainer) LogUploadRegexp() *regexp.Regexp {
-	return nil
+	return c.podConfig.LogUploadRegExp
 }
 
 func (c *PodContainer) LogUploadThresholdTime() *time.Duration {
-	return nil
+	if c.podConfig.LogUploadThresholdTime != nil {
+		return c.podConfig.LogUploadThresholdTime
+	}
+	return &defaultLogUploadThresholdTime
 }
 
 func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
-	return nil
+	return c.titusInfo.GetMetatronCreds()
 }
 
 func (c *PodContainer) NormalizedENIIndex() *int {
@@ -228,15 +305,16 @@ func (c *PodContainer) OomScoreAdj() *int32 {
 }
 
 func (c *PodContainer) Process() ([]string, []string) {
-	return c.entrypoint, c.command
+	uc := podCommon.GetUserContainer(c.pod)
+	return uc.Command, uc.Args
 }
 
 func (c *PodContainer) QualifiedImageName() string {
-	return ""
+	return c.image
 }
 
 func (c *PodContainer) Resources() *Resources {
-	return nil
+	return c.resources
 }
 
 func (c *PodContainer) RequireIMDSToken() *string {
@@ -244,7 +322,10 @@ func (c *PodContainer) RequireIMDSToken() *string {
 }
 
 func (c *PodContainer) Runtime() string {
-	return ""
+	if c.gpuInfo != nil {
+		return c.gpuInfo.Runtime()
+	}
+	return DefaultOciRuntime
 }
 
 func (c *PodContainer) SeccompAgentEnabledForNetSyscalls() bool {
@@ -263,22 +344,35 @@ func (c *PodContainer) ServiceMeshEnabled() bool {
 	return false
 }
 
-func (c *PodContainer) SetEnv(string, string) {
+func (c *PodContainer) SetEnv(key, value string) {
+	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	c.envOverrides[key] = value
 }
 
 func (c *PodContainer) SetEnvs(env map[string]string) {
+	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	for key, value := range env {
+		c.envOverrides[key] = value
+	}
 }
 
-func (c *PodContainer) SetGPUInfo(GPUContainer) {
+func (c *PodContainer) SetGPUInfo(gpuInfo GPUContainer) {
+	c.gpuInfo = gpuInfo
 }
 
-func (c *PodContainer) SetID(string) {
+func (c *PodContainer) SetID(id string) {
+	c.id = id
+	c.SetEnv(titusContainerIDEnvVariableName, id)
 }
 
-func (c *PodContainer) SetSystemD(bool) {
+func (c *PodContainer) SetSystemD(isSystemD bool) {
+	c.isSystemD = isSystemD
 }
 
-func (c *PodContainer) SetVPCAllocation(*vpcTypes.HybridAllocation) {
+func (c *PodContainer) SetVPCAllocation(allocation *vpcTypes.HybridAllocation) {
+	c.vpcAllocation = *allocation
 }
 
 func (c *PodContainer) ShmSizeMiB() *uint32 {
@@ -286,7 +380,40 @@ func (c *PodContainer) ShmSizeMiB() *uint32 {
 }
 
 func (c *PodContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, error) {
-	return map[string]*SidecarContainerConfig{}, nil
+	scMap := make(map[string]*SidecarContainerConfig)
+	svcMeshImage := ""
+	if c.ServiceMeshEnabled() {
+		// XXX
+		/*
+			img, err := c.serviceMeshImageName()
+			if err != nil {
+				return scMap, err
+			}
+			svcMeshImage = img
+		*/
+		svcMeshImage = "foo"
+	}
+
+	imageMap := map[string]string{
+		SidecarServiceAbMetrix:    c.config.AbmetrixServiceImage,
+		SidecarServiceLogViewer:   c.config.LogViewerServiceImage,
+		SidecarServiceMetatron:    c.config.MetatronServiceImage,
+		SidecarServiceServiceMesh: svcMeshImage,
+		SidecarServiceSshd:        c.config.SSHDServiceImage,
+		SidecarServiceSpectatord:  c.config.SpectatordServiceImage,
+	}
+
+	for _, sc := range sideCars {
+		imgName := imageMap[sc.ServiceName]
+		if imgName != "" {
+			sc.Image = path.Join(c.config.DockerRegistry, imgName)
+		}
+
+		scAddr := sc
+		scMap[sc.ServiceName] = &scAddr
+	}
+
+	return scMap, nil
 }
 
 func (c *PodContainer) SignedAddressAllocationUUID() *string {
@@ -294,7 +421,7 @@ func (c *PodContainer) SignedAddressAllocationUUID() *string {
 }
 
 func (c *PodContainer) SortedEnvArray() []string {
-	return []string{}
+	return sortedEnv(c.Env())
 }
 
 func (c *PodContainer) SubnetIDs() *string {
@@ -309,8 +436,8 @@ func (c *PodContainer) TTYEnabled() bool {
 	return false
 }
 
-func (c *PodContainer) UploadDir(string) string {
-	return ""
+func (c *PodContainer) UploadDir(namespace string) string {
+	return filepath.Join("titan", c.config.Stack, namespace, c.TaskID())
 }
 
 func (c *PodContainer) UseJumboFrames() bool {
@@ -318,29 +445,44 @@ func (c *PodContainer) UseJumboFrames() bool {
 }
 
 func (c *PodContainer) VPCAllocation() *vpcTypes.HybridAllocation {
-	return nil
+	return &c.vpcAllocation
 }
 
 func (c *PodContainer) VPCAccountID() *string {
-	return nil
+	return c.podConfig.AccountID
 }
 
-func extractContainerInfoFromPod(pod *corev1.Pod) (*titus.ContainerInfo, error) {
-	str, ok := pod.GetAnnotations()["containerInfo"]
+func getContainerResources(userContainer *corev1.Container) (*Resources, error) {
+	gpus := int64(0)
+	if numGPUs, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameGpu]; ok {
+		gpus = numGPUs.Value()
+	}
+	net, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameNetwork]
 	if !ok {
-		return nil, errors.New("unable to find containerInfo annotation")
+		return nil, fmt.Errorf("pod did not contain network resource limit: %s", resourceCommon.ResourceNameNetwork)
 	}
 
-	data, err := base64.StdEncoding.DecodeString(str)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to base64 decode containerInfo annotation")
+	// XXX: what about when bytes are used?
+	return &Resources{
+		CPU:     userContainer.Resources.Limits.Cpu().Value(),
+		Disk:    userContainer.Resources.Limits.StorageEphemeral().Value() / units.MiB,
+		GPU:     gpus,
+		Mem:     userContainer.Resources.Limits.Memory().Value() / units.MiB,
+		Network: net.Value() / units.MB,
+	}, nil
+}
+
+func createLogUploadConfig(pConf *podCommon.Config) *uploader.Config {
+	conf := uploader.Config{}
+	if pConf.LogS3WriterIAMRole != nil {
+		conf.S3WriterRole = *pConf.LogS3WriterIAMRole
+	}
+	if pConf.LogS3BucketName != nil {
+		conf.S3BucketName = *pConf.LogS3BucketName
+	}
+	if pConf.LogS3PathPrefix != nil {
+		conf.S3PathPrefix = *pConf.LogS3PathPrefix
 	}
 
-	var cInfo titus.ContainerInfo
-	err = proto.Unmarshal(data, &cInfo)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to decode containerInfo protobuf")
-	}
-
-	return &cInfo, nil
+	return &conf
 }

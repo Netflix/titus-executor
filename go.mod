@@ -21,6 +21,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.2
 	github.com/deckarep/golang-set v1.7.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/docker/distribution v2.7.1+incompatible
 	github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0
@@ -132,3 +133,5 @@ replace k8s.io/api => k8s.io/api v0.18.4
 replace github.com/golang/protobuf => github.com/golang/protobuf v1.3.3
 
 replace github.com/aws/aws-sdk-go => ./aws/aws-sdk-go
+
+replace github.com/Netflix/titus-kube-common => ./mirror/titus-kube-common

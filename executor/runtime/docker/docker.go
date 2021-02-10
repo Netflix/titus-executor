@@ -797,7 +797,8 @@ func cleanContainerName(prefix string, imageName string) string {
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
 func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarContainerConfig, containerName *string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		logger.G(ctx).WithField("serviceName", sCfg.ServiceName).Infof("Setting up container")
+		logger.G(ctx).WithField("serviceName", sCfg.ServiceName).WithField("image", sCfg.Image).
+			WithField("volumes", sCfg.Volumes).Info("Setting up volume container")
 		cfg := &container.Config{
 			Hostname:   fmt.Sprintf("titus-%s", sCfg.ServiceName),
 			Volumes:    sCfg.Volumes,
@@ -1323,6 +1324,7 @@ func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListe
 	err = launchTini(unixConn)
 	if err != nil {
 		shouldClose(unixConn)
+		err = fmt.Errorf("error launching tini: %w", err)
 	}
 	return logDir, err
 }
@@ -1372,7 +1374,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 
 	err = r.client.ContainerStart(ctx, r.c.ID(), types.ContainerStartOptions{})
 	if err != nil {
-		entry.Error("Error starting: ", err)
+		entry.WithError(err).Error("error starting")
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
 		// Check if bad entry point and return specific error
 		eventCancel()
@@ -1383,7 +1385,8 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 
 	allocation := r.c.VPCAllocation()
 	if allocation == nil || allocation.IPV4Address == nil {
-		log.Fatal("IP allocation unset")
+		eventCancel()
+		return "", nil, statusMessageChan, errors.New("VPC IPv4 allocation unset")
 	}
 	eniID := allocation.BranchENIID
 	if eniID == "" {
@@ -1414,6 +1417,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 		logDir, err := r.waitForTini(ctx, listener, efsMountInfos, r.c)
 		if err != nil {
 			eventCancel()
+			err = fmt.Errorf("error waiting for tini: %w", err)
 		} else {
 			go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 		}
@@ -1594,8 +1598,8 @@ func (r *DockerRuntime) setupPostStartLogDirTini(ctx context.Context, l *net.Uni
 			log.WithField("ctxError", ctx.Err()).Error("Never received connection from container: ", err)
 			return "", nil, nil, nil, errors.New("Never received connection from container")
 		}
-		log.Error("Error receiving connection from container: ", err)
-		return "", nil, nil, nil, err
+		log.WithError(err).Error("Error accepting tini connection from container")
+		return "", nil, nil, nil, fmt.Errorf("error accepting connection from container: %w", err)
 	}
 
 	switch typedConn := genericConn.(type) {

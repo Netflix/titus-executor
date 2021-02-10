@@ -19,9 +19,9 @@ import (
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
@@ -177,7 +177,23 @@ func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources Resou
 }
 
 // NewContainerWithPod allocates and initializes a new container struct object. Pod can be optionally passed. If nil, ignored
-func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (*TitusInfoContainer, error) {
+func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (Container, error) {
+	if pod != nil {
+		schemaVer, err := podCommon.PodSchemaVersion(pod)
+		if err != nil {
+			return nil, err
+		}
+
+		if schemaVer > 0 {
+			return NewPodContainer(pod, cfg)
+		}
+	}
+
+	return NewTitusInfoContainer(taskID, titusInfo, resources, cfg, pod)
+}
+
+// NewTitusInfoContainer creates a new container backed by a pod with a ContainerInfo annotation
+func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (*TitusInfoContainer, error) {
 	networkCfgParams := titusInfo.GetNetworkConfigInfo()
 
 	labels := map[string]string{
@@ -481,6 +497,14 @@ func (c *TitusInfoContainer) AllowNetworkBursting() bool {
 	return c.titusInfo.GetAllowNetworkBursting()
 }
 
+func (c *TitusInfoContainer) AppArmorProfile() *string {
+	if c.FuseEnabled() {
+		return ptr.StringPtr("docker_fuse")
+	}
+
+	return nil
+}
+
 func (c *TitusInfoContainer) AppName() string {
 	return c.titusInfo.GetAppName()
 }
@@ -514,16 +538,9 @@ func (c *TitusInfoContainer) BatchPriority() *string {
 	return &trueStr
 }
 
-// CombinedAppStackDetails is a port of the combineAppStackDetails method from frigga.
-// See: https://github.com/Netflix/frigga/blob/v0.17.0/src/main/java/com/netflix/frigga/NameBuilder.java
 func (c *TitusInfoContainer) CombinedAppStackDetails() string {
-	if c.JobGroupDetail() != "" {
-		return fmt.Sprintf("%s-%s-%s", c.AppName(), c.JobGroupStack(), c.JobGroupDetail())
-	}
-	if c.JobGroupStack() != "" {
-		return fmt.Sprintf("%s-%s", c.AppName(), c.JobGroupStack())
-	}
-	return c.AppName()
+	return combinedAppStackDetails(c)
+
 }
 
 // Config returns the container config with all necessary fields for validating its identity with Metatron
@@ -548,55 +565,23 @@ func (c *TitusInfoContainer) ElasticIPs() *string {
 }
 
 func (c *TitusInfoContainer) Env() map[string]string {
-	// Order goes (least priority, to highest priority:
-	// -Hard coded environment variables
-	// -Copied environment variables from the host
-	// -Resource env variables
-	// -User provided environment in POD (if pod unset, then fall back to containerinfo)
-	// -Network Config
-	// -Executor overrides
-
-	// Hard coded (in executor config)
-	env := c.config.GetHardcodedEnv()
-
-	// Env copied from host
-	for key, value := range c.config.GetEnvFromHost() {
-		env[key] = value
-	}
-
-	resources := c.Resources()
-	// Resource environment variables
-	env["TITUS_NUM_MEM"] = itoa(resources.Mem)
-	env["TITUS_NUM_CPU"] = itoa(resources.CPU)
-	env["TITUS_NUM_DISK"] = itoa(resources.Disk)
-	env["TITUS_NUM_NETWORK_BANDWIDTH"] = itoa(resources.Network)
-
-	cluster := c.CombinedAppStackDetails()
-	env["NETFLIX_CLUSTER"] = cluster
-	env["NETFLIX_STACK"] = c.JobGroupStack()
-	env["NETFLIX_DETAIL"] = c.JobGroupDetail()
-
-	var asgName string
-	if seq := c.JobGroupSequence(); seq == "" {
-		asgName = cluster + "-v000"
-	} else {
-		asgName = cluster + "-" + seq
-	}
-	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
-	env["NETFLIX_APP"] = c.AppName()
-
 	// passed environment
 	passedEnv := func() map[string]string {
 		containerInfoEnv := map[string]string{
 			"TITUS_ENV_FROM": "containerInfo",
 		}
+		podEnv := map[string]string{
+			"TITUS_ENV_FROM": "pod",
+		}
 		for key, value := range c.titusInfo.GetUserProvidedEnv() {
 			if value != "" {
-				env[key] = value
+				containerInfoEnv[key] = value
+				podEnv[key] = value
 			}
 		}
 		for key, value := range c.titusInfo.GetTitusProvidedEnv() {
-			env[key] = value
+			containerInfoEnv[key] = value
+			podEnv[key] = value
 		}
 
 		if c.pod == nil {
@@ -611,9 +596,6 @@ func (c *TitusInfoContainer) Env() map[string]string {
 			return containerInfoEnv
 		}
 
-		podEnv := map[string]string{
-			"TITUS_ENV_FROM": "pod",
-		}
 		for _, val := range c.pod.Spec.Containers[0].Env {
 			podEnv[val.Name] = val.Value
 		}
@@ -626,79 +608,14 @@ func (c *TitusInfoContainer) Env() map[string]string {
 		return podEnv
 	}()
 
-	for key, value := range passedEnv {
-		env[key] = value
-	}
+	return populateContainerEnv(c, c.config, passedEnv)
+}
 
-	// These environment variables may be looked at things like sidecars and they should override user environment
-	if name := c.ImageName(); name != nil {
-		env["TITUS_IMAGE_NAME"] = *name
-	}
-	if tag := c.ImageVersion(); tag != nil {
-		env["TITUS_IMAGE_TAG"] = *tag
-	}
-	if digest := c.ImageDigest(); digest != nil {
-		env["TITUS_IMAGE_DIGEST"] = *digest
-	}
-
-	// The control plane should set this environment variable.
-	// If it doesn't, we should set it. It shouldn't create
-	// any problems if it is set to an "incorrect" value
-	if _, ok := env["EC2_OWNER_ID"]; !ok {
-		env["EC2_OWNER_ID"] = ptr.StringPtrDerefOr(c.VPCAccountID(), "")
-	}
-
-	env["TITUS_IAM_ROLE"] = ptr.StringPtrDerefOr(c.IamRole(), "")
-
-	if c.config.MetatronEnabled {
-		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron
-		env[metadataserverTypes.TitusMetatronVariableName] = True
-	} else {
-		env[metadataserverTypes.TitusMetatronVariableName] = False
-	}
-
-	if c.vpcAllocation.IPV4Address != nil {
-		env[metadataserverTypes.EC2IPv4EnvVarName] = c.vpcAllocation.IPV4Address.Address.Address
-	}
-
-	if c.vpcAllocation.IPV6Address != nil {
-		env[metadataserverTypes.EC2IPv6sEnvVarName] = c.vpcAllocation.IPV6Address.Address.Address
-	}
-
-	if c.vpcAllocation.ElasticAddress != nil {
-		env[metadataserverTypes.EC2PublicIPv4EnvVarName] = c.vpcAllocation.ElasticAddress.Ip
-		env[metadataserverTypes.EC2PublicIPv4sEnvVarName] = c.vpcAllocation.ElasticAddress.Ip
-	}
-
-	// Heads up, this doesn't work in generation v1 instances of VPC Service
-	env["EC2_VPC_ID"] = c.vpcAllocation.BranchENIVPC
-	env["EC2_INTERFACE_ID"] = c.vpcAllocation.BranchENIID
-	env["EC2_SUBNET_ID"] = c.vpcAllocation.BranchENISubnet
-
-	if batch := c.BatchPriority(); batch != nil {
-		env["TITUS_BATCH"] = *batch
-	}
-
-	if reqIMDSToken := c.RequireIMDSToken(); reqIMDSToken != nil {
-		env["TITUS_IMDS_REQUIRE_TOKEN"] = *reqIMDSToken
-	}
-
+func (c *TitusInfoContainer) EnvOverrides() map[string]string {
 	c.envLock.Lock()
 	envOverrides := maps.CopySS(c.envOverrides)
 	c.envLock.Unlock()
-
-	for key, value := range envOverrides {
-		env[key] = value
-	}
-
-	if gpuInfo := c.GPUInfo(); gpuInfo != nil {
-		for key, value := range gpuInfo.Env() {
-			env[key] = value
-		}
-	}
-
-	env[TitusRuntimeEnvVariableName] = c.Runtime()
-	return env
+	return envOverrides
 }
 
 func (c *TitusInfoContainer) FuseEnabled() bool {
@@ -819,7 +736,6 @@ func (c *TitusInfoContainer) LogUploaderConfig() *uploader.Config {
 
 func (c *TitusInfoContainer) LogUploadRegexp() *regexp.Regexp {
 	return c.logUploadRegexp
-
 }
 
 // LogUploadThresholdTime indicates how long since a file was modified before we should upload it and delete it
@@ -988,7 +904,6 @@ func (c *TitusInfoContainer) SidecarConfigs() (map[string]*SidecarContainerConfi
 		sc.Image = path.Join(c.config.DockerRegistry, imageMap[sc.ServiceName])
 		scAddr := sc
 		scMap[sc.ServiceName] = &scAddr
-		log.Infof("sidecar name=%s image=%s", sc.ServiceName, sc.Image)
 	}
 
 	return scMap, nil
@@ -1004,17 +919,7 @@ func (c *TitusInfoContainer) SignedAddressAllocationUUID() *string {
 
 // GetSortedEnvArray returns the list of environment variables set for the container as a sorted Key=Value list
 func (c *TitusInfoContainer) SortedEnvArray() []string {
-	env := c.Env()
-	retEnv := make([]string, 0, len(env))
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		retEnv = append(retEnv, key+"="+env[key])
-	}
-	return retEnv
+	return sortedEnv(c.Env())
 }
 
 func (c *TitusInfoContainer) SubnetIDs() *string {
@@ -1133,4 +1038,143 @@ func (c *TitusInfoContainer) parseLogStdioCheckInterval(logStdioCheckIntervalStr
 		return 0, errors.Wrap(err, "Cannot parse log stdio check interval")
 	}
 	return duration, nil
+}
+
+func populateContainerEnv(c Container, config config.Config, userEnv map[string]string) map[string]string {
+	// Order goes (least priority, to highest priority:
+	// -Hard coded environment variables
+	// -Copied environment variables from the host
+	// -Resource env variables
+	// -User provided environment in POD (if pod unset, then fall back to containerinfo)
+	// -Network Config
+	// -Executor overrides
+
+	// Hard coded (in executor config)
+	env := config.GetHardcodedEnv()
+
+	// Env copied from host
+	for key, value := range config.GetEnvFromHost() {
+		env[key] = value
+	}
+
+	resources := c.Resources()
+	// Resource environment variables
+	env["TITUS_NUM_MEM"] = itoa(resources.Mem)
+	env["TITUS_NUM_CPU"] = itoa(resources.CPU)
+	env["TITUS_NUM_DISK"] = itoa(resources.Disk)
+	env["TITUS_NUM_NETWORK_BANDWIDTH"] = itoa(resources.Network)
+
+	cluster := c.CombinedAppStackDetails()
+	env["NETFLIX_CLUSTER"] = cluster
+	env["NETFLIX_STACK"] = c.JobGroupStack()
+	env["NETFLIX_DETAIL"] = c.JobGroupDetail()
+
+	var asgName string
+	if seq := c.JobGroupSequence(); seq == "" {
+		asgName = cluster + "-v000"
+	} else {
+		asgName = cluster + "-" + seq
+	}
+	env["NETFLIX_AUTO_SCALE_GROUP"] = asgName
+	env["NETFLIX_APP"] = c.AppName()
+
+	for key, value := range userEnv {
+		env[key] = value
+	}
+
+	// These environment variables may be looked at things like sidecars and they should override user environment
+	if name := c.ImageName(); name != nil {
+		env["TITUS_IMAGE_NAME"] = *name
+	}
+	if tag := c.ImageVersion(); tag != nil {
+		env["TITUS_IMAGE_TAG"] = *tag
+	}
+	if digest := c.ImageDigest(); digest != nil {
+		env["TITUS_IMAGE_DIGEST"] = *digest
+	}
+
+	// The control plane should set this environment variable.
+	// If it doesn't, we should set it. It shouldn't create
+	// any problems if it is set to an "incorrect" value
+	if _, ok := env["EC2_OWNER_ID"]; !ok {
+		env["EC2_OWNER_ID"] = ptr.StringPtrDerefOr(c.VPCAccountID(), "")
+	}
+
+	env["TITUS_IAM_ROLE"] = ptr.StringPtrDerefOr(c.IamRole(), "")
+
+	if config.MetatronEnabled {
+		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron
+		env[metadataserverTypes.TitusMetatronVariableName] = True
+	} else {
+		env[metadataserverTypes.TitusMetatronVariableName] = False
+	}
+
+	vpcAllocation := c.VPCAllocation()
+	if vpcAllocation != nil {
+		if vpcAllocation.IPV4Address != nil {
+			env[metadataserverTypes.EC2IPv4EnvVarName] = vpcAllocation.IPV4Address.Address.Address
+		}
+
+		if vpcAllocation.IPV6Address != nil {
+			env[metadataserverTypes.EC2IPv6sEnvVarName] = vpcAllocation.IPV6Address.Address.Address
+		}
+
+		if vpcAllocation.ElasticAddress != nil {
+			env[metadataserverTypes.EC2PublicIPv4EnvVarName] = vpcAllocation.ElasticAddress.Ip
+			env[metadataserverTypes.EC2PublicIPv4sEnvVarName] = vpcAllocation.ElasticAddress.Ip
+		}
+
+		// Heads up, this doesn't work in generation v1 instances of VPC Service
+		env["EC2_VPC_ID"] = vpcAllocation.BranchENIVPC
+		env["EC2_INTERFACE_ID"] = vpcAllocation.BranchENIID
+		env["EC2_SUBNET_ID"] = vpcAllocation.BranchENISubnet
+	}
+
+	if batch := c.BatchPriority(); batch != nil {
+		env["TITUS_BATCH"] = *batch
+	}
+
+	if reqIMDSToken := c.RequireIMDSToken(); reqIMDSToken != nil {
+		env["TITUS_IMDS_REQUIRE_TOKEN"] = *reqIMDSToken
+	}
+
+	envOverrides := c.EnvOverrides()
+	for key, value := range envOverrides {
+		env[key] = value
+	}
+
+	if gpuInfo := c.GPUInfo(); gpuInfo != nil {
+		for key, value := range gpuInfo.Env() {
+			env[key] = value
+		}
+	}
+
+	env[TitusRuntimeEnvVariableName] = c.Runtime()
+
+	return env
+}
+
+func sortedEnv(env map[string]string) []string {
+	retEnv := make([]string, 0, len(env))
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		retEnv = append(retEnv, key+"="+env[key])
+	}
+	return retEnv
+}
+
+// combinedAppStackDetails is a port of the combineAppStackDetails method from frigga.
+// See: https://github.com/Netflix/frigga/blob/v0.17.0/src/main/java/com/netflix/frigga/NameBuilder.java
+func combinedAppStackDetails(c Container) string {
+	if c.JobGroupDetail() != "" {
+		return fmt.Sprintf("%s-%s-%s", c.AppName(), c.JobGroupStack(), c.JobGroupDetail())
+	}
+	if c.JobGroupStack() != "" {
+		return fmt.Sprintf("%s-%s", c.AppName(), c.JobGroupStack())
+	}
+	return c.AppName()
 }

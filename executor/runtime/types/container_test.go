@@ -189,6 +189,8 @@ func TestNewContainer(t *testing.T) {
 	assert.NotNil(t, svcMeshConf)
 	// service mesh image should be unset by default
 	assert.Equal(t, svcMeshConf.Image, "")
+
+	assert.Equal(t, container.Resources(), &resources)
 }
 
 func TestMetatronEnabled(t *testing.T) {

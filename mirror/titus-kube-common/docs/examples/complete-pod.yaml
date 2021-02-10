@@ -1,0 +1,157 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    # general
+
+    pod.netflix.com/pod-schema-version: 1
+
+    # The currently running workload - could be an app in Spinnaker
+    # or launched through a batch system
+    workload.netflix.com/name: helloworld
+    workload.netflix.com/stack: teststack
+    workload.netflix.com/detail: testdetail
+    workload.netflix.com/sequence: v001
+    workload.netflix.com/owner-email: myuser@netflix.com
+    # Titus-specific fields
+    v3.job.titus.netflix.com/accepted-timestamp-ms: <timestamp>
+    v3.job.titus.netflix.com/id: "a318b9eb-50bf-4927-a9eb-b3d5a757f364"
+    v3.job.titus.netflix.com/type: SERVICE
+    # to be removed once VK supports the full pod spec
+    pod.titus.netflix.com/container-info: <base64 containerInfo>
+    v3.job.titus.netflix.com/descriptor: <base64 encoded, gzipped job descriptor>
+
+    # networking - used by the Titus CNI
+
+    # see the k8s docs
+    kubernetes.io/egress-bandwidth: 128M
+    kubernetes.io/ingress-bandwidth: 128M
+    network.netflix.com/security-groups: sg-1,sg-2,sg-3
+    network.netflix.com/network-bursting-enabled: true
+    network.netflix.com/static-ip-allocation: <allocation string>
+    network.netflix.com/jumbo-frames-enabled: true
+
+    # security
+
+    security.netflix.com/app-metadata: <Metatron app metadata>
+    security.netflix.com/app-metadata-sig: <Metatron app signature>
+    # matches kube2iam:
+    iam.amazonaws.com/role: arn:aws:iam::<account id>:role/<role>
+    # AppArmor: https://kubernetes.io/docs/tutorials/clusters/apparmor/#securing-a-pod
+    container.apparmor.security.beta.kubernetes.io/46b59bd7-3d02-42c3-951e-cdbaa60f66e2: "localhost/docker_titus"
+
+    # opportunistic resources (see control-plane and scheduler code)
+
+    # assigned opportunistic CPUs
+    opportunistic.scheduler.titus.netflix.com/cpu: "4"
+    # name of the opportunistic resource CRD used during scheduling
+    opportunistic.scheduler.titus.netflix.com/id: <id>
+
+    # predicted runtime (Go’s time.Duration format)
+    predictions.scheduler.titus.netflix.com/runtime: "300s"
+    # confidence (percentile) of the prediction picked above
+    predictions.scheduler.titus.netflix.com/confidence: 0.95
+    # model uuid used for the runtime prediction picked above
+    predictions.scheduler.titus.netflix.com/model-id: "<uuid>"
+    # version of the model used for the prediction above
+    predictions.scheduler.titus.netflix.com/version: "2.1"
+
+    # cell allocation for prediction AB tests
+    predictions.scheduler.titus.netflix.com/ab-test: "cellB"
+    # array of predictions available during job admission
+    predictions.scheduler.titus.netflix.com/available: "<custom-fmt>"
+    # metadata from the prediction selection algorithm
+    predictions.scheduler.titus.netflix.com/selector-info: "opaque"
+
+
+    # agent passthrough parameters: see below for the full list
+    pod.netflix.com/sched-policy: "batch"
+    pod.netflix.com/oom-score-adj: 1000
+    pod.netflix.com/cpu-bursting-enabled: "true"
+
+  creationTimestamp: "2020-04-14T20:24:58Z"
+  labels:
+    # These should match the annotations above
+    v3.job.titus.netflix.com/job-id: "a318b9eb-50bf-4927-a9eb-b3d5a757f364"
+    v3.job.titus.netflix.com/task-id: "46b59bd7-3d02-42c3-951e-cdbaa60f66e2"
+    workload.netflix.com/name: helloworld  // TODO: sync w/ Kimmy
+    workload.netflix.com/stack: teststack
+    workload.netflix.com/detail: testdetail
+    workload.netflix.com/sequence: v001
+    titus.netflix.com/capacity-group: DEFAULT
+  name: "46b59bd7-3d02-42c3-951e-cdbaa60f66e2"
+  namespace: default
+spec:
+  containers:
+  - image: <registry URL>/titusops/nodehelloworld@sha256:<sha digest>
+    imagePullPolicy: IfNotPresent
+	name: "46b59bd7-3d02-42c3-951e-cdbaa60f66e2"
+    resources:
+      limits:
+        cpu: "1"
+        ephemeral-storage: 10k
+        memory: 512Mi
+        # see the k8s docs
+        nvidia.com/gpu: 1
+        titus/network: "128"
+      requests:
+        cpu: "1"
+        ephemeral-storage: 10k
+        memory: 512Mi
+        nvidia.com/gpu: "0"
+        titus/network: "128"
+    env:
+    - name: FOO
+      value: "env var value"
+      # required if using systemd
+    - name: TINI_HANDOFF
+      value: "true"
+    # required if tty is set to true
+    stdin: true
+    tty: true
+
+    volumeMounts:
+      # EFS
+        # name must match the volume name below
+      - name: efs-fs-abcdef-rwm.subdir1
+        mountPath: "/efs"
+
+      # SHM
+      - name: dev-shm
+        mountPath: "/dev/shm"
+
+    securityContext:
+      capabilities:
+        add: ["SYS_ADMIN"]
+        drop: ["NET_RAW"]
+      # https://kubernetes.io/docs/tutorials/clusters/seccomp/#create-a-pod-with-a-seccomp-profile-for-syscall-auditing
+      # This is only supported in k8s 1.19+
+      seccompProfile:
+        type: Localhost
+        localhostProfile: default.json
+      sysctls:
+      - name: net.ipv4.conf.all.accept_local
+        value: "1"
+      - name: net.ipv4.conf.all.route_localnet
+        value: "1"
+      - name: net.ipv4.conf.all.arp_ignore
+        value: "1"
+      # not all listed here - see the sysctls section below
+
+  terminationGracePeriodSeconds: 60
+
+
+  volumes:
+  # EFS (docs, example 1, example 2)
+  # Is this still valid for more recent k8s versions?
+  - name: efs-fs-abcdef-rwm.subdir1
+    nfs:
+      # URL for the NFS server
+      server: fs-abcdef.efs.us-east-1.amazonaws.com
+      path: /subdir1
+
+  # shm - see the k8s emptyDir docs
+  - name: dev-shm
+    emptyDir:
+      medium: Memory
+      sizeLimit: "256Mi"
