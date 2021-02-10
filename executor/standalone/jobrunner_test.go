@@ -16,15 +16,22 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
+	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
@@ -34,6 +41,9 @@ const (
 	logViewerTestImage = "titusoss/titus-logviewer@sha256:750a908c244c3f44b2b7abf1d9297aca859592e02736b3bd48aaebac022a87e5"
 	metatronTestImage  = "titusoss/metatron@sha256:78b21578893c228d006000c03eaa2546c1b1976345b273d31f704823f12d5273"
 	sshdTestImage      = "titusoss/titus-sshd@sha256:6f6f89250771a50e13d5a3559712defc256c37b144ca22e46c69f35f06d848a0"
+	defaultAppName     = "myapp"
+	defaultIamRole     = "arn:aws:iam::0:role/DefaultContainerRole"
+	True               = "true"
 )
 
 // Process describes what runs inside the container
@@ -61,10 +71,8 @@ type JobInput struct {
 	Capabilities *titus.ContainerInfo_Capabilities
 	// Environment  is any extra environment variables to add
 	Environment map[string]string
-	// IgnoreLaunchGuard sets the V3 engine flag on the job
-	IgnoreLaunchGuard bool
-	// Batch sets batch mode on the task
-	Batch string
+	// SchedPolicy sets the scheduler policy (batch, idle)
+	SchedPolicy string
 	// CPUBursting sets the CPU bursting protobuf attribute
 	CPUBursting bool
 	// CPU sets the CPU count resource attribute
@@ -83,6 +91,8 @@ type JobInput struct {
 	Mem *int64
 	// ShmSize sets the shared memory size of `/dev/shm` in MiB
 	ShmSize *uint32
+	// UsePodSpec tells the jobrunner to populate the pod spec rather than ContainerInfo
+	UsePodSpec bool
 
 	GPUManager runtimeTypes.GPUManager
 }
@@ -249,7 +259,7 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 		"--logviewer-service-image", logViewerTestImage,
 		"--metatron-enabled", strconv.FormatBool(metatronEnabled),
 		"--metatron-service-image", metatronTestImage,
-		"--container-sshd", "true",
+		"--container-sshd", True,
 		"--sshd-service-image", sshdTestImage)
 
 	cfg, err := config.GenerateConfiguration(configArgs)
@@ -283,6 +293,205 @@ func (jobRunResponse *JobRunResponse) StopExecutor() {
 // StopExecutorAsync stops a currently running executor
 func (jobRunResponse *JobRunResponse) StopExecutorAsync() {
 	jobRunResponse.cancel()
+}
+
+func createContainerInfoTask(jobInput *JobInput, jobID string, task *runner.Task, env map[string]string, resources *runtimeTypes.Resources) error {
+	ci := &titus.ContainerInfo{
+		ImageName: protobuf.String(jobInput.ImageName),
+		Version:   protobuf.String(jobInput.Version),
+		JobId:     protobuf.String(jobID),
+		AppName:   protobuf.String("myapp"),
+		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			EniLabel:  protobuf.String("1"),
+			EniLablel: protobuf.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
+		},
+		IamProfile:       protobuf.String(defaultIamRole),
+		Capabilities:     jobInput.Capabilities,
+		TitusProvidedEnv: env,
+		PassthroughAttributes: map[string]string{
+			runtimeTypes.LogKeepLocalFileAfterUploadParam: True,
+		},
+	}
+
+	if p := jobInput.Process; p != nil {
+		ci.Process = &titus.ContainerInfo_Process{
+			Entrypoint: p.Entrypoint,
+			Command:    p.Cmd,
+		}
+	} else {
+		ci.EntrypointStr = protobuf.String(jobInput.EntrypointOld) // nolint: staticcheck
+	}
+	if jobInput.SchedPolicy != "" {
+		ci.Batch = protobuf.Bool(true)
+	}
+	if jobInput.SchedPolicy == "idle" {
+		ci.PassthroughAttributes["titusParameter.agent.batchPriority"] = "idle"
+	}
+	if jobInput.ShmSize != nil {
+		ci.ShmSizeMB = jobInput.ShmSize
+	}
+	if jobInput.Tty {
+		ci.PassthroughAttributes["titusParameter.agent.ttyEnabled"] = True
+	}
+
+	if jobInput.MetatronEnabled {
+		ci.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
+			AppMetadata: protobuf.String("fake-metatron-app"),
+			MetadataSig: protobuf.String("fake-metatron-sig"),
+		}
+	}
+	if jobInput.KillWaitSeconds > 0 {
+		ci.KillWaitSeconds = protobuf.Uint32(jobInput.KillWaitSeconds)
+	}
+	if id := jobInput.ImageDigest; id != "" {
+		ci.ImageDigest = protobuf.String(id)
+	}
+
+	ci.AllowCpuBursting = protobuf.Bool(jobInput.CPUBursting)
+	task.TitusInfo = ci
+
+	return nil
+}
+
+func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[string]string, resources *runtimeTypes.Resources, cfg *config.Config) error {
+	image := cfg.DockerRegistry + "/" + jobInput.ImageName
+	if jobInput.ImageDigest != "" {
+		image = image + "@" + jobInput.ImageDigest
+	} else {
+		image = image + ":" + jobInput.Version
+	}
+
+	resourceReqs := runtimeTypes.ResourcesToPodResourceRequirements(resources)
+	bandwidth := resourceReqs.Limits[resourceCommon.ResourceNameNetwork]
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      task.TaskID,
+			Namespace: "default",
+			Annotations: map[string]string{
+				podCommon.AnnotationKeyPodSchemaVersion: "1",
+				podCommon.AnnotationKeyIAMRole:          defaultIamRole,
+				podCommon.AnnotationKeyEgressBandwidth:  bandwidth.String(),
+				podCommon.AnnotationKeyIngressBandwidth: bandwidth.String(),
+				podCommon.AnnotationKeyLogKeepLocalFile: True,
+				podCommon.AnnotationKeyAppName:          defaultAppName,
+				podCommon.AnnotationKeyJobID:            jobID,
+			},
+			Labels: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Env: []corev1.EnvVar{
+						{
+							// This needs to be set for the IMDS to start up
+							Name:  runtimeTypes.TitusTaskInstanceIDKey,
+							Value: task.TaskID,
+						},
+						{
+							// This needs to be set for the logviewer to work properly
+							Name:  "TITUS_TASK_ID",
+							Value: task.TaskID,
+						},
+					},
+					Name:      task.TaskID,
+					Image:     image,
+					Resources: resourceReqs,
+				},
+			},
+		},
+	}
+
+	fc := &pod.Spec.Containers[0]
+
+	if p := jobInput.Process; p != nil {
+		fc.Command = p.Entrypoint
+		fc.Args = p.Cmd
+	} else {
+		entrypoint, err := dockershellparser.ProcessWords(jobInput.EntrypointOld, []string{})
+		if err != nil {
+			return err
+		}
+		fc.Command = entrypoint
+	}
+
+	for k, v := range jobInput.Environment {
+		fc.Env = append(fc.Env, corev1.EnvVar{Name: k, Value: v})
+	}
+
+	// capabilities
+	if jobInput.Capabilities != nil {
+		cp := corev1.Capabilities{}
+		for _, add := range jobInput.Capabilities.GetAdd() {
+			cp.Add = append(cp.Add, corev1.Capability(add.String()))
+		}
+		for _, drop := range jobInput.Capabilities.GetDrop() {
+			cp.Drop = append(cp.Drop, corev1.Capability(drop.String()))
+		}
+
+		if len(cp.Add) > 0 || len(cp.Drop) > 0 {
+			fc.SecurityContext = &corev1.SecurityContext{
+				Capabilities: &cp,
+			}
+		}
+	}
+
+	if jobInput.SchedPolicy != "" {
+		pod.Annotations[podCommon.AnnotationKeyPodSchedPolicy] = jobInput.SchedPolicy
+	}
+
+	if jobInput.ShmSize != nil {
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			MountPath: runtimeTypes.ShmMountPath,
+			Name:      "dev-shm",
+		})
+
+		shmSize := resource.MustParse(fmt.Sprintf("%dMi", *jobInput.ShmSize))
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "dev-shm",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{
+					SizeLimit: &shmSize,
+				},
+			},
+		})
+	}
+
+	if jobInput.Tty {
+		pod.Spec.Containers[0].TTY = true
+	}
+
+	if jobInput.KillWaitSeconds > 0 {
+		terminationGracePeriod := int64(jobInput.KillWaitSeconds)
+		pod.Spec.TerminationGracePeriodSeconds = &terminationGracePeriod
+	}
+
+	if jobInput.CPUBursting {
+		pod.Annotations[podCommon.AnnotationKeyPodCPUBurstingEnabled] = True
+	}
+
+	titusInfo := &titus.ContainerInfo{
+		IamProfile: proto.String(defaultIamRole),
+		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			EniLabel:  proto.String("1"),
+			EniLablel: proto.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
+		},
+		PassthroughAttributes: map[string]string{},
+	}
+
+	if jobInput.MetatronEnabled {
+		titusInfo.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
+			AppMetadata: protobuf.String("fake-metatron-app"),
+			MetadataSig: protobuf.String("fake-metatron-sig"),
+		}
+	}
+
+	if err := runtimeTypes.AddContainerInfoToPod(pod, titusInfo); err != nil {
+		return err
+	}
+	task.Pod = pod
+	task.TitusInfo = titusInfo
+
+	return nil
 }
 
 // StartJob starts a job and returns once the job is started
@@ -319,7 +528,7 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	}
 
 	if jobInput.MetatronEnabled {
-		env[metadataserverTypes.TitusMetatronVariableName] = "true"
+		env[metadataserverTypes.TitusMetatronVariableName] = True
 	} else {
 		env[metadataserverTypes.TitusMetatronVariableName] = "false"
 	}
@@ -328,60 +537,6 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	for k, v := range jobInput.Environment {
 		env[k] = v
 	}
-
-	ci := &titus.ContainerInfo{
-		ImageName: protobuf.String(jobInput.ImageName),
-		Version:   protobuf.String(jobInput.Version),
-		JobId:     protobuf.String(jobID),
-		AppName:   protobuf.String("myapp"),
-		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
-			EniLabel:  protobuf.String("1"),
-			EniLablel: protobuf.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
-		},
-		IamProfile:        protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-		Capabilities:      jobInput.Capabilities,
-		TitusProvidedEnv:  env,
-		IgnoreLaunchGuard: protobuf.Bool(jobInput.IgnoreLaunchGuard),
-		PassthroughAttributes: map[string]string{
-			runtimeTypes.LogKeepLocalFileAfterUploadParam: "true",
-		},
-	}
-
-	if p := jobInput.Process; p != nil {
-		ci.Process = &titus.ContainerInfo_Process{
-			Entrypoint: p.Entrypoint,
-			Command:    p.Cmd,
-		}
-	} else {
-		ci.EntrypointStr = protobuf.String(jobInput.EntrypointOld) // nolint: staticcheck
-	}
-	if jobInput.Batch != "" {
-		ci.Batch = protobuf.Bool(true)
-	}
-	if jobInput.Batch == "idle" {
-		ci.PassthroughAttributes["titusParameter.agent.batchPriority"] = "idle"
-	}
-	if jobInput.ShmSize != nil {
-		ci.ShmSizeMB = jobInput.ShmSize
-	}
-	if jobInput.Tty {
-		ci.PassthroughAttributes["titusParameter.agent.ttyEnabled"] = "true"
-	}
-
-	if jobInput.MetatronEnabled {
-		ci.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: protobuf.String("fake-metatron-app"),
-			MetadataSig: protobuf.String("fake-metatron-sig"),
-		}
-	}
-	if jobInput.KillWaitSeconds > 0 {
-		ci.KillWaitSeconds = protobuf.Uint32(jobInput.KillWaitSeconds)
-	}
-	if id := jobInput.ImageDigest; id != "" {
-		ci.ImageDigest = protobuf.String(id)
-	}
-
-	ci.AllowCpuBursting = protobuf.Bool(jobInput.CPUBursting)
 	cpu := int64(1)
 	if jobInput.CPU != nil {
 		cpu = *jobInput.CPU
@@ -393,20 +548,35 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	gpu := int64(0)
 	if jobInput.GPU != nil {
 		gpu = *jobInput.GPU
-		ci.NumGpus = protobuf.Uint32(uint32(*jobInput.GPU))
 	}
 	diskMiB := int64(100)
 	network := int64(128)
+	resources := &runtimeTypes.Resources{
+		Mem:     memMiB,
+		CPU:     cpu,
+		GPU:     gpu,
+		Disk:    diskMiB,
+		Network: network,
+	}
 
-	// TODO: Replace this config mechanism
 	task := runner.Task{
-		TaskID:    taskID,
-		TitusInfo: ci,
-		Mem:       memMiB,
-		CPU:       cpu,
-		Gpu:       gpu,
-		Disk:      diskMiB,
-		Network:   network,
+		Mem:     memMiB,
+		CPU:     cpu,
+		Gpu:     gpu,
+		Disk:    diskMiB,
+		Network: network,
+		TaskID:  taskID,
+	}
+	var tErr error
+
+	if jobInput.UsePodSpec {
+		tErr = createPodTask(jobInput, jobID, &task, env, resources, cfg)
+	} else {
+		tErr = createContainerInfoTask(jobInput, jobID, &task, env, resources)
+	}
+	if tErr != nil {
+		cancel()
+		return nil, fmt.Errorf("could not construct task: %w", tErr)
 	}
 
 	opts := []docker.Opt{}
@@ -478,4 +648,18 @@ func RunJob(t *testing.T, jobInput *JobInput) (string, error) {
 	assert.NilError(t, err)
 
 	return jobResult.WaitForCompletion()
+}
+
+// StartJobExpectingFailure attempts to start a job, but expects it to fail in the prestart (validation) phase
+func StartJobExpectingFailure(t *testing.T, jobInput *JobInput) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	jobResult, err := StartJob(t, ctx, jobInput)
+
+	if jobResult != nil {
+		defer jobResult.StopExecutor()
+	}
+	assert.Assert(t, err != nil)
+	return err
 }

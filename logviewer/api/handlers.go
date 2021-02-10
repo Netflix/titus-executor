@@ -38,7 +38,7 @@ func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName st
 	containerLogsRoot := buildLogLocationBase(containerID)
 
 	filePath, err := securejoin.SecureJoin(containerLogsRoot, fileName)
-	log.Infof("Joined log file %s and %s", containerLogsRoot, filePath)
+	log.Infof("Joined log file %s and filename %s to %s (container ID: %s)", containerLogsRoot, fileName, filePath, containerID)
 	if err != nil {
 		log.WithError(err).Error("Unable to build secure path")
 		http.Error(w, "Cannot build log file path: "+err.Error(), 503)

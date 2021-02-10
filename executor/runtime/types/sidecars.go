@@ -17,7 +17,7 @@ const (
 	SidecarServiceMetadataProxy = "metadata-proxy"
 )
 
-var sideCars = []*ServiceOpts{
+var sideCars = []ServiceOpts{
 	{
 		ServiceName: SidecarTitusContainer,
 		UnitName:    "titus-container",

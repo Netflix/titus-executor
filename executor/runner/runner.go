@@ -192,7 +192,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 	logDir, details, statusChan, err := r.runtime.Start(ctx)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
-		logger.G(ctx).Info("start container: ", err)
+		logger.G(ctx).WithError(err).Error("error starting container")
 
 		switch err.(type) {
 		case *runtimeTypes.BadEntryPointError:
@@ -368,7 +368,13 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 	}
 	logger.G(ctx).Info("Starting external logger")
 
-	wConf := filesystems.NewWatchConfig(logDir, r.container.UploadDir("logs"), r.container.LogUploadRegexp(), *r.container.LogUploadCheckInterval(), *r.container.LogUploadThresholdTime(), *r.container.LogStdioCheckInterval(), r.container.LogKeepLocalFileAfterUpload())
+	wConf := filesystems.NewWatchConfig(logDir,
+		r.container.UploadDir("logs"),
+		r.container.LogUploadRegexp(),
+		*r.container.LogUploadCheckInterval(),
+		*r.container.LogUploadThresholdTime(),
+		*r.container.LogStdioCheckInterval(),
+		r.container.LogKeepLocalFileAfterUpload())
 	uploader, err := uploader.NewUploader(&r.config, r.container.LogUploaderConfig(), *r.container.IamRole(), r.container.TaskID(), r.metrics)
 	if err != nil {
 		return err

@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
@@ -72,6 +71,9 @@ const (
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
 	systemdImageLabel       = "com.netflix.titus.systemd"
+	// MS_RDONLY indicates that mount is read-only
+	MS_RDONLY    = 1 // nolint: golint
+	mountTimeout = 5 * time.Minute
 )
 
 // cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
@@ -105,7 +107,6 @@ type DockerRuntime struct { // nolint: golint
 	metrics           metrics.Reporter
 	registryAuthCfg   *types.AuthConfig
 	client            *docker.Client
-	awsRegion         string
 	tiniSocketDir     string
 	storageOptEnabled bool
 	pidCgroupPath     string
@@ -156,14 +157,11 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 		return nil, err
 	}
 
-	// TODO: Check
-	awsRegion := os.Getenv("EC2_REGION")
 	storageOptEnabled := shouldEnableStorageOpts(info)
 
 	runtimeFunc := func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		dockerRuntime := &DockerRuntime{
 			pidCgroupPath:     pidCgroupPath,
-			awsRegion:         awsRegion,
 			metrics:           m,
 			registryAuthCfg:   nil, // we don't need registry authentication yet
 			client:            client,
@@ -605,10 +603,19 @@ func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c runt
 func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
 	log.Printf("Configuring VPC network for %s", c.TaskID())
 
+	eniIdx := c.NormalizedENIIndex()
+	if eniIdx == nil {
+		return nil, errors.New("could not determine normalized ENI index for container")
+	}
+	sgIDs := c.SecurityGroupIDs()
+	if sgIDs == nil {
+		return nil, errors.New("container is missing security groups")
+	}
+
 	args := []string{
 		"assign",
-		"--device-idx", strconv.Itoa(*c.NormalizedENIIndex()),
-		"--security-groups", strings.Join(*c.SecurityGroupIDs(), ","),
+		"--device-idx", strconv.Itoa(*eniIdx),
+		"--security-groups", strings.Join(*sgIDs, ","),
 		"--task-id", c.TaskID(),
 	}
 
@@ -621,7 +628,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 	}
 
 	if c.SubnetIDs() != nil {
-		args = append(args, "--subnet-ids", *c.SubnetIDs())
+		args = append(args, "--subnet-ids", strings.Join(*c.SubnetIDs(), ","))
 	}
 
 	if c.ElasticIPPool() != nil {
@@ -1171,9 +1178,8 @@ func (r *DockerRuntime) pushEnvironment(c runtimeTypes.Container, imageInfo *typ
 		}
 	}
 
-	for _, efsMount := range c.EfsConfigInfo() {
-		mp := filepath.Clean(efsMount.GetMountPoint())
-		mp = strings.TrimPrefix(mp, "/")
+	for _, nfsMount := range c.NFSMounts() {
+		mp := strings.TrimPrefix(nfsMount.MountPoint, "/")
 		if err := tw.WriteHeader(&tar.Header{
 			Name:     mp,
 			Mode:     0777,
@@ -1223,90 +1229,15 @@ func maybeConvertIntoBadEntryPointError(err error) error {
 	return err
 }
 
-type readWriteMode int
-
-const (
-	rw readWriteMode = iota
-	ro
-	// Not sure how this makes sense?
-	// this will be a noop, and give the user rw
-	wo
-)
-
-type efsMountInfo struct {
-	// fields copied from protobuf:
-	efsFsID                    string
-	cleanMountPoint            string
-	cleanEfsFsRelativeMntPoint string
-	readWriteFlags             readWriteMode
-	// Derived fields
-	// Derived from taking the DNS name of: ${efsFsID}.efs.${REGION}.amazonaws.com
-	hostname string
-}
-
-func (r *DockerRuntime) processEFSMounts(c runtimeTypes.Container) ([]efsMountInfo, error) {
-	efsMountInfos := []efsMountInfo{}
-	for _, configInfo := range c.EfsConfigInfo() {
-		emi := efsMountInfo{
-			efsFsID:                    configInfo.GetEfsFsId(),
-			cleanMountPoint:            filepath.Clean(configInfo.GetMountPoint()),
-			cleanEfsFsRelativeMntPoint: filepath.Clean(configInfo.GetEfsFsRelativeMntPoint()),
-		}
-
-		if emi.cleanEfsFsRelativeMntPoint == "" {
-			emi.cleanMountPoint = "/"
-		}
-
-		switch configInfo.GetMntPerms() {
-		case titus.ContainerInfo_EfsConfigInfo_RW:
-			emi.readWriteFlags = rw
-		case titus.ContainerInfo_EfsConfigInfo_RO:
-			emi.readWriteFlags = ro
-		case titus.ContainerInfo_EfsConfigInfo_WO:
-			emi.readWriteFlags = wo
-		default:
-			return nil, fmt.Errorf("Invalid EFS mount (read/write flag): %+v", configInfo)
-		}
-
-		isRealEfsID, err := isEFSID(emi.efsFsID)
-		if err != nil {
-			return nil, err
-		}
-		if isRealEfsID {
-			if r.awsRegion == "" {
-				// We don't validate at client creation time, because we don't get this during testing.
-				return nil, errors.New("Could not retrieve EC2 region")
-			} // Get the remote IP. -- Is this really the best way how? Go doesn't have a simpler API for this?
-			emi.hostname = fmt.Sprintf("%s.efs.%s.amazonaws.com", emi.efsFsID, r.awsRegion)
-		} else {
-			// Non-EFS ID: pass in the hostname for the NFS server right on through
-			// We are just abusing the "efsID" field to just be the hostname.
-			emi.hostname = emi.efsFsID
-		}
-		efsMountInfos = append(efsMountInfos, emi)
-	}
-
-	return efsMountInfos, nil
-}
-
-func isEFSID(FsID string) (bool, error) {
-	matched, err := regexp.MatchString(`^fs-[0-9a-f]+$`, FsID)
-	if err != nil {
-		// The only type of errors that might hit this are regex compile errors
-		return false, fmt.Errorf("Something went really wrong determining if '%s' is an EFS ID: %s", FsID, err)
-	}
-	return matched, nil
-}
-
-func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListener, efsMountInfos []efsMountInfo, c runtimeTypes.Container) (string, error) {
+func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListener, c runtimeTypes.Container) (string, error) {
 	// This can block for up to the full ctx timeout
 	logDir, containerCred, rootFile, unixConn, err := r.setupPostStartLogDirTini(ctx, listener, c)
 	if err != nil {
 		return logDir, err
 	}
 
-	if len(efsMountInfos) > 0 {
-		err = r.setupEFSMounts(ctx, c, rootFile, containerCred, efsMountInfos)
+	if len(c.NFSMounts()) > 0 {
+		err = r.setupEFSMounts(ctx, c, rootFile, containerCred)
 		if err != nil {
 			return logDir, err
 		}
@@ -1315,6 +1246,7 @@ func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListe
 	err = launchTini(unixConn)
 	if err != nil {
 		shouldClose(unixConn)
+		err = fmt.Errorf("error launching tini: %w", err)
 	}
 	return logDir, err
 }
@@ -1331,7 +1263,6 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 
 	entry := log.WithField("taskID", r.c.TaskID())
 	entry.Info("Starting")
-	efsMountInfos, err := r.processEFSMounts(r.c)
 	if err != nil {
 		return "", nil, statusMessageChan, err
 	}
@@ -1357,7 +1288,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 
 	err = r.client.ContainerStart(ctx, r.c.ID(), types.ContainerStartOptions{})
 	if err != nil {
-		entry.Error("Error starting: ", err)
+		entry.WithError(err).Error("error starting")
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
 		// Check if bad entry point and return specific error
 		eventCancel()
@@ -1368,7 +1299,8 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 
 	allocation := r.c.VPCAllocation()
 	if allocation == nil || allocation.IPV4Address == nil {
-		log.Fatal("IP allocation unset")
+		eventCancel()
+		return "", nil, statusMessageChan, errors.New("VPC IPv4 allocation unset")
 	}
 	eniID := allocation.BranchENIID
 	if eniID == "" {
@@ -1395,9 +1327,10 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 		details.NetworkConfiguration.ElasticIPAddress = allocation.ElasticAddress.Ip
 	}
 
-	logDir, err := r.waitForTini(ctx, listener, efsMountInfos, r.c)
+	logDir, err := r.waitForTini(ctx, listener, r.c)
 	if err != nil {
 		eventCancel()
+		err = fmt.Errorf("container prestart error: %w", err)
 	} else {
 		go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 	}
@@ -1500,42 +1433,39 @@ func validateMessage(c runtimeTypes.Container, message events.Message) {
 	}
 }
 
-const (
-	// MS_RDONLY indicates that mount is read-only
-	MS_RDONLY = 1 // nolint: golint
-)
-
-func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred, efsMountInfos []efsMountInfo) error {
+func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {
 	baseMountOptions := []string{"vers=4.1,rsize=1048576,wsize=1048576,timeo=600,retrans=2"}
-	for _, efsMountInfo := range efsMountInfos {
+	for _, nfs := range c.NFSMounts() {
 		// Todo: Make into a const
 		// Although 5 minutes is probably far too much here, this window is okay to be large
 		// because the parent window should be greater
-		ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
+		ctx, cancel := context.WithTimeout(parentCtx, mountTimeout)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount-nfs", strconv.Itoa(int(cred.pid))) // nolint: gosec
 		flags := 0
-		if efsMountInfo.readWriteFlags == ro {
+		if nfs.ReadOnly {
 			flags = flags | MS_RDONLY
 		}
 		mountOptions := append(
 			baseMountOptions,
 			fmt.Sprintf("fsc=%s", c.TaskID()),
-			fmt.Sprintf("source=%s:%s", efsMountInfo.hostname, efsMountInfo.cleanEfsFsRelativeMntPoint),
+			fmt.Sprintf("source=%s:%s", nfs.Server, nfs.ServerPath),
 		)
 		cmd.Env = []string{
-			fmt.Sprintf("MOUNT_TARGET=%s", efsMountInfo.cleanMountPoint),
-			fmt.Sprintf("MOUNT_NFS_HOSTNAME=%s", efsMountInfo.hostname),
+			fmt.Sprintf("MOUNT_TARGET=%s", nfs.MountPoint),
+			fmt.Sprintf("MOUNT_NFS_HOSTNAME=%s", nfs.Server),
 			fmt.Sprintf("MOUNT_FLAGS=%d", flags),
 			fmt.Sprintf("MOUNT_OPTIONS=%s", strings.Join(mountOptions, ",")),
 		}
 
 		stdoutStderr, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("Mount failure: %+v: %s", efsMountInfo, string(stdoutStderr))
+			return fmt.Errorf("Mount failure: %+v: %s", nfs, string(stdoutStderr))
 		}
 		cancel()
+
 	}
+
 	return nil
 }
 
@@ -1572,8 +1502,8 @@ func (r *DockerRuntime) setupPostStartLogDirTini(ctx context.Context, l *net.Uni
 			log.WithField("ctxError", ctx.Err()).Error("Never received connection from container: ", err)
 			return "", nil, nil, nil, errors.New("Never received connection from container")
 		}
-		log.Error("Error receiving connection from container: ", err)
-		return "", nil, nil, nil, err
+		log.WithError(err).Error("Error accepting tini connection from container")
+		return "", nil, nil, nil, fmt.Errorf("error accepting connection from container: %w", err)
 	}
 
 	switch typedConn := genericConn.(type) {

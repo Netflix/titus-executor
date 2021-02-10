@@ -20,14 +20,17 @@ func addAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Host
 	addedCapabilities := make(map[string]struct{})
 
 	// Set any additional capabilities for this container
-	if cap := c.Capabilities(); cap != nil {
-		for _, add := range cap.GetAdd() {
-			addedCapabilities[add.String()] = struct{}{}
-			hostCfg.CapAdd = append(hostCfg.CapAdd, add.String())
-		}
-		for _, drop := range cap.GetDrop() {
-			hostCfg.CapDrop = append(hostCfg.CapDrop, drop.String())
-		}
+	cp := c.Capabilities()
+	if cp == nil {
+		return addedCapabilities
+	}
+
+	for _, add := range cp.Add {
+		addedCapabilities[string(add)] = struct{}{}
+		hostCfg.CapAdd = append(hostCfg.CapAdd, string(add))
+	}
+	for _, drop := range cp.Drop {
+		hostCfg.CapDrop = append(hostCfg.CapDrop, string(drop))
 	}
 	return addedCapabilities
 }
@@ -36,6 +39,10 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 	addedCapabilities := addAdditionalCapabilities(c, hostCfg)
 	seccompProfile := "default.json"
 	apparmorProfile := "docker_titus"
+
+	if aProf := c.AppArmorProfile(); aProf != nil {
+		apparmorProfile = *aProf
+	}
 
 	if c.FuseEnabled() {
 		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
@@ -47,7 +54,6 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 			PathInContainer:   fuseDev,
 			CgroupPermissions: "rmw",
 		})
-		apparmorProfile = "docker_fuse"
 		seccompProfile = "fuse-container.json"
 	}
 

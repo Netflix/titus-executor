@@ -11,7 +11,7 @@ require (
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 	github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
 	github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200520235959-0ab6f1129886
-	github.com/Netflix/titus-kube-common v0.10.1
+	github.com/Netflix/titus-kube-common v0.10.2-0.20210420003404-4e53c4032156
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
 	github.com/apparentlymart/go-cidr v1.0.0
@@ -22,6 +22,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.2
 	github.com/deckarep/golang-set v1.7.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/docker/distribution v2.7.1+incompatible
 	github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0

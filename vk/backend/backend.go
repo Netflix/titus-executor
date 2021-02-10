@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	errContainerInfo = errors.New("Cannot find container info")
+	errContainerInfo = errors.New("cannot find container info annotation")
 )
 
 func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
@@ -128,11 +128,26 @@ type Backend struct {
 	cfg                             *config.Config
 }
 
-func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, pod *v1.Pod, cfg *config.Config, m metrics.Reporter) (*Backend, error) {
+func getContainerInfo(pod *v1.Pod) (string, error) {
 	containerInfoStr, ok := pod.GetAnnotations()["containerInfo"]
-	if !ok {
-		return nil, errContainerInfo
+	if ok {
+		return containerInfoStr, nil
 	}
+
+	containerInfoStr, ok = pod.GetAnnotations()[podCommon.AnnotationKeyPodTitusContainerInfo]
+	if !ok {
+		return "", errContainerInfo
+	}
+
+	return containerInfoStr, nil
+}
+
+func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, pod *v1.Pod, cfg *config.Config, m metrics.Reporter) (*Backend, error) {
+	containerInfoStr, err := getContainerInfo(pod)
+	if err != nil {
+		return nil, err
+	}
+
 	data, err := base64.StdEncoding.DecodeString(containerInfoStr)
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not decode containerInfo from base64")
@@ -271,6 +286,18 @@ func (b *Backend) RunWithOutputDir(ctx context.Context, dir string) error {
 	r, err := b.run(ctx)
 	if err != nil {
 		b.readyLock.Unlock()
+		b.handleUpdate(ctx, runner.Update{
+			TaskID: b.pod.Name,
+			State:  titusdriver.Lost,
+			Mesg:   fmt.Sprintf("error launching task: %s", err.Error()),
+		})
+		err = b.writePod(ctx, dir)
+		if err != nil {
+			logger.G(ctx).WithError(err).Fatal("Unable to update pod directory")
+		} else {
+			logger.G(ctx).Info("Updated pod dir")
+		}
+
 		return err
 	}
 	err = b.writePod(ctx, dir)
