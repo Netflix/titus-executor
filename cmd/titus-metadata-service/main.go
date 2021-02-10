@@ -32,10 +32,12 @@ import (
 	"gopkg.in/urfave/cli.v1"
 )
 
-// 169 is the first octet of 169.254...
-const defaultListeningPort = 8169
-
-const certRefreshTime = 5 * time.Minute
+const (
+	// 169 is the first octet of 169.254...
+	defaultListeningPort = 8169
+	taskInstanceIDEnvVar = "TITUS_TASK_INSTANCE_ID"
+	certRefreshTime      = 5 * time.Minute
+)
 
 /* Either returns a listener, or logs a fatal error */
 func getListener(listenPort int, listenerFd int64) net.Listener {
@@ -69,16 +71,20 @@ func makeFDListener(fd int64) net.Listener {
 }
 
 func readTaskConfigFile(taskID string) (*titus.ContainerInfo, error) {
+	if taskID == "" {
+		log.Errorf("task ID is empty: can't read task config file")
+		return nil, fmt.Errorf("task ID env var unset: %s", taskInstanceIDEnvVar)
+	}
 	confFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", taskID))
 	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
 	if err != nil {
-		log.WithError(err).Errorf("Error reading file %s", confFile)
+		log.WithError(err).Errorf("Error reading task config file %s", confFile)
 		return nil, err
 	}
 
 	var cInfo titus.ContainerInfo
 	if err = json.Unmarshal(contents, &cInfo); err != nil {
-		log.WithError(err).Errorf("Error parsing JSON in file %s", confFile)
+		log.WithError(err).Errorf("Error parsing JSON in task config file %s", confFile)
 		return nil, err
 	}
 
@@ -186,7 +192,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:        "titus-task-instance-id",
-			EnvVar:      "TITUS_TASK_INSTANCE_ID",
+			EnvVar:      taskInstanceIDEnvVar,
 			Destination: &titusTaskInstanceID,
 		},
 		cli.StringFlag{

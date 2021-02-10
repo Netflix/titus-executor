@@ -66,6 +66,8 @@ github.com/Netflix/titus-kube-common v0.9.0 h1:cICC1qS+PPoXT/Ih0e2fyDdANsbgwAIeg
 github.com/Netflix/titus-kube-common v0.9.0/go.mod h1:fU8ZwjsXgEaZNx1H4UjLD9S2h55EKwHQQeZwGyiwsdU=
 github.com/Netflix/titus-kube-common v0.10.1 h1:gX6vJyvGK6QDDxwqcIYGQw+vgn5uVLRsxOZ7Aww/ckk=
 github.com/Netflix/titus-kube-common v0.10.1/go.mod h1:OoWxqK3nzjhkRvtox9JJR7gXcXAehJ2tpEtBX2X2c2w=
+github.com/Netflix/titus-kube-common v0.10.2-0.20210420003404-4e53c4032156 h1:22GZFInn3rthZm6f+8aFyzwaKvkgFFY7gaOkBib+/jc=
+github.com/Netflix/titus-kube-common v0.10.2-0.20210420003404-4e53c4032156/go.mod h1:3l3FDJluNNzBlYmCDmFBN+8ClVqVE/kqtBlngQ4BIag=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
@@ -674,6 +676,8 @@ github.com/onsi/gomega v1.10.1 h1:o0+MgICZLuZ7xjH7Vx6zS/zcu93/BEp1VwkIW1mEXCE=
 github.com/onsi/gomega v1.10.1/go.mod h1:iN09h71vgCQne3DLsj+A5owkum+a2tYe+TOCB1ybHNo=
 github.com/opencontainers/go-digest v1.0.0-rc1 h1:WzifXhOVOEOuFYOJAW6aQqW0TooG2iki3E3Ii+WN7gQ=
 github.com/opencontainers/go-digest v1.0.0-rc1/go.mod h1:cMLVZDEM3+U2I4VmLI6N8jQYUd2OVphdqWwCJHrFt2s=
+github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
+github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.0.1 h1:JMemWkRwHx4Zj+fVxWoMCFm/8sYGGrUVojFA6h/TRcI=
 github.com/opencontainers/image-spec v1.0.1/go.mod h1:BtxoFyWECRxE4U/7sNtV5W15zMzWCbyJoFRP3s7yZA0=
 github.com/opencontainers/runc v1.0.0-rc10 h1:AbmCEuSZXVflng0/cboQkpdEOeBsPMjz6tmq4Pv8MZw=
