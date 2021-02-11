@@ -158,7 +158,7 @@ func TestParsePod(t *testing.T) {
 	pod := buildPod(annotations, labels)
 	conf, err := PodToConfig(pod)
 	assert.NilError(t, err)
-
+	sgIDs := []string{"sg-1", "sg-2"}
 	expConf := Config{
 		AppArmorProfile:        ptr.StringPtr("localhost/docker_titus"),
 		AccountID:              ptr.StringPtr("123456"),
@@ -204,7 +204,7 @@ func TestParsePod(t *testing.T) {
 		ResourceNetwork:        stringToResourcePtr("128M"),
 		ResourceGPU:            stringToResourcePtr("0"),
 		SchedPolicy:            ptr.StringPtr("batch"),
-		SecurityGroups:         ptr.StringPtr("sg-1,sg-2"),
+		SecurityGroupIDs:       &sgIDs,
 		ServiceMeshEnabled:     ptr.BoolPtr(true),
 		ServiceMeshImage:       ptr.StringPtr("titusoss/service-mesh"),
 		StaticIPAllocation:     ptr.StringPtr("static-ip-alloc"),

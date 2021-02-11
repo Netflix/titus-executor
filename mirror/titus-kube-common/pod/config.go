@@ -59,7 +59,7 @@ type Config struct {
 	ResourceMemory         *resource.Quantity
 	ResourceNetwork        *resource.Quantity
 	SchedPolicy            *string
-	SecurityGroups         *string
+	SecurityGroupIDs       *[]string
 	ServiceMeshEnabled     *bool
 	ServiceMeshImage       *string
 	StaticIPAllocation     *string

@@ -297,7 +297,9 @@ func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
 }
 
 func (c *PodContainer) NormalizedENIIndex() *int {
-	return nil
+	// This is unused in the v3 vpc service
+	unused := int(0)
+	return &unused
 }
 
 func (c *PodContainer) OomScoreAdj() *int32 {
@@ -337,7 +339,7 @@ func (c *PodContainer) SeccompAgentEnabledForPerfSyscalls() bool {
 }
 
 func (c *PodContainer) SecurityGroupIDs() *[]string {
-	return nil
+	return c.podConfig.SecurityGroupIDs
 }
 
 func (c *PodContainer) ServiceMeshEnabled() bool {

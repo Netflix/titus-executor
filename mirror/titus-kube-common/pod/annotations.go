@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
@@ -287,10 +288,6 @@ func parseAnnotations(pod *corev1.Pod, pConf *Config) error {
 			field: &pConf.IMDSRequireToken,
 		},
 		{
-			key:   AnnotationKeyNetworkSecurityGroups,
-			field: &pConf.SecurityGroups,
-		},
-		{
 			key:   AnnotationKeyNetworkStaticIPAllocation,
 			field: &pConf.StaticIPAllocation,
 		},
@@ -414,6 +411,15 @@ func parseAnnotations(pod *corev1.Pod, pConf *Config) error {
 		} else {
 			err = multierror.Append(err, fmt.Errorf("annotation is not a valid regexp value: %s: %w", AnnotationKeyLogUploadRegexp, pErr))
 		}
+	}
+
+	if sgVal, ok := annotations[AnnotationKeyNetworkSecurityGroups]; ok {
+		sgsSplit := strings.Split(strings.TrimSpace(sgVal), ",")
+		sgIDs := []string{}
+		for _, sg := range sgsSplit {
+			sgIDs = append(sgIDs, strings.TrimSpace(sg))
+		}
+		pConf.SecurityGroupIDs = &sgIDs
 	}
 
 	return err.ErrorOrNil()
