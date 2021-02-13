@@ -193,7 +193,6 @@ func main() {
 	rootCmd.AddCommand(teardownContainercommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(gcCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(operatorCmd(ctx, v, ipr.getProvider))
-	rootCmd.AddCommand(cniCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(unassignNetworkCommand(ctx, v, ipr.getProvider))
 
 	cobra.OnInitialize(func() {
