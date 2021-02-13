@@ -39,6 +39,7 @@ type PodContainer struct {
 	isSystemD bool
 	// GPU devices
 	gpuInfo           GPUContainer
+	labels            map[string]string
 	logUploaderConfig *uploader.Config
 	pod               *corev1.Pod
 	podConfig         *podCommon.Config
@@ -78,13 +79,14 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 
 	imgRef, err := reference.Parse(userContainer.Image)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing docker image for container %s: %w", userContainer.Name, err)
+		return nil, fmt.Errorf("error parsing docker image \"%s\" for container \"%s\": %w", userContainer.Image, userContainer.Name, err)
 	}
 
 	c := &PodContainer{
 		config:            cfg,
 		containerImage:    imgRef,
 		envOverrides:      map[string]string{},
+		id:                pod.Name,
 		image:             userContainer.Image,
 		logUploaderConfig: createLogUploadConfig(pConf),
 		pod:               pod,
@@ -94,7 +96,7 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		userEnv:           userEnv,
 	}
 
-	// XXX: add labels like in `container.go`
+	c.labels = addLabels(c.id, c, resources)
 	return c, nil
 }
 
@@ -196,11 +198,23 @@ func (c *PodContainer) ImageDigest() *string {
 }
 
 func (c *PodContainer) ImageName() *string {
-	return nil
+	name, ok := c.containerImage.(reference.Named)
+	if !ok {
+		return nil
+	}
+
+	nameStr := reference.FamiliarName(name)
+	return &nameStr
 }
 
 func (c *PodContainer) ImageVersion() *string {
-	return nil
+	tag, ok := c.containerImage.(reference.Tagged)
+	if !ok {
+		return nil
+	}
+
+	tagStr := tag.Tag()
+	return &tagStr
 }
 
 func (c *PodContainer) ImageTagForMetrics() map[string]string {
@@ -241,7 +255,11 @@ func (c *PodContainer) JobGroupSequence() string {
 }
 
 func (c *PodContainer) JobID() *string {
-	return nil
+	return c.podConfig.JobID
+}
+
+func (c *PodContainer) JobType() *string {
+	return c.podConfig.JobType
 }
 
 func (c *PodContainer) KillWaitSeconds() *uint32 {
@@ -253,7 +271,7 @@ func (c *PodContainer) KvmEnabled() bool {
 }
 
 func (c *PodContainer) Labels() map[string]string {
-	return map[string]string{}
+	return c.labels
 }
 
 func (c *PodContainer) LogKeepLocalFileAfterUpload() bool {
@@ -304,6 +322,10 @@ func (c *PodContainer) NormalizedENIIndex() *int {
 
 func (c *PodContainer) OomScoreAdj() *int32 {
 	return nil
+}
+
+func (c *PodContainer) OwnerEmail() *string {
+	return c.podConfig.AppOwnerEmail
 }
 
 func (c *PodContainer) Process() ([]string, []string) {

@@ -32,6 +32,7 @@ const (
 	commandLabelKey          = "com.netflix.titus.command"
 	entrypointLabelKey       = "com.netflix.titus.entrypoint"
 	cpuLabelKey              = "com.netflix.titus.cpu"
+	iamRoleLabelKey          = "ec2.iam.role"
 	memLabelKey              = "com.netflix.titus.mem"
 	diskLabelKey             = "com.netflix.titus.disk"
 	networkLabelKey          = "com.netflix.titus.network"
@@ -196,27 +197,11 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (*TitusInfoContainer, error) {
 	networkCfgParams := titusInfo.GetNetworkConfigInfo()
 
-	labels := map[string]string{
-		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
-		models.TaskIDLabel:      taskID,
-	}
-
-	if len(titusInfo.GetIamProfile()) > 0 {
-		labels["ec2.iam.role"] = titusInfo.GetIamProfile()
-	}
-
-	labels[cpuLabelKey] = itoa(resources.CPU)
-	labels[memLabelKey] = itoa(resources.Mem)
-	labels[diskLabelKey] = itoa(resources.Disk)
-	labels[networkLabelKey] = itoa(resources.Network)
-	addLabels(titusInfo, labels)
-
 	c := &TitusInfoContainer{
 		taskID:       taskID,
 		titusInfo:    titusInfo,
 		resources:    resources,
 		envOverrides: map[string]string{},
-		labels:       labels,
 		config:       cfg,
 	}
 
@@ -364,24 +349,40 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 
 	// This depends on a number of the other fields being populated, so run it last
 	cEnv := c.Env()
-	c.labels[titusTaskInstanceIDKey] = cEnv[titusTaskInstanceIDKey]
+	c.labels = addLabels(taskID, c, &resources)
 	c.jobID = cEnv[titusJobIDKey]
 
 	return c, nil
 }
 
-func addLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
-	labels = addContainerLabels(containerInfo, labels)
-	labels = addPassThroughLabels(containerInfo, labels)
-	labels = addProcessLabels(containerInfo, labels)
+func addLabels(taskID string, c Container, resources *Resources) map[string]string {
+	labels := map[string]string{
+		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
+		models.TaskIDLabel:      taskID,
+		titusTaskInstanceIDKey:  taskID,
+	}
+
+	iamRole := c.IamRole()
+	if iamRole != nil {
+		labels[iamRoleLabelKey] = *iamRole
+	}
+
+	labels[cpuLabelKey] = itoa(resources.CPU)
+	labels[memLabelKey] = itoa(resources.Mem)
+	labels[diskLabelKey] = itoa(resources.Disk)
+	labels[networkLabelKey] = itoa(resources.Network)
+
+	labels = addContainerLabels(c, labels)
+	labels = addPassThroughLabels(c, labels)
+	labels = addProcessLabels(c, labels)
 	return labels
 }
 
-func addContainerLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
-	labels[appNameLabelKey] = containerInfo.GetAppName()
+func addContainerLabels(c Container, labels map[string]string) map[string]string {
+	labels[appNameLabelKey] = c.AppName()
 
 	workloadType := StaticWorkloadType
-	if containerInfo.GetAllowCpuBursting() {
+	if c.AllowCPUBursting() {
 		workloadType = BurstWorkloadType
 	}
 
@@ -390,36 +391,35 @@ func addContainerLabels(containerInfo *titus.ContainerInfo, labels map[string]st
 	return labels
 }
 
-func addPassThroughLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
-	ownerEmail := ""
-	jobType := ""
+func addPassThroughLabels(c Container, labels map[string]string) map[string]string {
+	ownerEmailStr := ""
+	jobTypeStr := ""
 
-	passthroughAttributes := containerInfo.GetPassthroughAttributes()
-	if passthroughAttributes != nil {
-		ownerEmail = passthroughAttributes[ownerEmailPassThroughKey]
-		jobType = passthroughAttributes[jobTypePassThroughKey]
+	jobType := c.JobType()
+	if jobType != nil {
+		jobTypeStr = *jobType
+	}
+	email := c.OwnerEmail()
+	if email != nil {
+		ownerEmailStr = *email
 	}
 
-	labels[ownerEmailLabelKey] = ownerEmail
-	labels[jobTypeLabelKey] = jobType
+	labels[ownerEmailLabelKey] = ownerEmailStr
+	labels[jobTypeLabelKey] = jobTypeStr
 
 	return labels
 }
 
-func addProcessLabels(containerInfo *titus.ContainerInfo, labels map[string]string) map[string]string {
-	process := containerInfo.GetProcess()
-	if process != nil {
-		entryPoint := process.GetEntrypoint()
-		if entryPoint != nil {
-			entryPointStr := strings.Join(entryPoint[:], " ")
-			labels[entrypointLabelKey] = entryPointStr
-		}
+func addProcessLabels(c Container, labels map[string]string) map[string]string {
+	entryPoint, command := c.Process()
+	if entryPoint != nil {
+		entryPointStr := strings.Join(entryPoint[:], " ")
+		labels[entrypointLabelKey] = entryPointStr
+	}
 
-		command := process.GetCommand()
-		if command != nil {
-			commandStr := strings.Join(command[:], " ")
-			labels[commandLabelKey] = commandStr
-		}
+	if command != nil {
+		commandStr := strings.Join(command[:], " ")
+		labels[commandLabelKey] = commandStr
 	}
 
 	return labels
@@ -692,6 +692,19 @@ func (c *TitusInfoContainer) JobID() *string {
 	return &c.jobID
 }
 
+func (c *TitusInfoContainer) JobType() *string {
+	passthroughAttributes := c.titusInfo.GetPassthroughAttributes()
+	if passthroughAttributes == nil {
+		return nil
+	}
+
+	jobVal, ok := passthroughAttributes[jobTypePassThroughKey]
+	if !ok {
+		return nil
+	}
+	return &jobVal
+}
+
 func (c *TitusInfoContainer) KillWaitSeconds() *uint32 {
 	val := c.titusInfo.GetKillWaitSeconds()
 	if val != 0 {
@@ -762,6 +775,19 @@ func (c *TitusInfoContainer) OomScoreAdj() *int32 {
 	}
 
 	return nil
+}
+
+func (c *TitusInfoContainer) OwnerEmail() *string {
+	passthroughAttributes := c.titusInfo.GetPassthroughAttributes()
+	if passthroughAttributes == nil {
+		return nil
+	}
+
+	emailVal, ok := passthroughAttributes[ownerEmailPassThroughKey]
+	if !ok {
+		return nil
+	}
+	return &emailVal
 }
 
 // Process returns entrypoint and command for the container

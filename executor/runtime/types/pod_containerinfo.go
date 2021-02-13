@@ -202,6 +202,10 @@ func (c *PodContainerInfoContainer) JobID() *string {
 	return nil
 }
 
+func (c *PodContainerInfoContainer) JobType() *string {
+	return nil
+}
+
 func (c *PodContainerInfoContainer) KillWaitSeconds() *uint32 {
 	return nil
 }
@@ -247,6 +251,10 @@ func (c *PodContainerInfoContainer) NormalizedENIIndex() *int {
 }
 
 func (c *PodContainerInfoContainer) OomScoreAdj() *int32 {
+	return nil
+}
+
+func (c *PodContainerInfoContainer) OwnerEmail() *string {
 	return nil
 }
 

@@ -10,9 +10,15 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
+	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	"google.golang.org/protobuf/proto"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
@@ -143,6 +149,7 @@ type Container interface {
 	JobGroupStack() string
 	JobGroupSequence() string
 	JobID() *string
+	JobType() *string
 	KillWaitSeconds() *uint32
 	KvmEnabled() bool
 	Labels() map[string]string
@@ -155,6 +162,7 @@ type Container interface {
 	MetatronCreds() *titus.ContainerInfo_MetatronCreds
 	NormalizedENIIndex() *int
 	OomScoreAdj() *int32
+	OwnerEmail() *string
 	Process() ([]string, []string)
 	QualifiedImageName() string
 	Resources() *Resources
@@ -268,11 +276,72 @@ func ContainerConfig(c Container, startTime time.Time) (*titus.ContainerInfo, er
 	return ti, nil
 }
 
+func ContainerInfoToPod(taskID string, resources *Resources, cInfo *titus.ContainerInfo, cfg *config.Config) (*corev1.Pod, error) {
+	cpu := resource.NewQuantity(resources.CPU, resource.DecimalSI)
+	mem := resource.NewQuantity(resources.Mem*1024*1024, resource.BinarySI)
+	disk := resource.NewQuantity(resources.Disk*1024*1024, resource.BinarySI)
+	gpu := resource.NewQuantity(resources.GPU, resource.DecimalSI)
+	net := resource.NewScaledQuantity(resources.Network, resource.Mega)
+
+	image := cfg.DockerRegistry + "/" + cInfo.GetImageName()
+	if cInfo.ImageDigest != nil {
+		image = image + "@" + cInfo.GetImageDigest()
+	} else {
+		image = image + ":" + cInfo.GetVersion()
+	}
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      taskID,
+			Namespace: "default",
+			Annotations: map[string]string{
+				podCommon.AnnotationKeyPodSchemaVersion: "1",
+				podCommon.AnnotationKeyIAMRole:          cInfo.GetIamProfile(),
+			},
+			Labels: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  taskID,
+					Image: image,
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:                 *cpu,
+							corev1.ResourceMemory:              *mem,
+							corev1.ResourceEphemeralStorage:    *disk,
+							resourceCommon.ResourceNameNetwork: *net,
+							resourceCommon.ResourceNameGpu:     *gpu,
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:                 *cpu,
+							corev1.ResourceMemory:              *mem,
+							corev1.ResourceEphemeralStorage:    *disk,
+							resourceCommon.ResourceNameNetwork: *net,
+							resourceCommon.ResourceNameGpu:     *gpu,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if cInfo.EntrypointStr != nil {
+		entrypoint, err := dockershellparser.ProcessWords(*cInfo.EntrypointStr, []string{})
+		if err != nil {
+			return nil, err
+		}
+		pod.Spec.Containers[0].Command = entrypoint
+	}
+
+	return pod, nil
+}
+
 // ContainerTestArgs generates test arguments appropriate for passing to NewContainer()
-func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *config.Config, error) {
+func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *corev1.Pod, *config.Config, error) {
 	cfg, err := config.GenerateConfiguration(nil)
 	if err != nil {
-		return "", nil, nil, nil, err
+		return "", nil, nil, nil, nil, err
 	}
 
 	titusInfo := &titus.ContainerInfo{
@@ -286,12 +355,18 @@ func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *config.Conf
 	resources := &Resources{
 		Mem:     512,
 		CPU:     2,
-		GPU:     0,
-		Disk:    10240,
-		Network: 25600,
+		GPU:     1,
+		Disk:    10000,
+		Network: 128,
+	}
+	taskID := "taskid"
+
+	pod, err := ContainerInfoToPod(taskID, resources, titusInfo, cfg)
+	if err != nil {
+		return "", nil, nil, nil, nil, err
 	}
 
-	return "taskid", titusInfo, resources, cfg, nil
+	return taskID, titusInfo, resources, pod, cfg, nil
 }
 
 // Resources specify constraints to be applied to a Container

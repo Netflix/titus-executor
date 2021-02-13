@@ -2,85 +2,137 @@ package types
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types" // nolint: staticcheck
 	podCommon "github.com/Netflix/titus-kube-common/pod"   // nolint: staticcheck
-	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ptr "k8s.io/utils/pointer"
 )
 
+var (
+	stringNil           *string
+	imageFullWithLatest = "docker.io/titusoss/alpine:latest"
+)
+
+func addPodAnnotations(pod *corev1.Pod, annotations map[string]string) {
+	for k, v := range annotations {
+		pod.ObjectMeta.Annotations[k] = v
+	}
+}
+
+func TestPodImageNameWithTag(t *testing.T) {
+	_, _, _, pod, conf, err := ContainerTestArgs()
+	assert.NilError(t, err)
+	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
+	assert.NilError(t, err)
+
+	uc := podCommon.GetUserContainer(pod)
+	uc.Image = imageFullWithLatest
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	assert.Equal(t, c.QualifiedImageName(), imageFullWithLatest)
+	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
+	assert.DeepEqual(t, c.ImageVersion(), ptr.StringPtr("latest"))
+	assert.DeepEqual(t, c.ImageDigest(), stringNil)
+}
+
+func TestPodImageTagOmitLatest(t *testing.T) {
+	_, _, _, pod, conf, err := ContainerTestArgs()
+	assert.NilError(t, err)
+	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
+	assert.NilError(t, err)
+
+	// TODO: is this the behaviour we want?
+	expected := "docker.io/titusoss/alpine"
+	uc := podCommon.GetUserContainer(pod)
+	uc.Image = expected
+
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	assert.Equal(t, c.QualifiedImageName(), expected)
+}
+
+func TestPodImageByDigest(t *testing.T) {
+	_, _, _, pod, conf, err := ContainerTestArgs()
+	assert.NilError(t, err)
+	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
+	assert.NilError(t, err)
+
+	expImgName := "titusoss/alpine"
+	expDigest := "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
+	expected := "docker.io/" + expImgName + "@" + expDigest
+
+	uc := podCommon.GetUserContainer(pod)
+	uc.Image = expected
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	assert.Equal(t, c.QualifiedImageName(), expected)
+	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr(expImgName))
+	assert.DeepEqual(t, c.ImageVersion(), stringNil)
+	assert.DeepEqual(t, c.ImageDigest(), ptr.StringPtr(expDigest))
+}
+
 func TestNewPodContainer(t *testing.T) {
-	var stringNil *string
-	//taskID, titusInfo, resources, conf, err := ContainerTestArgs()
-	taskID, _, _, conf, err := ContainerTestArgs()
+	taskID, _, _, pod, conf, err := ContainerTestArgs()
 	assert.NilError(t, err)
 
 	ipAddr := "1.2.3.4"
 	expectedCommand := []string{"cmd", "arg0", "arg1"}
 	expectedEntrypoint := []string{"entrypoint", "arg0", "arg1"}
-
-	cpu := resource.NewQuantity(1, resource.DecimalSI)
-	gpu := resource.NewQuantity(1, resource.DecimalSI)
-	mem, _ := resource.ParseQuantity("512Mi")
-	disk, _ := resource.ParseQuantity("10000Mi")
-	network, _ := resource.ParseQuantity("128M")
 	iamRole := "arn:aws:iam::0:role/DefaultContainerRole"
 	imgName := "titusoss/alpine"
 	imgDigest := "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
 	expectedImage := "docker.io/" + imgName + "@" + imgDigest
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: taskID,
-			Annotations: map[string]string{
-				podCommon.AnnotationKeyPodSchemaVersion: "1",
-
-				podCommon.AnnotationKeyAppName:          "appName",
-				podCommon.AnnotationKeyAppDetail:        "appDetail",
-				podCommon.AnnotationKeyAppStack:         "appStack",
-				podCommon.AnnotationKeyAppSequence:      "appSeq",
-				podCommon.AnnotationKeyIAMRole:          iamRole,
-				podCommon.AnnotationKeyNetworkAccountID: "123456",
-			},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:    taskID,
-					Command: expectedEntrypoint,
-					Image:   expectedImage,
-					Args:    expectedCommand,
-					Resources: corev1.ResourceRequirements{
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:                 *cpu,
-							corev1.ResourceMemory:              mem,
-							corev1.ResourceEphemeralStorage:    disk,
-							resourceCommon.ResourceNameGpu:     *gpu,
-							resourceCommon.ResourceNameNetwork: network,
-						},
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:                 *cpu,
-							corev1.ResourceMemory:              mem,
-							corev1.ResourceEphemeralStorage:    disk,
-							resourceCommon.ResourceNameGpu:     *gpu,
-							resourceCommon.ResourceNameNetwork: network,
-						},
-					},
-				},
-			},
-		},
+	expAppName := "appName"
+	expAppOwner := "user@example.com"
+	expResources := &Resources{
+		CPU:     2,
+		GPU:     1,
+		Mem:     512,
+		Disk:    10000,
+		Network: 128,
 	}
+	expVPCalloc := &vpcTypes.HybridAllocation{
+		IPV4Address: &vpcapi.UsableAddress{
+			PrefixLength: 32,
+			Address: &vpcapi.Address{
+				Address: ipAddr,
+			},
+		},
+		BranchENIID:     "eni-abcde",
+		BranchENISubnet: "subnet-abcde",
+		BranchENIVPC:    "vpc-abcde",
+	}
+
+	addPodAnnotations(pod, map[string]string{
+		podCommon.AnnotationKeyAppName:          expAppName,
+		podCommon.AnnotationKeyAppDetail:        "appDetail",
+		podCommon.AnnotationKeyAppOwnerEmail:    expAppOwner,
+		podCommon.AnnotationKeyAppStack:         "appStack",
+		podCommon.AnnotationKeyAppSequence:      "appSeq",
+		podCommon.AnnotationKeyIAMRole:          iamRole,
+		podCommon.AnnotationKeyJobID:            "jobid",
+		podCommon.AnnotationKeyJobType:          "service",
+		podCommon.AnnotationKeyNetworkAccountID: "123456",
+	})
+
+	uc := podCommon.GetUserContainer(pod)
+	uc.Args = expectedCommand
+	uc.Command = expectedEntrypoint
+	uc.Image = expectedImage
+
 	//startTime := time.Now()
 	cInfo := &titus.ContainerInfo{
 		Process: &titus.ContainerInfo_Process{
@@ -93,18 +145,6 @@ func TestNewPodContainer(t *testing.T) {
 
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
-
-	expVPCalloc := &vpcTypes.HybridAllocation{
-		IPV4Address: &vpcapi.UsableAddress{
-			PrefixLength: 32,
-			Address: &vpcapi.Address{
-				Address: ipAddr,
-			},
-		},
-		BranchENIID:     "eni-abcde",
-		BranchENISubnet: "subnet-abcde",
-		BranchENIVPC:    "vpc-abcde",
-	}
 	c.SetVPCAllocation(expVPCalloc)
 
 	assert.Equal(t, c.TaskID(), taskID)
@@ -115,28 +155,6 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, entrypoint, expectedEntrypoint)
 	assert.DeepEqual(t, cmd, expectedCommand)
 
-	/*
-		// XXX
-		actCinfo, err := c.ContainerInfo()
-		assert.NilError(t, err)
-		assert.Assert(t, proto.Equal(cInfo, actCinfo))
-
-		cConf, err := ContainerConfig(c, startTime)
-		assert.NilError(t, err)
-		assert.Assert(t, cConf != nil)
-
-		launchTime := uint64(startTime.Unix())
-		cInfo.RunState = &titus.RunningContainerInfo{
-			LaunchTimeUnixSec: &launchTime,
-			TaskId:            &taskID,
-			HostName:          &taskID,
-		}
-		assert.Assert(t, cConf.RunState != nil) // nolint: staticcheck
-		assert.Assert(t, proto.Equal(cInfo, cConf))
-	*/
-
-	// Fields from the interface that aren't implemented right now
-	var intNil *int
 	var int32Nil *int32
 	var int64Nil *int64
 	var uint32Nil *uint32
@@ -173,13 +191,15 @@ func TestNewPodContainer(t *testing.T) {
 		"NETFLIX_STACK":                     "appStack",
 		"TITUS_IAM_ROLE":                    iamRole,
 		"TITUS_IMAGE_DIGEST":                imgDigest,
-		"TITUS_METATRON_ENABLED":            "true",
-		"TITUS_NUM_CPU":                     "1",
-		"TITUS_NUM_DISK":                    "10000",
-		"TITUS_NUM_MEM":                     "512",
-		"TITUS_NUM_NETWORK_BANDWIDTH":       "128",
-		"TITUS_OCI_RUNTIME":                 DefaultOciRuntime,
-		"EC2_INTERFACE_ID":                  "eni-abcde",
+		"TITUS_IMAGE_NAME":                  "titusoss/alpine",
+		// XXX
+		"TITUS_METATRON_ENABLED":      "true",
+		"TITUS_NUM_CPU":               "2",
+		"TITUS_NUM_DISK":              "10000",
+		"TITUS_NUM_MEM":               "512",
+		"TITUS_NUM_NETWORK_BANDWIDTH": "128",
+		"TITUS_OCI_RUNTIME":           DefaultOciRuntime,
+		"EC2_INTERFACE_ID":            "eni-abcde",
 	}
 
 	expEnvArray := []string{}
@@ -196,19 +216,35 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.FuseEnabled(), false)
 	assert.Equal(t, c.GPUInfo(), gpuNil)
 	assert.DeepEqual(t, c.IamRole(), ptr.StringPtr(iamRole))
-	assert.Equal(t, c.ID(), "")
+	assert.Equal(t, c.ID(), taskID)
 	assert.DeepEqual(t, c.ImageDigest(), ptr.StringPtr(imgDigest))
-	assert.Equal(t, c.ImageName(), stringNil)
+	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
 	assert.Equal(t, c.ImageVersion(), stringNil)
 	assert.DeepEqual(t, c.ImageTagForMetrics(), map[string]string{})
 	assert.Equal(t, c.IsSystemD(), false)
 	assert.Equal(t, c.JobGroupDetail(), "appDetail")
 	assert.Equal(t, c.JobGroupStack(), "appStack")
 	assert.Equal(t, c.JobGroupSequence(), "appSeq")
-	assert.Equal(t, c.JobID(), stringNil)
+	assert.DeepEqual(t, c.JobID(), ptr.StringPtr("jobid"))
+	assert.DeepEqual(t, c.JobType(), ptr.StringPtr("service"))
 	assert.Equal(t, c.KillWaitSeconds(), uint32Nil)
 	assert.Equal(t, c.KvmEnabled(), false)
-	assert.DeepEqual(t, c.Labels(), map[string]string{})
+	assert.DeepEqual(t, c.Labels(), map[string]string{
+		appNameLabelKey:         expAppName,
+		commandLabelKey:         strings.Join(expectedCommand, " "),
+		entrypointLabelKey:      strings.Join(expectedEntrypoint, " "),
+		ownerEmailLabelKey:      expAppOwner,
+		jobTypeLabelKey:         "service",
+		cpuLabelKey:             strconv.Itoa(int(expResources.CPU)),
+		iamRoleLabelKey:         iamRole,
+		memLabelKey:             strconv.Itoa(int(expResources.Mem)),
+		diskLabelKey:            strconv.Itoa(int(expResources.Disk)),
+		networkLabelKey:         strconv.Itoa(int(expResources.Network)),
+		titusTaskInstanceIDKey:  taskID,
+		workloadTypeLabelKey:    string(StaticWorkloadType),
+		models.ExecutorPidLabel: strconv.Itoa(os.Getpid()),
+		models.TaskIDLabel:      taskID,
+	})
 	assert.Equal(t, c.LogKeepLocalFileAfterUpload(), false)
 
 	expStdioCheckInterval, _ := time.ParseDuration("1m")
@@ -225,17 +261,12 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, c.LogUploadThresholdTime(), &expUploadThreshold)
 
 	assert.Equal(t, c.MetatronCreds(), metatronCredsNil)
-	assert.Equal(t, c.NormalizedENIIndex(), intNil)
+	zero := int(0)
+	assert.DeepEqual(t, c.NormalizedENIIndex(), &zero)
 	assert.Equal(t, c.OomScoreAdj(), int32Nil)
 	assert.Equal(t, c.QualifiedImageName(), expectedImage)
 
-	assert.DeepEqual(t, c.Resources(), &Resources{
-		CPU:     1,
-		GPU:     1,
-		Mem:     512,
-		Disk:    10000,
-		Network: 128,
-	})
+	assert.DeepEqual(t, c.Resources(), expResources)
 	assert.DeepEqual(t, c.RequireIMDSToken(), stringNil)
 	assert.Equal(t, c.Runtime(), "runc")
 	assert.DeepEqual(t, c.SecurityGroupIDs(), stringsNil)

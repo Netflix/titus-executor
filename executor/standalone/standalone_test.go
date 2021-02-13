@@ -228,7 +228,7 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 
 	drt, ok := rt.(*docker.DockerRuntime)
 	require.True(t, ok, "DockerRuntime cast should succeed")
-	taskID, titusInfo, resources, conf, err := runtimeTypes.ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
 	assert.NoError(t, err)
 	titusInfo.ImageName = protobuf.String(imgName)
 	titusInfo.ImageDigest = protobuf.String(imgDigest)

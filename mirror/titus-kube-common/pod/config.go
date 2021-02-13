@@ -31,6 +31,7 @@ type Config struct {
 	EgressBandwidth        *resource.Quantity
 	ElasticIPPool          *string
 	ElasticIPs             *string
+	ENIDeviceIndex         *string
 	FuseEnabled            *bool
 	HostnameStyle          *string
 	IAMRole                *string

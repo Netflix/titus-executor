@@ -9,7 +9,7 @@ import (
 )
 
 func TestDefaultProfile(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := runtimeTypes.ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
 	assert.NoError(t, err)
 	c, err := runtimeTypes.NewContainer(taskID, titusInfo, *resources, *conf)
 	assert.NoError(t, err)
@@ -24,7 +24,7 @@ func TestDefaultProfile(t *testing.T) {
 }
 
 func TestFuseProfile(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := runtimeTypes.ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
 	assert.NoError(t, err)
 	titusInfo.PassthroughAttributes[runtimeTypes.FuseEnabledParam] = "true"
 	c, err := runtimeTypes.NewContainer(taskID, titusInfo, *resources, *conf)

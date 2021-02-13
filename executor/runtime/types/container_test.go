@@ -1,6 +1,7 @@
 package types
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -8,13 +9,15 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/models"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	assert2 "gotest.tools/assert"
 )
 
 func TestImageNameWithTag(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/titusoss/alpine:latest"
@@ -29,7 +32,7 @@ func TestImageNameWithTag(t *testing.T) {
 }
 
 func TestImageTagLatestByDefault(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/titusoss/alpine:latest"
@@ -43,7 +46,7 @@ func TestImageTagLatestByDefault(t *testing.T) {
 }
 
 func TestImageByDigest(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/" +
@@ -59,7 +62,7 @@ func TestImageByDigest(t *testing.T) {
 }
 
 func TestImageByDigestIgnoresTag(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/" +
@@ -101,6 +104,7 @@ func TestNewContainer(t *testing.T) {
 	expectedPassthroughAttributes[jobTypePassThroughKey] = expectedJobType
 	expectedCommand := "cmd arg0 arg1"
 	expectedEntrypoint := "entrypoint arg0 arg1"
+	expectedIamRole := "arn:aws:iam::0:role/DefaultContainerRole"
 
 	containerInfo := &titus.ContainerInfo{
 		AppName:   &expectedAppName,
@@ -121,7 +125,7 @@ func TestNewContainer(t *testing.T) {
 			Command:    strings.Split(expectedCommand, " "),
 			Entrypoint: strings.Split(expectedEntrypoint, " "),
 		},
-		IamProfile: protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
+		IamProfile: protobuf.String(expectedIamRole),
 	}
 
 	resources := Resources{
@@ -136,35 +140,22 @@ func TestNewContainer(t *testing.T) {
 	container, err := NewContainer(taskID, containerInfo, resources, config)
 	require.Nil(t, err)
 
-	actualAppNameLabel := container.Labels()[appNameLabelKey]
-	assert.Equal(t, expectedAppName, actualAppNameLabel)
-
-	actualCommandLabel := container.Labels()[commandLabelKey]
-	assert.Equal(t, expectedCommand, actualCommandLabel)
-
-	actualEntrypointLabel := container.Labels()[entrypointLabelKey]
-	assert.Equal(t, expectedEntrypoint, actualEntrypointLabel)
-
-	actualOwnerEmailLabel := container.Labels()[ownerEmailLabelKey]
-	assert.Equal(t, expectedOwnerEmail, actualOwnerEmailLabel)
-
-	actualJobTypeLabel := container.Labels()[jobTypeLabelKey]
-	assert.Equal(t, expectedJobType, actualJobTypeLabel)
-
-	actualCPULabel, _ := strconv.ParseInt(container.Labels()[cpuLabelKey], 10, 64)
-	assert.Equal(t, expectedCPU, actualCPULabel)
-
-	actualMemLabel, _ := strconv.ParseInt(container.Labels()[memLabelKey], 10, 64)
-	assert.Equal(t, expectedMem, actualMemLabel)
-
-	actualDiskLabel, _ := strconv.ParseInt(container.Labels()[diskLabelKey], 10, 64)
-	assert.Equal(t, expectedDisk, actualDiskLabel)
-
-	actualNetworkLabel, _ := strconv.ParseUint(container.Labels()[networkLabelKey], 10, 32)
-	assert.Equal(t, expectedNetwork, uint32(actualNetworkLabel))
-
-	actualWorkloadTypeLabel := container.Labels()[workloadTypeLabelKey]
-	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadTypeLabel))
+	assert2.DeepEqual(t, container.Labels(), map[string]string{
+		appNameLabelKey:         expectedAppName,
+		commandLabelKey:         expectedCommand,
+		entrypointLabelKey:      expectedEntrypoint,
+		ownerEmailLabelKey:      expectedOwnerEmail,
+		jobTypeLabelKey:         expectedJobType,
+		cpuLabelKey:             strconv.Itoa(int(expectedCPU)),
+		iamRoleLabelKey:         expectedIamRole,
+		memLabelKey:             strconv.Itoa(int(expectedMem)),
+		diskLabelKey:            strconv.Itoa(int(expectedDisk)),
+		networkLabelKey:         strconv.Itoa(int(expectedNetwork)),
+		titusTaskInstanceIDKey:  taskID,
+		workloadTypeLabelKey:    string(expectedWorkloadType),
+		models.ExecutorPidLabel: strconv.Itoa(os.Getpid()),
+		models.TaskIDLabel:      taskID,
+	})
 
 	// Default to false unless metatron is explicitly configured
 	assert.Equal(t, container.Env()["TITUS_METATRON_ENABLED"], "false")
@@ -256,7 +247,7 @@ func TestClusterName(t *testing.T) {
 	}
 
 	for _, f := range fixtures {
-		taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+		taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 		assert.NoError(t, err)
 		if f.appName != "" {
 			titusInfo.AppName = &f.appName
@@ -659,7 +650,7 @@ func TestServiceMeshEnabled(t *testing.T) {
 		ContainerServiceMeshEnabled: true,
 	}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, _, err := ContainerTestArgs()
 	require.Nil(t, err)
 	titusInfo.PassthroughAttributes = map[string]string{
 		serviceMeshContainerParam: imgName,
@@ -683,7 +674,7 @@ func TestServiceMeshEnabledWithConfig(t *testing.T) {
 		ContainerServiceMeshEnabled: true,
 	}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, _, err := ContainerTestArgs()
 	require.Nil(t, err)
 	c, err := NewContainer(taskID, titusInfo, *resources, config)
 	require.Nil(t, err)
@@ -702,7 +693,7 @@ func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 		ProxydServiceImage:          "",
 	}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, _, err := ContainerTestArgs()
 	require.Nil(t, err)
 	c, err := NewContainer(taskID, titusInfo, *resources, config)
 	require.Nil(t, err)
@@ -717,7 +708,7 @@ func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 func TestSubnetIDHasSpaces(t *testing.T) {
 	config := config.Config{}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, _, err := ContainerTestArgs()
 	require.Nil(t, err)
 	titusInfo.PassthroughAttributes[subnetsParam] = "subnet-foo, subnet-bar "
 	c, err := NewContainer(taskID, titusInfo, *resources, config)

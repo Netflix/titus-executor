@@ -92,11 +92,12 @@ func TestParsePod(t *testing.T) {
 		AnnotationKeyJobDescriptor:                 "myjobdesc",
 		AnnotationKeyPodTitusContainerInfo:         "cinfo",
 
-		AnnotationKeyNetworkAccountID:          "123456",
-		AnnotationKeyNetworkElasticIPPool:      "pool-1",
-		AnnotationKeyNetworkElasticIPs:         "eip-1,eip-2",
-		AnnotationKeyNetworkIMDSRequireToken:   "require-token",
-		AnnotationKeyNetworkSecurityGroups:     "sg-1,sg-2",
+		AnnotationKeyNetworkAccountID:        "123456",
+		AnnotationKeyNetworkElasticIPPool:    "pool-1",
+		AnnotationKeyNetworkElasticIPs:       "eip-1,eip-2",
+		AnnotationKeyNetworkIMDSRequireToken: "require-token",
+		// Spaces intentionally added: we need to trim these
+		AnnotationKeyNetworkSecurityGroups:     "sg-1 , sg-2 ",
 		AnnotationKeyNetworkStaticIPAllocation: "static-ip-alloc",
 		AnnotationKeyNetworkSubnetIDs:          "subnet-1,subnet-2",
 
