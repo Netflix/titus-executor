@@ -16,14 +16,12 @@ import (
 	"syscall"
 	"time"
 
-	log2 "github.com/Netflix/titus-executor/utils/log"
-	"github.com/Netflix/titus-executor/utils/netns"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/metadataserver"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/types"
+	log2 "github.com/Netflix/titus-executor/utils/log"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"gopkg.in/urfave/cli.v1"
@@ -126,7 +124,6 @@ func main() {
 		publicIpv4Address          string
 		ipv6Addresses              string
 		xFordwardedForBlockingMode bool
-		peerNs                     string
 	)
 
 	app.Flags = []cli.Flag{
@@ -222,12 +219,6 @@ func main() {
 			EnvVar:      "X_FORWARDED_FOR_BLOCKING_MODE",
 			Destination: &xFordwardedForBlockingMode,
 		},
-		cli.StringFlag{
-			Name:        "peer-namespace",
-			Usage:       "When set, the proxy will bind inside the namespace specified",
-			EnvVar:      "PEER_NAMESPACE",
-			Destination: &peerNs,
-		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -239,21 +230,7 @@ func main() {
 
 		log2.MaybeSetupLoggerIfOnJournaldAvailable()
 
-		/* Get the requisite configuration from environment variables */
-		var listener net.Listener
-
-		if len(peerNs) > 0 {
-			// We were launched by a CNI. Bind inside peer namespace.
-			log.Infof("Launched with PEER_NS %s, LISTEN_PORT %d", peerNs, listenPort)
-			nsListener, err := netns.GetNsListener(peerNs, listenPort)
-			if err != nil {
-				log.WithError(err).Fatal("Could not get listener")
-			}
-
-			listener = nsListener
-		} else {
-			listener = getListener(listenPort, listenerFd)
-		}
+		listener := getListener(listenPort, listenerFd)
 
 		mdscfg := types.MetadataServerConfiguration{
 			IAMARN:                     iamARN,
