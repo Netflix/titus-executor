@@ -44,27 +44,28 @@ const (
 	titusJobIDKey            = "TITUS_JOB_ID"
 
 	// Passthrough params
-	s3WriterRoleParam                = "titusParameter.agent.log.s3WriterRole"
-	s3BucketNameParam                = "titusParameter.agent.log.s3BucketName"
-	s3PathPrefixParam                = "titusParameter.agent.log.s3PathPrefix"
-	hostnameStyleParam               = "titusParameter.agent.hostnameStyle"
-	logUploadThresholdTimeParam      = "titusParameter.agent.log.uploadThresholdTime"
-	logUploadCheckIntervalParam      = "titusParameter.agent.log.uploadCheckInterval"
-	logStdioCheckIntervalParam       = "titusParameter.agent.log.stdioCheckInterval"
-	LogKeepLocalFileAfterUploadParam = "titusParameter.agent.log.keepLocalFileAfterUpload"
-	FuseEnabledParam                 = "titusParameter.agent.fuseEnabled"
-	KvmEnabledParam                  = "titusParameter.agent.kvmEnabled"
-	assignIPv6AddressParam           = "titusParameter.agent.assignIPv6Address"
-	batchPriorityParam               = "titusParameter.agent.batchPriority"
-	serviceMeshEnabledParam          = "titusParameter.agent.service.serviceMesh.enabled"
-	serviceMeshContainerParam        = "titusParameter.agent.service.serviceMesh.container"
-	ttyEnabledParam                  = "titusParameter.agent.ttyEnabled"
-	jumboFrameParam                  = "titusParameter.agent.allowNetworkJumbo"
-	AccountIDParam                   = "titusParameter.agent.accountId"
-	imdsRequireTokenParam            = "titusParameter.agent.imds.requireToken"
-	subnetsParam                     = "titusParameter.agent.subnets"
-	elasticIPPoolParam               = "titusParameter.agent.elasticIPPool"
-	elasticIPsParam                  = "titusParameter.agent.elasticIPs"
+	s3WriterRoleParam                       = "titusParameter.agent.log.s3WriterRole"
+	s3BucketNameParam                       = "titusParameter.agent.log.s3BucketName"
+	s3PathPrefixParam                       = "titusParameter.agent.log.s3PathPrefix"
+	hostnameStyleParam                      = "titusParameter.agent.hostnameStyle"
+	logUploadThresholdTimeParam             = "titusParameter.agent.log.uploadThresholdTime"
+	logUploadCheckIntervalParam             = "titusParameter.agent.log.uploadCheckInterval"
+	logStdioCheckIntervalParam              = "titusParameter.agent.log.stdioCheckInterval"
+	LogKeepLocalFileAfterUploadParam        = "titusParameter.agent.log.keepLocalFileAfterUpload"
+	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
+	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
+	SeccompAgentEnabledForPerfSyscallsParam = "titusParameter.agent.seccompAgentEnabledForPerfSyscalls"
+	assignIPv6AddressParam                  = "titusParameter.agent.assignIPv6Address"
+	batchPriorityParam                      = "titusParameter.agent.batchPriority"
+	serviceMeshEnabledParam                 = "titusParameter.agent.service.serviceMesh.enabled"
+	serviceMeshContainerParam               = "titusParameter.agent.service.serviceMesh.container"
+	ttyEnabledParam                         = "titusParameter.agent.ttyEnabled"
+	jumboFrameParam                         = "titusParameter.agent.allowNetworkJumbo"
+	AccountIDParam                          = "titusParameter.agent.accountId"
+	imdsRequireTokenParam                   = "titusParameter.agent.imds.requireToken"
+	subnetsParam                            = "titusParameter.agent.subnets"
+	elasticIPPoolParam                      = "titusParameter.agent.elasticIPPool"
+	elasticIPsParam                         = "titusParameter.agent.elasticIPs"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
@@ -158,11 +159,12 @@ type TitusInfoContainer struct {
 	// FuseEnabled determines whether the container has FUSE devices exposed to it
 	fuseEnabled bool
 	// KvmEnabled determines whether the container has KVM exposed to it
-	kvmEnabled         bool
-	requireIMDSToken   string
-	serviceMeshEnabled *bool
-	serviceMeshImage   string
-	ttyEnabled         bool
+	kvmEnabled                         bool
+	requireIMDSToken                   string
+	seccompAgentEnabledForPerfSyscalls bool
+	serviceMeshEnabled                 *bool
+	serviceMeshImage                   string
+	ttyEnabled                         bool
 
 	config config.Config
 }
@@ -299,6 +301,10 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		{
 			paramName:     KvmEnabledParam,
 			containerAttr: &c.kvmEnabled,
+		},
+		{
+			paramName:     SeccompAgentEnabledForPerfSyscallsParam,
+			containerAttr: &c.seccompAgentEnabledForPerfSyscalls,
 		},
 		{
 			paramName:     ttyEnabledParam,
@@ -871,6 +877,10 @@ func (c *TitusInfoContainer) Runtime() string {
 	return DefaultOciRuntime
 }
 
+func (c *TitusInfoContainer) SeccompAgentEnabledForPerfSyscalls() bool {
+	return c.seccompAgentEnabledForPerfSyscalls
+}
+
 func (c *TitusInfoContainer) SecurityGroupIDs() *[]string {
 	networkCfgParams := c.titusInfo.GetNetworkConfigInfo()
 	secGroups := networkCfgParams.GetSecurityGroups()
@@ -998,7 +1008,15 @@ func (c *TitusInfoContainer) SortedEnvArray() []string {
 }
 
 func (c *TitusInfoContainer) SubnetIDs() *string {
-	return strPtrOr(c.subnetIDs, nil)
+	if c.subnetIDs == "" {
+		return nil
+	}
+	subnetIDs := strings.Split(c.subnetIDs, ",")
+	for idx, subnetID := range subnetIDs {
+		subnetIDs[idx] = strings.TrimSpace(subnetID)
+	}
+	joinedSubnetIDString := strings.Join(subnetIDs, ",")
+	return &joinedSubnetIDString
 }
 
 func (c *TitusInfoContainer) TaskID() string {

@@ -32,7 +32,8 @@ type roleAssumptionState struct {
 	assumeRoleError     error
 }
 
-type iamProxy struct {
+// roleProxy manages a proxy instance per role we want to make accessible
+type roleProxy struct {
 	ctx                 context.Context
 	roleName            string
 	titusTaskInstanceID string
@@ -44,12 +45,19 @@ type iamProxy struct {
 	// This is used to start the role assumer
 }
 
+// iamProxy is the multiplexer for multiple roleProxies to be handled by one api based on a passed header
+type iamProxy struct {
+	defaultRole string
+	roles       map[string]*roleProxy
+}
+
 const (
 	requestTimeout         = 30 * time.Second
 	defaultSessionLifetime = time.Hour
 	maxSessionNameLen      = 64
 	renewalWindow          = 5 * time.Minute
 	awsTimeFormat          = "2006-01-02T15:04:05Z"
+	iamSelectionHeader     = "X-Titus-Role"
 )
 
 var (
@@ -60,20 +68,9 @@ var (
 /* This sets up an iam "proxy", but does not setup the routes */
 func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) *iamProxy {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
-	parsedArn, err := arn.Parse(config.IAMARN)
-	if err != nil {
-		log.Fatal("Unable to parse ARN: ", err)
-	}
 
-	proxy := &iamProxy{
-		ctx:                 ctx,
-		titusTaskInstanceID: config.TitusTaskInstanceID,
-		arn:                 parsedArn,
-
-		roleAssumptionStateLock: &sync.RWMutex{},
-	}
 	s := session.Must(session.NewSession())
-
+	var stsClient *sts.STS
 	if config.Region != "" {
 		endpoint := fmt.Sprintf("sts.%s.amazonaws.com", config.Region)
 		if config.STSEndpoint != "" {
@@ -98,9 +95,44 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 
 		c := s.ClientConfig(sts.EndpointsID, stsAwsCfg)
 		log.WithField("region", config.Region).WithField("endpoint", c.Endpoint).Info("Configure STS client with region")
-		proxy.sts = sts.New(s, stsAwsCfg)
+		stsClient = sts.New(s, stsAwsCfg)
 	} else {
-		proxy.sts = sts.New(s)
+		stsClient = sts.New(s)
+	}
+
+	defaultRoleProxy := newRoleProxy(ctx, config.IAMARN, config.TitusTaskInstanceID, stsClient)
+	defaultName := defaultRoleProxy.roleName
+
+	proxies := make(map[string]*roleProxy)
+	proxies[defaultName] = defaultRoleProxy
+
+	if config.LogIAMARN != "" {
+		logProxy := newRoleProxy(ctx, config.LogIAMARN, config.TitusTaskInstanceID, stsClient)
+		proxies[logProxy.roleName] = logProxy
+	}
+
+	proxy := &iamProxy{
+		defaultRole: defaultName,
+		roles:       proxies,
+	}
+
+	return proxy
+}
+
+func newRoleProxy(ctx context.Context, iamARN, taskID string, stsClient *sts.STS) *roleProxy {
+	/* This will automatically use *our* metadata proxy to setup the IAM role. */
+	parsedArn, err := arn.Parse(iamARN)
+	if err != nil {
+		log.WithError(err).Fatal("unable to parse arn")
+	}
+
+	proxy := &roleProxy{
+		ctx:                 ctx,
+		titusTaskInstanceID: taskID,
+		arn:                 parsedArn,
+		sts:                 stsClient,
+
+		roleAssumptionStateLock: &sync.RWMutex{},
 	}
 
 	splitRole := strings.Split(proxy.arn.Resource, "/")
@@ -117,16 +149,36 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 	return proxy
 }
 
+func (proxy *iamProxy) resolveRoleProxy(r *http.Request) *roleProxy {
+	roleSelect := r.Header.Get(iamSelectionHeader)
+	if rp, ok := proxy.roles[roleSelect]; ok {
+		return rp
+	}
+	return proxy.roles[proxy.defaultRole]
+}
+
+func (proxy *iamProxy) info(w http.ResponseWriter, r *http.Request) {
+	proxy.resolveRoleProxy(r).info(w, r)
+}
+
+func (proxy *iamProxy) policy(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(404)
+}
+
+func (proxy *iamProxy) securityCredentials(w http.ResponseWriter, r *http.Request) {
+	proxy.resolveRoleProxy(r).securityCredentials(w, r)
+}
+
+func (proxy *iamProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	proxy.resolveRoleProxy(r).specificInstanceProfile(w, r)
+}
+
 /* This sets up the routes under /{apiVersion}/meta-data/iam/... */
 func (proxy *iamProxy) AttachRoutes(router *mux.Router) {
 	router.HandleFunc("/info", proxy.info)
 	router.HandleFunc("/policy", proxy.policy)
 	router.HandleFunc("/security-credentials/", proxy.securityCredentials)
 	router.HandleFunc("/security-credentials", redirectSecurityCredentials)
-
-	/* TODO: We should verify that people are actually hitting the right iamProfile, rather
-	   than just blindly returning
-	*/
 	router.HandleFunc("/security-credentials/{iamProfile}", proxy.specificInstanceProfile)
 }
 
@@ -139,11 +191,7 @@ type ec2IAMInfo struct {
 	InstanceProfileID  string
 }
 
-func (proxy *iamProxy) policy(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(404)
-}
-
-func (proxy *iamProxy) info(w http.ResponseWriter, r *http.Request) {
+func (proxy *roleProxy) info(w http.ResponseWriter, r *http.Request) {
 	/*
 		ec2metadata.EC2IAMInfo
 	*/
@@ -203,7 +251,7 @@ func (proxy *iamProxy) info(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (proxy *iamProxy) securityCredentials(w http.ResponseWriter, r *http.Request) {
+func (proxy *roleProxy) securityCredentials(w http.ResponseWriter, r *http.Request) {
 	/*
 		Just a list, like:
 		$ curl 169.254.169.254/latest/meta-data/iam/security-credentials/
@@ -231,7 +279,17 @@ type ec2RoleCredRespBody struct {
 	Message string `json:",omitempty"`
 }
 
-func (proxy *iamProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Request) {
+func (proxy *roleProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	credentialName := vars["iamProfile"]
+	if credentialName != proxy.roleName {
+		log.WithFields(log.Fields{
+			"requestedIamRole": credentialName,
+			"servedName":       proxy.roleName,
+		}).Warning("Serving iam credentials from the wrong path")
+		metrics.PublishIncrementCounter("handler.iam.wrongpath")
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	roleAssumptionState := proxy.getRoleAssumptionState(ctx)
@@ -290,10 +348,9 @@ func (proxy *iamProxy) specificInstanceProfile(w http.ResponseWriter, r *http.Re
 	if err := json.NewEncoder(w).Encode(ret); err != nil {
 		log.Warning("Unable to write response: ", err)
 	}
-
 }
 
-func (proxy *iamProxy) roleAssumer() {
+func (proxy *roleProxy) roleAssumer() {
 	// This is a state machine which will wait until we're in a window of being < 5 minutes until our assumerole window is up,
 	// and when we hit that, it will keep trying to assume role  every minute until succcessful
 	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
@@ -305,7 +362,7 @@ func (proxy *iamProxy) roleAssumer() {
 	}
 }
 
-func (proxy *iamProxy) maybeAssumeRole(sessionLifetime time.Duration) {
+func (proxy *roleProxy) maybeAssumeRole(sessionLifetime time.Duration) {
 	// The item the pointer points to is immutable.
 	// we only mutate the pointer
 	proxy.roleAssumptionStateLock.RLock()
@@ -333,7 +390,7 @@ func (proxy *iamProxy) maybeAssumeRole(sessionLifetime time.Duration) {
 	}
 }
 
-func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
+func (proxy *roleProxy) doAssumeRole(sessionLifetime time.Duration) {
 	ctx, cancel := context.WithTimeout(proxy.ctx, requestTimeout-1*time.Second)
 	defer cancel()
 
@@ -363,7 +420,7 @@ func (proxy *iamProxy) doAssumeRole(sessionLifetime time.Duration) {
 	proxy.roleAssumptionState = output
 }
 
-func (proxy *iamProxy) getRoleAssumptionState(ctx context.Context) *roleAssumptionState {
+func (proxy *roleProxy) getRoleAssumptionState(ctx context.Context) *roleAssumptionState {
 	startTime := time.Now()
 
 	// So this can potentially block for up to the upper bound of the request timeout

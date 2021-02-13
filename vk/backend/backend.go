@@ -226,6 +226,13 @@ func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvide
 			pod.Status.Message = update.Mesg
 			if update.Details != nil {
 				pod.Status.PodIP = update.Details.NetworkConfiguration.IPAddress
+				pod.Status.PodIPs = []v1.PodIP{
+					{IP: update.Details.NetworkConfiguration.IPAddress},
+				}
+
+				if update.Details.NetworkConfiguration.ElasticIPAddress != "" {
+					pod.Status.PodIPs = append(pod.Status.PodIPs, v1.PodIP{IP: update.Details.NetworkConfiguration.ElasticIPAddress})
+				}
 			}
 
 			pod.Status.Reason = update.State.String()

@@ -120,6 +120,7 @@ func main() {
 		region                     string
 		accountID                  string
 		iamARN                     string
+		logIAMARN                  string
 		titusTaskInstanceID        string
 		ipv4Address                string
 		publicIpv4Address          string
@@ -170,6 +171,11 @@ func main() {
 			Name:        "iam-role",
 			EnvVar:      "TITUS_IAM_ROLE",
 			Destination: &iamARN,
+		},
+		cli.StringFlag{
+			Name:        "logging-iam-role",
+			EnvVar:      "TITUS_LOG_IAM_ROLE",
+			Destination: &logIAMARN,
 		},
 		cli.StringFlag{
 			Name:        "titus-task-instance-id",
@@ -251,6 +257,7 @@ func main() {
 
 		mdscfg := types.MetadataServerConfiguration{
 			IAMARN:                     iamARN,
+			LogIAMARN:                  logIAMARN,
 			TitusTaskInstanceID:        titusTaskInstanceID,
 			Ipv4Address:                net.ParseIP(ipv4Address),
 			PublicIpv4Address:          net.ParseIP(publicIpv4Address),

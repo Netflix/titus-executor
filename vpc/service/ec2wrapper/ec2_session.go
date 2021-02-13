@@ -240,6 +240,7 @@ func (s *EC2Session) UnassignIpv6Addresses(ctx context.Context, unassignIpv6Addr
 	ec2client := ec2.New(s.Session)
 	unassignPrivateIPAddressesOutput, err := ec2client.UnassignIpv6AddressesWithContext(ctx, &unassignIpv6AddressesInput)
 	if err != nil {
+		_ = HandleEC2Error(err, span)
 		return nil, err
 	}
 	return unassignPrivateIPAddressesOutput, nil
@@ -254,7 +255,9 @@ func (s *EC2Session) AssignPrivateIPAddresses(ctx context.Context, assignPrivate
 	ec2client := ec2.New(s.Session)
 	assignPrivateIPAddressesOutput, err := ec2client.AssignPrivateIpAddressesWithContext(ctx, &assignPrivateIPAddressesInput)
 	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv4 addresses")).Err()
+		err = errors.Wrap(err, "Cannot assign IPv4 addresses")
+		_ = HandleEC2Error(err, span)
+		return nil, status.Convert(err).Err()
 	}
 
 	return assignPrivateIPAddressesOutput, nil
@@ -269,7 +272,9 @@ func (s *EC2Session) AssignIPv6Addresses(ctx context.Context, assignIpv6Addresse
 	ec2client := ec2.New(s.Session)
 	assignIpv6AddressesOutput, err := ec2client.AssignIpv6AddressesWithContext(ctx, &assignIpv6AddressesInput)
 	if err != nil {
-		return nil, status.Convert(errors.Wrap(err, "Cannot assign IPv6 addresses")).Err()
+		err = errors.Wrap(err, "Cannot assign IPv6 addresses")
+		_ = HandleEC2Error(err, span)
+		return nil, status.Convert(err).Err()
 	}
 
 	return assignIpv6AddressesOutput, nil
@@ -357,7 +362,7 @@ func (s *EC2Session) AttachNetworkInterface(ctx context.Context, input ec2.Attac
 }
 
 func (s *EC2Session) DescribeNetworkInterfaces(ctx context.Context, input ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
-	ctx, span := trace.StartSpan(ctx, "AttachNetworkInterface")
+	ctx, span := trace.StartSpan(ctx, "DescribeNetworkInterfaces")
 	defer span.End()
 
 	// Presumably there are filters here?

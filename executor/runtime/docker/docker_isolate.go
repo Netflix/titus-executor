@@ -52,6 +52,7 @@ func waitForTitusIsolateWithHost(parentCtx context.Context, taskID, host string,
 
 // workloadIsolated waits for titus-isolate to return from our request to see if the workload has been isolated.
 // we want to wait for titus-isolate because some workloads look at the CPUs at container start time.
+// Note that this is non-blocking on the titus-isolate side.
 func workloadIsolated(ctx context.Context, taskID, host string) bool {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -88,9 +89,11 @@ func workloadIsolated(ctx context.Context, taskID, host string) bool {
 	}
 
 	if resp.StatusCode == 404 {
-		// Only log unexpected status codes below
+		// isolate returns 404 when the isolation operation hasn't completed yet
 		return false
 	}
+
+	// Only log unexpected status codes
 
 	logrus.WithFields(map[string]interface{}{
 		"statusCode": resp.StatusCode,

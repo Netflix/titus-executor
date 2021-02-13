@@ -247,6 +247,10 @@ func (c *PodContainer) Runtime() string {
 	return ""
 }
 
+func (c *PodContainer) SeccompAgentEnabledForPerfSyscalls() bool {
+	return false
+}
+
 func (c *PodContainer) SecurityGroupIDs() *[]string {
 	return nil
 }

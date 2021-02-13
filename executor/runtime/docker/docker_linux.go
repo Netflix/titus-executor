@@ -64,15 +64,18 @@ var systemServices = []serviceOpts{
 		humanName:    "spectatord",
 		unitName:     "titus-spectatord",
 		enabledCheck: shouldStartSpectatord,
+		required:     false,
 	},
 	{
 		humanName: "atlas",
 		unitName:  "atlas-titus-agent",
+		required:  false,
 	},
 	{
 		humanName:    "ssh",
 		unitName:     "titus-sshd",
 		enabledCheck: shouldStartSSHD,
+		required:     false,
 	},
 	{
 		humanName: "metadata proxy",
@@ -103,6 +106,12 @@ var systemServices = []serviceOpts{
 		unitName:     "titus-abmetrix",
 		required:     false,
 		enabledCheck: shouldStartAbmetrix,
+	},
+	{
+		humanName:    "seccomp agent",
+		unitName:     "titus-seccomp-agent",
+		required:     true,
+		enabledCheck: shouldStartTitusSeccompAgent,
 	},
 }
 
@@ -254,9 +263,12 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 	select {
 	case <-ctx.Done():
 		doneErr := ctx.Err()
-
 		if doneErr == context.DeadlineExceeded {
-			return errors.Wrapf(doneErr, "timeout starting %s service", opts.humanName)
+			if opts.required {
+				return errors.Wrapf(doneErr, "timeout starting %s service", opts.humanName)
+			}
+			l.Errorf("timeout starting %s service (not required to launch this task)", opts.humanName)
+			return nil
 		}
 		return doneErr
 	case val := <-ch:

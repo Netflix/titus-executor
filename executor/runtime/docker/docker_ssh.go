@@ -8,8 +8,7 @@ import (
 
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 const sshdConfig = `
@@ -90,24 +89,14 @@ PidFile /run/sshd.pid
 `
 
 func addContainerSSHDConfig(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config) error {
-	iamProfileARN := c.IamRole()
-	if iamProfileARN == nil {
-		return errors.New("Could not get IAM role from container")
-	}
-
-	iamProfile, err := arn.Parse(*iamProfileARN)
-	if err != nil {
-		return err
-	}
-
 	caData, err := ioutil.ReadFile(cfg.ContainerSSHDCAFile)
 	if err != nil {
 		return err
 	}
-	return addContainerSSHDConfigWithData(c, tw, cfg, caData, iamProfile.AccountID, cfg.SSHAccountID)
+	return addContainerSSHDConfigWithData(c, tw, cfg, caData)
 }
 
-func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config, caData []byte, accountIDs ...string) error {
+func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config, caData []byte) error {
 	sshConfigBytes := []byte(sshdConfig)
 	err := tw.WriteHeader(&tar.Header{
 		Name: "/titus/etc/ssh/sshd_config",
@@ -135,21 +124,19 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		return err
 	}
 
-	// The format that is used for SSH Users is:
-	// $(unix username):$(app name):$(aws account id):$(task id)
+	containerEnv := c.Env()["NETFLIX_ENVIRONMENT"]
+	if containerEnv == "" {
+		log.Warn("The NETFLIX_ENVIRONMENT variable is not set. SSH access to the container may not be available!")
+	}
 
 	users := append(cfg.ContainerSSHDUsers, c.AppName())
 	for _, username := range users {
-		lines := []string{}
-		for _, accountID := range accountIDs {
-			lines = append(
-				lines,
-				fmt.Sprintf("%s:%s:%s:%s", username, c.AppName(), accountID, c.TaskID()), // key scoped to username, appname, account ID, and task ID
-				fmt.Sprintf("%s:%s:%s", c.AppName(), accountID, c.TaskID()),              // key has access to any username for this given app in this given account, with this task ID
-				fmt.Sprintf("%s:%s", c.AppName(), accountID),                             // key has access to any username for this given app in this given account
-				c.TaskID(), // key has access to any username on this task ID
-				fmt.Sprintf("%s:%s", username, c.TaskID()), // key has access to this given username on this task ID
-			)
+		lines := []string{
+			"# Principals should match the pattern used by the BLESS service. Visit go/bless for details.",
+			"BLESS_EMERGENCY_USE_BACKDOOR",
+		}
+		if containerEnv != "" {
+			lines = append(lines, fmt.Sprintf("~v3:titus:%s:%s:%s:%s:%s:%s", username, c.AppName(), containerEnv, c.TaskID(), c.JobGroupStack(), c.JobGroupDetail()))
 		}
 		line := []byte(strings.Join(lines, "\n"))
 		err = tw.WriteHeader(&tar.Header{

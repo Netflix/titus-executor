@@ -968,6 +968,18 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAbMetrix], &abmetrixContainerName))
 	}
 
+	if shouldStartTitusSeccompAgent(&r.cfg, r.c) {
+		r.c.SetEnvs(map[string]string{
+			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
+			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
+		})
+		if r.c.SeccompAgentEnabledForPerfSyscalls() {
+			r.c.SetEnvs(map[string]string{
+				"TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS": "true",
+			})
+		}
+	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()
@@ -1387,6 +1399,10 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 
 	if allocation.IPV6Address != nil && allocation.IPV6Address.Address != nil {
 		details.NetworkConfiguration.EniIPv6Address = allocation.IPV6Address.Address.Address
+	}
+
+	if allocation.ElasticAddress != nil && allocation.ElasticAddress.Ip != "" {
+		details.NetworkConfiguration.ElasticIPAddress = allocation.ElasticAddress.Ip
 	}
 
 	if r.tiniEnabled {
