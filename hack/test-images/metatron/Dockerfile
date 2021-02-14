@@ -1,10 +1,11 @@
-FROM ubuntu:bionic as builder
+FROM golang:1.13-stretch as builder
 
-COPY --from=golang:1.13-stretch /usr/local/go /usr/local/go
 RUN apt-get update && apt-get install busybox-static
 
 # `-tags netgo` forces the net package to use the go resolver, rather than using cgo and linking against system libraries
-RUN mkdir -p /build && go build -tags netgo -o /build/metatron-identity ./hack/test-images/metatron/metatron-identity/
+RUN mkdir /build
+COPY . /build
+RUN cd /build && go build -tags netgo -o /build/metatron-identity ./hack/test-images/metatron/metatron-identity/
 
 FROM scratch
 ENV DESTDIR "/go/src/github.com/Netflix/titus-executor/hack/test-images/metatron"
