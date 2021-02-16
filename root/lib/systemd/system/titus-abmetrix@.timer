@@ -1,0 +1,10 @@
+[Unit]
+Description=Timer for refreshing abmetrix state
+
+[Timer]
+Unit=abmetrix.service
+OnUnitActiveSec=21600
+Persistent=true
+
+[Install]
+WantedBy=multi-user.target

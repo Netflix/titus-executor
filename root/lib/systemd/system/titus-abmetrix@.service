@@ -1,5 +1,6 @@
 [Unit]
 Description=Titus abmetrix for container %i
+Wants=abmetrix.timer
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
 # If the service restarts more than 10 times in 30 seconds, let it die
@@ -7,10 +8,7 @@ StartLimitIntervalSec=30
 StartLimitBurst=10
 
 [Service]
+Type=oneshot
 EnvironmentFile=/var/lib/titus-environments/%i.env
 # Run as root (UID 0, GID 0) and with CAP_DAC_OVERRIDE so that containers with a `USER` instruction work
 ExecStart=/usr/bin/runc --root /var/run/docker/runtime-${TITUS_OCI_RUNTIME}/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE --cwd /titus/abmetrix ${TITUS_CONTAINER_ID} /titus/abmetrix/start
-
-Restart=on-failure
-RestartSec=1
-KillMode=mixed
