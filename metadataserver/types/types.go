@@ -39,4 +39,9 @@ type MetadataServerConfiguration struct {
 	// Both of these are used for mocking STS during testing
 	STSEndpoint   string
 	STSHTTPClient *http.Client
+
+	SSLCA      string
+	SSLKey     string
+	SSLCert    string
+	IAMService string
 }

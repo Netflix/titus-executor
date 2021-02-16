@@ -1,0 +1,35 @@
+syntax = "proto3";
+package com.netflix.titus.executor.metadataserver;
+
+option go_package = "iamapi";
+import "google/protobuf/timestamp.proto";
+
+message AssumeRoleRequest {
+    string roleARN = 1;
+    string taskId = 2;
+    enum CredentialUseCase {
+        ForTask = 0;
+        ForLogging = 1;
+    }
+    CredentialUseCase credentialUseCase = 3;
+}
+
+message AssumeRoleResponse {
+    message AssumedRoleUser {
+        string assumedRoleId = 1;
+        string arn = 2;
+    }
+    AssumedRoleUser assumedRoleUser = 1;
+    message Credentials {
+        string secretAccessKey = 1;
+        string sessionToken = 2;
+        google.protobuf.Timestamp expiration = 3;
+        string accessKeyId = 4;
+    }
+    Credentials credentials = 2;
+}
+
+// Turns out that there's a bunch of places that append service automatically
+service IAM {
+    rpc AssumeRole (AssumeRoleRequest) returns (AssumeRoleResponse);
+}

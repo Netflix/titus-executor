@@ -127,7 +127,7 @@ PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netfli
 PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
 PROTO_MAP     := Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
-protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go | $(clean) $(clean-proto-defs)
+protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
 
 vendor: vendor/modules.txt
 vendor/modules.txt: go.mod
@@ -143,6 +143,11 @@ $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p vpc/api
 	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):vpc/api/ vpc/proto/vpc.proto
+	$(GOIMPORT_TOOL) $@
+
+metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+	mkdir -p metadataserver/api
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Imetadataserver/proto --titusgo_out=plugins=grpc,source_relative:metadataserver/api/ metadataserver/proto/iam.proto
 	$(GOIMPORT_TOOL) $@
 
 .PHONY: clean-proto-defs
