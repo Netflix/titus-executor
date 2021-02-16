@@ -9,9 +9,9 @@
 package restjsonserviceiface
 
 import (
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/model/api/codegentest/service/restjsonservice"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/private/model/api/codegentest/service/restjsonservice"
 )
 
 // RESTJSONServiceAPI provides an interface to enable mocking the

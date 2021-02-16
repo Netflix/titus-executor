@@ -9,9 +9,9 @@
 package restxmlserviceiface
 
 import (
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/model/api/codegentest/service/restxmlservice"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/private/model/api/codegentest/service/restxmlservice"
 )
 
 // RESTXMLServiceAPI provides an interface to enable mocking the

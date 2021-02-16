@@ -3,7 +3,7 @@ package protocol
 import (
 	"strings"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/request"
 )
 
 // ValidateEndpointHostHandler is a request handler that will validate the

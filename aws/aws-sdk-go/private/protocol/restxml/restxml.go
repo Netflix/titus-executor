@@ -2,18 +2,18 @@
 // requests and responses.
 package restxml
 
-//go:generate go run -tags codegen ../../../models/protocol_tests/generate.go ../../../models/protocol_tests/input/rest-xml.json build_test.go
-//go:generate go run -tags codegen ../../../models/protocol_tests/generate.go ../../../models/protocol_tests/output/rest-xml.json unmarshal_test.go
+//go:generate go run -tags codegen ../../../private/model/cli/gen-protocol-tests ../../../models/protocol_tests/input/rest-xml.json build_test.go
+//go:generate go run -tags codegen ../../../private/model/cli/gen-protocol-tests ../../../models/protocol_tests/output/rest-xml.json unmarshal_test.go
 
 import (
 	"bytes"
 	"encoding/xml"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol/query"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol/rest"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol/xml/xmlutil"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/private/protocol/query"
+	"github.com/aws/aws-sdk-go/private/protocol/rest"
+	"github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil"
 )
 
 // BuildHandler is a named request handler for building restxml protocol requests

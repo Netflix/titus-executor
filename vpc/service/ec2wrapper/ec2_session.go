@@ -10,10 +10,10 @@ import (
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/session"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	ccache "github.com/karlseguin/ccache/v2"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"

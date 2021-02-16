@@ -4,7 +4,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/internal/sdkio"
+	"github.com/aws/aws-sdk-go/internal/sdkio"
 )
 
 // offsetReader is a thread-safe io.ReadCloser to prevent racing

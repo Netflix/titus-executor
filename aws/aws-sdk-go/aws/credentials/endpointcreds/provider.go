@@ -33,13 +33,13 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/client"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/client/metadata"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/credentials"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol/json/jsonutil"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/client"
+	"github.com/aws/aws-sdk-go/aws/client/metadata"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/private/protocol/json/jsonutil"
 )
 
 // ProviderName is the name of the credentials provider.
@@ -116,7 +116,13 @@ func (p *Provider) IsExpired() bool {
 // Retrieve will attempt to request the credentials from the endpoint the Provider
 // was configured for. And error will be returned if the retrieval fails.
 func (p *Provider) Retrieve() (credentials.Value, error) {
-	resp, err := p.getCredentials()
+	return p.RetrieveWithContext(aws.BackgroundContext())
+}
+
+// RetrieveWithContext will attempt to request the credentials from the endpoint the Provider
+// was configured for. And error will be returned if the retrieval fails.
+func (p *Provider) RetrieveWithContext(ctx credentials.Context) (credentials.Value, error) {
+	resp, err := p.getCredentials(ctx)
 	if err != nil {
 		return credentials.Value{ProviderName: ProviderName},
 			awserr.New("CredentialsEndpointError", "failed to load credentials", err)
@@ -148,7 +154,7 @@ type errorOutput struct {
 	Message string `json:"message"`
 }
 
-func (p *Provider) getCredentials() (*getCredentialsOutput, error) {
+func (p *Provider) getCredentials(ctx aws.Context) (*getCredentialsOutput, error) {
 	op := &request.Operation{
 		Name:       "GetCredentials",
 		HTTPMethod: "GET",
@@ -156,6 +162,7 @@ func (p *Provider) getCredentials() (*getCredentialsOutput, error) {
 
 	out := &getCredentialsOutput{}
 	req := p.Client.NewRequest(op, nil, out)
+	req.SetContext(ctx)
 	req.HTTPRequest.Header.Set("Accept", "application/json")
 	if authToken := p.AuthorizationToken; len(authToken) != 0 {
 		req.HTTPRequest.Header.Set("Authorization", authToken)

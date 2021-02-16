@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 )
 
 // Generates the endpoints from json description

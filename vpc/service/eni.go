@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
 func doesENIExist(ctx context.Context, session *ec2wrapper.EC2Session, networkInterfaceID, originalDescription string) (bool, error) {

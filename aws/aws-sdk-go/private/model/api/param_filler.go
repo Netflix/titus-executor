@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/util"
+	"github.com/aws/aws-sdk-go/private/util"
 )
 
 // A paramFiller provides string formatting for a shape and its types.
@@ -139,7 +139,7 @@ func (f paramFiller) paramsStructList(value []interface{}, shape *Shape) string 
 // findParamMember searches a map for a key ignoring case. Returns the map key if found.
 func findParamMember(value map[string]interface{}, key string) string {
 	for actualKey := range value {
-		if strings.ToLower(key) == strings.ToLower(actualKey) {
+		if strings.EqualFold(key, actualKey) {
 			return actualKey
 		}
 	}

@@ -3,10 +3,10 @@ package ec2wrapper
 import (
 	"fmt"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"

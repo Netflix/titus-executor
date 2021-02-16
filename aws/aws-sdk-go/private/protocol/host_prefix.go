@@ -3,8 +3,8 @@ package protocol
 import (
 	"strings"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 )
 
 // HostPrefixHandlerName is the handler name for the host prefix request
