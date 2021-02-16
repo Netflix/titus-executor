@@ -100,3 +100,4 @@ coverage-local.out
 coverage-standalone.out
 bin/
 .gobincache/
+vendor

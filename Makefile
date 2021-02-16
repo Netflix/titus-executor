@@ -16,6 +16,7 @@ TEST_DOCKER_OUTPUT    ?= test-standalone-docker.xml
 GOBIN                 ?= $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))/bin
 PATH                  := $(PATH):$(GOBIN)
 GOBIN_TOOL            = $(shell which gobin || echo $(GOBIN)/gobin)
+GOIMPORT_TOOL		  = $(GOBIN_TOOL) -m -run golang.org/x/tools/cmd/goimports@v0.1.0 -w
 GOLANGCI_LINT_TIMEOUT := 2m
 ifdef FAST
 	GOLANGCI_LINT_ARGS = --fast
@@ -86,7 +87,7 @@ validate-docker: | $(builder)
 
 .PHONY: fmt
 fmt: $(GOBIN_TOOL)
-	$(GOBIN_TOOL) -m -run golang.org/x/tools/cmd/goimports -w $(shell go list -f '{{.Dir}}' ./...)
+	$(GOIMPORT_TOOL) $(shell go list -f '{{.Dir}}' ./...)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOBIN_TOOL)
@@ -123,13 +124,26 @@ push-titus-agent: titus-agent
 
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
 PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
+PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
 PROTO_MAP     := Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
-protogen: $(GOBIN_TOOL) | $(clean) $(clean-proto-defs)
-	mkdir -p api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc:api/ $(PROTOS)
+protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go | $(clean) $(clean-proto-defs)
+
+vendor: vendor/modules.txt
+vendor/modules.txt: go.mod
+	go mod vendor
+
+$(PROTOS): vendor
+$(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+	mkdir -p api/netflix/titus
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc:api/ $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
+	$(GOIMPORT_TOOL) $@
+
+## TODO: Use git wildcard functionality to "automatically"
+vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p vpc/api
 	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):vpc/api/ vpc/proto/vpc.proto
+	$(GOIMPORT_TOOL) $@
 
 .PHONY: clean-proto-defs
 clean-proto-defs: | $(clean)

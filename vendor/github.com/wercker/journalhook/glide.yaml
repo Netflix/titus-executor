@@ -1,9 +1,0 @@
-# Glide YAML configuration file
-# Set this to your fully qualified package name, e.g.
-# github.com/Masterminds/foo. This should be the
-# top level package.
-package: main
-
-import:
-    - package: github.com/sirupsen/logrus
-    - package: github.com/coreos/go-systemd/journal
