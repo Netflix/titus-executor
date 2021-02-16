@@ -7,7 +7,7 @@ import (
 
 	"testing"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

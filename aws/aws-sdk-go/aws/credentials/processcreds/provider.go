@@ -88,8 +88,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/internal/sdkio"
 )
 
 const (
@@ -142,7 +143,7 @@ const (
 
 	// DefaultBufSize limits buffer size from growing to an enormous
 	// amount due to a faulty process.
-	DefaultBufSize = 1024
+	DefaultBufSize = int(8 * sdkio.KibiByte)
 
 	// DefaultTimeout default limit on time a process can run.
 	DefaultTimeout = time.Duration(1) * time.Minute

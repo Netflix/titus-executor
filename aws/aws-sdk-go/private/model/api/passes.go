@@ -4,8 +4,21 @@ package api
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode"
 )
+
+func (a *API) enableGeneratedTypedErrors() {
+	switch a.Metadata.Protocol {
+	case "json":
+	case "rest-json":
+	default:
+		return
+	}
+
+	a.WithGeneratedTypedErrors = true
+}
 
 // updateTopLevelShapeReferences moves resultWrapper, locationName, and
 // xmlNamespace traits from toplevel shape references to the toplevel
@@ -33,11 +46,24 @@ func (a *API) updateTopLevelShapeReferences() {
 }
 
 // writeShapeNames sets each shape's API and shape name values. Binding the
-// shape to its parent API.
+// shape to its parent API. This will set OrigShapeName on each Shape and ShapeRef
+// to allow access to the original shape name for code generation.
 func (a *API) writeShapeNames() {
+	writeOrigShapeName := func(s *ShapeRef) {
+		if len(s.ShapeName) > 0 {
+			s.OrigShapeName = s.ShapeName
+		}
+	}
+
 	for n, s := range a.Shapes {
 		s.API = a
-		s.ShapeName = n
+		s.ShapeName, s.OrigShapeName = n, n
+		for _, ref := range s.MemberRefs {
+			writeOrigShapeName(ref)
+		}
+		writeOrigShapeName(&s.MemberRef)
+		writeOrigShapeName(&s.KeyRef)
+		writeOrigShapeName(&s.ValueRef)
 	}
 }
 
@@ -60,6 +86,47 @@ func (a *API) resolveReferences() {
 			o.ErrorRefs[i].Shape.Exception = true
 			o.ErrorRefs[i].Shape.ErrorInfo.Type = o.ErrorRefs[i].Shape.ShapeName
 		}
+	}
+}
+
+func (a *API) backfillErrorMembers() {
+	stubShape := &Shape{
+		ShapeName: "string",
+		Type:      "string",
+	}
+	var locName string
+	switch a.Metadata.Protocol {
+	case "ec2", "query", "rest-xml":
+		locName = "Message"
+	case "json", "rest-json":
+		locName = "message"
+	}
+
+	for _, s := range a.Shapes {
+		if !s.Exception {
+			continue
+		}
+
+		var haveMessage bool
+		for name := range s.MemberRefs {
+			if strings.EqualFold(name, "Message") {
+				haveMessage = true
+				break
+			}
+		}
+		if !haveMessage {
+			ref := &ShapeRef{
+				ShapeName:    stubShape.ShapeName,
+				Shape:        stubShape,
+				LocationName: locName,
+			}
+			s.MemberRefs["Message"] = ref
+			stubShape.refs = append(stubShape.refs, ref)
+		}
+	}
+
+	if len(stubShape.refs) != 0 {
+		a.Shapes["SDKStubErrorMessageShape"] = stubShape
 	}
 }
 
@@ -162,6 +229,71 @@ func (a *API) fixStutterNames() {
 	}
 }
 
+// regexpForValidatingShapeName is used by validateShapeName to filter acceptable shape names
+// that may be renamed to a new valid shape name, if not already.
+// The regex allows underscores(_) at the beginning of the shape name
+// There may be 0 or more underscores(_). The next character would be the leading character
+// in the renamed shape name and thus, must be an alphabetic character.
+// The regex allows alphanumeric characters along with underscores(_) in rest of the string.
+var regexForValidatingShapeName = regexp.MustCompile("^[_]*[a-zA-Z][a-zA-Z0-9_]*$")
+
+// legacyShapeNames is a map of shape names that are supported and bypass the validateShapeNames util
+var legacyShapeNames = map[string][]string{
+	"mediapackage": {
+		"__AdTriggersElement",
+		"__PeriodTriggersElement",
+	},
+}
+
+// validateShapeNames is valid only for shapes of type structure or enums
+// We validate a shape name to check if its a valid shape name
+// A valid shape name would only contain alphanumeric characters and have an alphabet as leading character.
+//
+// If we encounter a shape name with underscores(_), we remove the underscores, and
+// follow a canonical upper camel case naming scheme to create a new shape name.
+// If the shape name collides with an existing shape name we return an error.
+// The resulting shape name must be a valid shape name or throw an error.
+func (a *API) validateShapeNames() error {
+loop:
+	for _, s := range a.Shapes {
+		if s.Type == "structure" || s.IsEnum() {
+			for _, legacyname := range legacyShapeNames[a.PackageName()] {
+				if s.ShapeName == legacyname {
+					continue loop
+				}
+			}
+			name := s.ShapeName
+			if b := regexForValidatingShapeName.MatchString(name); !b {
+				return fmt.Errorf("invalid shape name found: %v", s.ShapeName)
+			}
+
+			// Slice of strings returned after we split a string
+			// with a non alphanumeric character as delimiter.
+			slice := strings.FieldsFunc(name, func(r rune) bool {
+				return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+			})
+
+			// Build a string that follows canonical upper camel casing
+			var b strings.Builder
+			for _, word := range slice {
+				b.WriteString(strings.Title(word))
+			}
+
+			name = b.String()
+			if s.ShapeName != name {
+				if a.Shapes[name] != nil {
+					// throw an error if shape with a new shape name already exists
+					return fmt.Errorf("attempt to rename shape %v to %v for package %v failed, as this rename would result in shape name collision",
+						s.ShapeName, name, a.PackageName())
+				}
+				debugLogger.Logf("Renaming shape %v to %v for package %v \n", s.ShapeName, name, a.PackageName())
+				s.Rename(name)
+			}
+		}
+	}
+	return nil
+}
+
 // renameExportable renames all operation names to be exportable names.
 // All nested Shape names are also updated to the exportable variant.
 func (a *API) renameExportable() {
@@ -184,10 +316,6 @@ func (a *API) renameExportable() {
 		}
 
 		for mName, member := range s.MemberRefs {
-			ref := s.MemberRefs[mName]
-			ref.OrigShapeName = mName
-			s.MemberRefs[mName] = ref
-
 			newName := a.ExportableName(mName)
 			if newName != mName {
 				delete(s.MemberRefs, mName)
@@ -206,6 +334,12 @@ func (a *API) renameExportable() {
 		}
 
 		newName := a.ExportableName(k)
+		if s.Type == "structure" && newName == a.StructName() {
+			// If struct collides client's struct type name the shape needs to
+			// be renamed with a trailing `_` to prevent collision.
+			newName += "_"
+		}
+
 		if newName != s.ShapeName {
 			s.Rename(newName)
 		}
@@ -259,6 +393,11 @@ func renameCollidingField(name string, v *Shape, field *ShapeRef) {
 	debugLogger.Logf("Shape %s's field %q renamed to %q", v.ShapeName, name, newName)
 	delete(v.MemberRefs, name)
 	v.MemberRefs[newName] = field
+	// Set LocationName to the original field name if it is not already set.
+	// This is to ensure we correctly serialize to the proper member name
+	if len(field.LocationName) == 0 {
+		field.LocationName = name
+	}
 }
 
 // collides will return true if it is a name used by the SDK or Golang.
@@ -276,7 +415,13 @@ func exceptionCollides(name string) bool {
 	switch name {
 	case "Code",
 		"Message",
-		"OrigErr":
+		"OrigErr",
+		"Error",
+		"String",
+		"GoString",
+		"RequestID",
+		"StatusCode",
+		"RespMetadata":
 		return true
 	}
 	return false
@@ -305,9 +450,12 @@ func (a *API) createInputOutputShapes() {
 		createAPIParamShape(a, op.Name, &op.InputRef, op.ExportedName+"Input",
 			shamelist.Input,
 		)
+		op.InputRef.Shape.UsedAsInput = true
+
 		createAPIParamShape(a, op.Name, &op.OutputRef, op.ExportedName+"Output",
 			shamelist.Output,
 		)
+		op.OutputRef.Shape.UsedAsOutput = true
 	}
 }
 
@@ -337,7 +485,6 @@ func createAPIParamShape(a *API, opName string, ref *ShapeRef, shapeName string,
 	}
 
 	ref.Shape.removeRef(ref)
-	ref.OrigShapeName = shapeName
 	ref.ShapeName = shapeName
 	ref.Shape = ref.Shape.Clone(shapeName)
 	ref.Shape.refs = append(ref.Shape.refs, ref)
@@ -360,8 +507,8 @@ func (a *API) makeIOShape(name string) *Shape {
 	return shape
 }
 
-// removeUnusedShapes removes shapes from the API which are not referenced by any
-// other shape in the API.
+// removeUnusedShapes removes shapes from the API which are not referenced by
+// any other shape in the API.
 func (a *API) removeUnusedShapes() {
 	for _, s := range a.Shapes {
 		if len(s.refs) == 0 {
@@ -370,24 +517,13 @@ func (a *API) removeUnusedShapes() {
 	}
 }
 
-// Represents the service package name to EndpointsID mapping
-var custEndpointsKey = map[string]string{
-	"applicationautoscaling": "application-autoscaling",
-}
-
-// Sents the EndpointsID field of Metadata  with the value of the
-// EndpointPrefix if EndpointsID is not set. Also adds
-// customizations for services if EndpointPrefix is not a valid key.
+// Sets the EndpointsID field of Metadata  with the value of the
+// EndpointPrefix if EndpointsID is not set.
 func (a *API) setMetadataEndpointsKey() {
 	if len(a.Metadata.EndpointsID) != 0 {
 		return
 	}
-
-	if v, ok := custEndpointsKey[a.PackageName()]; ok {
-		a.Metadata.EndpointsID = v
-	} else {
-		a.Metadata.EndpointsID = a.Metadata.EndpointPrefix
-	}
+	a.Metadata.EndpointsID = a.Metadata.EndpointPrefix
 }
 
 func (a *API) findEndpointDiscoveryOp() {
@@ -398,6 +534,7 @@ func (a *API) findEndpointDiscoveryOp() {
 		}
 	}
 }
+
 func (a *API) injectUnboundedOutputStreaming() {
 	for _, op := range a.Operations {
 		if op.AuthType != V4UnsignedBodyAuthType {

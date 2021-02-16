@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws"
 )
 
 // Endpoint represents an endpoint used in endpoint discovery.

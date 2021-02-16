@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws"
 )
 
 type metricTime time.Time
