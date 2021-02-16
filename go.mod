@@ -29,6 +29,7 @@ require (
 	github.com/golang-migrate/migrate v3.5.4+incompatible
 	github.com/golang/protobuf v1.4.2
 	github.com/google/go-jsonnet v0.17.0
+	github.com/google/renameio v0.1.0
 	github.com/google/uuid v1.1.2
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/gorilla/mux v1.7.4
@@ -56,6 +57,8 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
+	github.com/tmthrgd/atomics v0.0.0-20190904060638-dc7a5fcc7e0d // indirect
+	github.com/tmthrgd/tmpfile v0.0.0-20190904054337-6ce9e75706ab
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc

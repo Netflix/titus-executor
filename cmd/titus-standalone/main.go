@@ -101,7 +101,12 @@ func mainWithError(c *cli.Context, dockerCfg *docker.Config, cfg *config.Config,
 		return fmt.Errorf("cannot create Titus executor: %w", err)
 	}
 
-	err = backend.RunWithBackend(ctx, rp, m, os.Stdout, &pod, *cfg)
+	b, err := backend.NewBackend(ctx, rp, &pod, cfg, m)
+	if err != nil {
+		return fmt.Errorf("Could not instantiate backend: %w", err)
+	}
+
+	err = b.RunWithStatusFile(ctx, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("Could not start container: %w", err)
 	}

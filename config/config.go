@@ -239,8 +239,9 @@ func NewConfig() (*Config, []cli.Flag) {
 		},
 
 		cli.StringSliceFlag{
-			Name:  "s3-uploader",
-			Value: &cfg.S3Uploaders,
+			Name:   "s3-uploader",
+			Value:  &cfg.S3Uploaders,
+			EnvVar: "S3_UPLOADERS",
 		},
 		cli.StringSliceFlag{
 			Name:  "copy-uploader",
