@@ -238,6 +238,8 @@ func (w *Watcher) watchLoop(parentCtx context.Context) {
 	wg.Wait()
 	t.Stop()
 
+	uploadStartTime := time.Now()
+
 	w.stdioRotate(finalCtx, finalUpload)
 	if err := finalCtx.Err(); err != nil {
 		w.retError = err
@@ -245,6 +247,8 @@ func (w *Watcher) watchLoop(parentCtx context.Context) {
 	}
 	// Set retError
 	w.retError = w.uploadAllLogFiles(finalCtx)
+
+	w.metrics.Timer("titus.executor.finalLogUpload.Duration", time.Since(uploadStartTime), nil)
 
 	// Cleanup is done by all of the above defers!
 }
