@@ -980,6 +980,13 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}
 	}
 
+	if shouldStartTitusStorage(&r.cfg, r.c) {
+		// KYLE figure out how to... get this from the taskContext?
+		r.c.SetEnvs(map[string]string{
+			"TITUS_EBS_VOLUME_ID": "vol-0cc20fbab97755b62",
+		})
+	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()

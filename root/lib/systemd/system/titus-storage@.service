@@ -1,0 +1,22 @@
+[Unit]
+Description=Storage mounting for task %s
+ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
+
+# If the service restarts more than 10 times in 30 seconds, let it die
+StartLimitIntervalSec=30
+StartLimitBurst=10
+
+[Service]
+Type=notify
+NotifyAccess=all
+Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
+EnvironmentFile=/var/lib/titus-environments/%i.env
+ExecStart=/apps/titus-executor/bin/titus-storage
+LimitNOFILE=65535
+## TODO: Wire up more "lockdown" so this unit can't wreck havoc if it gets compromised
+PrivateTmp=yes
+
+KillMode=mixed
+
+# TODO: Setup Memory / CPU / PID limits since this isn't running under the same cgroup
+# as the PID, and a bad user could wipe out the host.

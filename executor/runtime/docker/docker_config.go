@@ -138,6 +138,12 @@ func shouldStartTitusSeccompAgent(cfg *config.Config, c runtimeTypes.Container) 
 	return c.SeccompAgentEnabledForPerfSyscalls()
 }
 
+func shouldStartTitusStorage(cfg *config.Config, c runtimeTypes.Container) bool {
+	// KYLE
+	
+	return *c.JobID() == "8b2a60ce-74fe-404a-9598-c097f1002e22"
+}
+
 func shouldStartServiceMesh(cfg *config.Config, c runtimeTypes.Container) bool {
 	return c.ServiceMeshEnabled()
 }

@@ -1,0 +1,99 @@
+#!/bin/bash
+echo "Got called to manage external storage for $TITUS_TASK_ID"
+TASK_PID1=$(grep Pid: $TITUS_PID_1_DIR/status | awk '{print $2}' | head -n1)
+
+if [[ -z $TITUS_EBS_VOLUME_ID ]]; then
+  echo "No TITUS_EBS_VOLUME_ID in the env. Is this task supposed to mount something?"
+  exit 0
+fi
+
+echo "Grabbing a lock on /tmp/$TITUS_EBS_VOLUME_ID.lock"
+
+# TODO? Does this make a difference?
+export EBS_ROOT_DEVICE=/dev/sdz
+
+function mount_it {
+  # TODO: not use temp path
+  MOUNT_TARGET=/efs MOUNT_OPTIONS="source=$1" MOUNT_FLAGS="0" /home/nfsuper/mount.xfs/titus-mount.xfs $TASK_PID1
+}
+
+function attach_ebs {
+  retry_count=30
+  attachment_state=$(aws ec2 describe-volumes --region us-east-1 --volume-id ${TITUS_EBS_VOLUME_ID} | jq '.Volumes[0].Attachments[0].State')
+  
+  echo "Attaching volume ${TITUS_EBS_VOLUME_ID}" >&2
+  aws ec2 attach-volume \
+      --region $EC2_REGION \
+      --device $EBS_ROOT_DEVICE \
+      --instance-id $EC2_INSTANCE_ID \
+      --volume-id $TITUS_EBS_VOLUME_ID
+  if [[ $? -ne 0 ]] && [[ "${attachment_state}" != "\"attached\"" ]]; then
+    echo "Would exit 1"
+  fi
+
+  while [[ "${attachment_state}" != "\"attached\"" ]] && [[ ${retry_count} -gt 0 ]]; do
+    echo "Waiting for attach of volume: ${TITUS_EBS_VOLUME_ID}, attachment_state: ${attachment_state} retry count: ${retry_count}" >&2
+    attachment_state=$(aws ec2 describe-volumes --region us-east-1 --volume-id ${TITUS_EBS_VOLUME_ID} | jq '.Volumes[0].Attachments[0].State')
+    retry_count=$((retry_count-1))
+    sleep 1
+  done
+  
+  root_vol_id_trunc=${TITUS_EBS_VOLUME_ID//-}
+  
+  # Successfully attached volume
+  if [[ ${retry_count} -gt 0 ]] ; then
+    # Find out where it was attached
+    for dev_path in $(find /dev/nvme*n*)
+    do
+      #sn      : vol0f6d39b95dd9cbc8b
+      row=$(nvme id-ctrl -v ${dev_path} | sed -n 4p)
+      row_array=($row)
+  
+      # vol0f6d39b95dd9cbc8b
+      vol_id_trunc=${row_array[2]}
+  
+      if [[ "$vol_id_trunc" = "$root_vol_id_trunc" ]] ; then
+        echo EBS_DEVICE_PATH=${dev_path} >> /var/lib/titus-environments/${TITUS_TASK_ID}.env
+	echo ${dev_path}
+	mount_it ${dev_path}
+        return
+      fi
+    done
+  fi
+
+  echo "Failed to attach $TITUS_EBS_VOLUME_ID. Exiting 1"
+  exit 1
+}
+
+function detach_ebs {
+  retry_count=30
+  attachment_state=$(aws ec2 describe-volumes --region us-east-1 --volume-id ${TITUS_EBS_VOLUME_ID} | jq '.Volumes[0].Attachments[0].State')
+  
+  if [[ "$attachment_state" != "null" ]] ; then
+    echo "Detaching volume ${TITUS_EBS_VOLUME_ID}"
+    aws ec2 detach-volume \
+        --region $EC2_REGION \
+        --volume-id $TITUS_EBS_VOLUME_ID
+  fi
+  
+  while [[ "${attachment_state}" != "null" ]] && [[ ${retry_count} -gt 0 ]]; do
+    echo "Waiting for detach of volume: ${TITUS_EBS_VOLUME_ID}, attachment_state: ${attachment_state} retry count: ${retry_count}"
+    attachment_state=$(aws ec2 describe-volumes --region us-east-1 --volume-id ${TITUS_EBS_VOLUME_ID} | jq '.Volumes[0].Attachments[0].State')
+    retry_count=$((retry_count-1))
+    sleep 1
+  done
+}
+
+(
+  echo "Grabbing a lock on /tmp/$TITUS_EBS_VOLUME_ID.lock for Task $TITUS_TASK_ID..."
+  flock -w 240 -s 200
+echo "Would mount $TITUS_EBS_VOLUME_ID"
+systemd-notify --status="Attaching $TITUS_EBS_VOLUME_ID..."
+attach_ebs
+systemd-notify --ready --status="Attached and mounted $TITUS_EBS_VOLUME_ID. Waiting for task to finish."
+echo "Waiting for $TASK_PID1 to finish before detatching"
+tail --pid=$TASK_PID1 -f /dev/null
+echo "Ok done. Now would detach"
+detach_ebs
+) 200>/tmp/$TITUS_EBS_VOLUME_ID.lock
+exit 0
