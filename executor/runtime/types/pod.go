@@ -103,6 +103,10 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	return c.titusInfo, nil
 }
 
+func (c *PodContainer) EBSInfo() EBSInfo {
+	return EBSInfo{}
+}
+
 func (c *PodContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo {
 	return nil
 }

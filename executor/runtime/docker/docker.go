@@ -991,6 +991,16 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}
 	}
 
+	if shouldStartTitusStorage(&r.cfg, r.c) {
+		v := r.c.EBSInfo()
+		r.c.SetEnvs(map[string]string{
+			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
+			"TITUS_EBS_MOUNT_POINT": v.MountPoint,
+			"TITUS_EBS_MOUNT_PERM":  v.MountPerm,
+			"TITUS_EBS_FSTYPE":      v.FSType,
+		})
+	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()

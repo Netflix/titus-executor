@@ -122,6 +122,7 @@ type TitusInfoContainer struct {
 	envOverrides map[string]string
 	labels       map[string]string
 	titusInfo    *titus.ContainerInfo
+	ebsInfo      EBSInfo
 
 	resources Resources
 
@@ -136,7 +137,6 @@ type TitusInfoContainer struct {
 	vpcAccountID       string
 
 	// Log uploader fields
-
 	logUploadThresholdTime *time.Duration
 	logUploadCheckInterval *time.Duration
 	logStdioCheckInterval  *time.Duration
@@ -537,6 +537,16 @@ func (c *TitusInfoContainer) Capabilities() *titus.ContainerInfo_Capabilities {
 
 func (c *TitusInfoContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo {
 	return c.titusInfo.GetEfsConfigInfo()
+}
+
+func (c *TitusInfoContainer) EBSInfo() EBSInfo {
+	// KYLE TODO: use c.pod.annotations and extract the data here
+	return EBSInfo{
+		VolumeID:   "vol-0cc20fbab97755b62",
+		MountPoint: "/ebs_mnt",
+		MountPerm:  "RW",
+		FSType:     "xfs",
+	}
 }
 
 func (c *TitusInfoContainer) ElasticIPPool() *string {

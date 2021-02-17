@@ -120,6 +120,12 @@ var systemServices = []serviceOpts{
 		required:     true,
 		enabledCheck: shouldStartTitusSeccompAgent,
 	},
+	{
+		humanName:    "titus-storage",
+		unitName:     "titus-storage",
+		required:     true,
+		enabledCheck: shouldStartTitusStorage,
+	},
 }
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {

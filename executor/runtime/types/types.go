@@ -104,6 +104,13 @@ type GPUContainer interface {
 	Env() map[string]string
 }
 
+type EBSInfo struct {
+	VolumeID   string
+	MountPoint string
+	MountPerm  string
+	FSType     string
+}
+
 type SidecarContainerConfig struct {
 	ServiceName string
 	Image       string
@@ -122,6 +129,7 @@ type Container interface {
 	Capabilities() *titus.ContainerInfo_Capabilities
 	CombinedAppStackDetails() string
 	ContainerInfo() (*titus.ContainerInfo, error)
+	EBSInfo() EBSInfo
 	EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo
 	Env() map[string]string
 	ElasticIPPool() *string
