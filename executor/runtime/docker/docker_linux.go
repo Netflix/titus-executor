@@ -255,7 +255,12 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 		return err
 	}
 
-	l.Infof("Starting systemd unit %s", qualifiedUnitName)
+	timeout := 5 * time.Second
+	if opts.required {
+		timeout = 30 * time.Second
+	}
+
+	l.Infof("starting systemd unit %s", qualifiedUnitName)
 	ch := make(chan string, 1)
 	if _, err := conn.StartUnit(qualifiedUnitName, "fail", ch); err != nil {
 		return err
@@ -265,9 +270,9 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 		doneErr := ctx.Err()
 		if doneErr == context.DeadlineExceeded {
 			if opts.required {
-				return errors.Wrapf(doneErr, "timeout starting %s service", opts.humanName)
+				return errors.Wrapf(doneErr, "timeout (overall task start dealine exceeded) starting %s service", opts.humanName)
 			}
-			l.Errorf("timeout starting %s service (not required to launch this task)", opts.humanName)
+			l.Errorf("timeout (overall task start dealine exceeded) starting %s service (not required to launch this task)", opts.humanName)
 			return nil
 		}
 		return doneErr
@@ -276,8 +281,14 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 			if opts.required {
 				return fmt.Errorf("could not start %s service (%s): %s", opts.humanName, qualifiedUnitName, val)
 			}
-			l.Errorf("Unknown response when starting systemd unit '%s': %s", qualifiedUnitName, val)
+			l.Errorf("unknown response when starting systemd unit '%s': %s", qualifiedUnitName, val)
 		}
+	case <-time.After(timeout):
+		if opts.required {
+			return fmt.Errorf("timeout after %d seconds starting %s service (which is required to start)", timeout, opts.humanName)
+		}
+		l.Errorf("timeout after %d seconds starting %s service (not required to launch this task)", timeout, opts.humanName)
+		return nil
 	}
 	return nil
 }
