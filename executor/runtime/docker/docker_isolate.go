@@ -30,11 +30,15 @@ func waitForTitusIsolateWithHost(parentCtx context.Context, taskID, host string,
 	firstTry <- struct{}{}
 	for {
 		select {
-		case <-ctx.Done():
-			logrus.WithError(ctx.Err()).WithField("tries", tries).Warn("Context completed prior to getting a successful result from titus isolate")
-			return false
-
 		case <-ticker.C:
+			// select is pseudo-random, so simply selecting for ctx.Done() is not
+			// guaranteed to make sure we `select` for that case first, just because
+			// it comes first in our case statement. Therefore we check it explicitly
+			// right before we do any other actions based on the ticket signal
+			if ctx.Err() != nil {
+				logrus.WithError(ctx.Err()).WithField("tries", tries).Warn("Context completed prior to getting a successful result from titus isolate")
+				return false
+			}
 			tries++
 			if workloadIsolated(ctx, taskID, host) {
 				logrus.WithField("tries", tries).Info("Titus Isolate returned success")
