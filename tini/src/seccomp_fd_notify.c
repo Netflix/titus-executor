@@ -24,8 +24,9 @@
 #include <sys/ioctl.h>  
 #include <linux/seccomp.h>
 #include <linux/filter.h>
-
+#include <stddef.h>
 #include "seccomp_fd_notify.h"
+
 #define MAX_EVENTS 16
 #define EPOLL_IGNORED_VAL 3
 
