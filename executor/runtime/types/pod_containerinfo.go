@@ -110,7 +110,7 @@ func (c *PodContainerInfoContainer) BatchPriority() *string {
 	return nil
 }
 
-func (c *PodContainerInfoContainer) Capabilities() *titus.ContainerInfo_Capabilities {
+func (c *PodContainerInfoContainer) Capabilities() *corev1.Capabilities {
 	return nil
 }
 

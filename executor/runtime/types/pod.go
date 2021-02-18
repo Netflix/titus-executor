@@ -29,6 +29,7 @@ var _ Container = (*PodContainer)(nil)
 // PodContainer is an implementation of Container backed only by a kubernetes pod.
 // This is currently using the base64'ed ContainerInfo until all fields are ported over to annotations
 type PodContainer struct {
+	capabilities   *corev1.Capabilities
 	config         config.Config
 	containerImage reference.Reference
 	envLock        sync.Mutex
@@ -106,14 +107,24 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		return c, fmt.Errorf("error parsing NFS mounts: %w", err)
 	}
 
+	if userContainer.SecurityContext != nil && userContainer.SecurityContext.Capabilities != nil {
+		c.capabilities = userContainer.SecurityContext.Capabilities
+	}
+
 	return c, nil
 }
 
 func (c *PodContainer) AllowCPUBursting() bool {
+	if c.podConfig.CPUBurstingEnabled != nil {
+		return *c.podConfig.CPUBurstingEnabled
+	}
 	return false
 }
 
 func (c *PodContainer) AllowNetworkBursting() bool {
+	if c.podConfig.NetworkBurstingEnabled != nil {
+		return *c.podConfig.NetworkBurstingEnabled
+	}
 	return false
 }
 
@@ -146,11 +157,14 @@ func (c *PodContainer) BandwidthLimitMbps() *int64 {
 }
 
 func (c *PodContainer) BatchPriority() *string {
+	if c.podConfig.SchedPolicy != nil {
+		return c.podConfig.SchedPolicy
+	}
 	return nil
 }
 
-func (c *PodContainer) Capabilities() *titus.ContainerInfo_Capabilities {
-	return nil
+func (c *PodContainer) Capabilities() *corev1.Capabilities {
+	return c.capabilities
 }
 
 func (c *PodContainer) CombinedAppStackDetails() string {
@@ -174,14 +188,23 @@ func (c *PodContainer) EnvOverrides() map[string]string {
 }
 
 func (c *PodContainer) ElasticIPPool() *string {
+	if c.podConfig.ElasticIPPool != nil {
+		return c.podConfig.ElasticIPPool
+	}
 	return nil
 }
 
 func (c *PodContainer) ElasticIPs() *string {
+	if c.podConfig.ElasticIPs != nil {
+		return c.podConfig.ElasticIPs
+	}
 	return nil
 }
 
 func (c *PodContainer) FuseEnabled() bool {
+	if c.podConfig.FuseEnabled != nil {
+		return *c.podConfig.FuseEnabled
+	}
 	return false
 }
 

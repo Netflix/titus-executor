@@ -115,8 +115,19 @@ func TestNewPodContainer(t *testing.T) {
 		BranchENIID:     "eni-abcde",
 		BranchENISubnet: "subnet-abcde",
 		BranchENIVPC:    "vpc-abcde",
+		ElasticAddress: &vpcapi.ElasticAddress{
+			Ip: "1.2.3.5",
+		},
 	}
 	expBwLimit := int64(128 * units.MB)
+	expNFSMounts := []NFSMount{
+		{
+			MountPoint: "/efs1",
+			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
+			ServerPath: "/remote-dir",
+			ReadOnly:   true,
+		},
+	}
 
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyAppName:                  expAppName,
@@ -129,6 +140,13 @@ func TestNewPodContainer(t *testing.T) {
 		podCommon.AnnotationKeyJobType:                  "service",
 		podCommon.AnnotationKeyNetworkAccountID:         "123456",
 		podCommon.AnnotationKeyNetworkAssignIPv6Address: "true",
+		podCommon.AnnotationKeyPodCPUBurstingEnabled:    "true",
+		podCommon.AnnotationKeyNetworkBurstingEnabled:   "true",
+		// In a real job, both the pool and IP list wouldn't be set
+		podCommon.AnnotationKeyNetworkElasticIPPool: "pool1",
+		podCommon.AnnotationKeyNetworkElasticIPs:    "eipalloc-001,eipalloc-002",
+		podCommon.AnnotationKeyPodFuseEnabled:       "true",
+		podCommon.AnnotationKeyPodSchedPolicy:       "idle",
 	})
 
 	uc := podCommon.GetUserContainer(pod)
@@ -146,13 +164,13 @@ func TestNewPodContainer(t *testing.T) {
 	err = AddContainerInfoToPod(pod, cInfo)
 	assert.NilError(t, err)
 
+	// Add EFS mounts
 	uc.VolumeMounts = []corev1.VolumeMount{
 		{
 			Name:      "efs-fs-abcdef-rwm.subdir1",
 			MountPath: "/efs1",
 		},
 	}
-
 	pod.Spec.Volumes = []corev1.Volume{
 		{
 			Name: "efs-fs-abcdef-rwm.subdir1",
@@ -165,13 +183,13 @@ func TestNewPodContainer(t *testing.T) {
 			},
 		},
 	}
-	expNFSMounts := []NFSMount{
-		{
-			MountPoint: "/efs1",
-			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
-			ServerPath: "/remote-dir",
-			ReadOnly:   true,
-		},
+
+	expCapabilities := &corev1.Capabilities{
+		Add:  []corev1.Capability{"NET_ADMIN"},
+		Drop: []corev1.Capability{"SYS_TIME"},
+	}
+	uc.SecurityContext = &corev1.SecurityContext{
+		Capabilities: expCapabilities,
 	}
 
 	c, err := NewPodContainer(pod, *conf)
@@ -188,19 +206,18 @@ func TestNewPodContainer(t *testing.T) {
 
 	var int32Nil *int32
 	var uint32Nil *uint32
-	var capNil *titus.ContainerInfo_Capabilities
 	var gpuNil GPUContainer
 	var regexpNil *regexp.Regexp
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
 	var stringsNil *[]string
 
-	assert.Equal(t, c.AllowCPUBursting(), false)
-	assert.Equal(t, c.AllowNetworkBursting(), false)
+	assert.Equal(t, c.AllowCPUBursting(), true)
+	assert.Equal(t, c.AllowNetworkBursting(), true)
 	assert.Equal(t, c.AppName(), "appName")
 	assert.Equal(t, c.AssignIPv6Address(), true)
 	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimit)
-	assert.Equal(t, c.BatchPriority(), stringNil)
-	assert.Equal(t, c.Capabilities(), capNil)
+	assert.DeepEqual(t, c.BatchPriority(), ptr.StringPtr("idle"))
+	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
 	assert.Equal(t, c.CombinedAppStackDetails(), "appName-appStack-appDetail")
 	assert.DeepEqual(t, c.NFSMounts(), expNFSMounts)
 
@@ -209,6 +226,8 @@ func TestNewPodContainer(t *testing.T) {
 		"AWS_METADATA_SERVICE_TIMEOUT":      "5",
 		"EC2_DOMAIN":                        "amazonaws.com",
 		"EC2_LOCAL_IPV4":                    "1.2.3.4",
+		"EC2_PUBLIC_IPV4":                   "1.2.3.5",
+		"EC2_PUBLIC_IPV4S":                  "1.2.3.5",
 		"EC2_OWNER_ID":                      "123456",
 		"EC2_SUBNET_ID":                     "subnet-abcde",
 		"EC2_VPC_ID":                        "vpc-abcde",
@@ -218,6 +237,7 @@ func TestNewPodContainer(t *testing.T) {
 		"NETFLIX_CLUSTER":                   "appName-appStack-appDetail",
 		"NETFLIX_DETAIL":                    "appDetail",
 		"NETFLIX_STACK":                     "appStack",
+		"TITUS_BATCH":                       "idle",
 		"TITUS_IAM_ROLE":                    iamRole,
 		"TITUS_IMAGE_DIGEST":                imgDigest,
 		"TITUS_IMAGE_NAME":                  "titusoss/alpine",
@@ -240,9 +260,9 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, c.Env(), expEnv)
 	assert.DeepEqual(t, c.SortedEnvArray(), expEnvArray)
 
-	assert.Equal(t, c.ElasticIPPool(), stringNil)
-	assert.Equal(t, c.ElasticIPs(), stringNil)
-	assert.Equal(t, c.FuseEnabled(), false)
+	assert.DeepEqual(t, c.ElasticIPPool(), ptr.StringPtr("pool1"))
+	assert.DeepEqual(t, c.ElasticIPs(), ptr.StringPtr("eipalloc-001,eipalloc-002"))
+	assert.Equal(t, c.FuseEnabled(), true)
 	assert.Equal(t, c.GPUInfo(), gpuNil)
 	assert.DeepEqual(t, c.IamRole(), ptr.StringPtr(iamRole))
 	assert.Equal(t, c.ID(), taskID)
@@ -270,7 +290,7 @@ func TestNewPodContainer(t *testing.T) {
 		diskLabelKey:            strconv.Itoa(int(expResources.Disk)),
 		networkLabelKey:         strconv.Itoa(int(expResources.Network)),
 		titusTaskInstanceIDKey:  taskID,
-		workloadTypeLabelKey:    string(StaticWorkloadType),
+		workloadTypeLabelKey:    string(BurstWorkloadType),
 		models.ExecutorPidLabel: strconv.Itoa(os.Getpid()),
 		models.TaskIDLabel:      taskID,
 	})

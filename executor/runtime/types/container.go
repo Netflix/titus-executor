@@ -554,8 +554,21 @@ func (c *TitusInfoContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	return c.titusInfo, nil
 }
 
-func (c *TitusInfoContainer) Capabilities() *titus.ContainerInfo_Capabilities {
-	return c.titusInfo.GetCapabilities()
+func (c *TitusInfoContainer) Capabilities() *corev1.Capabilities {
+	cInfoCap := c.titusInfo.GetCapabilities()
+	if cInfoCap == nil {
+		return nil
+	}
+
+	cp := corev1.Capabilities{}
+	for _, add := range cInfoCap.GetAdd() {
+		cp.Add = append(cp.Add, corev1.Capability(add.String()))
+	}
+	for _, drop := range cInfoCap.GetDrop() {
+		cp.Drop = append(cp.Drop, corev1.Capability(drop.String()))
+	}
+
+	return &cp
 }
 
 func (c *TitusInfoContainer) ElasticIPPool() *string {

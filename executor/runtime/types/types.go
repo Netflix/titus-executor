@@ -133,7 +133,7 @@ type Container interface {
 	AssignIPv6Address() bool
 	BandwidthLimitMbps() *int64
 	BatchPriority() *string
-	Capabilities() *titus.ContainerInfo_Capabilities
+	Capabilities() *corev1.Capabilities
 	CombinedAppStackDetails() string
 	ContainerInfo() (*titus.ContainerInfo, error)
 	Env() map[string]string

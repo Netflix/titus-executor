@@ -76,7 +76,7 @@ func TestNewPodContainerInfoContainer(t *testing.T) {
 	var uint32Nil *uint32
 	var stringNil *string
 	var durationNil *time.Duration
-	var capNil *titus.ContainerInfo_Capabilities
+	var capNil *corev1.Capabilities
 	var gpuNil GPUContainer
 	var uploaderConfNil *uploader.Config
 	var regexpNil *regexp.Regexp
