@@ -158,6 +158,7 @@ type Container interface {
 	Resources() *Resources
 	RequireIMDSToken() *string
 	Runtime() string
+	SeccompAgentEnabledForNetSyscalls() bool
 	SeccompAgentEnabledForPerfSyscalls() bool
 	SecurityGroupIDs() *[]string
 	ServiceMeshEnabled() bool
