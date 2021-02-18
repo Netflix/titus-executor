@@ -11,6 +11,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/Netflix/titus-executor/services"
+
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"go.opencensus.io/trace"
 
@@ -45,11 +47,6 @@ import (
 )
 
 var (
-	methodTag     = tag.MustNewKey("method")
-	returnCodeTag = tag.MustNewKey("returnCode")
-)
-
-var (
 	grpcRequest   = stats.Int64("grpcRequest", "Statistics about gRPC requests", "")
 	grpcRequestNs = stats.Int64("grpcRequestNs", "Time of gRPC Request", "ns")
 )
@@ -61,14 +58,14 @@ func init() {
 			Description: grpcRequest.Description(),
 			Measure:     grpcRequest,
 			Aggregation: view.Count(),
-			TagKeys:     []tag.Key{methodTag, returnCodeTag},
+			TagKeys:     []tag.Key{services.MethodTag, services.ReturnCodeTag},
 		},
 		&view.View{
 			Name:        grpcRequestNs.Name(),
 			Description: grpcRequestNs.Description(),
 			Measure:     grpcRequestNs,
 			Aggregation: view.Distribution(),
-			TagKeys:     []tag.Key{methodTag, returnCodeTag},
+			TagKeys:     []tag.Key{services.MethodTag, services.ReturnCodeTag},
 		}); err != nil {
 		panic(err)
 	}
@@ -160,38 +157,6 @@ func (t *trunkTrackerCache) acquire(ctx context.Context, trunkENI string) (func(
 		trackedItem.Release()
 		sem.Release(1)
 	}, nil
-}
-
-func unaryMetricsHandler(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	ctx, err := tag.New(ctx, tag.Upsert(methodTag, info.FullMethod))
-	if err != nil {
-		return nil, err
-	}
-
-	start := time.Now()
-	result, err := handler(ctx, req)
-
-	// TODO: Implement error unwrapping here to catch wrapped errors, so try to unwrap
-	// into an error which implements `GRPCStatus` before setting status From error
-	st, _ := status.FromError(err)
-	duration := time.Since(start)
-	l := logger.G(ctx).WithField("method", info.FullMethod).WithField("statusCode", st.Code().String()).WithField("duration", duration.String())
-	fun := l.Info
-	if err != nil {
-		fun = l.WithError(err).Warn
-	}
-
-	fun("Finished unary call")
-
-	ctx2, err2 := tag.New(ctx, tag.Upsert(returnCodeTag, st.Code().String()))
-	if err2 != nil {
-		return result, err
-	}
-
-	stats.Record(ctx2, grpcRequestNs.M(duration.Nanoseconds()))
-	stats.Record(ctx2, grpcRequest.M(1))
-
-	return result, err
 }
 
 type Config struct {
@@ -325,7 +290,7 @@ func Run(ctx context.Context, config *Config) error {
 				grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
 				grpc_logrus.UnaryServerInterceptor(logrusEntry),
 				grpc_auth.UnaryServerInterceptor(vpc.authFunc),
-				unaryMetricsHandler,
+				services.UnaryMetricsHandler,
 			),
 			grpc_middleware.WithStreamServerChain(
 				grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
