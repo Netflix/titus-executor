@@ -122,10 +122,6 @@ func (c *PodContainerInfoContainer) ContainerInfo() (*titus.ContainerInfo, error
 	return c.titusInfo, nil
 }
 
-func (c *PodContainerInfoContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo {
-	return nil
-}
-
 func (c *PodContainerInfoContainer) Env() map[string]string {
 	return map[string]string{}
 }
@@ -244,6 +240,10 @@ func (c *PodContainerInfoContainer) LogUploadThresholdTime() *time.Duration {
 
 func (c *PodContainerInfoContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
 	return nil
+}
+
+func (c *PodContainerInfoContainer) NFSMounts() []NFSMount {
+	return []NFSMount{}
 }
 
 func (c *PodContainerInfoContainer) NormalizedENIIndex() *int {

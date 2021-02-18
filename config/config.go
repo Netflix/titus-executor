@@ -29,6 +29,8 @@ type Config struct {
 	// Docker returns the Docker-specific configuration settings
 	DockerHost     string
 	DockerRegistry string
+	// What region we're running in
+	AwsRegion string
 
 	// MetatronEnabled returns if Metatron is enabled
 	MetatronEnabled      bool
@@ -144,6 +146,12 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value:       "docker.io",
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
+		},
+		cli.StringFlag{
+			Name:        "aws-region",
+			Value:       "",
+			Destination: &cfg.AwsRegion,
+			EnvVar:      "EC2_REGION",
 		},
 		cli.StringFlag{
 			Name:        "metatron-service-image",

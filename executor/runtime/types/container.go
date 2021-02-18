@@ -162,6 +162,7 @@ type TitusInfoContainer struct {
 	fuseEnabled bool
 	// KvmEnabled determines whether the container has KVM exposed to it
 	kvmEnabled                         bool
+	nfsMounts                          []NFSMount
 	requireIMDSToken                   string
 	seccompAgentEnabledForNetSyscalls  bool
 	seccompAgentEnabledForPerfSyscalls bool
@@ -345,6 +346,11 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 	}
 	if ok {
 		c.serviceMeshEnabled = &svcMeshEnabled
+	}
+
+	err = c.parseContainerInfoNfsMounts()
+	if err != nil {
+		return c, fmt.Errorf("error parsing NFS mounts: %w", err)
 	}
 
 	// This depends on a number of the other fields being populated, so run it last
@@ -550,10 +556,6 @@ func (c *TitusInfoContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 
 func (c *TitusInfoContainer) Capabilities() *titus.ContainerInfo_Capabilities {
 	return c.titusInfo.GetCapabilities()
-}
-
-func (c *TitusInfoContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo {
-	return c.titusInfo.GetEfsConfigInfo()
 }
 
 func (c *TitusInfoContainer) ElasticIPPool() *string {
@@ -762,6 +764,10 @@ func (c *TitusInfoContainer) LogUploadThresholdTime() *time.Duration {
 
 func (c *TitusInfoContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
 	return c.titusInfo.GetMetatronCreds()
+}
+
+func (c *TitusInfoContainer) NFSMounts() []NFSMount {
+	return c.nfsMounts
 }
 
 func (c *TitusInfoContainer) NormalizedENIIndex() *int {
@@ -1203,4 +1209,49 @@ func combinedAppStackDetails(c Container) string {
 		return fmt.Sprintf("%s-%s", c.AppName(), c.JobGroupStack())
 	}
 	return c.AppName()
+}
+
+func (c *TitusInfoContainer) parseContainerInfoNfsMounts() error {
+	efsConfigs := c.titusInfo.GetEfsConfigInfo()
+	c.nfsMounts = []NFSMount{}
+	if efsConfigs == nil {
+		return nil
+	}
+
+	for _, efs := range efsConfigs {
+		var readOnly bool
+		switch efs.GetMntPerms() {
+		case titus.ContainerInfo_EfsConfigInfo_RW:
+			readOnly = false
+		case titus.ContainerInfo_EfsConfigInfo_RO:
+			readOnly = true
+		case titus.ContainerInfo_EfsConfigInfo_WO:
+			readOnly = false
+		default:
+			return fmt.Errorf("Invalid EFS mount (read/write flag): %+v", efs)
+		}
+
+		efsFsID := efs.GetEfsFsId()
+		if efsFsID == "" {
+			return fmt.Errorf("Invalid EFS mount (empty FS ID): %+v", efs)
+		}
+
+		if c.config.AwsRegion == "" {
+			return errors.New("AWS region unset")
+		}
+
+		nm := NFSMount{
+			Server:     fmt.Sprintf("%s.efs.%s.amazonaws.com", efsFsID, c.config.AwsRegion),
+			ServerPath: filepath.Clean(efs.GetEfsFsRelativeMntPoint()),
+			MountPoint: filepath.Clean(efs.GetMountPoint()),
+			ReadOnly:   readOnly,
+		}
+		if nm.ServerPath == "" {
+			nm.ServerPath = "/"
+		}
+
+		c.nfsMounts = append(c.nfsMounts, nm)
+	}
+
+	return nil
 }

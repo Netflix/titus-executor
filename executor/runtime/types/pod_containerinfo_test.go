@@ -77,7 +77,6 @@ func TestNewPodContainerInfoContainer(t *testing.T) {
 	var stringNil *string
 	var durationNil *time.Duration
 	var capNil *titus.ContainerInfo_Capabilities
-	var efsNil []*titus.ContainerInfo_EfsConfigInfo
 	var gpuNil GPUContainer
 	var uploaderConfNil *uploader.Config
 	var regexpNil *regexp.Regexp
@@ -94,7 +93,7 @@ func TestNewPodContainerInfoContainer(t *testing.T) {
 	assert.Equal(t, c.BatchPriority(), stringNil)
 	assert.Equal(t, c.Capabilities(), capNil)
 	assert.Equal(t, c.CombinedAppStackDetails(), "")
-	assert.DeepEqual(t, c.EfsConfigInfo(), efsNil)
+	assert.DeepEqual(t, c.NFSMounts(), []NFSMount{})
 	assert.DeepEqual(t, c.Env(), map[string]string{})
 	assert.Equal(t, c.ElasticIPPool(), stringNil)
 	assert.Equal(t, c.ElasticIPs(), stringNil)

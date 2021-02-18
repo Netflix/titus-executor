@@ -17,8 +17,10 @@ import (
 	"github.com/docker/distribution/reference"
 	units "github.com/docker/go-units"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/util/maps"
+	ptr "k8s.io/utils/pointer"
 )
 
 // Compile-time check that PodContainer implements the Container interface:
@@ -41,6 +43,7 @@ type PodContainer struct {
 	gpuInfo           GPUContainer
 	labels            map[string]string
 	logUploaderConfig *uploader.Config
+	nfsMounts         []NFSMount
 	pod               *corev1.Pod
 	podConfig         *podCommon.Config
 	resources         *Resources
@@ -97,6 +100,12 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 	}
 
 	c.labels = addLabels(c.id, c, resources)
+
+	err = c.parsePodVolumes()
+	if err != nil {
+		return c, fmt.Errorf("error parsing NFS mounts: %w", err)
+	}
+
 	return c, nil
 }
 
@@ -120,11 +129,20 @@ func (c *PodContainer) AppName() string {
 }
 
 func (c *PodContainer) AssignIPv6Address() bool {
+	v6Enabled := c.podConfig.AssignIPv6Address
+	if v6Enabled != nil {
+		return *v6Enabled
+	}
 	return false
 }
 
 func (c *PodContainer) BandwidthLimitMbps() *int64 {
-	return nil
+	bw := c.podConfig.IngressBandwidth
+	if bw == nil {
+		return nil
+	}
+
+	return ptr.Int64Ptr(bw.Value())
 }
 
 func (c *PodContainer) BatchPriority() *string {
@@ -142,10 +160,6 @@ func (c *PodContainer) CombinedAppStackDetails() string {
 func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	// TODO: this needs to be removed once Metatron supports pods
 	return c.titusInfo, nil
-}
-
-func (c *PodContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo {
-	return nil
 }
 
 func (c *PodContainer) Env() map[string]string {
@@ -312,6 +326,10 @@ func (c *PodContainer) LogUploadThresholdTime() *time.Duration {
 
 func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
 	return c.titusInfo.GetMetatronCreds()
+}
+
+func (c *PodContainer) NFSMounts() []NFSMount {
+	return c.nfsMounts
 }
 
 func (c *PodContainer) NormalizedENIIndex() *int {
@@ -509,4 +527,45 @@ func createLogUploadConfig(pConf *podCommon.Config) *uploader.Config {
 	}
 
 	return &conf
+}
+
+func (c *PodContainer) parsePodVolumes() error {
+	c.nfsMounts = []NFSMount{}
+	nameToMount := map[string]corev1.Volume{}
+
+	for _, vol := range c.pod.Spec.Volumes {
+		if vol.VolumeSource.NFS == nil {
+			continue
+		}
+		nameToMount[vol.Name] = vol
+	}
+
+	uc := podCommon.GetUserContainer(c.pod)
+	unmatchedVolMounts := []corev1.VolumeMount{}
+	for _, vm := range uc.VolumeMounts {
+		vol, ok := nameToMount[vm.Name]
+		if !ok {
+			unmatchedVolMounts = append(unmatchedVolMounts, vm)
+			continue
+		}
+
+		c.nfsMounts = append(c.nfsMounts, NFSMount{
+			MountPoint: filepath.Clean(vm.MountPath),
+			Server:     vol.NFS.Server,
+			ServerPath: filepath.Clean(vol.NFS.Path),
+			ReadOnly:   vol.NFS.ReadOnly,
+		})
+
+		delete(nameToMount, vm.Name)
+	}
+
+	if len(unmatchedVolMounts) > 0 || len(nameToMount) > 0 {
+		unmatchedVolumes := []corev1.Volume{}
+
+		log.WithField("volumes", unmatchedVolumes).WithField("volumemounts", unmatchedVolMounts).
+			Info("found unmatched volumes and volume mounts")
+		// TODO: return an error here?
+	}
+
+	return nil
 }

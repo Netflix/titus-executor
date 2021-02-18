@@ -16,6 +16,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types" // nolint: staticcheck
 	podCommon "github.com/Netflix/titus-kube-common/pod"   // nolint: staticcheck
+	"github.com/docker/go-units"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	ptr "k8s.io/utils/pointer"
@@ -115,17 +116,19 @@ func TestNewPodContainer(t *testing.T) {
 		BranchENISubnet: "subnet-abcde",
 		BranchENIVPC:    "vpc-abcde",
 	}
+	expBwLimit := int64(128 * units.MB)
 
 	addPodAnnotations(pod, map[string]string{
-		podCommon.AnnotationKeyAppName:          expAppName,
-		podCommon.AnnotationKeyAppDetail:        "appDetail",
-		podCommon.AnnotationKeyAppOwnerEmail:    expAppOwner,
-		podCommon.AnnotationKeyAppStack:         "appStack",
-		podCommon.AnnotationKeyAppSequence:      "appSeq",
-		podCommon.AnnotationKeyIAMRole:          iamRole,
-		podCommon.AnnotationKeyJobID:            "jobid",
-		podCommon.AnnotationKeyJobType:          "service",
-		podCommon.AnnotationKeyNetworkAccountID: "123456",
+		podCommon.AnnotationKeyAppName:                  expAppName,
+		podCommon.AnnotationKeyAppDetail:                "appDetail",
+		podCommon.AnnotationKeyAppOwnerEmail:            expAppOwner,
+		podCommon.AnnotationKeyAppStack:                 "appStack",
+		podCommon.AnnotationKeyAppSequence:              "appSeq",
+		podCommon.AnnotationKeyIAMRole:                  iamRole,
+		podCommon.AnnotationKeyJobID:                    "jobid",
+		podCommon.AnnotationKeyJobType:                  "service",
+		podCommon.AnnotationKeyNetworkAccountID:         "123456",
+		podCommon.AnnotationKeyNetworkAssignIPv6Address: "true",
 	})
 
 	uc := podCommon.GetUserContainer(pod)
@@ -143,6 +146,34 @@ func TestNewPodContainer(t *testing.T) {
 	err = AddContainerInfoToPod(pod, cInfo)
 	assert.NilError(t, err)
 
+	uc.VolumeMounts = []corev1.VolumeMount{
+		{
+			Name:      "efs-fs-abcdef-rwm.subdir1",
+			MountPath: "/efs1",
+		},
+	}
+
+	pod.Spec.Volumes = []corev1.Volume{
+		{
+			Name: "efs-fs-abcdef-rwm.subdir1",
+			VolumeSource: corev1.VolumeSource{
+				NFS: &corev1.NFSVolumeSource{
+					Server:   "fs-abcdef.efs.us-east-1.amazonaws.com",
+					Path:     "/remote-dir",
+					ReadOnly: true,
+				},
+			},
+		},
+	}
+	expNFSMounts := []NFSMount{
+		{
+			MountPoint: "/efs1",
+			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
+			ServerPath: "/remote-dir",
+			ReadOnly:   true,
+		},
+	}
+
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 	c.SetVPCAllocation(expVPCalloc)
@@ -156,10 +187,8 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, cmd, expectedCommand)
 
 	var int32Nil *int32
-	var int64Nil *int64
 	var uint32Nil *uint32
 	var capNil *titus.ContainerInfo_Capabilities
-	var efsNil []*titus.ContainerInfo_EfsConfigInfo
 	var gpuNil GPUContainer
 	var regexpNil *regexp.Regexp
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
@@ -168,12 +197,12 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.AllowCPUBursting(), false)
 	assert.Equal(t, c.AllowNetworkBursting(), false)
 	assert.Equal(t, c.AppName(), "appName")
-	assert.Equal(t, c.AssignIPv6Address(), false)
-	assert.Equal(t, c.BandwidthLimitMbps(), int64Nil)
+	assert.Equal(t, c.AssignIPv6Address(), true)
+	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimit)
 	assert.Equal(t, c.BatchPriority(), stringNil)
 	assert.Equal(t, c.Capabilities(), capNil)
 	assert.Equal(t, c.CombinedAppStackDetails(), "appName-appStack-appDetail")
-	assert.DeepEqual(t, c.EfsConfigInfo(), efsNil)
+	assert.DeepEqual(t, c.NFSMounts(), expNFSMounts)
 
 	expEnv := map[string]string{
 		"AWS_METADATA_SERVICE_NUM_ATTEMPTS": "3",

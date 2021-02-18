@@ -116,6 +116,13 @@ type SidecarContainerConfig struct {
 	Volumes     map[string]struct{}
 }
 
+type NFSMount struct {
+	Server     string
+	ServerPath string
+	ReadOnly   bool
+	MountPoint string
+}
+
 // Container contains config state for a container. It should be Read Only. It should only be initialized via a
 // constructor, and not directly.
 type Container interface {
@@ -129,7 +136,6 @@ type Container interface {
 	Capabilities() *titus.ContainerInfo_Capabilities
 	CombinedAppStackDetails() string
 	ContainerInfo() (*titus.ContainerInfo, error)
-	EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo
 	Env() map[string]string
 	EnvOverrides() map[string]string
 	ElasticIPPool() *string
@@ -161,6 +167,7 @@ type Container interface {
 	LogUploadThresholdTime() *time.Duration
 	MetatronCreds() *titus.ContainerInfo_MetatronCreds
 	NormalizedENIIndex() *int
+	NFSMounts() []NFSMount
 	OomScoreAdj() *int32
 	OwnerEmail() *string
 	Process() ([]string, []string)
@@ -297,6 +304,8 @@ func ContainerInfoToPod(taskID string, resources *Resources, cInfo *titus.Contai
 			Annotations: map[string]string{
 				podCommon.AnnotationKeyPodSchemaVersion: "1",
 				podCommon.AnnotationKeyIAMRole:          cInfo.GetIamProfile(),
+				podCommon.AnnotationKeyEgressBandwidth:  net.String(),
+				podCommon.AnnotationKeyIngressBandwidth: net.String(),
 			},
 			Labels: map[string]string{},
 		},
