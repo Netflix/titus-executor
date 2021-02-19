@@ -36,7 +36,7 @@ metadata:
     security.netflix.com/app-metadata: <Metatron app metadata>
     security.netflix.com/app-metadata-sig: <Metatron app signature>
     # matches kube2iam:
-    iam.amazonaws.com/role: arn:aws:iam::<account id>:role/<role>
+    iam.amazonaws.com/role: "arn:aws:iam::0:role/MyContainerRole"
     # AppArmor: https://kubernetes.io/docs/tutorials/clusters/apparmor/#securing-a-pod
     container.apparmor.security.beta.kubernetes.io/46b59bd7-3d02-42c3-951e-cdbaa60f66e2: "localhost/docker_titus"
 
@@ -63,11 +63,22 @@ metadata:
     # metadata from the prediction selection algorithm
     predictions.scheduler.titus.netflix.com/selector-info: "opaque"
 
+    # log uploading parameters
+    log.netflix.com/keep-local-file-after-upload: "true"
+    log.netflix.com/s3-bucket-name: "com.netflix.example"
+    log.netflix.com/s3-path-prefix: "my-prefix"
+    log.netflix.com/s3-writer-iam-role: "arn:aws:iam::0:role/MyLogUploadRole"
+    log.netflix.com/stdio-check-interval: "5min"
+    log.netflix.com/upload-threshold-time: "30min"
+    log.netflix.com/upload-check-interval: "1h"
+    log.netflix.com/upload-regexp: ".*.log"
 
-    # agent passthrough parameters: see below for the full list
+    # valid values: batch, idle
     pod.netflix.com/sched-policy: "batch"
     pod.netflix.com/oom-score-adj: 1000
     pod.netflix.com/cpu-bursting-enabled: "true"
+    pod.netflix.com/seccomp-agent-net-enabled: "true"
+    pod.netflix.com/seccomp-agent-perf-enabled: "true"
 
   creationTimestamp: "2020-04-14T20:24:58Z"
   labels:
@@ -149,6 +160,7 @@ spec:
       # URL for the NFS server
       server: fs-abcdef.efs.us-east-1.amazonaws.com
       path: /subdir1
+      readOnly: true
 
   # shm - see the k8s emptyDir docs
   - name: dev-shm

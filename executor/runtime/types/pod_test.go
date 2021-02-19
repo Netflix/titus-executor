@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ import (
 
 var (
 	stringNil           *string
+	imageName           = "titusoss/alpine"
 	imageFullWithLatest = "docker.io/titusoss/alpine:latest"
 )
 
@@ -71,16 +71,15 @@ func TestPodImageByDigest(t *testing.T) {
 	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
 	assert.NilError(t, err)
 
-	expImgName := "titusoss/alpine"
 	expDigest := "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
-	expected := "docker.io/" + expImgName + "@" + expDigest
+	expected := "docker.io/" + imageName + "@" + expDigest
 
 	uc := podCommon.GetUserContainer(pod)
 	uc.Image = expected
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.QualifiedImageName(), expected)
-	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr(expImgName))
+	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr(imageName))
 	assert.DeepEqual(t, c.ImageVersion(), stringNil)
 	assert.DeepEqual(t, c.ImageDigest(), ptr.StringPtr(expDigest))
 }
@@ -92,12 +91,23 @@ func TestNewPodContainer(t *testing.T) {
 	ipAddr := "1.2.3.4"
 	expectedCommand := []string{"cmd", "arg0", "arg1"}
 	expectedEntrypoint := []string{"entrypoint", "arg0", "arg1"}
-	iamRole := "arn:aws:iam::0:role/DefaultContainerRole"
+	expIamRole := "arn:aws:iam::0:role/DefaultContainerRole"
 	imgName := "titusoss/alpine"
 	imgDigest := "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
 	expectedImage := "docker.io/" + imgName + "@" + imgDigest
 	expAppName := "appName"
 	expAppOwner := "user@example.com"
+	expBwLimit := int64(128 * units.MB)
+	expKillWaitSec := uint32(11)
+	expNFSMounts := []NFSMount{
+		{
+			MountPoint: "/efs1",
+			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
+			ServerPath: "/remote-dir",
+			ReadOnly:   true,
+		},
+	}
+	expOomScoreAdj := int32(99)
 	expResources := &Resources{
 		CPU:     2,
 		GPU:     1,
@@ -105,6 +115,7 @@ func TestNewPodContainer(t *testing.T) {
 		Disk:    10000,
 		Network: 128,
 	}
+	expSGs := []string{"sg-1", "sg-2"}
 	expVPCalloc := &vpcTypes.HybridAllocation{
 		IPV4Address: &vpcapi.UsableAddress{
 			PrefixLength: 32,
@@ -119,15 +130,6 @@ func TestNewPodContainer(t *testing.T) {
 			Ip: "1.2.3.5",
 		},
 	}
-	expBwLimit := int64(128 * units.MB)
-	expNFSMounts := []NFSMount{
-		{
-			MountPoint: "/efs1",
-			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
-			ServerPath: "/remote-dir",
-			ReadOnly:   true,
-		},
-	}
 
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyAppName:                  expAppName,
@@ -135,24 +137,36 @@ func TestNewPodContainer(t *testing.T) {
 		podCommon.AnnotationKeyAppOwnerEmail:            expAppOwner,
 		podCommon.AnnotationKeyAppStack:                 "appStack",
 		podCommon.AnnotationKeyAppSequence:              "appSeq",
-		podCommon.AnnotationKeyIAMRole:                  iamRole,
+		podCommon.AnnotationKeyIAMRole:                  expIamRole,
 		podCommon.AnnotationKeyJobID:                    "jobid",
 		podCommon.AnnotationKeyJobType:                  "service",
+		podCommon.AnnotationKeyLogKeepLocalFile:         True,
+		podCommon.AnnotationKeyLogStdioCheckInterval:    "11m",
+		podCommon.AnnotationKeyLogUploadCheckInterval:   "12m",
+		podCommon.AnnotationKeyLogUploadThresholdTime:   "8h",
+		podCommon.AnnotationKeyLogUploadRegexp:          ".*.foo",
 		podCommon.AnnotationKeyNetworkAccountID:         "123456",
-		podCommon.AnnotationKeyNetworkAssignIPv6Address: "true",
-		podCommon.AnnotationKeyPodCPUBurstingEnabled:    "true",
-		podCommon.AnnotationKeyNetworkBurstingEnabled:   "true",
+		podCommon.AnnotationKeyNetworkAssignIPv6Address: True,
+		podCommon.AnnotationKeyNetworkBurstingEnabled:   True,
 		// In a real job, both the pool and IP list wouldn't be set
-		podCommon.AnnotationKeyNetworkElasticIPPool: "pool1",
-		podCommon.AnnotationKeyNetworkElasticIPs:    "eipalloc-001,eipalloc-002",
-		podCommon.AnnotationKeyPodFuseEnabled:       "true",
-		podCommon.AnnotationKeyPodSchedPolicy:       "idle",
+		podCommon.AnnotationKeyNetworkElasticIPPool:       "pool1",
+		podCommon.AnnotationKeyNetworkElasticIPs:          "eipalloc-001,eipalloc-002",
+		podCommon.AnnotationKeyNetworkIMDSRequireToken:    "token",
+		podCommon.AnnotationKeyPodCPUBurstingEnabled:      True,
+		podCommon.AnnotationKeyPodFuseEnabled:             True,
+		podCommon.AnnotationKeyPodKvmEnabled:              True,
+		podCommon.AnnotationKeyPodOomScoreAdj:             "99",
+		podCommon.AnnotationKeyPodSchedPolicy:             "idle",
+		podCommon.AnnotationKeyPodSeccompAgentNetEnabled:  True,
+		podCommon.AnnotationKeyPodSeccompAgentPerfEnabled: True,
+		podCommon.AnnotationKeyNetworkSecurityGroups:      "sg-1,sg-2",
 	})
 
 	uc := podCommon.GetUserContainer(pod)
 	uc.Args = expectedCommand
 	uc.Command = expectedEntrypoint
 	uc.Image = expectedImage
+	pod.Spec.TerminationGracePeriodSeconds = ptr.Int64Ptr(11)
 
 	//startTime := time.Now()
 	cInfo := &titus.ContainerInfo{
@@ -195,6 +209,7 @@ func TestNewPodContainer(t *testing.T) {
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 	c.SetVPCAllocation(expVPCalloc)
+	c.SetID(taskID)
 
 	assert.Equal(t, c.TaskID(), taskID)
 	assert.DeepEqual(t, c.IPv4Address(), &ipAddr)
@@ -204,12 +219,9 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, entrypoint, expectedEntrypoint)
 	assert.DeepEqual(t, cmd, expectedCommand)
 
-	var int32Nil *int32
 	var uint32Nil *uint32
 	var gpuNil GPUContainer
-	var regexpNil *regexp.Regexp
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
-	var stringsNil *[]string
 
 	assert.Equal(t, c.AllowCPUBursting(), true)
 	assert.Equal(t, c.AllowNetworkBursting(), true)
@@ -225,6 +237,7 @@ func TestNewPodContainer(t *testing.T) {
 		"AWS_METADATA_SERVICE_NUM_ATTEMPTS": "3",
 		"AWS_METADATA_SERVICE_TIMEOUT":      "5",
 		"EC2_DOMAIN":                        "amazonaws.com",
+		"EC2_INTERFACE_ID":                  "eni-abcde",
 		"EC2_LOCAL_IPV4":                    "1.2.3.4",
 		"EC2_PUBLIC_IPV4":                   "1.2.3.5",
 		"EC2_PUBLIC_IPV4S":                  "1.2.3.5",
@@ -238,9 +251,11 @@ func TestNewPodContainer(t *testing.T) {
 		"NETFLIX_DETAIL":                    "appDetail",
 		"NETFLIX_STACK":                     "appStack",
 		"TITUS_BATCH":                       "idle",
-		"TITUS_IAM_ROLE":                    iamRole,
+		"TITUS_CONTAINER_ID":                taskID,
+		"TITUS_IAM_ROLE":                    expIamRole,
 		"TITUS_IMAGE_DIGEST":                imgDigest,
 		"TITUS_IMAGE_NAME":                  "titusoss/alpine",
+		"TITUS_IMDS_REQUIRE_TOKEN":          "token",
 		// XXX
 		"TITUS_METATRON_ENABLED":      "true",
 		"TITUS_NUM_CPU":               "2",
@@ -248,7 +263,9 @@ func TestNewPodContainer(t *testing.T) {
 		"TITUS_NUM_MEM":               "512",
 		"TITUS_NUM_NETWORK_BANDWIDTH": "128",
 		"TITUS_OCI_RUNTIME":           DefaultOciRuntime,
-		"EC2_INTERFACE_ID":            "eni-abcde",
+		"USER_SET_ENV1":               "var1",
+		"USER_SET_ENV2":               "var2",
+		"USER_SET_ENV3":               "var3",
 	}
 
 	expEnvArray := []string{}
@@ -257,6 +274,11 @@ func TestNewPodContainer(t *testing.T) {
 	}
 	sort.Strings(expEnvArray)
 
+	c.SetEnv("USER_SET_ENV1", "var1")
+	c.SetEnvs(map[string]string{
+		"USER_SET_ENV2": "var2",
+		"USER_SET_ENV3": "var3",
+	})
 	assert.DeepEqual(t, c.Env(), expEnv)
 	assert.DeepEqual(t, c.SortedEnvArray(), expEnvArray)
 
@@ -264,20 +286,23 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, c.ElasticIPs(), ptr.StringPtr("eipalloc-001,eipalloc-002"))
 	assert.Equal(t, c.FuseEnabled(), true)
 	assert.Equal(t, c.GPUInfo(), gpuNil)
-	assert.DeepEqual(t, c.IamRole(), ptr.StringPtr(iamRole))
+	assert.DeepEqual(t, c.IamRole(), ptr.StringPtr(expIamRole))
 	assert.Equal(t, c.ID(), taskID)
 	assert.DeepEqual(t, c.ImageDigest(), ptr.StringPtr(imgDigest))
 	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
 	assert.Equal(t, c.ImageVersion(), stringNil)
-	assert.DeepEqual(t, c.ImageTagForMetrics(), map[string]string{})
-	assert.Equal(t, c.IsSystemD(), false)
+	assert.DeepEqual(t, c.ImageTagForMetrics(), map[string]string{
+		"image": imageName,
+	})
+	c.SetSystemD(true)
+	assert.Equal(t, c.IsSystemD(), true)
 	assert.Equal(t, c.JobGroupDetail(), "appDetail")
 	assert.Equal(t, c.JobGroupStack(), "appStack")
 	assert.Equal(t, c.JobGroupSequence(), "appSeq")
 	assert.DeepEqual(t, c.JobID(), ptr.StringPtr("jobid"))
 	assert.DeepEqual(t, c.JobType(), ptr.StringPtr("service"))
-	assert.Equal(t, c.KillWaitSeconds(), uint32Nil)
-	assert.Equal(t, c.KvmEnabled(), false)
+	assert.DeepEqual(t, c.KillWaitSeconds(), &expKillWaitSec)
+	assert.Equal(t, c.KvmEnabled(), true)
 	assert.DeepEqual(t, c.Labels(), map[string]string{
 		appNameLabelKey:         expAppName,
 		commandLabelKey:         strings.Join(expectedCommand, " "),
@@ -285,7 +310,7 @@ func TestNewPodContainer(t *testing.T) {
 		ownerEmailLabelKey:      expAppOwner,
 		jobTypeLabelKey:         "service",
 		cpuLabelKey:             strconv.Itoa(int(expResources.CPU)),
-		iamRoleLabelKey:         iamRole,
+		iamRoleLabelKey:         expIamRole,
 		memLabelKey:             strconv.Itoa(int(expResources.Mem)),
 		diskLabelKey:            strconv.Itoa(int(expResources.Disk)),
 		networkLabelKey:         strconv.Itoa(int(expResources.Network)),
@@ -294,11 +319,11 @@ func TestNewPodContainer(t *testing.T) {
 		models.ExecutorPidLabel: strconv.Itoa(os.Getpid()),
 		models.TaskIDLabel:      taskID,
 	})
-	assert.Equal(t, c.LogKeepLocalFileAfterUpload(), false)
+	assert.Equal(t, c.LogKeepLocalFileAfterUpload(), true)
 
-	expStdioCheckInterval, _ := time.ParseDuration("1m")
-	expUploadCheckInterval, _ := time.ParseDuration("15m")
-	expUploadThreshold, _ := time.ParseDuration("6h")
+	expStdioCheckInterval, _ := time.ParseDuration("11m")
+	expUploadCheckInterval, _ := time.ParseDuration("12m")
+	expUploadThreshold, _ := time.ParseDuration("8h")
 	assert.DeepEqual(t, c.LogStdioCheckInterval(), &expStdioCheckInterval)
 	assert.DeepEqual(t, c.LogUploadCheckInterval(), &expUploadCheckInterval)
 	assert.DeepEqual(t, c.LogUploaderConfig(), &uploader.Config{
@@ -306,19 +331,24 @@ func TestNewPodContainer(t *testing.T) {
 		S3BucketName: "",
 		S3PathPrefix: "",
 	})
-	assert.Equal(t, c.LogUploadRegexp(), regexpNil)
+
+	logUploadRegExp := c.LogUploadRegexp()
+	assert.Assert(t, logUploadRegExp != nil)
+	assert.Equal(t, logUploadRegExp.String(), ".*.foo")
 	assert.DeepEqual(t, c.LogUploadThresholdTime(), &expUploadThreshold)
 
 	assert.Equal(t, c.MetatronCreds(), metatronCredsNil)
 	zero := int(0)
 	assert.DeepEqual(t, c.NormalizedENIIndex(), &zero)
-	assert.Equal(t, c.OomScoreAdj(), int32Nil)
+	assert.DeepEqual(t, c.OomScoreAdj(), &expOomScoreAdj)
 	assert.Equal(t, c.QualifiedImageName(), expectedImage)
 
 	assert.DeepEqual(t, c.Resources(), expResources)
-	assert.DeepEqual(t, c.RequireIMDSToken(), stringNil)
+	assert.DeepEqual(t, c.RequireIMDSToken(), ptr.StringPtr("token"))
 	assert.Equal(t, c.Runtime(), "runc")
-	assert.DeepEqual(t, c.SecurityGroupIDs(), stringsNil)
+	assert.Equal(t, c.SeccompAgentEnabledForNetSyscalls(), true)
+	assert.Equal(t, c.SeccompAgentEnabledForPerfSyscalls(), true)
+	assert.DeepEqual(t, c.SecurityGroupIDs(), &expSGs)
 	assert.Equal(t, c.ServiceMeshEnabled(), false)
 	assert.Equal(t, c.ShmSizeMiB(), uint32Nil)
 

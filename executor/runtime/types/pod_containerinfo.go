@@ -278,6 +278,10 @@ func (c *PodContainerInfoContainer) Runtime() string {
 	return ""
 }
 
+func (c *PodContainerInfoContainer) SeccompAgentEnabledForNetSyscalls() bool {
+	return false
+}
+
 func (c *PodContainerInfoContainer) SeccompAgentEnabledForPerfSyscalls() bool {
 	return false
 }

@@ -255,7 +255,12 @@ func (c *PodContainer) ImageVersion() *string {
 }
 
 func (c *PodContainer) ImageTagForMetrics() map[string]string {
-	return map[string]string{}
+	imageName := ""
+	if img := c.ImageName(); img != nil {
+		imageName = *img
+	}
+
+	return map[string]string{"image": imageName}
 }
 
 func (c *PodContainer) IPv4Address() *string {
@@ -300,10 +305,19 @@ func (c *PodContainer) JobType() *string {
 }
 
 func (c *PodContainer) KillWaitSeconds() *uint32 {
+	waitSec := c.pod.Spec.TerminationGracePeriodSeconds
+	if waitSec != nil && *waitSec != 0 {
+		intWaitSec := uint32(*waitSec)
+		return &intWaitSec
+	}
+
 	return nil
 }
 
 func (c *PodContainer) KvmEnabled() bool {
+	if c.podConfig.KvmEnabled != nil {
+		return *c.podConfig.KvmEnabled
+	}
 	return false
 }
 
@@ -362,7 +376,7 @@ func (c *PodContainer) NormalizedENIIndex() *int {
 }
 
 func (c *PodContainer) OomScoreAdj() *int32 {
-	return nil
+	return c.podConfig.OomScoreAdj
 }
 
 func (c *PodContainer) OwnerEmail() *string {
@@ -383,7 +397,7 @@ func (c *PodContainer) Resources() *Resources {
 }
 
 func (c *PodContainer) RequireIMDSToken() *string {
-	return nil
+	return c.podConfig.IMDSRequireToken
 }
 
 func (c *PodContainer) Runtime() string {
@@ -394,10 +408,16 @@ func (c *PodContainer) Runtime() string {
 }
 
 func (c *PodContainer) SeccompAgentEnabledForNetSyscalls() bool {
+	if c.podConfig.SeccompAgentNetEnabled != nil {
+		return *c.podConfig.SeccompAgentNetEnabled
+	}
 	return false
 }
 
 func (c *PodContainer) SeccompAgentEnabledForPerfSyscalls() bool {
+	if c.podConfig.SeccompAgentPerfEnabled != nil {
+		return *c.podConfig.SeccompAgentPerfEnabled
+	}
 	return false
 }
 

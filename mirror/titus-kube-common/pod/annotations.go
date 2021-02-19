@@ -117,12 +117,14 @@ const (
 
 	// pod features
 
-	AnnotationKeyPodCPUBurstingEnabled = "pod.netflix.com/cpu-bursting-enabled"
-	AnnotationKeyPodKvmEnabled         = "pod.netflix.com/kvm-enabled"
-	AnnotationKeyPodFuseEnabled        = "pod.netflix.com/fuse-enabled"
-	AnnotationKeyPodHostnameStyle      = "pod.netflix.com/hostname-style"
-	AnnotationKeyPodOomScoreAdj        = "pod.netflix.com/oom-score-adj"
-	AnnotationKeyPodSchedPolicy        = "pod.netflix.com/sched-policy"
+	AnnotationKeyPodCPUBurstingEnabled      = "pod.netflix.com/cpu-bursting-enabled"
+	AnnotationKeyPodKvmEnabled              = "pod.netflix.com/kvm-enabled"
+	AnnotationKeyPodFuseEnabled             = "pod.netflix.com/fuse-enabled"
+	AnnotationKeyPodHostnameStyle           = "pod.netflix.com/hostname-style"
+	AnnotationKeyPodOomScoreAdj             = "pod.netflix.com/oom-score-adj"
+	AnnotationKeyPodSchedPolicy             = "pod.netflix.com/sched-policy"
+	AnnotationKeyPodSeccompAgentNetEnabled  = "pod.netflix.com/seccomp-agent-net-enabled"
+	AnnotationKeyPodSeccompAgentPerfEnabled = "pod.netflix.com/seccomp-agent-perf-enabled"
 
 	// logging config
 
@@ -176,6 +178,14 @@ func parseAnnotations(pod *corev1.Pod, pConf *Config) error {
 		{
 			key:   AnnotationKeyPodKvmEnabled,
 			field: &pConf.KvmEnabled,
+		},
+		{
+			key:   AnnotationKeyPodSeccompAgentNetEnabled,
+			field: &pConf.SeccompAgentNetEnabled,
+		},
+		{
+			key:   AnnotationKeyPodSeccompAgentPerfEnabled,
+			field: &pConf.SeccompAgentPerfEnabled,
 		},
 		{
 			key:   AnnotationKeyServiceServiceMeshEnabled,
@@ -420,6 +430,10 @@ func parseAnnotations(pod *corev1.Pod, pConf *Config) error {
 			sgIDs = append(sgIDs, strings.TrimSpace(sg))
 		}
 		pConf.SecurityGroupIDs = &sgIDs
+	}
+
+	if pConf.SchedPolicy != nil && *pConf.SchedPolicy != "batch" && *pConf.SchedPolicy != "idle" {
+		err = multierror.Append(err, fmt.Errorf("annotation is not a valid scheduler policy: %s", AnnotationKeyPodSchedPolicy))
 	}
 
 	return err.ErrorOrNil()
