@@ -25,7 +25,8 @@ int send_fd(int sock, int fd)
 	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
 	*((int *)CMSG_DATA(cmsg)) = fd;
 	msg.msg_controllen = cmsg->cmsg_len;
-	if (sendmsg(sock, &msg, 0) < 0) {
+	if (sendmsg(sock, &msg, 0) < 0)
+	{
 		perror("sendmsg");
 		return -1;
 	}
@@ -45,7 +46,8 @@ int recv_fd(int sock)
 	msg.msg_iovlen = 1;
 	msg.msg_control = buf;
 	msg.msg_controllen = sizeof(buf);
-	if (recvmsg(sock, &msg, 0) < 0) {
+	if (recvmsg(sock, &msg, 0) < 0)
+	{
 		perror("recvmsg");
 		return -1;
 	}
