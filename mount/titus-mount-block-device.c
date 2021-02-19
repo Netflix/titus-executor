@@ -19,6 +19,8 @@
 #include "scm_rights.h"
 /* mkdir */
 #include <sys/stat.h>
+#include <signal.h>
+#include <linux/limits.h>
 
 #define E(x)            \
 	do                  \
@@ -130,22 +132,20 @@ static void do_fsconfigs(int fsfd, char *options)
 	E_fsconfig(fsfd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
 }
 
-static int setup_fsfd_in_namespaces(int sk, int pidfd, const char *fstype)
+static int setup_fsfd_in_namespaces(int sk, int nsfd, const char *fstype)
 {
 	int fsfd, ret;
-	ret = setns(pidfd, CLONE_NEWUSER);
+	int usernsfd = openat(nsfd, "user", O_RDONLY);
+	int mnt_fd = openat(nsfd, "mnt", O_RDONLY);
+	assert(usernsfd != -1);
+	assert(mnt_fd != -1);
+	ret = setns(usernsfd, CLONE_NEWUSER);
 	if (ret == -1)
 	{
 		perror("setns user");
 		return 1;
 	}
-	ret = setns(pidfd, CLONE_NEWNET);
-	if (ret == -1)
-	{
-		perror("setns net");
-		return 1;
-	}
-	ret = setns(pidfd, CLONE_NEWNS);
+	ret = setns(mnt_fd, CLONE_NEWNS);
 	if (ret == -1)
 	{
 		perror("setns mnt");
@@ -161,7 +161,7 @@ static int setup_fsfd_in_namespaces(int sk, int pidfd, const char *fstype)
 	return 0;
 }
 
-static int fork_and_get_fsfd(long int pidfd, const char *fstype)
+static int fork_and_get_fsfd(long int nsfd, const char *fstype)
 {
 	int sk_pair[2], ret, fsfd, status;
 	pid_t worker;
@@ -180,7 +180,7 @@ static int fork_and_get_fsfd(long int pidfd, const char *fstype)
 	if (worker == 0)
 	{
 		close(sk_pair[0]);
-		ret = setup_fsfd_in_namespaces(sk_pair[1], pidfd, fstype);
+		ret = setup_fsfd_in_namespaces(sk_pair[1], nsfd, fstype);
 		close(sk_pair[1]);
 		exit(ret);
 	}
@@ -201,18 +201,20 @@ static int fork_and_get_fsfd(long int pidfd, const char *fstype)
 	return fsfd;
 }
 
-static void switch_namespaces(int pidfd)
+static void switch_namespaces(int nsfd)
 {
 	int ret;
-	ret = setns(pidfd, CLONE_NEWNET | CLONE_NEWNS);
+	int mnt_fd = openat(nsfd, "mnt", O_RDONLY);
+	assert(mnt_fd != -1);
+	ret = setns(mnt_fd, CLONE_NEWNS);
 	if (ret == -1)
 	{
-		perror("setns net / mount");
+		perror("setns mnt");
 		exit(1);
 	}
 }
 
-static void mount_and_move(int fsfd, const char *target, int pidfd, unsigned long flags)
+static void mount_and_move(int fsfd, const char *target, unsigned long flags)
 {
 	int mfd = fsmount(fsfd, 0, flags);
 	if (mfd < 0)
@@ -226,7 +228,7 @@ static void mount_and_move(int fsfd, const char *target, int pidfd, unsigned lon
 
 int main(int argc, char *argv[])
 {
-	int pidfd, fsfd;
+	int nsfd, fsfd;
 	long int container_pid;
 	unsigned long flags_ul;
 	/*
@@ -236,22 +238,16 @@ int main(int argc, char *argv[])
 	 */
 	const char *target = getenv("MOUNT_TARGET");
 	const char *flags = getenv("MOUNT_FLAGS");
-	// options can't be const because it is manipulated later (csv)
 	char *options = getenv("MOUNT_OPTIONS");
 	const char *fstype = getenv("MOUNT_FSTYPE");
+	const char *pid1dir = getenv("TITUS_PID_1_DIR");
 
-	if (argc != 2)
-	{
-		printf("Usage: %s container_pid", argv[0]);
-		return 1;
-	}
 	errno = 0;
-	container_pid = strtol(argv[1], NULL, 10);
 	assert(errno == 0);
 
-	if (!(target && flags && options, fstype))
+	if (!(target && flags && options && fstype && pid1dir))
 	{
-		fprintf(stderr, "Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, and MOUNT_OPTIONS, MOUNT_FSTYPE env vars");
+		fprintf(stderr, "Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, and MOUNT_OPTIONS, MOUNT_FSTYPE, TITUS_PID_1_DIR env vars");
 		return 1;
 	}
 
@@ -262,24 +258,32 @@ int main(int argc, char *argv[])
 		perror("flags");
 		return 1;
 	}
-	pidfd = pidfd_open(container_pid, 0);
-	if (pidfd == -1)
+
+	/* This nsfd is used to extract other namespaces to switch to, similar to a pidfd */
+	char pid1_ns_path[PATH_MAX];
+	snprintf(pid1_ns_path, PATH_MAX - 1, "%s/ns", pid1dir);
+	nsfd = open(pid1_ns_path, O_PATH);
+	if (nsfd == -1)
 	{
 		perror("pidfd_open");
 		return 1;
 	}
 
 	/* First we need to get a fsfd, but it must be created inside the user namespace */
-	fsfd = fork_and_get_fsfd(pidfd, fstype);
+	fsfd = fork_and_get_fsfd(nsfd, fstype);
 
 	fprintf(stderr, "titus-mount: user-inputed options: %s\n", options);
 
-	/* Now we can do the fs_config calls and actual mount */
+	/* Now we can do the fs_config calls and actual mount
+	This isn't possible *inside* the conatiner, because it can't see the device */
 	do_fsconfigs(fsfd, options);
 
-	switch_namespaces(pidfd);
+	/* And the last step we can finally switch namespaces so the mount
+	looks right from the container's perspective */
+	switch_namespaces(nsfd);
+	close(nsfd);
 	mkdir(target, 0777);
-	mount_and_move(fsfd, target, pidfd, flags_ul);
+	mount_and_move(fsfd, target, flags_ul);
 
 	fprintf(stderr, "titus-mount: All done, mounted on %s\n", target);
 	return 0;
