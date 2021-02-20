@@ -4,7 +4,7 @@ import (
 	"io"
 	"io/ioutil"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/request"
 )
 
 // UnmarshalDiscardBodyHandler is a named request handler to empty and close a response's body
@@ -18,4 +18,10 @@ func UnmarshalDiscardBody(r *request.Request) {
 
 	io.Copy(ioutil.Discard, r.HTTPResponse.Body)
 	r.HTTPResponse.Body.Close()
+}
+
+// ResponseMetadata provides the SDK response metadata attributes.
+type ResponseMetadata struct {
+	StatusCode int
+	RequestID  string
 }

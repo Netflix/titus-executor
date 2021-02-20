@@ -2,8 +2,12 @@ package metadataserver
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -11,6 +15,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
+	"go.opencensus.io/plugin/ocgrpc"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
@@ -106,14 +117,15 @@ func dumpRoutes(r *mux.Router) {
 }
 
 // NewMetaDataServer which can be used as an HTTP server's handler
-func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) *MetadataServer {
+func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfiguration) (*MetadataServer, error) {
 	awsConfig := aws.NewConfig()
 	awsConfig.Endpoint = aws.String(config.BackingMetadataServer.String())
 	awsSession, err := session.NewSession(awsConfig)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("Could not setup AWS Session: %w", err)
 	}
 	svc := ec2metadata.New(awsSession)
+
 	ms := &MetadataServer{
 		httpClient:                &http.Client{},
 		internalMux:               mux.NewRouter(),
@@ -130,10 +142,77 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		xForwardedForBlockingMode: config.XFordwardedForBlockingMode,
 	}
 
+	var conn *grpc.ClientConn
+	if config.IAMService != "" {
+		certpool, err := x509.SystemCertPool()
+		if err != nil {
+			return nil, fmt.Errorf("Cannot load system cert pool: %w", err)
+		}
+		data, err := ioutil.ReadFile(config.SSLCA)
+		if err != nil {
+			return nil, fmt.Errorf("Cannot read CA file %q: %w", config.SSLCA, err)
+		}
+		if ok := certpool.AppendCertsFromPEM(data); !ok {
+			return nil, fmt.Errorf("Cannot load cert data from file %s", config.SSLCA)
+		}
+		tlsConfig := &tls.Config{
+			GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+				cert, err := tls.LoadX509KeyPair(config.SSLCert, config.SSLKey)
+				if err != nil {
+					return nil, err
+				}
+				return &cert, nil
+			},
+			RootCAs:            certpool,
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, // nolint:gosec
+			VerifyPeerCertificate: func(certificates [][]byte, _ [][]*x509.Certificate) error {
+				certs := make([]*x509.Certificate, len(certificates))
+				for i, asn1Data := range certificates {
+					cert, err := x509.ParseCertificate(asn1Data)
+					if err != nil {
+						return errors.New("failed to parse certificate from server: " + err.Error())
+					}
+					certs[i] = cert
+				}
+
+				// Leave DNSName empty to skip hostname verification.
+				opts := x509.VerifyOptions{
+					Roots:         certpool,
+					Intermediates: x509.NewCertPool(),
+				}
+				// Skip the first cert because it's the leaf. All others
+				// are intermediates.
+				for _, cert := range certs[1:] {
+					opts.Intermediates.AddCert(cert)
+				}
+				_, err := certs[0].Verify(opts)
+				return err
+			},
+		}
+		entry := logger.G(ctx).(*log.Logger).WithField("origin", "grpc")
+
+		entry.Debug("Initializing client")
+
+		conn, err = grpc.DialContext(ctx, config.IAMService,
+			grpc.WithStatsHandler(&ocgrpc.ClientHandler{}),
+			grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+			grpc.WithUnaryInterceptor(
+				grpc_middleware.ChainUnaryClient(
+					grpc_logrus.UnaryClientInterceptor(entry),
+				)),
+			grpc.WithStreamInterceptor(
+				grpc_middleware.ChainStreamClient(
+					grpc_logrus.StreamClientInterceptor(entry),
+				)))
+		if err != nil {
+			return nil, fmt.Errorf("Cannot setup GRPC connection: %w", err)
+		}
+	}
 	ms.tokenKey = []byte(config.TokenKey)
 
 	// Create the IAM proxy - we'll attach routes to it for the different versions when we install handlers below
-	ms.iamProxy = newIamProxy(ctx, config)
+	ms.iamProxy = newIamProxy(ctx, config, conn)
 
 	/* IMDS routes */
 	ms.internalMux.Use(ms.serverHeader)
@@ -157,7 +236,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	/* Dump debug routes if anyone cares */
 	dumpRoutes(ms.internalMux)
 
-	return ms
+	return ms, nil
 }
 
 func (ms *MetadataServer) serverHeader(next http.Handler) http.Handler {

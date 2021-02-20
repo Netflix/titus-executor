@@ -9,10 +9,10 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"

@@ -3,8 +3,8 @@ package service
 import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
 // Convenience functions for converting between AWS types and protobuf types

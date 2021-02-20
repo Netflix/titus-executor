@@ -85,6 +85,7 @@ checkstyle-result.xml
 /root/apps/titus-executor/bin/titus-logviewer
 /root/apps/titus-executor/bin/titus-metadata-service
 /root/apps/titus-executor/bin/titus-mount
+/root/apps/titus-executor/bin/titus-mount-block-device
 /root/apps/titus-executor/bin/tini-static
 /root/apps/titus-executor/bin/titus-inject-metadataproxy
 /root/apps/titus-executor/bin/titus-standalone
@@ -92,6 +93,7 @@ checkstyle-result.xml
 /root/apps/titus-executor/bin/titus-nsenter
 
 /mount/titus-mount
+/mount/titus-mount-block-device
 
 # unignore directories named titus-executor
 !*/titus-executor/
@@ -100,3 +102,4 @@ coverage-local.out
 coverage-standalone.out
 bin/
 .gobincache/
+vendor

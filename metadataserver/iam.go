@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
-	"sync"
-
+	iamapi "github.com/Netflix/titus-executor/metadataserver/api"
 	"github.com/Netflix/titus-executor/metadataserver/logging"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/Netflix/titus-executor/metadataserver/types"
@@ -22,8 +22,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 type roleAssumptionState struct {
@@ -39,6 +41,7 @@ type roleProxy struct {
 	titusTaskInstanceID string
 	arn                 arn.ARN
 	sts                 *sts.STS
+	iamClient           iamapi.IAMClient
 
 	roleAssumptionState     *roleAssumptionState
 	roleAssumptionStateLock *sync.RWMutex
@@ -66,12 +69,16 @@ var (
 )
 
 /* This sets up an iam "proxy", but does not setup the routes */
-func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) *iamProxy {
+func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration, conn *grpc.ClientConn) *iamProxy {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
 
 	s := session.Must(session.NewSession())
 	var stsClient *sts.STS
-	if config.Region != "" {
+	var iamServiceClient iamapi.IAMClient
+	// Prefer building a metadata service client
+	if conn != nil {
+		iamServiceClient = iamapi.NewIAMClient(conn)
+	} else if config.Region != "" {
 		endpoint := fmt.Sprintf("sts.%s.amazonaws.com", config.Region)
 		if config.STSEndpoint != "" {
 			endpoint = config.STSEndpoint
@@ -100,14 +107,14 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 		stsClient = sts.New(s)
 	}
 
-	defaultRoleProxy := newRoleProxy(ctx, config.IAMARN, config.TitusTaskInstanceID, stsClient)
+	defaultRoleProxy := newRoleProxy(ctx, config.IAMARN, config.TitusTaskInstanceID, stsClient, iamServiceClient)
 	defaultName := defaultRoleProxy.roleName
 
 	proxies := make(map[string]*roleProxy)
 	proxies[defaultName] = defaultRoleProxy
 
 	if config.LogIAMARN != "" {
-		logProxy := newRoleProxy(ctx, config.LogIAMARN, config.TitusTaskInstanceID, stsClient)
+		logProxy := newRoleProxy(ctx, config.LogIAMARN, config.TitusTaskInstanceID, stsClient, iamServiceClient)
 		proxies[logProxy.roleName] = logProxy
 	}
 
@@ -119,7 +126,7 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration) 
 	return proxy
 }
 
-func newRoleProxy(ctx context.Context, iamARN, taskID string, stsClient *sts.STS) *roleProxy {
+func newRoleProxy(ctx context.Context, iamARN, taskID string, stsClient *sts.STS, client iamapi.IAMClient) *roleProxy {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
 	parsedArn, err := arn.Parse(iamARN)
 	if err != nil {
@@ -127,11 +134,11 @@ func newRoleProxy(ctx context.Context, iamARN, taskID string, stsClient *sts.STS
 	}
 
 	proxy := &roleProxy{
-		ctx:                 ctx,
-		titusTaskInstanceID: taskID,
-		arn:                 parsedArn,
-		sts:                 stsClient,
-
+		ctx:                     ctx,
+		titusTaskInstanceID:     taskID,
+		arn:                     parsedArn,
+		sts:                     stsClient,
+		iamClient:               client,
 		roleAssumptionStateLock: &sync.RWMutex{},
 	}
 
@@ -389,11 +396,65 @@ func (proxy *roleProxy) maybeAssumeRole(sessionLifetime time.Duration) {
 		log.Info("Not retrying assume role")
 	}
 }
+func (proxy *roleProxy) doAssumeRoleWithIAMService(ctx context.Context, sessionLifetime time.Duration) {
+	now := time.Now()
+	result, err := proxy.iamClient.AssumeRole(ctx, &iamapi.AssumeRoleRequest{
+		RoleARN: proxy.arn.String(),
+		TaskId:  proxy.titusTaskInstanceID,
+	})
+	metrics.PublishTimer("iam.assumeRoleTime", time.Since(now))
+
+	var state *roleAssumptionState
+	if err != nil {
+		log.WithError(err).Warning("Failed to assume role with IAM service")
+		state = &roleAssumptionState{
+			assumeRoleGenerated: now,
+			assumeRoleOutput:    nil,
+			assumeRoleError:     err,
+		}
+	} else {
+		log.WithField("AccessKeyId", result.Credentials.AccessKeyId).Info("Assumed role")
+		expiration, err := ptypes.Timestamp(result.Credentials.Expiration)
+		if err != nil {
+			log.WithError(err).Errorf("Unable to decode expiration: %v", result.Credentials.Expiration)
+			state = &roleAssumptionState{
+				assumeRoleGenerated: now,
+				assumeRoleOutput:    nil,
+				assumeRoleError:     err,
+			}
+		} else {
+			// Ugh, nesting.
+			state = &roleAssumptionState{
+				assumeRoleGenerated: now,
+				assumeRoleOutput: &sts.AssumeRoleOutput{
+					AssumedRoleUser: &sts.AssumedRoleUser{
+						Arn:           aws.String(result.AssumedRoleUser.Arn),
+						AssumedRoleId: aws.String(result.AssumedRoleUser.AssumedRoleId),
+					},
+					Credentials: &sts.Credentials{
+						AccessKeyId:     aws.String(result.Credentials.AccessKeyId),
+						Expiration:      aws.Time(expiration),
+						SecretAccessKey: aws.String(result.Credentials.SecretAccessKey),
+						SessionToken:    aws.String(result.Credentials.SessionToken),
+					},
+				},
+				assumeRoleError: nil,
+			}
+		}
+	}
+
+	proxy.roleAssumptionStateLock.Lock()
+	defer proxy.roleAssumptionStateLock.Unlock()
+	proxy.roleAssumptionState = state
+}
 
 func (proxy *roleProxy) doAssumeRole(sessionLifetime time.Duration) {
 	ctx, cancel := context.WithTimeout(proxy.ctx, requestTimeout-1*time.Second)
 	defer cancel()
-
+	if proxy.iamClient != nil {
+		proxy.doAssumeRoleWithIAMService(ctx, sessionLifetime)
+		return
+	}
 	input := &sts.AssumeRoleInput{
 		DurationSeconds: aws.Int64(int64(sessionLifetime.Seconds())),
 		RoleArn:         aws.String(proxy.arn.String()),

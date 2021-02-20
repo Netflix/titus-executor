@@ -9,9 +9,9 @@
 package rpcserviceiface
 
 import (
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/model/api/codegentest/service/rpcservice"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/private/model/api/codegentest/service/rpcservice"
 )
 
 // RPCServiceAPI provides an interface to enable mocking the

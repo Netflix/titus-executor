@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 )
 
 // OpenFile takes a path to a given file, and will open  and parse

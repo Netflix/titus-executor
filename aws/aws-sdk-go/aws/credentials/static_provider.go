@@ -1,7 +1,7 @@
 package credentials
 
 import (
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 )
 
 // StaticProviderName provides a name of Static provider
@@ -19,7 +19,9 @@ type StaticProvider struct {
 }
 
 // NewStaticCredentials returns a pointer to a new Credentials object
-// wrapping a static credentials value provider.
+// wrapping a static credentials value provider. Token is only required
+// for temporary security credentials retrieved via STS, otherwise an empty
+// string can be passed for this parameter.
 func NewStaticCredentials(id, secret, token string) *Credentials {
 	return NewCredentials(&StaticProvider{Value: Value{
 		AccessKeyID:     id,

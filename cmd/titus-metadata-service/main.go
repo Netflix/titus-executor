@@ -16,13 +16,25 @@ import (
 	"syscall"
 	"time"
 
+<<<<<<< HEAD
+=======
+	"contrib.go.opencensus.io/exporter/zipkin"
+>>>>>>> master
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/metadataserver"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/types"
 	log2 "github.com/Netflix/titus-executor/utils/log"
+<<<<<<< HEAD
+=======
+	"github.com/Netflix/titus-executor/utils/netns"
+	openzipkin "github.com/openzipkin/zipkin-go"
+	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
+>>>>>>> master
 	log "github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 	"golang.org/x/sys/unix"
 	"gopkg.in/urfave/cli.v1"
 )
@@ -124,6 +136,11 @@ func main() {
 		publicIpv4Address          string
 		ipv6Addresses              string
 		xFordwardedForBlockingMode bool
+		sslCertKey                 string
+		sslCert                    string
+		sslCA                      string
+		iamService                 string
+		zipkinURL                  string
 	)
 
 	app.Flags = []cli.Flag{
@@ -219,6 +236,36 @@ func main() {
 			EnvVar:      "X_FORWARDED_FOR_BLOCKING_MODE",
 			Destination: &xFordwardedForBlockingMode,
 		},
+		cli.StringFlag{
+			Name:        "iam-service",
+			Usage:       "The address of the IAM service to use",
+			EnvVar:      "IAM_SERVICE",
+			Destination: &iamService,
+		},
+		cli.StringFlag{
+			Name:        "ssl-ca",
+			Usage:       "SSL CA used to authenticate the IAM Service",
+			EnvVar:      "IAM_SERVICE_SSL_CA",
+			Destination: &sslCA,
+		},
+		cli.StringFlag{
+			Name:        "ssl-key",
+			Usage:       "The SSL Key used to authenticate to the IAM service",
+			EnvVar:      "IAM_SERVICE_SSL_KEY",
+			Destination: &sslCertKey,
+		},
+		cli.StringFlag{
+			Name:        "ssl-cert",
+			Usage:       "The SSL Certificate used to authenticate to the IAM service",
+			EnvVar:      "IAM_SERVICE_SSL_CERT",
+			Destination: &sslCert,
+		},
+		cli.StringFlag{
+			Name:        "zipkin",
+			Usage:       "The Zipkin URL to send traces to",
+			EnvVar:      "ZIPKIN",
+			Destination: &zipkinURL,
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -232,6 +279,31 @@ func main() {
 
 		listener := getListener(listenPort, listenerFd)
 
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		logruslogger := log.New()
+		ctx = logger.WithLogger(ctx, logruslogger)
+
+		trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+		if zipkinURL != "" {
+			hostname, err := os.Hostname()
+			if err != nil {
+				return err
+			}
+			// 1. Configure exporter to export traces to Zipkin.
+			endpoint, err := openzipkin.NewEndpoint("titus-metadata-service", hostname)
+			if err != nil {
+				return fmt.Errorf("Failed to create the local zipkin endpoint from URL %q: %w", zipkinURL, err)
+			}
+			logger.G(ctx).WithField("endpoint", endpoint).WithField("url", zipkinURL).Info("Setting up tracing")
+			reporter := zipkinHTTP.NewReporter(zipkinURL)
+			defer reporter.Close()
+
+			ze := zipkin.NewExporter(reporter, endpoint)
+			trace.RegisterExporter(ze)
+		}
+
+
 		mdscfg := types.MetadataServerConfiguration{
 			IAMARN:                     iamARN,
 			LogIAMARN:                  logIAMARN,
@@ -243,6 +315,11 @@ func main() {
 			TokenKey:                   titusTaskInstanceID + tokenSalt,
 			XFordwardedForBlockingMode: xFordwardedForBlockingMode,
 			NetflixAccountID:           accountID,
+
+			SSLKey:     sslCertKey,
+			SSLCert:    sslCert,
+			SSLCA:      sslCA,
+			IAMService: iamService,
 		}
 		if parsedURL, err := url.Parse(backingMetadataServer); err == nil {
 			mdscfg.BackingMetadataServer = parsedURL
@@ -272,13 +349,17 @@ func main() {
 			parsedIPv6Address := net.ParseIP(strings.Split(ipv6Addresses, "\n")[0])
 			mdscfg.Ipv6Address = &parsedIPv6Address
 		}
-		ms := metadataserver.NewMetaDataServer(context.Background(), mdscfg)
+		ms, err := metadataserver.NewMetaDataServer(ctx, mdscfg)
+		if err != nil {
+			return cli.NewExitError(fmt.Sprintf("Cannot create metadata server: %s", err.Error()), 2)
+		}
 		go notifySystemd()
 
 		if metatronEnabled {
 			go reloadSigner(ms)
 		}
 
+		log.Debug("Beginning serving")
 		// TODO: Wire up logic to shut down mds on signal
 		if err := http.Serve(listener, ms); err != nil {
 			return cli.NewExitError(err.Error(), 1)

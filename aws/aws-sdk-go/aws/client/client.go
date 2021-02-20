@@ -3,15 +3,16 @@ package client
 import (
 	"fmt"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/client/metadata"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client/metadata"
+	"github.com/aws/aws-sdk-go/aws/request"
 )
 
 // A Config provides configuration to a service client instance.
 type Config struct {
 	Config        *aws.Config
 	Handlers      request.Handlers
+	PartitionID   string
 	Endpoint      string
 	SigningRegion string
 	SigningName   string
@@ -64,7 +65,7 @@ func New(cfg aws.Config, info metadata.ClientInfo, handlers request.Handlers, op
 	default:
 		maxRetries := aws.IntValue(cfg.MaxRetries)
 		if cfg.MaxRetries == nil || maxRetries == aws.UseServiceDefaultRetries {
-			maxRetries = 3
+			maxRetries = DefaultRetryerMaxNumRetries
 		}
 		svc.Retryer = DefaultRetryer{NumMaxRetries: maxRetries}
 	}

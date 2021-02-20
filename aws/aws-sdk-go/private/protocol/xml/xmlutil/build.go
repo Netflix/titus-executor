@@ -8,9 +8,10 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol"
+	"github.com/aws/aws-sdk-go/private/protocol"
 )
 
 // BuildXML will serialize params into an xml.Encoder. Error will be returned
@@ -58,6 +59,14 @@ func (b *xmlBuilder) buildValue(value reflect.Value, current *XMLNode, tag refle
 		return nil
 	} else if tag.Get("location") != "" { // don't handle non-body location values
 		return nil
+	}
+
+	xml := tag.Get("xml")
+	if len(xml) != 0 {
+		name := strings.SplitAfterN(xml, ",", 2)[0]
+		if name == "-" {
+			return nil
+		}
 	}
 
 	t := tag.Get("type")

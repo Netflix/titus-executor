@@ -5,9 +5,9 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/client/metadata"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client/metadata"
+	"github.com/aws/aws-sdk-go/aws/request"
 )
 
 // PayloadUnmarshaler provides the interface for unmarshaling a payload's
@@ -64,7 +64,7 @@ func (h HandlerPayloadMarshal) MarshalPayload(w io.Writer, v interface{}) error 
 		metadata.ClientInfo{},
 		request.Handlers{},
 		nil,
-		&request.Operation{HTTPMethod: "GET"},
+		&request.Operation{HTTPMethod: "PUT"},
 		v,
 		nil,
 	)

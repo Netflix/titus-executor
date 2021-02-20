@@ -28,12 +28,12 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang-migrate/migrate v3.5.4+incompatible
 	github.com/golang/protobuf v1.4.2
+	github.com/google/go-jsonnet v0.17.0
 	github.com/google/uuid v1.1.2
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/gorilla/mux v1.7.4
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
 	github.com/hashicorp/go-multierror v1.0.1-0.20191120192120-72917a1559e1
-	github.com/jmespath/go-jmespath v0.4.0
 	github.com/json-iterator/go v1.1.9 // indirect
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
@@ -62,11 +62,11 @@ require (
 	go.opencensus.io v0.22.3
 	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
-	golang.org/x/net v0.0.0-20200625001655-4c5254603344
-	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
-	golang.org/x/sys v0.0.0-20200602100848-8d3cce7afc34
+	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
+	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
+	golang.org/x/sys v0.0.0-20210119212857-b64e53b001e4
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
-	golang.org/x/tools v0.0.0-20200724022722-7017fd6b1305
+	golang.org/x/tools v0.1.0
 	google.golang.org/genproto v0.0.0-20200218151345-dad8c97a84f5 // indirect
 	google.golang.org/grpc v1.27.1
 	google.golang.org/protobuf v1.23.0
@@ -130,3 +130,5 @@ replace k8s.io/kubectl => k8s.io/kubectl v0.18.4
 replace k8s.io/api => k8s.io/api v0.18.4
 
 replace github.com/golang/protobuf => github.com/golang/protobuf v1.3.3
+
+replace github.com/aws/aws-sdk-go => ./aws/aws-sdk-go

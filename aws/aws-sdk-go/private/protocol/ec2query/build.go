@@ -1,14 +1,14 @@
 // Package ec2query provides serialization of AWS EC2 requests and responses.
 package ec2query
 
-//go:generate go run -tags codegen ../../../models/protocol_tests/generate.go ../../../models/protocol_tests/input/ec2.json build_test.go
+//go:generate go run -tags codegen ../../../private/model/cli/gen-protocol-tests ../../../models/protocol_tests/input/ec2.json build_test.go
 
 import (
 	"net/url"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/awserr"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol/query/queryutil"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/private/protocol/query/queryutil"
 )
 
 // BuildHandler is a named request handler for building ec2query protocol requests

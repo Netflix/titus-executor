@@ -3,12 +3,13 @@
 package ec2instanceconnect
 
 import (
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/client"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/client/metadata"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
-	v4 "github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/signer/v4"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol/jsonrpc"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client"
+	"github.com/aws/aws-sdk-go/aws/client/metadata"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/signer/v4"
+	"github.com/aws/aws-sdk-go/private/protocol"
+	"github.com/aws/aws-sdk-go/private/protocol/jsonrpc"
 )
 
 // EC2InstanceConnect provides the API operation methods for making requests to
@@ -31,7 +32,7 @@ var initRequest func(*request.Request)
 const (
 	ServiceName = "EC2 Instance Connect" // Name of service.
 	EndpointsID = "ec2-instance-connect" // ID to lookup a service endpoint with.
-	ServiceID   = "EC2 Instance Connect" // ServiceID is a unique identifer of a specific service.
+	ServiceID   = "EC2 Instance Connect" // ServiceID is a unique identifier of a specific service.
 )
 
 // New creates a new instance of the EC2InstanceConnect client with a session.
@@ -39,6 +40,8 @@ const (
 // aws.Config parameter to add your extra config.
 //
 // Example:
+//     mySession := session.Must(session.NewSession())
+//
 //     // Create a EC2InstanceConnect client from just a session.
 //     svc := ec2instanceconnect.New(mySession)
 //
@@ -46,11 +49,11 @@ const (
 //     svc := ec2instanceconnect.New(mySession, aws.NewConfig().WithRegion("us-west-2"))
 func New(p client.ConfigProvider, cfgs ...*aws.Config) *EC2InstanceConnect {
 	c := p.ClientConfig(EndpointsID, cfgs...)
-	return newClient(*c.Config, c.Handlers, c.Endpoint, c.SigningRegion, c.SigningName)
+	return newClient(*c.Config, c.Handlers, c.PartitionID, c.Endpoint, c.SigningRegion, c.SigningName)
 }
 
 // newClient creates, initializes and returns a new service client instance.
-func newClient(cfg aws.Config, handlers request.Handlers, endpoint, signingRegion, signingName string) *EC2InstanceConnect {
+func newClient(cfg aws.Config, handlers request.Handlers, partitionID, endpoint, signingRegion, signingName string) *EC2InstanceConnect {
 	svc := &EC2InstanceConnect{
 		Client: client.New(
 			cfg,
@@ -59,6 +62,7 @@ func newClient(cfg aws.Config, handlers request.Handlers, endpoint, signingRegio
 				ServiceID:     ServiceID,
 				SigningName:   signingName,
 				SigningRegion: signingRegion,
+				PartitionID:   partitionID,
 				Endpoint:      endpoint,
 				APIVersion:    "2018-04-02",
 				JSONVersion:   "1.1",
@@ -73,7 +77,9 @@ func newClient(cfg aws.Config, handlers request.Handlers, endpoint, signingRegio
 	svc.Handlers.Build.PushBackNamed(jsonrpc.BuildHandler)
 	svc.Handlers.Unmarshal.PushBackNamed(jsonrpc.UnmarshalHandler)
 	svc.Handlers.UnmarshalMeta.PushBackNamed(jsonrpc.UnmarshalMetaHandler)
-	svc.Handlers.UnmarshalError.PushBackNamed(jsonrpc.UnmarshalErrorHandler)
+	svc.Handlers.UnmarshalError.PushBackNamed(
+		protocol.NewUnmarshalErrorHandler(jsonrpc.NewUnmarshalTypedError(exceptionFromCode)).NamedHandler(),
+	)
 
 	// Run custom client initialization if present
 	if initClient != nil {

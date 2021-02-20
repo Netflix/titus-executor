@@ -1286,8 +1286,10 @@ type JobDisruptionBudget_RatePercentagePerHour struct {
 func (m *JobDisruptionBudget_RatePercentagePerHour) Reset() {
 	*m = JobDisruptionBudget_RatePercentagePerHour{}
 }
-func (m *JobDisruptionBudget_RatePercentagePerHour) String() string { return proto.CompactTextString(m) }
-func (*JobDisruptionBudget_RatePercentagePerHour) ProtoMessage()    {}
+func (m *JobDisruptionBudget_RatePercentagePerHour) String() string {
+	return proto.CompactTextString(m)
+}
+func (*JobDisruptionBudget_RatePercentagePerHour) ProtoMessage() {}
 func (*JobDisruptionBudget_RatePercentagePerHour) Descriptor() ([]byte, []int) {
 	return fileDescriptor_1c07f2bd2273ea55, []int{9, 5}
 }

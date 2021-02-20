@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/sirupsen/logrus"

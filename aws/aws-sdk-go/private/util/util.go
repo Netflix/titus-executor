@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/protocol/xml/xmlutil"
+	"github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil"
 )
 
 // GoFmt returns the Go formated string of the input.

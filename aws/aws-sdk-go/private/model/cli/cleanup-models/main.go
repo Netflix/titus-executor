@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/private/model/api"
+	"github.com/aws/aws-sdk-go/private/model/api"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
-	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 )
 
 // SDKVersionUserAgentHandler is a request handler for adding the SDK Version
