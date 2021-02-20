@@ -12,7 +12,6 @@ var (
 	ContainerID        = ""
 	RunningInContainer = false
 	ProxyMode          = true
-	KubeletMode        = false
 )
 
 func init() {
@@ -28,11 +27,6 @@ func init() {
 		ContainersHome = "/"
 	}
 
-	kubeMode := os.Getenv("KUBELET_MODE")
-	if kubeMode != "" {
-		KubeletMode = true
-	}
-
 	proxyMode := os.Getenv("DISABLE_PROXY_MODE")
 	if proxyMode != "" {
 		ProxyMode = false
@@ -43,6 +37,5 @@ func init() {
 		"ContainerID":        ContainerID,
 		"RunningInContainer": RunningInContainer,
 		"ProxyMode":          ProxyMode,
-		"KubeletMode":        KubeletMode,
 	}).Info("Config loaded")
 }
