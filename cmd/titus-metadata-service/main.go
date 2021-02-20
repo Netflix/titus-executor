@@ -24,7 +24,6 @@ import (
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/types"
 	log2 "github.com/Netflix/titus-executor/utils/log"
-	"github.com/Netflix/titus-executor/utils/netns"
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	log "github.com/sirupsen/logrus"
@@ -130,7 +129,6 @@ func main() {
 		publicIpv4Address          string
 		ipv6Addresses              string
 		xFordwardedForBlockingMode bool
-		peerNs                     string
 		sslCertKey                 string
 		sslCert                    string
 		sslCA                      string
@@ -232,12 +230,6 @@ func main() {
 			Destination: &xFordwardedForBlockingMode,
 		},
 		cli.StringFlag{
-			Name:        "peer-namespace",
-			Usage:       "When set, the proxy will bind inside the namespace specified",
-			EnvVar:      "PEER_NAMESPACE",
-			Destination: &peerNs,
-		},
-		cli.StringFlag{
 			Name:        "iam-service",
 			Usage:       "The address of the IAM service to use",
 			EnvVar:      "IAM_SERVICE",
@@ -302,21 +294,7 @@ func main() {
 			trace.RegisterExporter(ze)
 		}
 
-		/* Get the requisite configuration from environment variables */
-		var listener net.Listener
-
-		if len(peerNs) > 0 {
-			// We were launched by a CNI. Bind inside peer namespace.
-			log.Infof("Launched with PEER_NS %s, LISTEN_PORT %d", peerNs, listenPort)
-			nsListener, err := netns.GetNsListener(peerNs, listenPort)
-			if err != nil {
-				log.WithError(err).Fatal("Could not get listener")
-			}
-
-			listener = nsListener
-		} else {
-			listener = getListener(listenPort, listenerFd)
-		}
+		listener := getListener(listenPort, listenerFd)
 
 		mdscfg := types.MetadataServerConfiguration{
 			IAMARN:                     iamARN,

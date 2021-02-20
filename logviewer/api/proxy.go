@@ -7,20 +7,14 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Netflix/titus-executor/logviewer/conf"
 	"github.com/Netflix/titus-executor/utils"
 	"github.com/Netflix/titus-executor/utils/netns"
-	"github.com/Netflix/titus-executor/vpc/tool/cni"
 )
 
 // The URL to connect to once we've done a Setns() into the container
 const inContainerURL = "http://127.0.0.1:8004"
 
 func getNetNsPath(containerID string) string {
-	if conf.KubeletMode {
-		return cni.NSAliasPath(containerID)
-	}
-
 	return fmt.Sprintf("%s/%s/ns/net", utils.TitusInits, containerID)
 }
 
