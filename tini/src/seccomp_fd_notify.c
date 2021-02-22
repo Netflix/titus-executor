@@ -293,9 +293,11 @@ void * catch_send_fd(void *fd_arg)
 		
 		if (evlist[0].events & EPOLLHUP) {
 			/* Client has exited */
-			printf("Client termination notification");
 			char buf[16];
-			read(evlist[0].data.fd, buf, 16);
+			int r =  read(evlist[0].data.fd, buf, 16);
+			if (r < 0) {
+				PRINT_INFO("Client exited, draining notification, removing notify fd");
+			}
 			if (epoll_ctl(epfd, EPOLL_CTL_DEL, notify_fd, &ev) !=
 			    0) {
 				perror("Could not epoll_del the notifyfd\n");
