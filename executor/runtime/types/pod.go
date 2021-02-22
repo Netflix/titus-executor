@@ -17,10 +17,13 @@ import (
 	"github.com/docker/distribution/reference"
 	units "github.com/docker/go-units"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
+)
+
+const (
+	serviceMeshSidecarName = "sidecar-titus-netflix-com-servicemesh"
 )
 
 // Compile-time check that PodContainer implements the Container interface:
@@ -41,14 +44,17 @@ type PodContainer struct {
 	// Is this container meant to run SystemD?
 	isSystemD bool
 	// GPU devices
-	gpuInfo           GPUContainer
-	labels            map[string]string
-	logUploaderConfig *uploader.Config
-	nfsMounts         []NFSMount
-	pod               *corev1.Pod
-	podConfig         *podCommon.Config
-	resources         *Resources
-	titusInfo         *titus.ContainerInfo
+	gpuInfo            GPUContainer
+	labels             map[string]string
+	logUploaderConfig  *uploader.Config
+	nfsMounts          []NFSMount
+	pod                *corev1.Pod
+	podConfig          *podCommon.Config
+	resources          *Resources
+	serviceMeshEnabled bool
+	serviceMeshImage   string
+	shmSizeMiB         *uint32
+	titusInfo          *titus.ContainerInfo
 	// userEnv is the environment passed in by the user in the pod spec
 	userEnv       map[string]string
 	vpcAllocation vpcTypes.HybridAllocation
@@ -102,9 +108,18 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 
 	c.labels = addLabels(c.id, c, resources)
 
-	err = c.parsePodVolumes()
+	err = c.parsePodNFSVolumes()
 	if err != nil {
 		return c, fmt.Errorf("error parsing NFS mounts: %w", err)
+	}
+	err = c.parsePodEmptyDirVolumes()
+	if err != nil {
+		return c, fmt.Errorf("error parsing EmptyDir mounts: %w", err)
+	}
+
+	err = c.extractServiceMesh()
+	if err != nil {
+		return c, fmt.Errorf("error extracting service mesh image: %w", err)
 	}
 
 	if userContainer.SecurityContext != nil && userContainer.SecurityContext.Capabilities != nil {
@@ -426,7 +441,7 @@ func (c *PodContainer) SecurityGroupIDs() *[]string {
 }
 
 func (c *PodContainer) ServiceMeshEnabled() bool {
-	return false
+	return c.serviceMeshEnabled
 }
 
 func (c *PodContainer) SetEnv(key, value string) {
@@ -461,22 +476,14 @@ func (c *PodContainer) SetVPCAllocation(allocation *vpcTypes.HybridAllocation) {
 }
 
 func (c *PodContainer) ShmSizeMiB() *uint32 {
-	return nil
+	return c.shmSizeMiB
 }
 
 func (c *PodContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, error) {
 	scMap := make(map[string]*SidecarContainerConfig)
 	svcMeshImage := ""
 	if c.ServiceMeshEnabled() {
-		// XXX
-		/*
-			img, err := c.serviceMeshImageName()
-			if err != nil {
-				return scMap, err
-			}
-			svcMeshImage = img
-		*/
-		svcMeshImage = "foo"
+		svcMeshImage = c.serviceMeshImage
 	}
 
 	imageMap := map[string]string{
@@ -492,6 +499,11 @@ func (c *PodContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, err
 		imgName := imageMap[sc.ServiceName]
 		if imgName != "" {
 			sc.Image = path.Join(c.config.DockerRegistry, imgName)
+		}
+
+		// Service mesh image is already fully qualified with registry if it comes from a container in the pod
+		if sc.ServiceName == SidecarServiceServiceMesh {
+			sc.Image = imgName
 		}
 
 		scAddr := sc
@@ -572,7 +584,7 @@ func createLogUploadConfig(pConf *podCommon.Config) *uploader.Config {
 	return &conf
 }
 
-func (c *PodContainer) parsePodVolumes() error {
+func (c *PodContainer) parsePodNFSVolumes() error {
 	c.nfsMounts = []NFSMount{}
 	nameToMount := map[string]corev1.Volume{}
 
@@ -584,11 +596,9 @@ func (c *PodContainer) parsePodVolumes() error {
 	}
 
 	uc := podCommon.GetUserContainer(c.pod)
-	unmatchedVolMounts := []corev1.VolumeMount{}
 	for _, vm := range uc.VolumeMounts {
 		vol, ok := nameToMount[vm.Name]
 		if !ok {
-			unmatchedVolMounts = append(unmatchedVolMounts, vm)
 			continue
 		}
 
@@ -602,13 +612,89 @@ func (c *PodContainer) parsePodVolumes() error {
 		delete(nameToMount, vm.Name)
 	}
 
-	if len(unmatchedVolMounts) > 0 || len(nameToMount) > 0 {
-		unmatchedVolumes := []corev1.Volume{}
+	return nil
+}
 
-		log.WithField("volumes", unmatchedVolumes).WithField("volumemounts", unmatchedVolMounts).
-			Info("found unmatched volumes and volume mounts")
-		// TODO: return an error here?
+func (c *PodContainer) parsePodEmptyDirVolumes() error {
+	var shmVM *corev1.VolumeMount
+	uc := podCommon.GetUserContainer(c.pod)
+
+	for i := range uc.VolumeMounts {
+		vm := uc.VolumeMounts[i]
+		if vm.MountPath == "/dev/shm" {
+			shmVM = &vm
+			break
+		}
 	}
+
+	if shmVM == nil {
+		return nil
+	}
+
+	for _, vol := range c.pod.Spec.Volumes {
+		if vol.VolumeSource.EmptyDir == nil {
+			continue
+		}
+		if vol.Name != shmVM.Name {
+			continue
+		}
+
+		if vol.VolumeSource.EmptyDir.SizeLimit == nil {
+			continue
+		}
+
+		intVal, ok := vol.VolumeSource.EmptyDir.SizeLimit.AsInt64()
+		if !ok {
+			return fmt.Errorf("error parsing resource value of volume: %s", vol.Name)
+		}
+
+		uintVal := uint32(intVal / units.MiB)
+		c.shmSizeMiB = &uintVal
+	}
+
+	if shmVM != nil && c.shmSizeMiB == nil {
+		return fmt.Errorf("container volume mount found with unmatched pod volume: %s", shmVM.Name)
+	}
+
+	return nil
+}
+
+func (c *PodContainer) extractServiceMesh() error {
+	sc := podCommon.GetContainerByName(c.pod, serviceMeshSidecarName)
+	if sc != nil {
+		// Service mesh container is set in the pod: use its image
+		c.serviceMeshEnabled = true
+		if sc.Image == "" {
+			return errors.New("service mesh image is unset")
+		}
+
+		c.serviceMeshImage = sc.Image
+		return nil
+	}
+
+	// If no service mesh container is set, fallback to the annotation (to check if it's enabled)
+	// and local config (to determine the image)
+	if c.podConfig.ServiceMeshEnabled == nil {
+		return nil
+	}
+
+	c.serviceMeshEnabled = *c.podConfig.ServiceMeshEnabled
+	if !c.serviceMeshEnabled {
+		return nil
+	}
+
+	if !c.config.ContainerServiceMeshEnabled {
+		return nil
+	}
+
+	if c.config.ProxydServiceImage == "" {
+		return nil
+	}
+
+	// This image doesn't have the registry as part of it. Set it here to be consistent with the method
+	// above, where it's set as a container in the pod
+	c.serviceMeshImage = path.Join(c.config.DockerRegistry, c.config.ProxydServiceImage)
+	c.serviceMeshEnabled = true
 
 	return nil
 }

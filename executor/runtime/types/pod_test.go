@@ -18,6 +18,7 @@ import (
 	"github.com/docker/go-units"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	ptr "k8s.io/utils/pointer"
 )
 
@@ -98,6 +99,10 @@ func TestNewPodContainer(t *testing.T) {
 	expAppName := "appName"
 	expAppOwner := "user@example.com"
 	expBwLimit := int64(128 * units.MB)
+	expCapabilities := &corev1.Capabilities{
+		Add:  []corev1.Capability{"NET_ADMIN"},
+		Drop: []corev1.Capability{"SYS_TIME"},
+	}
 	expKillWaitSec := uint32(11)
 	expNFSMounts := []NFSMount{
 		{
@@ -116,6 +121,8 @@ func TestNewPodContainer(t *testing.T) {
 		Network: 128,
 	}
 	expSGs := []string{"sg-1", "sg-2"}
+	expShmSize := uint32(256)
+	expSvcMeshImage := "docker.io/titusoss/servicemesh:latest"
 	expVPCalloc := &vpcTypes.HybridAllocation{
 		IPV4Address: &vpcapi.UsableAddress{
 			PrefixLength: 32,
@@ -184,7 +191,12 @@ func TestNewPodContainer(t *testing.T) {
 			Name:      "efs-fs-abcdef-rwm.subdir1",
 			MountPath: "/efs1",
 		},
+		{
+			Name:      "dev-shm",
+			MountPath: "/dev/shm",
+		},
 	}
+	shmRes := resource.MustParse("256Mi")
 	pod.Spec.Volumes = []corev1.Volume{
 		{
 			Name: "efs-fs-abcdef-rwm.subdir1",
@@ -196,15 +208,38 @@ func TestNewPodContainer(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "dev-shm",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{
+					Medium:    corev1.StorageMediumMemory,
+					SizeLimit: &shmRes,
+				},
+			},
+		},
 	}
 
-	expCapabilities := &corev1.Capabilities{
-		Add:  []corev1.Capability{"NET_ADMIN"},
-		Drop: []corev1.Capability{"SYS_TIME"},
-	}
 	uc.SecurityContext = &corev1.SecurityContext{
 		Capabilities: expCapabilities,
 	}
+
+	// Add servicemesh sidecar
+	pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{
+		Name:  serviceMeshSidecarName,
+		Image: expSvcMeshImage,
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				"cpu":               resource.MustParse("0"),
+				"memory":            resource.MustParse("0"),
+				"ephemeral-storage": resource.MustParse("0"),
+			},
+			Requests: corev1.ResourceList{
+				"cpu":               resource.MustParse("0"),
+				"memory":            resource.MustParse("0"),
+				"ephemeral-storage": resource.MustParse("0"),
+			},
+		},
+	})
 
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
@@ -219,7 +254,6 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, entrypoint, expectedEntrypoint)
 	assert.DeepEqual(t, cmd, expectedCommand)
 
-	var uint32Nil *uint32
 	var gpuNil GPUContainer
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
 
@@ -349,20 +383,23 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.SeccompAgentEnabledForNetSyscalls(), true)
 	assert.Equal(t, c.SeccompAgentEnabledForPerfSyscalls(), true)
 	assert.DeepEqual(t, c.SecurityGroupIDs(), &expSGs)
-	assert.Equal(t, c.ServiceMeshEnabled(), false)
-	assert.Equal(t, c.ShmSizeMiB(), uint32Nil)
+	assert.Equal(t, c.ServiceMeshEnabled(), true)
+	assert.DeepEqual(t, c.ShmSizeMiB(), &expShmSize)
 
 	sidecars, err := c.SidecarConfigs()
 	assert.NilError(t, err)
-	// XXX:
 	assert.DeepEqual(t, sidecars,
 		map[string]*SidecarContainerConfig{
-			SidecarServiceAbMetrix:    {ServiceName: "abmetrix", Volumes: map[string]struct{}{"/titus/abmetrix": {}}},
-			SidecarServiceLogViewer:   {ServiceName: "logviewer", Volumes: map[string]struct{}{"/titus/adminlogs": {}}},
-			SidecarServiceMetatron:    {ServiceName: "metatron", Volumes: map[string]struct{}{"/titus/metatron": {}}},
-			SidecarServiceServiceMesh: {ServiceName: "servicemesh", Volumes: map[string]struct{}{"/titus/proxyd": {}}},
-			SidecarServiceSpectatord:  {ServiceName: "spectatord", Volumes: map[string]struct{}{"/titus/spectatord": {}}},
-			SidecarServiceSshd:        {ServiceName: "sshd", Volumes: map[string]struct{}{"/titus/sshd": {}}},
+			SidecarServiceAbMetrix:  {ServiceName: "abmetrix", Volumes: map[string]struct{}{"/titus/abmetrix": {}}},
+			SidecarServiceLogViewer: {ServiceName: "logviewer", Volumes: map[string]struct{}{"/titus/adminlogs": {}}},
+			SidecarServiceMetatron:  {ServiceName: "metatron", Volumes: map[string]struct{}{"/titus/metatron": {}}},
+			SidecarServiceServiceMesh: {
+				Image:       expSvcMeshImage,
+				ServiceName: "servicemesh",
+				Volumes:     map[string]struct{}{"/titus/proxyd": {}},
+			},
+			SidecarServiceSpectatord: {ServiceName: "spectatord", Volumes: map[string]struct{}{"/titus/spectatord": {}}},
+			SidecarServiceSshd:       {ServiceName: "sshd", Volumes: map[string]struct{}{"/titus/sshd": {}}},
 		})
 
 	assert.Equal(t, c.SignedAddressAllocationUUID(), stringNil)

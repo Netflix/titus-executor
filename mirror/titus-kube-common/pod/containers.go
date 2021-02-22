@@ -15,3 +15,14 @@ func GetUserContainer(pod *corev1.Pod) *corev1.Container {
 
 	return &firstContainer
 }
+
+func GetContainerByName(pod *corev1.Pod, name string) *corev1.Container {
+	for i := range pod.Spec.Containers {
+		c := &pod.Spec.Containers[i]
+		if c.Name == name {
+			return c
+		}
+	}
+
+	return nil
+}

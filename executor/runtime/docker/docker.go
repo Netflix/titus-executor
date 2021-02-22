@@ -610,10 +610,19 @@ func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c runt
 func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
 	log.Printf("Configuring VPC network for %s", c.TaskID())
 
+	eniIdx := c.NormalizedENIIndex()
+	if eniIdx == nil {
+		return nil, errors.New("could not determine normalized ENI index for container")
+	}
+	sgIDs := c.SecurityGroupIDs()
+	if sgIDs == nil {
+		return nil, errors.New("container is missing security groups")
+	}
+
 	args := []string{
 		"assign",
-		"--device-idx", strconv.Itoa(*c.NormalizedENIIndex()),
-		"--security-groups", strings.Join(*c.SecurityGroupIDs(), ","),
+		"--device-idx", strconv.Itoa(*eniIdx),
+		"--security-groups", strings.Join(*sgIDs, ","),
 		"--task-id", c.TaskID(),
 	}
 

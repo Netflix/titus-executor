@@ -63,7 +63,6 @@ type Config struct {
 	SeccompAgentPerfEnabled *bool
 	SecurityGroupIDs        *[]string
 	ServiceMeshEnabled      *bool
-	ServiceMeshImage        *string
 	StaticIPAllocation      *string
 	SubnetIDs               *string
 	TaskID                  *string

@@ -123,8 +123,6 @@ func TestParsePod(t *testing.T) {
 		AnnotationKeyLogS3PathPrefix:    "s3-prefix",
 		AnnotationKeyLogS3WriterIAMRole: "arn:aws:iam::0:role/LogWriterRole",
 
-		AnnotationKeyServiceServiceMeshImage: "titusoss/service-mesh",
-
 		// bools
 		AnnotationKeyLogKeepLocalFile:           "true",
 		AnnotationKeyNetworkAssignIPv6Address:   "true",
@@ -211,7 +209,6 @@ func TestParsePod(t *testing.T) {
 		SeccompAgentPerfEnabled: ptr.BoolPtr(true),
 		SecurityGroupIDs:        &sgIDs,
 		ServiceMeshEnabled:      ptr.BoolPtr(true),
-		ServiceMeshImage:        ptr.StringPtr("titusoss/service-mesh"),
 		StaticIPAllocation:      ptr.StringPtr("static-ip-alloc"),
 		SubnetIDs:               ptr.StringPtr("subnet-1,subnet-2"),
 		TaskID:                  ptr.StringPtr("task-id-in-label"),

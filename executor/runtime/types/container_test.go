@@ -105,6 +105,7 @@ func TestNewContainer(t *testing.T) {
 	expectedCommand := "cmd arg0 arg1"
 	expectedEntrypoint := "entrypoint arg0 arg1"
 	expectedIamRole := "arn:aws:iam::0:role/DefaultContainerRole"
+	expectedShm := uint32(256)
 
 	containerInfo := &titus.ContainerInfo{
 		AppName:   &expectedAppName,
@@ -126,6 +127,7 @@ func TestNewContainer(t *testing.T) {
 			Entrypoint: strings.Split(expectedEntrypoint, " "),
 		},
 		IamProfile: protobuf.String(expectedIamRole),
+		ShmSizeMB:  &expectedShm,
 	}
 
 	resources := Resources{
@@ -182,6 +184,7 @@ func TestNewContainer(t *testing.T) {
 	assert.Equal(t, svcMeshConf.Image, "")
 
 	assert.Equal(t, container.Resources(), &resources)
+	assert.Equal(t, *container.ShmSizeMiB(), expectedShm)
 }
 
 func TestMetatronEnabled(t *testing.T) {

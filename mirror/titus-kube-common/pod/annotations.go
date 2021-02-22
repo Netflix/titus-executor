@@ -139,8 +139,7 @@ const (
 
 	// service configuration
 
-	AnnotationKeyServiceServiceMeshEnabled = "service.netflix.com/service-mesh/enabled"
-	AnnotationKeyServiceServiceMeshImage   = "service.netflix.com/service-mesh/image"
+	AnnotationKeyServiceServiceMeshEnabled = "service.netflix.com/service-mesh.enabled"
 )
 
 func parseAnnotations(pod *corev1.Pod, pConf *Config) error {
@@ -324,10 +323,6 @@ func parseAnnotations(pod *corev1.Pod, pConf *Config) error {
 		{
 			key:   AnnotationKeySecurityAppMetadataSig,
 			field: &pConf.AppMetadataSig,
-		},
-		{
-			key:   AnnotationKeyServiceServiceMeshImage,
-			field: &pConf.ServiceMeshImage,
 		},
 	}
 	var err *multierror.Error
