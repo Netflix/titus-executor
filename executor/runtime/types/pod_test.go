@@ -122,6 +122,7 @@ func TestNewPodContainer(t *testing.T) {
 	}
 	expSGs := []string{"sg-1", "sg-2"}
 	expShmSize := uint32(256)
+	expSubnets := "subnet-1,subnet-2"
 	expSvcMeshImage := "docker.io/titusoss/servicemesh:latest"
 	expVPCalloc := &vpcTypes.HybridAllocation{
 		IPV4Address: &vpcapi.UsableAddress{
@@ -167,6 +168,8 @@ func TestNewPodContainer(t *testing.T) {
 		podCommon.AnnotationKeyPodSeccompAgentNetEnabled:  True,
 		podCommon.AnnotationKeyPodSeccompAgentPerfEnabled: True,
 		podCommon.AnnotationKeyNetworkSecurityGroups:      "sg-1,sg-2",
+		podCommon.AnnotationKeyNetworkSubnetIDs:           expSubnets,
+		podCommon.AnnotationKeyNetworkJumboFramesEnabled:  True,
 	})
 
 	uc := podCommon.GetUserContainer(pod)
@@ -222,6 +225,7 @@ func TestNewPodContainer(t *testing.T) {
 	uc.SecurityContext = &corev1.SecurityContext{
 		Capabilities: expCapabilities,
 	}
+	uc.TTY = true
 
 	// Add servicemesh sidecar
 	pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{
@@ -403,10 +407,10 @@ func TestNewPodContainer(t *testing.T) {
 		})
 
 	assert.Equal(t, c.SignedAddressAllocationUUID(), stringNil)
-	assert.Equal(t, c.SubnetIDs(), stringNil)
-	assert.Equal(t, c.TTYEnabled(), false)
+	assert.DeepEqual(t, c.SubnetIDs(), &expSubnets)
+	assert.Equal(t, c.TTYEnabled(), true)
 	assert.Equal(t, c.UploadDir("foo"), "titan/mainvpc/foo/"+taskID)
-	assert.Equal(t, c.UseJumboFrames(), false)
+	assert.Equal(t, c.UseJumboFrames(), true)
 	assert.DeepEqual(t, c.VPCAllocation(), expVPCalloc)
 	assert.DeepEqual(t, c.VPCAccountID(), ptr.StringPtr("123456"))
 }

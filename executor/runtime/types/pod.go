@@ -55,6 +55,7 @@ type PodContainer struct {
 	serviceMeshImage   string
 	shmSizeMiB         *uint32
 	titusInfo          *titus.ContainerInfo
+	ttyEnabled         bool
 	// userEnv is the environment passed in by the user in the pod spec
 	userEnv       map[string]string
 	vpcAllocation vpcTypes.HybridAllocation
@@ -103,6 +104,7 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		podConfig:         pConf,
 		resources:         resources,
 		titusInfo:         cInfo,
+		ttyEnabled:        userContainer.TTY,
 		userEnv:           userEnv,
 	}
 
@@ -522,7 +524,7 @@ func (c *PodContainer) SortedEnvArray() []string {
 }
 
 func (c *PodContainer) SubnetIDs() *string {
-	return nil
+	return c.podConfig.SubnetIDs
 }
 
 func (c *PodContainer) TaskID() string {
@@ -530,7 +532,7 @@ func (c *PodContainer) TaskID() string {
 }
 
 func (c *PodContainer) TTYEnabled() bool {
-	return false
+	return c.ttyEnabled
 }
 
 func (c *PodContainer) UploadDir(namespace string) string {
@@ -538,6 +540,9 @@ func (c *PodContainer) UploadDir(namespace string) string {
 }
 
 func (c *PodContainer) UseJumboFrames() bool {
+	if c.podConfig.JumboFramesEnabled != nil {
+		return *c.podConfig.JumboFramesEnabled
+	}
 	return false
 }
 
