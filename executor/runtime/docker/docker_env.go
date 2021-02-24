@@ -3,6 +3,7 @@ package docker
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -23,6 +24,13 @@ export {{ $key }}={{ $val | escape_sq }}
 export {{ $key }}={{ escapeSQWithFallback $key $val }}
 {{ end -}}
 {{ end -}}
+
+{{ if .InvalidEnv }}
+# Any extra invalid env variables will be commented out here:
+{{ range $key, $val := .InvalidEnv -}}
+# export {{ $key }}={{ $val | escape_sq }}
+{{ end -}}
+{{ end -}}
 `
 
 var (
@@ -40,10 +48,12 @@ func escapeSQWithFallback(key, fallBackValue string) string {
 type envFileTemplateData struct {
 	ContainerEnv map[string]string
 	ImageEnv     map[string]string
+	InvalidEnv   map[string]string
 }
 
 func executeEnvFileTemplate(env map[string]string, imageInfo *types.ImageInspect, buf io.Writer) error {
 	imageEnv := make(map[string]string, len(imageInfo.Config.Env))
+	invalidEnv := make(map[string]string)
 
 	for _, environmentVariable := range imageInfo.Config.Env {
 		splitEnvironmentVariable := strings.SplitN(environmentVariable, "=", 2)
@@ -51,9 +61,27 @@ func executeEnvFileTemplate(env map[string]string, imageInfo *types.ImageInspect
 			logrus.WithField("environmentVariable", environmentVariable).Warning("Cannot parse environment variable")
 			continue
 		}
-		imageEnv[splitEnvironmentVariable[0]] = splitEnvironmentVariable[1]
+		if isValidEnvVariable(splitEnvironmentVariable[0]) {
+			imageEnv[splitEnvironmentVariable[0]] = splitEnvironmentVariable[1]
+		} else {
+			invalidEnv[splitEnvironmentVariable[0]] = splitEnvironmentVariable[1]
+		}
 	}
 
-	templateData := envFileTemplateData{ContainerEnv: env, ImageEnv: imageEnv}
+	validEnv := make(map[string]string)
+	for k, v := range env {
+		if isValidEnvVariable(k) {
+			validEnv[k] = v
+		} else {
+			invalidEnv[k] = v
+		}
+	}
+
+	templateData := envFileTemplateData{ContainerEnv: validEnv, ImageEnv: imageEnv, InvalidEnv: invalidEnv}
 	return envFileTemplate.Execute(buf, templateData)
+}
+
+func isValidEnvVariable(in string) bool {
+	m, _ := regexp.MatchString(`^[a-zA-Z_]+[a-zA-Z0-9_]*$`, in)
+	return m
 }
