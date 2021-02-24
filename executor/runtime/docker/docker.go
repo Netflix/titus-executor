@@ -893,6 +893,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	var serviceMeshContainerName string
 	var sshdContainerName string
 	var spectatordContainerName string
+	var atlasdContainerName string
 	var volumeContainers []string
 
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
@@ -948,6 +949,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	if shouldStartSpectatord(&r.cfg, r.c) {
 		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSpectatord], &spectatordContainerName))
 	}
+
+	if shouldStartAtlasd(&r.cfg, r.c) {
+		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAtlasd], &atlasdContainerName))
+	}
+
 	if shouldStartMetatronSync(&r.cfg, r.c) {
 		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceMetatron], &metatronContainerName))
 	}
@@ -1029,6 +1035,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	if spectatordContainerName != "" {
 		volumeContainers = append(volumeContainers, spectatordContainerName)
+	}
+
+	if atlasdContainerName != "" {
+		volumeContainers = append(volumeContainers, atlasdContainerName)
 	}
 
 	if metatronContainerName != "" {

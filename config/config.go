@@ -58,6 +58,10 @@ type Config struct {
 	ContainerSpectatord    bool
 	SpectatordServiceImage string
 
+	// Do we enable atlasd rootless image?
+	ContainerAtlasd    bool
+	AtlasdServiceImage string
+
 	// CopiedFromHost indicates which environment variables to lift from the current config
 	copiedFromHostEnv cli.StringSlice
 	hardCodedEnv      cli.StringSlice
@@ -214,6 +218,16 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-spectatord-image",
 			EnvVar:      "SPECTATORD_SERVICE_IMAGE",
 			Destination: &cfg.SpectatordServiceImage,
+		},
+		cli.BoolFlag{
+			Name:        "container-atlasd",
+			EnvVar:      "CONTAINER_ATLASD",
+			Destination: &cfg.ContainerAtlasd,
+		},
+		cli.StringFlag{
+			Name:        "container-atlasd-image",
+			EnvVar:      "ATLASD_SERVICE_IMAGE",
+			Destination: &cfg.AtlasdServiceImage,
 		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",
