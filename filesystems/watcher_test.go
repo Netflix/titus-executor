@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netflix/metrics-client-go/metrics"
+
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/sirupsen/logrus"
@@ -42,6 +44,7 @@ func makeWatcher(localDir, uploadDir string) *Watcher {
 	return &Watcher{
 		config:   config,
 		uploader: uploader,
+		metrics:  metrics.Discard,
 	}
 }
 
