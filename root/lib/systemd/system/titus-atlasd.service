@@ -1,5 +1,5 @@
 [Unit]
-Description=Spectatord for container %i
+Description=Atlas for container %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
 # If the service restarts more than 10 times in 30 seconds, let it die

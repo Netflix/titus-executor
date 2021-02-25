@@ -68,6 +68,12 @@ var systemServices = []serviceOpts{
 	},
 	{
 		humanName:    "atlas",
+		unitName:     "titus-atlasd",
+		enabledCheck: shouldStartAtlasd,
+		required:     false,
+	},
+	{
+		humanName:    "atlas",
 		unitName:     "atlas-titus-agent",
 		enabledCheck: shouldStartAtlasAgent,
 		required:     false,

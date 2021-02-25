@@ -48,7 +48,7 @@ var sideCars = []SidecarContainerConfig{
 		},
 	},
 	{
-		ServiceName: SidecarServiceSpectatord,
+		ServiceName: SidecarServiceAtlasd,
 		Volumes: map[string]struct{}{
 			"/titus/atlas-titus-agent": {},
 		},

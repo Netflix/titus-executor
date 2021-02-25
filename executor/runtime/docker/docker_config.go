@@ -178,6 +178,7 @@ func shouldStartAtlasd(cfg *config.Config, c runtimeTypes.Container) bool {
 	return true
 }
 
+// This starts the old version of the atlas titus agent, which we are migrating to a system service.
 func shouldStartAtlasAgent(cfg *config.Config, c runtimeTypes.Container) bool {
 	return !shouldStartAtlasd(cfg, c)
 }
