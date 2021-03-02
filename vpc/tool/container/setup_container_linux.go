@@ -32,8 +32,30 @@ var (
 	errAddressSetupTimeout = errors.New("IPv6 address setup timed out")
 )
 
-func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
+func getNsFd(netNS interface{}) (int, bool, error) {
+	netnsfd := 0
+	transition := false
+	switch v := netNS.(type) {
+	case int:
+		netnsfd = netNS
+	case string:
+		transition = true
+		netnsfd, err = netns.NewNamed(netNS) {
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return netnsfd, transition, nil
+}
+
+func doSetupContainer(ctx context.Context, netNS interface{}, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
 	parentLink, err := getLinkByMac(allocation.MAC)
+	if err != nil {
+		return nil, err
+	}
+
+	netnsfd, transition, err := getNsFd(netNS)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +98,7 @@ func doSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 		return nil, err
 	}
 
-	return newLink, configureLink(ctx, nsHandle, newLink, bandwidth, ceil, mtu, allocation)
+	return newLink, configureLink(ctx, nsHandle, newLink, transition, bandwidth, ceil, mtu, allocation)
 }
 
 func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress) error {
@@ -112,7 +134,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	return nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, mtu int, allocation types.LegacyAllocation) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, transition bool, bandwidth, ceil uint64, mtu int, allocation types.LegacyAllocation) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {

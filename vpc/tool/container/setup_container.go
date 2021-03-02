@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, netns int, bandwidth uint64, burst, jumbo bool) error {
+func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, netns interface{}, bandwidth uint64, burst, jumbo bool) error {
 	var allocation types.LegacyAllocation
 	err := json.NewDecoder(os.Stdin).Decode(&allocation)
 	if err != nil {

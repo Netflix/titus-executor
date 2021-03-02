@@ -189,7 +189,7 @@ func main() {
 	rootCmd.AddCommand(setupInstanceCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(backfilleniCommand(ctx, v))
 	rootCmd.AddCommand(globalGCCommand(ctx, v))
-	rootCmd.AddCommand(setupContainercommand(ctx, v, ipr.getProvider))
+	rootCmd.AddCommand(setupContainercommand(ctx, v, ipr.getProvider)...)
 	rootCmd.AddCommand(teardownContainercommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(gcCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(operatorCmd(ctx, v, ipr.getProvider))

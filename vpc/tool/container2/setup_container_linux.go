@@ -81,10 +81,32 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 	return vlanLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, allocation types.Allocation) error {
+func getNsFd(netNS interface{}) (int, bool, error) {
+	netnsfd := 0
+	transition := false
+	switch v := netNS.(type) {
+	case int:
+		netnsfd = netNS
+	case string:
+		transition = true
+		netnsfd, err = netns.NewNamed(netNS) {
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return netnsfd, transition, nil
+}
+
+func DoSetupContainer(ctx context.Context, netNS interface{}, bandwidth, ceil uint64, allocation types.Allocation) error {
 	branchLink, err := getBranchLink(ctx, allocation)
 	if err != nil {
 		return err
+	}
+
+	netnsfd, transition, err := getNsFd(netNS)
+	if err != nil {
+		return nil, err
 	}
 
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
@@ -119,7 +141,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 	}
 
-	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, allocation, netnsfd)
+	return configureLink(ctx, nsHandle, newLink, transition, bandwidth, ceil, allocation, netnsfd)
 }
 
 func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) (uint64, error) {
@@ -213,7 +235,7 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	return mtu, nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, allocation types.Allocation, netnsfd int) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, transition bool, bandwidth, ceil uint64, allocation types.Allocation, netnsfd int) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {

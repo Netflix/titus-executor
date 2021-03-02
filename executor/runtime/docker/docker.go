@@ -978,9 +978,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 				"TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS": "true",
 			})
 		}
-		if r.c.SeccompAgentEnabledForPerfSyscalls() {
+		if r.c.SeccompAgentEnabledForNetSyscalls() {
 			r.c.SetEnvs(map[string]string{
 				"TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS": "true",
+				"TITUS_SECCOMP_AGENT_TRANSITION_NETNS":    r.c.TaskID() + "trans-netns",
 			})
 		}
 	}
@@ -1741,6 +1742,9 @@ func setupNetworkingArgs(burst bool, c runtimeTypes.Container) []string {
 	}
 	if c.UseJumboFrames() {
 		args = append(args, "--jumbo=true")
+	}
+	if c.SeccompAgentEnabledForNetSyscalls() {
+		args = append(args, "--trans-netns="+c.TaskID()+"trans-netns")
 	}
 
 	return args

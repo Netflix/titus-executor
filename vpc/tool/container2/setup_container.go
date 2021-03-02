@@ -12,7 +12,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, netns int, bandwidth uint64, burst bool) error {
+func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, netns interface{}, bandwidth uint64, burst bool) error {
 	var allocation types.Allocation
 	err := json.NewDecoder(os.Stdin).Decode(&allocation)
 	if err != nil {

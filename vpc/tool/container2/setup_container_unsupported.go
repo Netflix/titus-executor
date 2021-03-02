@@ -8,11 +8,11 @@ import (
 	"github.com/Netflix/titus-executor/vpc/types"
 )
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, allocation types.Allocation) error {
+func DoSetupContainer(ctx context.Context, netns interface{}, bandwidth, ceil uint64, allocation types.Allocation) error {
 	return types.ErrUnsupported
 }
 
-func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netnsfd int) error {
+func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netns interface{}) error {
 	return types.ErrUnsupported
 }
 
