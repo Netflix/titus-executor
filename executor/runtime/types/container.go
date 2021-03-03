@@ -19,6 +19,7 @@ import (
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -122,7 +123,6 @@ type TitusInfoContainer struct {
 	envOverrides map[string]string
 	labels       map[string]string
 	titusInfo    *titus.ContainerInfo
-	ebsInfo      EBSInfo
 
 	resources Resources
 
@@ -540,12 +540,17 @@ func (c *TitusInfoContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInf
 }
 
 func (c *TitusInfoContainer) EBSInfo() EBSInfo {
-	// KYLE TODO: use c.pod.annotations and extract the data here
+	if c.pod == nil {
+		return EBSInfo{}
+	}
+	if c.pod.Annotations == nil {
+		return EBSInfo{}
+	}
 	return EBSInfo{
-		VolumeID:   "vol-0cc20fbab97755b62",
-		MountPoint: "/ebs_mnt",
-		MountPerm:  "RW",
-		FSType:     "xfs",
+		VolumeID:  c.pod.Annotations[podCommon.AnnotationKeyStorageEBSVolumeID],
+		MountPath: c.pod.Annotations[podCommon.AnnotationKeyStorageEBSMountPath],
+		MountPerm: c.pod.Annotations[podCommon.AnnotationKeyStorageEBSMountPerm],
+		FSType:    c.pod.Annotations[podCommon.AnnotationKeyStorageEBSFSType],
 	}
 }
 

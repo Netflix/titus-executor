@@ -105,10 +105,10 @@ type GPUContainer interface {
 }
 
 type EBSInfo struct {
-	VolumeID   string
-	MountPoint string
-	MountPerm  string
-	FSType     string
+	VolumeID  string
+	MountPath string
+	MountPerm string
+	FSType    string
 }
 
 type SidecarContainerConfig struct {
