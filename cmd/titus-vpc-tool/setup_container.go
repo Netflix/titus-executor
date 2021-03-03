@@ -13,8 +13,16 @@ import (
 )
 
 func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentityProviderGetter) []*cobra.Command {
+	withTransition := false
 	cmds := []*cobra.Command{}
-	for _, netns := range []interface{}{v.GetInt("netns"), v.GetString("trans-netns")} {
+
+	netNS := []interface{}{v.GetInt("netns")}
+	if v.GetString("trans-netns") != "" {
+		withTransition = true
+		netNS = append(netNS, v.GetString("trans-netns"))
+	}
+	for _, netns := range netNS {
+		netns := netns
 		cmd := &cobra.Command{
 			Use:   "setup-container",
 			Short: "Setup networking for a particular container",
@@ -24,9 +32,9 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 				jumbo := v.GetBool("jumbo")
 				switch strings.ToLower(v.GetString(generationFlagName)) {
 				case "v1":
-					return container.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
+					return container.SetupContainer(ctx, iipGetter(), netns, withTransition, uint64(bandwidth), burst, jumbo)
 				case "v2", "v3":
-					return container2.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst)
+					return container2.SetupContainer(ctx, iipGetter(), netns, withTransition, uint64(bandwidth), burst)
 				default:
 					return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 				}

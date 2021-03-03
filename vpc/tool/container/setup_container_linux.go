@@ -34,28 +34,28 @@ var (
 
 func getNsFd(netNS interface{}) (int, bool, error) {
 	netnsfd := 0
-	transition := false
+	isTransLink := false
 	switch v := netNS.(type) {
 	case int:
-		netnsfd = netNS
+		netnsfd = v
 	case string:
-		transition = true
-		netnsfd, err = netns.NewNamed(netNS) {
-			if err != nil {
-				return nil, nil, err
-			}
+		isTransLink = true
+		nsHdl, err := netns.NewNamed(v)
+		if err != nil {
+			return netnsfd, false, err
 		}
+		netnsfd = int(nsHdl)
 	}
-	return netnsfd, transition, nil
+	return netnsfd, isTransLink, nil
 }
 
-func doSetupContainer(ctx context.Context, netNS interface{}, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
+func doSetupContainer(ctx context.Context, netNS interface{}, withTrans bool, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
 	parentLink, err := getLinkByMac(allocation.MAC)
 	if err != nil {
 		return nil, err
 	}
 
-	netnsfd, transition, err := getNsFd(netNS)
+	netnsfd, isTransLink, err := getNsFd(netNS)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func doSetupContainer(ctx context.Context, netNS interface{}, bandwidth, ceil ui
 		return nil, err
 	}
 
-	return newLink, configureLink(ctx, nsHandle, newLink, transition, bandwidth, ceil, mtu, allocation)
+	return newLink, configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, mtu, allocation)
 }
 
 func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress) error {
@@ -134,7 +134,7 @@ func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link 
 	return nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, transition bool, bandwidth, ceil uint64, mtu int, allocation types.LegacyAllocation) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, isTransLink bool, withTrans bool, bandwidth, ceil uint64, mtu int, allocation types.LegacyAllocation) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -153,7 +153,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return err
 	}
 
-	if allocation.IPV6Address != nil {
+	if allocation.IPV6Address != nil && !(withTrans && isTransLink) {
 		// Amazon only gives out /128s
 		new6Addr := netlink.Addr{
 			// TODO (Sargun): Check IP Mask setting.
@@ -166,9 +166,11 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		}
 	}
 
-	err = addIPv4AddressAndRoute(ctx, nsHandle, link, allocation.IPV4Address)
-	if err != nil {
-		return err
+	if !withTrans || (withTrans && isTransLink) {
+		err = addIPv4AddressAndRoute(ctx, nsHandle, link, allocation.IPV4Address)
+		if err != nil {
+			return err
+		}
 	}
 
 	// TODO: Wire up IFB / BPF / Bandwidth limits for IPv6
@@ -314,7 +316,7 @@ func ipaddressToHandle(ip net.IP) uint16 {
 	return binary.BigEndian.Uint16([]byte(ip.To4()[2:4]))
 }
 
-func teardownNetwork(ctx context.Context, allocation types.LegacyAllocation, link netlink.Link, netnsfd int) {
+func teardownNetwork(ctx context.Context, allocation types.LegacyAllocation, link netlink.Link, netnsfd interface{}) {
 	deleteLink(ctx, link, netnsfd)
 	ip := net.ParseIP(allocation.IPV4Address.Address.Address)
 
@@ -334,9 +336,14 @@ func teardownNetwork(ctx context.Context, allocation types.LegacyAllocation, lin
 	}
 }
 
-func deleteLink(ctx context.Context, link netlink.Link, netnsfd int) {
+func deleteLink(ctx context.Context, link netlink.Link, netNS interface{}) {
 	if link == nil {
 		logger.G(ctx).Debug("Link not setup, not deleting link")
+		return
+	}
+	netnsfd, _, err := getNsFd(netNS)
+	if err != nil {
+		logger.G(ctx).Warning("Could not get netnsfd from namespace")
 		return
 	}
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))

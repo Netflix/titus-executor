@@ -83,30 +83,30 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 
 func getNsFd(netNS interface{}) (int, bool, error) {
 	netnsfd := 0
-	transition := false
+	isTransLink := false
 	switch v := netNS.(type) {
 	case int:
-		netnsfd = netNS
+		netnsfd = v
 	case string:
-		transition = true
-		netnsfd, err = netns.NewNamed(netNS) {
-			if err != nil {
-				return nil, nil, err
-			}
+		isTransLink = true
+		nsHdl, err := netns.NewNamed(v)
+		if err != nil {
+			return netnsfd, false, err
 		}
+		netnsfd = int(nsHdl)
 	}
-	return netnsfd, transition, nil
+	return netnsfd, isTransLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netNS interface{}, bandwidth, ceil uint64, allocation types.Allocation) error {
+func DoSetupContainer(ctx context.Context, netNS interface{}, withTrans bool, bandwidth, ceil uint64, allocation types.Allocation) error {
 	branchLink, err := getBranchLink(ctx, allocation)
 	if err != nil {
 		return err
 	}
 
-	netnsfd, transition, err := getNsFd(netNS)
+	netnsfd, isTransLink, err := getNsFd(netNS)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
@@ -141,7 +141,7 @@ func DoSetupContainer(ctx context.Context, netNS interface{}, bandwidth, ceil ui
 		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 	}
 
-	return configureLink(ctx, nsHandle, newLink, transition, bandwidth, ceil, allocation, netnsfd)
+	return configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, allocation, netnsfd)
 }
 
 func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) (uint64, error) {
@@ -235,7 +235,7 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	return mtu, nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, transition bool, bandwidth, ceil uint64, allocation types.Allocation, netnsfd int) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, isTransLink bool, withTrans bool, bandwidth, ceil uint64, allocation types.Allocation, netnsfd int) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -248,12 +248,15 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return errors.Wrap(err, "Unable to set link up")
 	}
 
-	defaultMTU, err := addIPv4AddressAndRoutes(ctx, nsHandle, link, allocation.IPV4Address, allocation.Routes)
-	if err != nil {
-		return err
+	defaultMTU := uint64(0)
+	if !withTrans || (withTrans && isTransLink) {
+		defaultMTU, err = addIPv4AddressAndRoutes(ctx, nsHandle, link, allocation.IPV4Address, allocation.Routes)
+		if err != nil {
+			return err
+		}
 	}
 
-	if allocation.IPV6Address != nil {
+	if allocation.IPV6Address != nil && !(withTrans && isTransLink) {
 		err = addIPv6AddressAndRoutes(ctx, allocation, nsHandle, link, netnsfd)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Unable to add IPv6 address")
@@ -592,8 +595,14 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 	return nil
 }
 
-func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netnsfd int) error {
+func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netNS interface{}) error {
 	var result *multierror.Error
+	netnsfd, _, err := getNsFd(netNS)
+	if err != nil {
+		err = errors.Wrap(err, "Could not get netnsfd from namespace")
+		result = multierror.Append(result, err)
+		return result.ErrorOrNil()
+	}
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
 	if err != nil {
 		err = errors.Wrap(err, "Could not open handle to netnsfd")

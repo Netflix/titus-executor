@@ -9,7 +9,7 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func doSetupContainer(ctx context.Context, netns interface{}, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
+func doSetupContainer(ctx context.Context, netns interface{}, withTrans bool, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
 	return nil, types.ErrUnsupported
 }
 

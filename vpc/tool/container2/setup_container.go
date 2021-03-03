@@ -12,7 +12,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, netns interface{}, bandwidth uint64, burst bool) error {
+func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, netns interface{}, withTrans bool, bandwidth uint64, burst bool) error {
 	var allocation types.Allocation
 	err := json.NewDecoder(os.Stdin).Decode(&allocation)
 	if err != nil {
@@ -30,7 +30,7 @@ func SetupContainer(ctx context.Context, instanceIdentityProvider identity.Insta
 			return errors.Wrap(err, "Cannot get max network bps, and burst is set")
 		}
 	}
-	err = DoSetupContainer(ctx, netns, bandwidth, ceil, allocation)
+	err = DoSetupContainer(ctx, netns, withTrans, bandwidth, ceil, allocation)
 	if err != nil {
 		// warning: Errors unhandled.,LOW,HIGH (gosec)
 		_ = json.NewEncoder(os.Stdout).Encode(types.WiringStatus{Success: false, Error: err.Error()}) // nolint: gosec
@@ -44,7 +44,7 @@ func SetupContainer(ctx context.Context, instanceIdentityProvider identity.Insta
 	return nil
 }
 
-func TeardownContainer(ctx context.Context, netnsfd int) error {
+func TeardownContainer(ctx context.Context, netnsfd interface{}) error {
 	var allocation types.Allocation
 	err := json.NewDecoder(os.Stdin).Decode(&allocation)
 	if err != nil {

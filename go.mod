@@ -57,7 +57,7 @@ require (
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
-	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
+	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
 	go.opencensus.io v0.22.3
 	go.uber.org/multierr v1.1.0
