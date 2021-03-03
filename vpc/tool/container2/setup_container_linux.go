@@ -98,50 +98,53 @@ func getNsFd(netNS interface{}) (int, bool, error) {
 	return netnsfd, isTransLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netNS interface{}, withTrans bool, bandwidth, ceil uint64, allocation types.Allocation) error {
-	branchLink, err := getBranchLink(ctx, allocation)
-	if err != nil {
-		return err
-	}
+func DoSetupContainer(ctx context.Context, netNS []interface{}, withTrans bool, bandwidth, ceil uint64, allocation types.Allocation) error {
+	for _, ns := range netNS {
+		branchLink, err := getBranchLink(ctx, allocation)
+		if err != nil {
+			return err
+		}
 
-	netnsfd, isTransLink, err := getNsFd(netNS)
-	if err != nil {
-		return err
-	}
+		netnsfd, isTransLink, err := getNsFd(ns)
+		if err != nil {
+			return err
+		}
 
-	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
-	if err != nil {
-		return err
-	}
-	defer nsHandle.Delete()
+		nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
+		if err != nil {
+			return err
+		}
+		defer nsHandle.Delete()
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
-	containerInterfaceName := fmt.Sprintf("tmp-%d", r.Intn(10000))
-	ipvlan := netlink.IPVlan{
-		LinkAttrs: netlink.LinkAttrs{
-			Name:        containerInterfaceName,
-			ParentIndex: branchLink.Attrs().Index,
-			Namespace:   netlink.NsFd(netnsfd),
-			TxQLen:      -1,
-		},
-		Mode: netlink.IPVLAN_MODE_L2,
-	}
+		r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
+		containerInterfaceName := fmt.Sprintf("tmp-%d", r.Intn(10000))
+		ipvlan := netlink.IPVlan{
+			LinkAttrs: netlink.LinkAttrs{
+				Name:        containerInterfaceName,
+				ParentIndex: branchLink.Attrs().Index,
+				Namespace:   netlink.NsFd(netnsfd),
+				TxQLen:      -1,
+			},
+			Mode: netlink.IPVLAN_MODE_L2,
+		}
 
-	err = netlink.LinkAdd(&ipvlan)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not add link")
-		return errors.Wrapf(err, "Cannot create link with name %s", containerInterfaceName)
-	}
-	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
-	// what it's index is, so there's no point returning it.
-	logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
-	newLink, err := nsHandle.LinkByName(containerInterfaceName)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not find after adding link")
-		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
-	}
+		err = netlink.LinkAdd(&ipvlan)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not add link")
+			return errors.Wrapf(err, "Cannot create link with name %s", containerInterfaceName)
+		}
+		// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
+		// what it's index is, so there's no point returning it.
+		logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
+		newLink, err := nsHandle.LinkByName(containerInterfaceName)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not find after adding link")
+			return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
+		}
 
-	return configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, allocation, netnsfd)
+		return configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, allocation, netnsfd)
+	}
+	return nil
 }
 
 func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) (uint64, error) {
@@ -595,40 +598,42 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 	return nil
 }
 
-func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netNS interface{}) error {
+func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netNS []interface{}) error {
 	var result *multierror.Error
-	netnsfd, _, err := getNsFd(netNS)
-	if err != nil {
-		err = errors.Wrap(err, "Could not get netnsfd from namespace")
-		result = multierror.Append(result, err)
-		return result.ErrorOrNil()
-	}
-	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
-	if err != nil {
-		err = errors.Wrap(err, "Could not open handle to netnsfd")
-		result = multierror.Append(result, err)
-	} else {
-		link, err := nsHandle.LinkByName("eth0")
+	for _, ns := range netNS {
+		netnsfd, _, err := getNsFd(ns)
 		if err != nil {
-			_, ok := err.(*netlink.LinkNotFoundError)
-			if !ok {
-				err = errors.Wrap(err, "Could not find link eth0 in container network namespace")
-				result = multierror.Append(result, err)
-			} else {
-				logger.G(ctx).WithError(err).Warning("eth0 not found in container on get link by name")
-			}
+			err = errors.Wrap(err, "Could not get netnsfd from namespace")
+			result = multierror.Append(result, err)
+			return result.ErrorOrNil()
+		}
+		nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
+		if err != nil {
+			err = errors.Wrap(err, "Could not open handle to netnsfd")
+			result = multierror.Append(result, err)
 		} else {
-			linkDelErr := nsHandle.LinkDel(link)
-			if linkDelErr != nil {
-				_, ok := linkDelErr.(*netlink.LinkNotFoundError)
+			link, err := nsHandle.LinkByName("eth0")
+			if err != nil {
+				_, ok := err.(*netlink.LinkNotFoundError)
 				if !ok {
-					result = multierror.Append(result, linkDelErr)
+					err = errors.Wrap(err, "Could not find link eth0 in container network namespace")
+					result = multierror.Append(result, err)
 				} else {
-					logger.G(ctx).WithError(err).Warning("eth0 not found in container on delete")
+					logger.G(ctx).WithError(err).Warning("eth0 not found in container on get link by name")
+				}
+			} else {
+				linkDelErr := nsHandle.LinkDel(link)
+				if linkDelErr != nil {
+					_, ok := linkDelErr.(*netlink.LinkNotFoundError)
+					if !ok {
+						result = multierror.Append(result, linkDelErr)
+					} else {
+						logger.G(ctx).WithError(err).Warning("eth0 not found in container on delete")
+					}
 				}
 			}
+			nsHandle.Delete()
 		}
-		nsHandle.Delete()
 	}
 
 	result = multierror.Append(result, TeardownNetwork(ctx, allocation))

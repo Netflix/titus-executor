@@ -49,56 +49,64 @@ func getNsFd(netNS interface{}) (int, bool, error) {
 	return netnsfd, isTransLink, nil
 }
 
-func doSetupContainer(ctx context.Context, netNS interface{}, withTrans bool, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) (netlink.Link, error) {
-	parentLink, err := getLinkByMac(allocation.MAC)
-	if err != nil {
-		return nil, err
-	}
+func doSetupContainer(ctx context.Context, netNS []interface{}, withTrans bool, bandwidth, ceil uint64, jumbo bool, allocation types.LegacyAllocation) ([]netlink.Link, error) {
+	links := []netlink.Link{}
+	for _, ns := range netNS {
+		parentLink, err := getLinkByMac(allocation.MAC)
+		if err != nil {
+			return nil, err
+		}
 
-	netnsfd, isTransLink, err := getNsFd(netNS)
-	if err != nil {
-		return nil, err
-	}
+		netnsfd, isTransLink, err := getNsFd(ns)
+		if err != nil {
+			return nil, err
+		}
 
-	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
-	if err != nil {
-		return nil, err
-	}
-	defer nsHandle.Delete()
+		nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
+		if err != nil {
+			return nil, err
+		}
+		defer nsHandle.Delete()
 
-	mtu := parentLink.Attrs().MTU
-	if !jumbo {
-		mtu = 1500
-	}
+		mtu := parentLink.Attrs().MTU
+		if !jumbo {
+			mtu = 1500
+		}
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
-	containerInterfaceName := fmt.Sprintf("tmp-%d", r.Intn(10000))
-	ipvlan := netlink.IPVlan{
-		LinkAttrs: netlink.LinkAttrs{
-			Name:        containerInterfaceName,
-			ParentIndex: parentLink.Attrs().Index,
-			Namespace:   netlink.NsFd(netnsfd),
-			MTU:         mtu,
-			TxQLen:      -1,
-		},
-		Mode: netlink.IPVLAN_MODE_L2,
-	}
+		r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
+		containerInterfaceName := fmt.Sprintf("tmp-%d", r.Intn(10000))
+		ipvlan := netlink.IPVlan{
+			LinkAttrs: netlink.LinkAttrs{
+				Name:        containerInterfaceName,
+				ParentIndex: parentLink.Attrs().Index,
+				Namespace:   netlink.NsFd(netnsfd),
+				MTU:         mtu,
+				TxQLen:      -1,
+			},
+			Mode: netlink.IPVLAN_MODE_L2,
+		}
 
-	err = netlink.LinkAdd(&ipvlan)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not add link")
-		return nil, err
-	}
-	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
-	// what it's index is, so there's no point returning it.
-	logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
-	newLink, err := nsHandle.LinkByName(containerInterfaceName)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not find after adding link")
-		return nil, err
-	}
+		err = netlink.LinkAdd(&ipvlan)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not add link")
+			return nil, err
+		}
+		// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
+		// what it's index is, so there's no point returning it.
+		logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
+		newLink, err := nsHandle.LinkByName(containerInterfaceName)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not find after adding link")
+			return nil, err
+		}
 
-	return newLink, configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, mtu, allocation)
+		err = configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, mtu, allocation)
+		if err != nil {
+
+		}
+		links = append(links, newLink)
+	}
+	return links, nil
 }
 
 func addIPv4AddressAndRoute(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress) error {
@@ -316,23 +324,25 @@ func ipaddressToHandle(ip net.IP) uint16 {
 	return binary.BigEndian.Uint16([]byte(ip.To4()[2:4]))
 }
 
-func teardownNetwork(ctx context.Context, allocation types.LegacyAllocation, link netlink.Link, netnsfd interface{}) {
-	deleteLink(ctx, link, netnsfd)
-	ip := net.ParseIP(allocation.IPV4Address.Address.Address)
+func teardownNetwork(ctx context.Context, allocation types.LegacyAllocation, links []netlink.Link, netnsfd []interface{}) {
+	for i, link := range links {
+		deleteLink(ctx, link, netnsfd[i])
+		ip := net.ParseIP(allocation.IPV4Address.Address.Address)
 
-	// Removing the classes automatically removes the qdiscs
-	ifbEgress, err := netlink.LinkByName(vpc.EgressIFB)
-	if err == nil {
-		removeClass(ctx, ip, ifbEgress)
-	} else {
-		logger.G(ctx).WithError(err).Warning("Unable to find ifb egress, during deallocation")
-	}
+		// Removing the classes automatically removes the qdiscs
+		ifbEgress, err := netlink.LinkByName(vpc.EgressIFB)
+		if err == nil {
+			removeClass(ctx, ip, ifbEgress)
+		} else {
+			logger.G(ctx).WithError(err).Warning("Unable to find ifb egress, during deallocation")
+		}
 
-	ifbIngress, err := netlink.LinkByName(vpc.IngressIFB)
-	if err == nil {
-		removeClass(ctx, ip, ifbIngress)
-	} else {
-		logger.G(ctx).WithError(err).Warning("Unable to find ifb ingress, during deallocation")
+		ifbIngress, err := netlink.LinkByName(vpc.IngressIFB)
+		if err == nil {
+			removeClass(ctx, ip, ifbIngress)
+		} else {
+			logger.G(ctx).WithError(err).Warning("Unable to find ifb ingress, during deallocation")
+		}
 	}
 }
 
