@@ -7,6 +7,7 @@ const (
 	SidecarServiceServiceMesh = "servicemesh"
 	SidecarServiceSshd        = "sshd"
 	SidecarServiceSpectatord  = "spectatord"
+	SidecarServiceAtlasd      = "atlasd"
 )
 
 var sideCars = []SidecarContainerConfig{
@@ -44,6 +45,12 @@ var sideCars = []SidecarContainerConfig{
 		ServiceName: SidecarServiceSpectatord,
 		Volumes: map[string]struct{}{
 			"/titus/spectatord": {},
+		},
+	},
+	{
+		ServiceName: SidecarServiceAtlasd,
+		Volumes: map[string]struct{}{
+			"/titus/atlas-titus-agent": {},
 		},
 	},
 }

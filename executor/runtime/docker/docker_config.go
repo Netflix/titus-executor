@@ -166,6 +166,23 @@ func shouldStartSpectatord(cfg *config.Config, c runtimeTypes.Container) bool {
 	return true
 }
 
+func shouldStartAtlasd(cfg *config.Config, c runtimeTypes.Container) bool {
+	enabled := cfg.ContainerAtlasd
+	if !enabled {
+		return false
+	}
+
+	if cfg.AtlasdServiceImage == "" {
+		return false
+	}
+	return true
+}
+
+// This starts the old version of the atlas titus agent, which we are migrating to a system service.
+func shouldStartAtlasAgent(cfg *config.Config, c runtimeTypes.Container) bool {
+	return !shouldStartAtlasd(cfg, c)
+}
+
 func shouldStartSSHD(cfg *config.Config, c runtimeTypes.Container) bool {
 	return cfg.ContainerSSHD
 }
