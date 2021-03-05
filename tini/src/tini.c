@@ -24,7 +24,7 @@
 #include <sys/resource.h>
 #include <fcntl.h>
 #include <sys/types.h>
-#include <attr/xattr.h>
+#include <sys/xattr.h>
 
 #include "tiniConfig.h"
 #include "tiniLicense.h"

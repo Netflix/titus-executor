@@ -21,7 +21,7 @@
 #include <unistd.h>
 
 #include "shared.h"
-#include "../tini/src/seccomp_fd_notify.h"
+#include "seccomp_fd_notify.h"
 
 struct namespace {
 	int nstype;

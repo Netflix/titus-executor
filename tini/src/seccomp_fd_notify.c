@@ -1,5 +1,6 @@
 #include <sys/prctl.h>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -12,7 +13,7 @@
 
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <attr/xattr.h>
+#include <sys/xattr.h>
 
 #include "seccomp_fd_notify.h"
 

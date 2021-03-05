@@ -17,7 +17,7 @@ mv mount/titus-mount-block-device build/bin/linux-amd64/
 
 # tini
 (
-    mkdir -p build/tini
+    rm -rf build/tini && mkdir -p build/tini
     cd build/tini
     # TODO(sargun): RELWITHDEBINFO
     cmake -DCMAKE_BUILD_TYPE=Release ../../tini
@@ -27,10 +27,10 @@ mv build/tini/tini-static build/bin/linux-amd64
 
 # metadata service injector
 (
-	mkdir -p build/inject
-	cd build/inject
-	cmake ../../inject
-	make V=1
+    rm -rf build/inject && mkdir -p build/inject
+    cd build/inject
+    TINI_INCLUDE_DIR=../tini/src TINI_LIBRARY_DIR=../build/tini cmake ../../inject
+    make V=1
 )
 mv build/inject/titus-inject-metadataproxy build/bin/linux-amd64
 mv build/inject/titus-nsenter build/bin/linux-amd64
