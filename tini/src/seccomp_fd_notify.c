@@ -6,6 +6,8 @@
 #include <unistd.h>
 
 #include <linux/audit.h>
+#include <sys/ioctl.h>
+#include <linux/perf_event.h>
 #include <linux/seccomp.h>
 #include <linux/filter.h>
 #include <sys/syscall.h>
@@ -17,8 +19,16 @@
 
 #include "seccomp_fd_notify.h"
 
-#define PRINT_WARNING(...)  { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); }
-#define PRINT_INFO(...)  { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); }
+#define PRINT_WARNING(...)            \
+	{                                 \
+		fprintf(stderr, __VA_ARGS__); \
+		fprintf(stderr, "\n");        \
+	}
+#define PRINT_INFO(...)               \
+	{                                 \
+		fprintf(stderr, __VA_ARGS__); \
+		fprintf(stderr, "\n");        \
+	}
 
 static int send_fd(int sock, int fd)
 {
@@ -42,7 +52,8 @@ static int send_fd(int sock, int fd)
 	msg.msg_controllen = cmsg->cmsg_len;
 
 	int sendmsg_return = sendmsg(sock, &msg, 0);
-	if (sendmsg_return < 0) {
+	if (sendmsg_return < 0)
+	{
 		PRINT_WARNING("sendmsg failed with return %d", sendmsg_return);
 		return -1;
 	}
@@ -54,9 +65,8 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
 	return syscall(__NR_seccomp, operation, flags, args);
 }
 
-
 /* For the x32 ABI, all system call numbers have bit 30 set */
-#define X32_SYSCALL_BIT         0x40000000
+#define X32_SYSCALL_BIT 0x40000000
 
 /* install_notify_filter() install_notify_filter a seccomp filter that generates user-space
    notifications (SECCOMP_RET_USER_NOTIF) when the process calls mkdir(2); the
@@ -64,7 +74,12 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
 
    The function return value is a file descriptor from which the user-space
    notifications can be fetched. */
-static int install_notify_filter(void) {
+static int install_notify_filter(void)
+{
+	/* If you are debugging this, sometimes it is helpful to inspect what a filter
+	actually is, live on a process. Try using this on a container:
+	sudo seccomp-tools dump  -l2 -p $pid # where pid is tini
+	and seccomp-tools is https://github.com/david942j/seccomp-tools */
 	struct sock_filter filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
@@ -78,7 +93,12 @@ static int install_notify_filter(void) {
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_perf_event_open, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 1),
+		/* We only need to trap the 2 perf-related ioctls */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 5),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, args[1]))),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_SET_BPF, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_QUERY_BPF, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 
 		/* Every other system call is allowed */
@@ -86,7 +106,7 @@ static int install_notify_filter(void) {
 	};
 
 	struct sock_fprog prog = {
-		.len = (unsigned short) (sizeof(filter) / sizeof(filter[0])),
+		.len = (unsigned short)(sizeof(filter) / sizeof(filter[0])),
 		.filter = filter,
 	};
 
@@ -97,17 +117,20 @@ static int install_notify_filter(void) {
 	   establish a second listener yields an EBUSY error. */
 
 	int notify_fd = seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
-	if (notify_fd == -1) {
+	if (notify_fd == -1)
+	{
 		PRINT_WARNING("seccomp install_notify_filter failed: %s", strerror(errno));
 		return -1;
 	}
 	return notify_fd;
 }
 
-void maybe_setup_seccomp_notifer() {
+void maybe_setup_seccomp_notifer()
+{
 	char *socket_path;
 	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
-	if (socket_path) {
+	if (socket_path)
+	{
 
 		int sock_fd = -1;
 		// Sometimes things are not perfect, and the socket is not ready at first
@@ -145,10 +168,13 @@ void maybe_setup_seccomp_notifer() {
 
 		int notify_fd = -1;
 		notify_fd = install_notify_filter();
-		if (send_fd(sock_fd, notify_fd) == -1) {
+		if (send_fd(sock_fd, notify_fd) == -1)
+		{
 			PRINT_WARNING("Couldn't send fd to the socket at %s: %s", socket_path, strerror(errno));
 			return;
-		} else {
+		}
+		else
+		{
 			PRINT_INFO("Sent the notify fd to the seccomp agent socket at %s", socket_path)
 		}
 	}
