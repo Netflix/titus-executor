@@ -32,12 +32,8 @@ clean:
 	rm -rf build/
 	rm -f $(TEST_OUTPUT) $(TEST_DOCKER_OUTPUT)
 
-.PHONY: tini/src
-tini/src:
-	git submodule update --init --recursive
-
 .PHONY: build
-build: tini/src vpc/service/db/migrations/bindata.go | $(clean) $(builder)
+build: vpc/service/db/migrations/bindata.go | $(clean) $(builder)
 	mkdir -p $(PWD)/build/distributions
 	$(DOCKER_RUN) -v $(PWD):$(PWD) -u $(UID):$(GID) -w $(PWD) \
 	-e "BUILD_HOST=$(JENKINS_URL)" -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e BUILDKITE_BRANCH \
@@ -45,7 +41,7 @@ build: tini/src vpc/service/db/migrations/bindata.go | $(clean) $(builder)
 	titusoss/titus-executor-builder
 
 .PHONY: build-standalone
-build-standalone: tini/src
+build-standalone:
 	hack/builder/titus-executor-builder.sh
 
 .PHONY: test
@@ -99,6 +95,17 @@ lint: golangci-lint
 .PHONY: metalinter
 metalinter: lint
 	$(warning call the lint target)
+
+## Targets for building binaries directly on linux
+
+.PHONY: tini
+tini: build/tini/tini-static
+build/tini/tini-static: tini/src/*
+	rm -rf build/tini && mkdir -p build/tini
+	cd build/tini && cmake -DCMAKE_BUILD_TYPE=Release ../../tini && make V=1
+.PHONY: tini-install-locally
+tini-install-locally: build/tini/tini-static
+	sudo rsync build/tini/tini-static /apps/titus-executor/bin/tini-static
 
 ## Support docker images
 
