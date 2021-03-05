@@ -29,7 +29,7 @@ mv build/tini/tini-static build/bin/linux-amd64
 (
 	mkdir -p build/inject
 	cd build/inject
-	cmake ../../inject
+	TINI_INCLUDE_DIR=../tini/src TINI_LIBRAY_DIR=../build/tini cmake ../../inject
 	make V=1
 )
 mv build/inject/titus-inject-metadataproxy build/bin/linux-amd64

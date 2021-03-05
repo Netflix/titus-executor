@@ -21,7 +21,7 @@
 #include <unistd.h>
 
 #include "shared.h"
-#include "../tini/src/seccomp_fd_notify.h"
+#include "seccomp_fd_notify.h"
 
 struct namespace {
 	int nstype;
@@ -106,7 +106,7 @@ static int set_up_apparmor(char apparmor_profile[1024], int apparmor_fd) {
 
 	// we can use dprintf, but this just makes error handling cleaner
 	memset(writebuf, 0, sizeof(writebuf));
-	n = sprintf(writebuf, "changeprofile %s", apparmor_profile);
+	n = snprintf(writebuf, 1024, "changeprofile %s", apparmor_profile);
 	BUG_ON(n < 0 || n >= sizeof(writebuf), "Could not generate exec changehat command");
 
 	if (write(apparmor_fd, writebuf, n) != n) {
