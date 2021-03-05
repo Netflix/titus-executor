@@ -1,3 +1,4 @@
+#define _GNU_SOURCE 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <linux/limits.h>
@@ -20,6 +21,7 @@
 #include <unistd.h>
 
 #include "shared.h"
+#include "../tini/src/seccomp_fd_notify.h"
 
 struct namespace {
 	int nstype;
@@ -104,7 +106,7 @@ static int set_up_apparmor(char apparmor_profile[1024], int apparmor_fd) {
 
 	// we can use dprintf, but this just makes error handling cleaner
 	memset(writebuf, 0, sizeof(writebuf));
-	n = sprintf(writebuf, "changeprofile %s", apparmor_profile);
+	n = snprintf(writebuf, sizeof(writebuf) - 1, "changeprofile %s", apparmor_profile);
 	BUG_ON(n < 0 || n >= sizeof(writebuf), "Could not generate exec changehat command");
 
 	if (write(apparmor_fd, writebuf, n) != n) {
@@ -218,7 +220,7 @@ int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
 				goto skip_setns;
 		}
 		if (setns(namespace_fds[i], namespaces[i].nstype)) {
-			fprintf(stderr, "Cannot join namespace tyoe %s, because: %s\n", namespaces[i].name, strerror(errno));
+			fprintf(stderr, "Cannot join namespace type %s, because: %s\n", namespaces[i].name, strerror(errno));
 			goto fail;
 		}
 skip_setns:
@@ -238,6 +240,10 @@ skip_setns:
 
 	if (pid == 0) {
 		prctl(PR_SET_PDEATHSIG, SIGKILL);
+		char *use_tsa = getenv("TITUS_NSENTER_USE_TSA");
+		if (use_tsa) {
+			maybe_setup_seccomp_notifer();
+		}
 		BUG_ON_PERROR(execvp(argv[1], &argv[1]) == -1, "Could not execute child");
 	}
 
