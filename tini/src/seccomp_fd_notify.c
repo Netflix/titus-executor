@@ -109,22 +109,34 @@ void maybe_setup_seccomp_notifer() {
 	if (socket_path) {
 
 		int sock_fd = -1;
-		sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		// Sometimes things are not perfect, and the socket is not ready at first
+		// Instead of enforcing strict ordering, we can be defensive and retry.
+		int attempts = 10;
+		for (int i=1; i<=attempts; i++) {
+			sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+			if (sock_fd != -1) {
+				break;
+			}
+			sleep(1);
+		}
 		if (sock_fd == -1) {
-			PRINT_WARNING("Unable to open unix socket for seccomp handoff: %s", strerror(errno));
+			PRINT_WARNING("Unable to open unix socket for seccomp handoff after %d attempts: %s", attempts, strerror(errno));
 			return;
 		}
 
 		struct sockaddr_un addr = {0};
 		addr.sun_family = AF_UNIX;
 		strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path)-1);
-		if (connect(sock_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-			PRINT_WARNING("Unable to connect on unix socket (%s) for seccomp handoff: %s", socket_path, strerror(errno));
-			return;
+		int result = -1;
+		for (int i=1; i<=attempts; i++) {
+			result = connect(sock_fd, (struct sockaddr*)&addr, sizeof(addr));
+			if (result != -1) {
+				break;
+			}
+			sleep(1);
 		}
-
-		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-			PRINT_WARNING("Couldn't prctl to no new privs: %s", strerror(errno));
+		if (result == -1) {
+			PRINT_WARNING("Unable to connect on unix socket (%s) for seccomp handoff after %d attempts: %s", socket_path, attempts, strerror(errno));
 			return;
 		}
 
