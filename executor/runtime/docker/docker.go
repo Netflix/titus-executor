@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
@@ -976,7 +977,8 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	if shouldStartTitusSeccompAgent(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
-			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
+			// TODO: This can go in a private place, heck the container doesn't need to even see it,
+			// only ssh might need it too
 			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
 		})
 		if r.c.SeccompAgentEnabledForPerfSyscalls() {
@@ -984,7 +986,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 				"TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS": "true",
 			})
 		}
-		if r.c.SeccompAgentEnabledForPerfSyscalls() {
+		if r.c.SeccompAgentEnabledForNetSyscalls() {
 			r.c.SetEnvs(map[string]string{
 				"TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS": "true",
 			})
@@ -1331,10 +1333,80 @@ func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListe
 	}
 
 	err = launchTini(unixConn)
+	if shouldStartTitusSeccompAgent(&r.cfg, c) {
+		// If we are launching TSA, that means it will requires a seccomp
+		// notification from Tini. It should be ready for us, from the
+		// titus callback socket, and we can read it and foward it onto TSA
+		tsaSockPath := filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock")
+		forwardSeccompNotifyFDToTSA(unixConn, tsaSockPath)
+	}
 	if err != nil {
 		shouldClose(unixConn)
 	}
 	return logDir, err
+}
+
+func forwardSeccompNotifyFDToTSA(conn *net.UnixConn, tsaSockPath string) {
+	seccompNotifyFD, err := readFDFromSCMRights(conn)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+	if err != nil {
+		panic(err)
+	}
+	tsaConn := getTSAConnection(tsaSockPath)
+	err = writeFDOverSCMRights(tsaConn, seccompNotifyFD)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func getTSAConnection(tsaSockPath string) *net.UnixConn {
+	c, err := net.Dial("unix", tsaSockPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	switch typedConn := c.(type) {
+	case (*net.UnixConn):
+		return typedConn
+	default:
+		log.Fatalf("wat kind of conn is %d", typedConn)
+	}
+	return nil
+}
+
+func writeFDOverSCMRights(conn *net.UnixConn, notifyFD *os.File) error {
+	return nil
+}
+
+func readFDFromSCMRights(conn *net.UnixConn) (*os.File, error) {
+	msg, oob := make([]byte, 2), make([]byte, 128)
+
+	_, oobn, _, _, err := conn.ReadMsgUnix(msg, oob)
+	if err != nil {
+		return nil, err
+	}
+
+	cmsgs, err := syscall.ParseSocketControlMessage(oob[0:oobn])
+	if err != nil {
+		return nil, err
+	} else if len(cmsgs) != 1 {
+		return nil, errors.New("invalid number of cmsgs received")
+	}
+
+	fds, err := syscall.ParseUnixRights(&cmsgs[0])
+	if err != nil {
+		return nil, err
+	} else if len(fds) != 1 {
+		return nil, errors.New("invalid number of fds received")
+	}
+
+	fd := os.NewFile(uintptr(fds[0]), "")
+	if fd == nil {
+		return nil, errors.New("could not open fd")
+	}
+
+	return fd, nil
 }
 
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
