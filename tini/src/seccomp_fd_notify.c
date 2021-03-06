@@ -103,38 +103,15 @@ static int install_notify_filter(void) {
 	return notify_fd;
 }
 
-void maybe_setup_seccomp_notifer() {
-	char *socket_path;
-	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
-	if (socket_path) {
-
-		int sock_fd = -1;
-		sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-		if (sock_fd == -1) {
-			PRINT_WARNING("Unable to open unix socket for seccomp handoff: %s", strerror(errno));
-			return;
-		}
-
-		struct sockaddr_un addr = {0};
-		addr.sun_family = AF_UNIX;
-		strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path)-1);
-		if (connect(sock_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-			PRINT_WARNING("Unable to connect on unix socket (%s) for seccomp handoff: %s", socket_path, strerror(errno));
-			return;
-		}
-
-		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-			PRINT_WARNING("Couldn't prctl to no new privs: %s", strerror(errno));
-			return;
-		}
-
+void maybe_setup_seccomp_notifer(int sock_fd) {
+	if (sock_fd) {
 		int notify_fd = -1;
 		notify_fd = install_notify_filter();
 		if (send_fd(sock_fd, notify_fd) == -1) {
-			PRINT_WARNING("Couldn't send fd to the socket at %s: %s", socket_path, strerror(errno));
+			PRINT_WARNING("Couldn't send fd to the titus socket: %s", strerror(errno));
 			return;
 		} else {
-			PRINT_INFO("Sent the notify fd to the seccomp agent socket at %s", socket_path)
+			PRINT_INFO("Sent the notify fd to the titus socket");
 		}
 	}
 	return;

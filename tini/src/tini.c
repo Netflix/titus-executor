@@ -717,7 +717,7 @@ int reap_zombies(const pid_t child_pid, int* const child_exitcode_ptr) {
 	return 0;
 }
 
-void maybe_unix_cb() {
+int maybe_unix_cb() {
 	struct sockaddr_un addr = { 0 };
 	struct msghdr msg = { 0 };
 	char data[] = "hello\n";
@@ -734,7 +734,7 @@ void maybe_unix_cb() {
 	socket_path = getenv(TITUS_CB_PATH);
 	if (!socket_path) {
 		PRINT_INFO("No UNIX_CB_PATH set, not connecting back to callback socket")
-		return;
+		return -1;
 	}
 
 	rootfd = open("/", O_RDONLY);
@@ -784,7 +784,7 @@ void maybe_unix_cb() {
 		PRINT_INFO("Clear to start\n");
 	}
 
-	return;
+	return sockfd;
 
 	error:
 	if (rootfd > 0)
@@ -845,10 +845,11 @@ int main(int argc, char *argv[]) {
 	reaper_check();
 
 	/* Maybe pass our pid to the pid sock */
-	maybe_unix_cb();
-
+	int sockfd = maybe_unix_cb();
 	/* Setup a seccomp notification fd and pass it off, if available */
-	maybe_setup_seccomp_notifer();
+	maybe_setup_seccomp_notifer(sockfd);
+	if (sockfd > 0)
+		close(sockfd);
 
 	/* Go on */
 	int spawn_ret = spawn(&child_sigconf, *child_args_ptr, &child_pid);
