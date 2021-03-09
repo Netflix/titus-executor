@@ -190,3 +190,7 @@ func shouldStartSSHD(cfg *config.Config, c runtimeTypes.Container) bool {
 func shouldStartLogViewer(cfg *config.Config, c runtimeTypes.Container) bool {
 	return cfg.ContainerLogViewer
 }
+
+func shouldStartTitusStorage(cfg *config.Config, c runtimeTypes.Container) bool {
+	return c.EBSInfo().VolumeID != ""
+}

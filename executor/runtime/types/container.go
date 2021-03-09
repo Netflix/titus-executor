@@ -19,6 +19,7 @@ import (
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -136,7 +137,6 @@ type TitusInfoContainer struct {
 	vpcAccountID       string
 
 	// Log uploader fields
-
 	logUploadThresholdTime *time.Duration
 	logUploadCheckInterval *time.Duration
 	logStdioCheckInterval  *time.Duration
@@ -537,6 +537,21 @@ func (c *TitusInfoContainer) Capabilities() *titus.ContainerInfo_Capabilities {
 
 func (c *TitusInfoContainer) EfsConfigInfo() []*titus.ContainerInfo_EfsConfigInfo {
 	return c.titusInfo.GetEfsConfigInfo()
+}
+
+func (c *TitusInfoContainer) EBSInfo() EBSInfo {
+	if c.pod == nil {
+		return EBSInfo{}
+	}
+	if c.pod.Annotations == nil {
+		return EBSInfo{}
+	}
+	return EBSInfo{
+		VolumeID:  c.pod.Annotations[podCommon.AnnotationKeyStorageEBSVolumeID],
+		MountPath: c.pod.Annotations[podCommon.AnnotationKeyStorageEBSMountPath],
+		MountPerm: c.pod.Annotations[podCommon.AnnotationKeyStorageEBSMountPerm],
+		FSType:    c.pod.Annotations[podCommon.AnnotationKeyStorageEBSFSType],
+	}
 }
 
 func (c *TitusInfoContainer) ElasticIPPool() *string {
