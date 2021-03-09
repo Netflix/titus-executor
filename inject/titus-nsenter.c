@@ -99,9 +99,8 @@ int populate_namespaces(int titus_pid_1_fd, int namespace_fds[]) {
 	return ret;
 }
 
-static int set_up_apparmor(char apparmor_profile[1024], int apparmor_fd) {
-	// This will break on older kernels
-	char writebuf[1024];
+static int set_up_apparmor(char apparmor_profile[8192], int apparmor_fd) {
+	char writebuf[8192];
 	int n, ret = 0;
 
 	// we can use dprintf, but this just makes error handling cleaner
@@ -118,9 +117,9 @@ static int set_up_apparmor(char apparmor_profile[1024], int apparmor_fd) {
 	return ret;
 }
 
-static int __get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[1024], int *apparmor_fd) {
+static int __get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192], int *apparmor_fd) {
 	int containerfd;
-	char buf[1024];
+	char buf[8192];
 	char *profile;
 
 	memset(buf, 0, sizeof(buf));
@@ -153,8 +152,8 @@ static int __get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[1024
 	return 0;
 }
 
-int get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[1024], int *apparmor_fd) {
-	char lsm_buf[1024];
+int get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192], int *apparmor_fd) {
+	char lsm_buf[8192];
 	int fd;
 
 	*apparmor_fd = -1;
@@ -190,7 +189,7 @@ int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
 	// 5. We do the execve
 	int namespace_fds[ARRAY_SIZE(namespaces)];
 	int status, i, apparmor_fd;
-	char apparmor_profile[1024];
+	char apparmor_profile[8192];
 	pid_t pid;
 
 	struct stat my_user_ns, other_user_ns;
