@@ -8,6 +8,10 @@ StartLimitBurst=10
 
 [Service]
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
+# TSA is used in the main container processes to handle certain syscalls
+# To ensure a sane user experience, we want sshd-spawned processes to
+# get TSA help too. This environment variable ensures that will happen.
+Environment=TITUS_NSENTER_USE_TSA=true
 EnvironmentFile=/var/lib/titus-environments/%i.env
 ExecStart=/apps/titus-executor/bin/titus-nsenter /titus/sshd/usr/sbin/sshd -D -e
 LimitNOFILE=65535
