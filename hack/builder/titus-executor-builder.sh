@@ -16,13 +16,7 @@ make -C mount titus-mount-block-device
 mv mount/titus-mount-block-device build/bin/linux-amd64/
 
 # tini
-(
-    rm -rf build/tini && mkdir -p build/tini
-    cd build/tini
-    # TODO(sargun): RELWITHDEBINFO
-    cmake -DCMAKE_BUILD_TYPE=Release ../../tini
-    make V=1
-)
+make build/tini/tini-static
 mv build/tini/tini-static build/bin/linux-amd64
 
 # metadata service injector
