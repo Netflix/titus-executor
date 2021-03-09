@@ -6,12 +6,12 @@
 #include <unistd.h>
 
 #include <linux/audit.h>
-#include <sys/ioctl.h>
+#include <linux/filter.h>
 #include <linux/perf_event.h>
 #include <linux/seccomp.h>
-#include <linux/filter.h>
-#include <sys/syscall.h>
 #include <stddef.h>
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -19,22 +19,22 @@
 
 #include "seccomp_fd_notify.h"
 
-#define PRINT_WARNING(...)            \
-	{                                 \
-		fprintf(stderr, __VA_ARGS__); \
-		fprintf(stderr, "\n");        \
+#define PRINT_WARNING(...)                                                     \
+	{                                                                      \
+		fprintf(stderr, __VA_ARGS__);                                  \
+		fprintf(stderr, "\n");                                         \
 	}
-#define PRINT_INFO(...)               \
-	{                                 \
-		fprintf(stderr, __VA_ARGS__); \
-		fprintf(stderr, "\n");        \
+#define PRINT_INFO(...)                                                        \
+	{                                                                      \
+		fprintf(stderr, __VA_ARGS__);                                  \
+		fprintf(stderr, "\n");                                         \
 	}
 
 static int send_fd(int sock, int fd)
 {
-	struct msghdr msg = {0};
+	struct msghdr msg = { 0 };
 	struct cmsghdr *cmsg;
-	char buf[CMSG_SPACE(sizeof(int))] = {0}, c = 'c';
+	char buf[CMSG_SPACE(sizeof(int))] = { 0 }, c = 'c';
 	struct iovec io = {
 		.iov_base = &c,
 		.iov_len = 1,
@@ -52,8 +52,7 @@ static int send_fd(int sock, int fd)
 	msg.msg_controllen = cmsg->cmsg_len;
 
 	int sendmsg_return = sendmsg(sock, &msg, 0);
-	if (sendmsg_return < 0)
-	{
+	if (sendmsg_return < 0) {
 		PRINT_WARNING("sendmsg failed with return %d", sendmsg_return);
 		return -1;
 	}
@@ -82,9 +81,11 @@ static int install_notify_filter(void)
 	and seccomp-tools is https://github.com/david942j/seccomp-tools */
 	struct sock_filter filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+			 (offsetof(struct seccomp_data, arch))),
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 0, 2),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+			 (offsetof(struct seccomp_data, nr))),
 		BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 1),
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 
@@ -95,10 +96,13 @@ static int install_notify_filter(void)
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 		/* We only need to trap the 2 perf-related ioctls */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 5),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, args[1]))),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_SET_BPF, 0, 1),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+			 (offsetof(struct seccomp_data, args[1]))),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_SET_BPF, 0,
+			 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_QUERY_BPF, 0, 1),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_QUERY_BPF, 0,
+			 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 
 		/* Every other system call is allowed */
@@ -116,10 +120,11 @@ static int install_notify_filter(void)
 	/* Only one listening file descriptor can be established. An attempt to
 	   establish a second listener yields an EBUSY error. */
 
-	int notify_fd = seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
-	if (notify_fd == -1)
-	{
-		PRINT_WARNING("seccomp install_notify_filter failed: %s", strerror(errno));
+	int notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
+				SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
+	if (notify_fd == -1) {
+		PRINT_WARNING("seccomp install_notify_filter failed: %s",
+			      strerror(errno));
 		return -1;
 	}
 	return notify_fd;
@@ -129,53 +134,61 @@ void maybe_setup_seccomp_notifer()
 {
 	char *socket_path;
 	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
-	if (socket_path)
-	{
-
+	if (socket_path) {
 		int sock_fd = -1;
 		// Sometimes things are not perfect, and the socket is not ready at first
 		// Instead of enforcing strict ordering, we can be defensive and retry.
 		int attempts = 10;
-		for (int i=1; i<=attempts; i++) {
+		for (int i = 1; i <= attempts; i++) {
 			sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
 			if (sock_fd != -1) {
 				break;
 			}
-			PRINT_INFO("Titus seccomp socket unix socket not ready yet on attempt %d, Sleeping 1 second", attempts);
+			PRINT_INFO(
+				"Titus seccomp socket unix socket not ready yet on attempt %d, Sleeping 1 second",
+				attempts);
 			sleep(1);
 		}
 		if (sock_fd == -1) {
-			PRINT_WARNING("Unable to open unix socket for seccomp handoff after %d attempts: %s", attempts, strerror(errno));
+			PRINT_WARNING(
+				"Unable to open unix socket for seccomp handoff after %d attempts: %s",
+				attempts, strerror(errno));
 			return;
 		}
 
-		struct sockaddr_un addr = {0};
+		struct sockaddr_un addr = { 0 };
 		addr.sun_family = AF_UNIX;
-		strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path)-1);
+		strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 		int result = -1;
-		for (int i=1; i<=attempts; i++) {
-			result = connect(sock_fd, (struct sockaddr*)&addr, sizeof(addr));
+		for (int i = 1; i <= attempts; i++) {
+			result = connect(sock_fd, (struct sockaddr *)&addr,
+					 sizeof(addr));
 			if (result != -1) {
 				break;
 			}
-			PRINT_INFO("Titus seccomp socket unix socket not ready yet on attempt %d, Sleeping 1 second", attempts);
+			PRINT_INFO(
+				"Titus seccomp socket unix socket not ready yet on attempt %d, Sleeping 1 second",
+				attempts);
 			sleep(1);
 		}
 		if (result == -1) {
-			PRINT_WARNING("Unable to connect on unix socket (%s) for seccomp handoff after %d attempts: %s", socket_path, attempts, strerror(errno));
+			PRINT_WARNING(
+				"Unable to connect on unix socket (%s) for seccomp handoff after %d attempts: %s",
+				socket_path, attempts, strerror(errno));
 			return;
 		}
 
 		int notify_fd = -1;
 		notify_fd = install_notify_filter();
-		if (send_fd(sock_fd, notify_fd) == -1)
-		{
-			PRINT_WARNING("Couldn't send fd to the socket at %s: %s", socket_path, strerror(errno));
+		if (send_fd(sock_fd, notify_fd) == -1) {
+			PRINT_WARNING(
+				"Couldn't send fd to the socket at %s: %s",
+				socket_path, strerror(errno));
 			return;
-		}
-		else
-		{
-			PRINT_INFO("Sent the notify fd to the seccomp agent socket at %s", socket_path)
+		} else {
+			PRINT_INFO(
+				"Sent the notify fd to the seccomp agent socket at %s",
+				socket_path)
 		}
 	}
 	return;

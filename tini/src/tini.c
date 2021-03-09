@@ -1,115 +1,145 @@
 /* See LICENSE file for copyright and license details. */
 #define _GNU_SOURCE
 
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/prctl.h>
 
 #include <assert.h>
 #include <errno.h>
+#include <sched.h>
 #include <signal.h>
-#include <string.h>
-#include <time.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
 #include <unistd.h>
-#include <stdbool.h>
-#include <sched.h>
 
-#include <sys/types.h>
+#include <fcntl.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/time.h>
-#include <sys/resource.h>
-#include <fcntl.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <sys/xattr.h>
 
+#include "seccomp_fd_notify.h"
 #include "tiniConfig.h"
 #include "tiniLicense.h"
-#include "seccomp_fd_notify.h"
 
 #ifndef CLONE_NEWCGROUP
-#define CLONE_NEWCGROUP		0x02000000	/* New cgroup namespace */
+#define CLONE_NEWCGROUP 0x02000000 /* New cgroup namespace */
 #endif
 
-#define S_IWUGO		(S_IWUSR|S_IWGRP|S_IWOTH)
-#define S_IRUGO		(S_IRUSR|S_IRGRP|S_IROTH)
-#define REDIRECT_STDERR	"TITUS_REDIRECT_STDERR"
-#define REDIRECT_STDOUT	"TITUS_REDIRECT_STDOUT"
-#define TITUS_CB_PATH	"TITUS_UNIX_CB_PATH"
-#define TITUS_CONFIRM	"TITUS_CONFIRM"
-#define TITUS_BATCH	"TITUS_BATCH"
-#define TINI_HANDOFF	"TINI_HANDOFF"
-#define TINI_UNSHARE	"TINI_UNSHARE"
+#define S_IWUGO (S_IWUSR | S_IWGRP | S_IWOTH)
+#define S_IRUGO (S_IRUSR | S_IRGRP | S_IROTH)
+#define REDIRECT_STDERR "TITUS_REDIRECT_STDERR"
+#define REDIRECT_STDOUT "TITUS_REDIRECT_STDOUT"
+#define TITUS_CB_PATH "TITUS_UNIX_CB_PATH"
+#define TITUS_CONFIRM "TITUS_CONFIRM"
+#define TITUS_BATCH "TITUS_BATCH"
+#define TINI_HANDOFF "TINI_HANDOFF"
+#define TINI_UNSHARE "TINI_UNSHARE"
 
 const char stdioattr[] = "user.stdio";
 
 #if TINI_MINIMAL
-#define PRINT_FATAL(...)                         fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n");
-#define PRINT_WARNING(...)  if (verbosity > 0) { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); }
-#define PRINT_INFO(...)     if (verbosity > 1) { fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); }
-#define PRINT_DEBUG(...)    if (verbosity > 2) { fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); }
-#define PRINT_TRACE(...)    if (verbosity > 3) { fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); }
+#define PRINT_FATAL(...)                                                       \
+	fprintf(stderr, __VA_ARGS__);                                          \
+	fprintf(stderr, "\n");
+#define PRINT_WARNING(...)                                                     \
+	if (verbosity > 0) {                                                   \
+		fprintf(stderr, __VA_ARGS__);                                  \
+		fprintf(stderr, "\n");                                         \
+	}
+#define PRINT_INFO(...)                                                        \
+	if (verbosity > 1) {                                                   \
+		fprintf(stdout, __VA_ARGS__);                                  \
+		fprintf(stdout, "\n");                                         \
+	}
+#define PRINT_DEBUG(...)                                                       \
+	if (verbosity > 2) {                                                   \
+		fprintf(stdout, __VA_ARGS__);                                  \
+		fprintf(stdout, "\n");                                         \
+	}
+#define PRINT_TRACE(...)                                                       \
+	if (verbosity > 3) {                                                   \
+		fprintf(stdout, __VA_ARGS__);                                  \
+		fprintf(stdout, "\n");                                         \
+	}
 #define DEFAULT_VERBOSITY 0
 #else
-#define PRINT_FATAL(...)                         fprintf(stderr, "[FATAL tini (%i)] ", getpid()); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n");
-#define PRINT_WARNING(...)  if (verbosity > 0) { fprintf(stderr, "[WARN  tini (%i)] ", getpid()); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); }
-#define PRINT_INFO(...)     if (verbosity > 1) { fprintf(stdout, "[INFO  tini (%i)] ", getpid()); fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); }
-#define PRINT_DEBUG(...)    if (verbosity > 2) { fprintf(stdout, "[DEBUG tini (%i)] ", getpid()); fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); }
-#define PRINT_TRACE(...)    if (verbosity > 3) { fprintf(stdout, "[TRACE tini (%i)] ", getpid()); fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); }
+#define PRINT_FATAL(...)                                                       \
+	fprintf(stderr, "[FATAL tini (%i)] ", getpid());                       \
+	fprintf(stderr, __VA_ARGS__);                                          \
+	fprintf(stderr, "\n");
+#define PRINT_WARNING(...)                                                     \
+	if (verbosity > 0) {                                                   \
+		fprintf(stderr, "[WARN  tini (%i)] ", getpid());               \
+		fprintf(stderr, __VA_ARGS__);                                  \
+		fprintf(stderr, "\n");                                         \
+	}
+#define PRINT_INFO(...)                                                        \
+	if (verbosity > 1) {                                                   \
+		fprintf(stdout, "[INFO  tini (%i)] ", getpid());               \
+		fprintf(stdout, __VA_ARGS__);                                  \
+		fprintf(stdout, "\n");                                         \
+	}
+#define PRINT_DEBUG(...)                                                       \
+	if (verbosity > 2) {                                                   \
+		fprintf(stdout, "[DEBUG tini (%i)] ", getpid());               \
+		fprintf(stdout, __VA_ARGS__);                                  \
+		fprintf(stdout, "\n");                                         \
+	}
+#define PRINT_TRACE(...)                                                       \
+	if (verbosity > 3) {                                                   \
+		fprintf(stdout, "[TRACE tini (%i)] ", getpid());               \
+		fprintf(stdout, __VA_ARGS__);                                  \
+		fprintf(stdout, "\n");                                         \
+	}
 #define DEFAULT_VERBOSITY 1
 #endif
 
-#define ARRAY_LEN(x)  (sizeof(x) / sizeof((x)[0]))
+#define ARRAY_LEN(x) (sizeof(x) / sizeof((x)[0]))
 
-#define INT32_BITFIELD_SET(F, i)     ( F[(i / 32)] |=  (1 << (i % 32)) )
-#define INT32_BITFIELD_CLEAR(F, i)   ( F[(i / 32)] &= ~(1 << (i % 32)) )
-#define INT32_BITFIELD_TEST(F, i)    ( F[(i / 32)] &   (1 << (i % 32)) )
-#define INT32_BITFIELD_CHECK_BOUNDS(F, i) do {  assert(i >= 0); assert(ARRAY_LEN(F) > (uint) (i / 32)); } while(0)
+#define INT32_BITFIELD_SET(F, i) (F[(i / 32)] |= (1 << (i % 32)))
+#define INT32_BITFIELD_CLEAR(F, i) (F[(i / 32)] &= ~(1 << (i % 32)))
+#define INT32_BITFIELD_TEST(F, i) (F[(i / 32)] & (1 << (i % 32)))
+#define INT32_BITFIELD_CHECK_BOUNDS(F, i)                                      \
+	do {                                                                   \
+		assert(i >= 0);                                                \
+		assert(ARRAY_LEN(F) > (uint)(i / 32));                         \
+	} while (0)
 
 #define STATUS_MAX 255
 #define STATUS_MIN 0
 
 typedef struct {
-   sigset_t* const sigmask_ptr;
-   struct sigaction* const sigttin_action_ptr;
-   struct sigaction* const sigttou_action_ptr;
+	sigset_t *const sigmask_ptr;
+	struct sigaction *const sigttin_action_ptr;
+	struct sigaction *const sigttou_action_ptr;
 } signal_configuration_t;
 
 static const struct {
-   char *const name;
-   int number;
+	char *const name;
+	int number;
 } signal_names[] = {
-   { "SIGHUP", SIGHUP },
-   { "SIGINT", SIGINT },
-   { "SIGQUIT", SIGQUIT },
-   { "SIGILL", SIGILL },
-   { "SIGTRAP", SIGTRAP },
-   { "SIGABRT", SIGABRT },
-   { "SIGBUS", SIGBUS },
-   { "SIGFPE", SIGFPE },
-   { "SIGKILL", SIGKILL },
-   { "SIGUSR1", SIGUSR1 },
-   { "SIGSEGV", SIGSEGV },
-   { "SIGUSR2", SIGUSR2 },
-   { "SIGPIPE", SIGPIPE },
-   { "SIGALRM", SIGALRM },
-   { "SIGTERM", SIGTERM },
-   { "SIGCHLD", SIGCHLD },
-   { "SIGCONT", SIGCONT },
-   { "SIGSTOP", SIGSTOP },
-   { "SIGTSTP", SIGTSTP },
-   { "SIGTTIN", SIGTTIN },
-   { "SIGTTOU", SIGTTOU },
-   { "SIGURG", SIGURG },
-   { "SIGXCPU", SIGXCPU },
-   { "SIGXFSZ", SIGXFSZ },
-   { "SIGVTALRM", SIGVTALRM },
-   { "SIGPROF", SIGPROF },
-   { "SIGWINCH", SIGWINCH },
-   { "SIGSYS", SIGSYS },
+	{ "SIGHUP", SIGHUP },	    { "SIGINT", SIGINT },
+	{ "SIGQUIT", SIGQUIT },	    { "SIGILL", SIGILL },
+	{ "SIGTRAP", SIGTRAP },	    { "SIGABRT", SIGABRT },
+	{ "SIGBUS", SIGBUS },	    { "SIGFPE", SIGFPE },
+	{ "SIGKILL", SIGKILL },	    { "SIGUSR1", SIGUSR1 },
+	{ "SIGSEGV", SIGSEGV },	    { "SIGUSR2", SIGUSR2 },
+	{ "SIGPIPE", SIGPIPE },	    { "SIGALRM", SIGALRM },
+	{ "SIGTERM", SIGTERM },	    { "SIGCHLD", SIGCHLD },
+	{ "SIGCONT", SIGCONT },	    { "SIGSTOP", SIGSTOP },
+	{ "SIGTSTP", SIGTSTP },	    { "SIGTTIN", SIGTTIN },
+	{ "SIGTTOU", SIGTTOU },	    { "SIGURG", SIGURG },
+	{ "SIGXCPU", SIGXCPU },	    { "SIGXFSZ", SIGXFSZ },
+	{ "SIGVTALRM", SIGVTALRM }, { "SIGPROF", SIGPROF },
+	{ "SIGWINCH", SIGWINCH },   { "SIGSYS", SIGSYS },
 };
 
 static unsigned int verbosity = DEFAULT_VERBOSITY;
@@ -130,7 +160,6 @@ static int32_t expect_status[(STATUS_MAX - STATUS_MIN + 1) / 32];
 
 #define TINI_VERSION_STRING "tini version " TINI_VERSION TINI_GIT
 
-
 #if HAS_SUBREAPER
 static unsigned int subreaper = 0;
 #endif
@@ -141,41 +170,48 @@ static unsigned int warn_on_reap = 0;
 
 static struct timespec ts = { .tv_sec = 1, .tv_nsec = 0 };
 
-static const char reaper_warning[] = "Tini is not running as PID 1 "
+static const char reaper_warning[] =
+	"Tini is not running as PID 1 "
 #if HAS_SUBREAPER
-       "and isn't registered as a child subreaper"
+	"and isn't registered as a child subreaper"
 #endif
-".\n\
+	".\n\
 Zombie processes will not be re-parented to Tini, so zombie reaping won't work.\n\
 To fix the problem, "
 #if HAS_SUBREAPER
 #ifndef TINI_MINIMAL
-"use the -s option "
+	"use the -s option "
 #endif
-"or set the environment variable " SUBREAPER_ENV_VAR " to register Tini as a child subreaper, or "
+	"or set the environment variable " SUBREAPER_ENV_VAR
+	" to register Tini as a child subreaper, or "
 #endif
-"run Tini as PID 1.";
+	"run Tini as PID 1.";
 
-int restore_signals(const signal_configuration_t* const sigconf_ptr) {
+int restore_signals(const signal_configuration_t *const sigconf_ptr)
+{
 	if (sigprocmask(SIG_SETMASK, sigconf_ptr->sigmask_ptr, NULL)) {
-		PRINT_FATAL("Restoring child signal mask failed: '%s'", strerror(errno));
+		PRINT_FATAL("Restoring child signal mask failed: '%s'",
+			    strerror(errno));
 		return 1;
 	}
 
 	if (sigaction(SIGTTIN, sigconf_ptr->sigttin_action_ptr, NULL)) {
-		PRINT_FATAL("Restoring SIGTTIN handler failed: '%s'", strerror((errno)));
+		PRINT_FATAL("Restoring SIGTTIN handler failed: '%s'",
+			    strerror((errno)));
 		return 1;
 	}
 
 	if (sigaction(SIGTTOU, sigconf_ptr->sigttou_action_ptr, NULL)) {
-		PRINT_FATAL("Restoring SIGTTOU handler failed: '%s'", strerror((errno)));
+		PRINT_FATAL("Restoring SIGTTOU handler failed: '%s'",
+			    strerror((errno)));
 		return 1;
 	}
 
 	return 0;
 }
 
-int isolate_child() {
+int isolate_child()
+{
 	// Put the child into a new process group.
 	if (setpgid(0, 0) < 0) {
 		PRINT_FATAL("setpgid failed: %s", strerror(errno));
@@ -195,7 +231,8 @@ int isolate_child() {
 			PRINT_DEBUG("tcsetpgrp failed: no tty (ok to proceed)");
 		} else if (errno == ENXIO) {
 			// can occur on lx-branded zones
-			PRINT_DEBUG("tcsetpgrp failed: no such device (ok to proceed)");
+			PRINT_DEBUG(
+				"tcsetpgrp failed: no such device (ok to proceed)");
 		} else {
 			PRINT_FATAL("tcsetpgrp failed: %s", strerror(errno));
 			return 1;
@@ -205,8 +242,10 @@ int isolate_child() {
 	return 0;
 }
 
-int do_execvp(char* const argv[], int new_stdout_fd, int new_stderr_fd, const signal_configuration_t* const sigconf_ptr) {
-	const struct sched_param param = {0};
+int do_execvp(char *const argv[], int new_stdout_fd, int new_stderr_fd,
+	      const signal_configuration_t *const sigconf_ptr)
+{
+	const struct sched_param param = { 0 };
 	int sched_mode = SCHED_BATCH;
 	const char *titus_batch;
 
@@ -218,11 +257,13 @@ int do_execvp(char* const argv[], int new_stdout_fd, int new_stderr_fd, const si
 	// Do the FD swap
 	// No need to set CLO_EXEC on existing stdout, stderr FDs, because we're closing them anyway
 	if (dup2(new_stdout_fd, 1) == -1) {
-		PRINT_FATAL("Failed to duplicate stdout FD: %s", strerror(errno));
+		PRINT_FATAL("Failed to duplicate stdout FD: %s",
+			    strerror(errno));
 		return 1;
 	}
 	if (dup2(new_stderr_fd, 2) == -1) {
-		PRINT_FATAL("Failed to duplicate stdout FD: %s", strerror(errno));
+		PRINT_FATAL("Failed to duplicate stdout FD: %s",
+			    strerror(errno));
 		return 1;
 	}
 
@@ -231,10 +272,13 @@ int do_execvp(char* const argv[], int new_stdout_fd, int new_stderr_fd, const si
 		if (strcmp("idle", titus_batch) == 0)
 			sched_mode = SCHED_IDLE;
 		if (sched_setscheduler(0, sched_mode, &param)) {
-			PRINT_WARNING("Unable to set %d policy: %s", sched_mode, strerror(errno));
+			PRINT_WARNING("Unable to set %d policy: %s", sched_mode,
+				      strerror(errno));
 		}
 		if (setpriority(PRIO_PROCESS, 0, 19)) {
-			PRINT_WARNING("Unable to set process's niceness to 19: %s", strerror(errno))
+			PRINT_WARNING(
+				"Unable to set process's niceness to 19: %s",
+				strerror(errno))
 		}
 	}
 
@@ -254,16 +298,18 @@ int do_execvp(char* const argv[], int new_stdout_fd, int new_stderr_fd, const si
 	// and exit with the correct return status for the error that we encountered
 	// See: http://www.tldp.org/LDP/abs/html/exitcodes.html#EXITCODESREF
 	switch (errno) {
-		case ENOENT:
-			return 127;
-		case EACCES:
-			return 126;
+	case ENOENT:
+		return 127;
+	case EACCES:
+		return 126;
 	}
 	PRINT_FATAL("exec %s failed: %s", argv[0], strerror(errno));
 	return 1;
 }
 
-int spawn(const signal_configuration_t* const sigconf_ptr, char* const argv[], int* const child_pid_ptr) {
+int spawn(const signal_configuration_t *const sigconf_ptr, char *const argv[],
+	  int *const child_pid_ptr)
+{
 	int new_stdout_fd = 1;
 	int new_stderr_fd = 2;
 	char *redir_path;
@@ -274,26 +320,34 @@ int spawn(const signal_configuration_t* const sigconf_ptr, char* const argv[], i
 	// This will have the side-effect of closing all of our file descriptors.
 	redir_path = getenv(REDIRECT_STDOUT);
 	if (redir_path) {
-		new_stdout_fd = open(redir_path, O_WRONLY | O_CREAT | O_APPEND, S_IRUGO | S_IWUGO);
+		new_stdout_fd = open(redir_path, O_WRONLY | O_CREAT | O_APPEND,
+				     S_IRUGO | S_IWUGO);
 		if (new_stdout_fd == -1) {
-			PRINT_FATAL("Failed to open stdout redirect path: %s", strerror(errno));
+			PRINT_FATAL("Failed to open stdout redirect path: %s",
+				    strerror(errno));
 			return 1;
 		}
 		if (fsetxattr(new_stdout_fd, stdioattr, NULL, 0, 0) == -1) {
-			PRINT_FATAL("Unable to set stdio attribute on stdout redirect: %s", strerror(errno));
+			PRINT_FATAL(
+				"Unable to set stdio attribute on stdout redirect: %s",
+				strerror(errno));
 			return 1;
 		}
 	}
 
 	redir_path = getenv(REDIRECT_STDERR);
 	if (redir_path) {
-		new_stderr_fd = open(redir_path, O_WRONLY | O_CREAT | O_APPEND, S_IRUGO | S_IWUGO);
+		new_stderr_fd = open(redir_path, O_WRONLY | O_CREAT | O_APPEND,
+				     S_IRUGO | S_IWUGO);
 		if (new_stderr_fd == -1) {
-			PRINT_FATAL("Failed to open stderr redirect path: %s", strerror(errno));
+			PRINT_FATAL("Failed to open stderr redirect path: %s",
+				    strerror(errno));
 			return 1;
 		}
 		if (fsetxattr(new_stderr_fd, stdioattr, NULL, 0, 0) == -1) {
-			PRINT_FATAL("Unable to set stdio attribute on stderr redirect: %s", strerror(errno));
+			PRINT_FATAL(
+				"Unable to set stdio attribute on stderr redirect: %s",
+				strerror(errno));
 			return 1;
 		}
 	}
@@ -301,14 +355,16 @@ int spawn(const signal_configuration_t* const sigconf_ptr, char* const argv[], i
 	// Should unshare happen here, or in do_execvp / the child?
 	if (getenv(TINI_UNSHARE)) {
 		if (unshare(CLONE_NEWCGROUP)) {
-			PRINT_FATAL("Unable to unshare new cgroup namespace: %s", strerror(errno));
+			PRINT_FATAL(
+				"Unable to unshare new cgroup namespace: %s",
+				strerror(errno));
 			return 1;
 		}
 	}
 
-
 	if (getenv(TINI_HANDOFF))
-		return do_execvp(argv, new_stdout_fd, new_stderr_fd, sigconf_ptr);
+		return do_execvp(argv, new_stdout_fd, new_stderr_fd,
+				 sigconf_ptr);
 
 	// TODO: check if tini was a foreground process to begin with (it's not OK to "steal" the foreground!")
 
@@ -317,13 +373,13 @@ int spawn(const signal_configuration_t* const sigconf_ptr, char* const argv[], i
 		PRINT_FATAL("fork failed: %s", strerror(errno));
 		return 1;
 	} else if (pid == 0) {
-
 		// Put the child in a process group and make it the foreground process if there is a tty.
 		if (isolate_child()) {
 			return 1;
 		}
 
-		return do_execvp(argv, new_stdout_fd, new_stderr_fd, sigconf_ptr);
+		return do_execvp(argv, new_stdout_fd, new_stderr_fd,
+				 sigconf_ptr);
 	} else {
 		// Parent
 		if (new_stdout_fd != 1)
@@ -331,21 +387,27 @@ int spawn(const signal_configuration_t* const sigconf_ptr, char* const argv[], i
 		if (new_stderr_fd != 2)
 			close(new_stderr_fd);
 
-		PRINT_INFO("Spawned child process '%s' with pid '%i'", argv[0], pid);
+		PRINT_INFO("Spawned child process '%s' with pid '%i'", argv[0],
+			   pid);
 		*child_pid_ptr = pid;
 		return 0;
 	}
 }
 
-void print_usage(char* const name, FILE* const file) {
+void print_usage(char *const name, FILE *const file)
+{
 	fprintf(file, "%s (%s)\n", basename(name), TINI_VERSION_STRING);
 
 #if TINI_MINIMAL
-	fprintf(file, "Usage: %s PROGRAM [ARGS] | --version\n\n", basename(name));
+	fprintf(file, "Usage: %s PROGRAM [ARGS] | --version\n\n",
+		basename(name));
 #else
-	fprintf(file, "Usage: %s [OPTIONS] PROGRAM -- [ARGS] | --version\n\n", basename(name));
+	fprintf(file, "Usage: %s [OPTIONS] PROGRAM -- [ARGS] | --version\n\n",
+		basename(name));
 #endif
-	fprintf(file, "Execute a program under the supervision of a valid init process (%s)\n\n", basename(name));
+	fprintf(file,
+		"Execute a program under the supervision of a valid init process (%s)\n\n",
+		basename(name));
 
 	fprintf(file, "Command line options:\n\n");
 
@@ -355,13 +417,18 @@ void print_usage(char* const name, FILE* const file) {
 #else
 	fprintf(file, "  -h: Show this help message and exit.\n");
 #if HAS_SUBREAPER
-	fprintf(file, "  -s: Register as a process subreaper (requires Linux >= 3.4).\n");
+	fprintf(file,
+		"  -s: Register as a process subreaper (requires Linux >= 3.4).\n");
 #endif
-	fprintf(file, "  -p SIGNAL: Trigger SIGNAL when parent dies, e.g. \"-p SIGKILL\".\n");
-	fprintf(file, "  -v: Generate more verbose output. Repeat up to 3 times.\n");
-	fprintf(file, "  -w: Print a warning when processes are getting reaped.\n");
+	fprintf(file,
+		"  -p SIGNAL: Trigger SIGNAL when parent dies, e.g. \"-p SIGKILL\".\n");
+	fprintf(file,
+		"  -v: Generate more verbose output. Repeat up to 3 times.\n");
+	fprintf(file,
+		"  -w: Print a warning when processes are getting reaped.\n");
 	fprintf(file, "  -g: Send signals to the child's process group.\n");
-	fprintf(file, "  -e EXIT_CODE: Remap EXIT_CODE (from 0 to 255) to 0.\n");
+	fprintf(file,
+		"  -e EXIT_CODE: Remap EXIT_CODE (from 0 to 255) to 0.\n");
 	fprintf(file, "  -l: Show license and exit.\n");
 #endif
 
@@ -369,25 +436,31 @@ void print_usage(char* const name, FILE* const file) {
 
 	fprintf(file, "Environment variables:\n\n");
 #if HAS_SUBREAPER
-	fprintf(file, "  %s: Register as a process subreaper (requires Linux >= 3.4).\n", SUBREAPER_ENV_VAR);
+	fprintf(file,
+		"  %s: Register as a process subreaper (requires Linux >= 3.4).\n",
+		SUBREAPER_ENV_VAR);
 #endif
-	fprintf(file, "  %s: Set the verbosity level (default: %d).\n", VERBOSITY_ENV_VAR, DEFAULT_VERBOSITY);
-	fprintf(file, "  %s: Send signals to the child's process group.\n", KILL_PROCESS_GROUP_GROUP_ENV_VAR);
+	fprintf(file, "  %s: Set the verbosity level (default: %d).\n",
+		VERBOSITY_ENV_VAR, DEFAULT_VERBOSITY);
+	fprintf(file, "  %s: Send signals to the child's process group.\n",
+		KILL_PROCESS_GROUP_GROUP_ENV_VAR);
 
 	fprintf(file, "\n");
 }
 
-void print_license(FILE* const file) {
-    if(LICENSE_len > fwrite(LICENSE, sizeof(char), LICENSE_len, file)) {
-        // Don't handle this error for now, since parse_args won't care
-        // about the return value. We do need to check it to compile with
-        // older glibc, though.
-        // See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=25509
-        // See: http://sourceware.org/bugzilla/show_bug.cgi?id=11959
-    }
+void print_license(FILE *const file)
+{
+	if (LICENSE_len > fwrite(LICENSE, sizeof(char), LICENSE_len, file)) {
+		// Don't handle this error for now, since parse_args won't care
+		// about the return value. We do need to check it to compile with
+		// older glibc, though.
+		// See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=25509
+		// See: http://sourceware.org/bugzilla/show_bug.cgi?id=11959
+	}
 }
 
-int set_pdeathsig(char* const arg) {
+int set_pdeathsig(char *const arg)
+{
 	size_t i;
 
 	for (i = 0; i < ARRAY_LEN(signal_names); i++) {
@@ -401,9 +474,10 @@ int set_pdeathsig(char* const arg) {
 	return 1;
 }
 
-int add_expect_status(char* arg) {
+int add_expect_status(char *arg)
+{
 	long status = 0;
-	char* endptr = NULL;
+	char *endptr = NULL;
 	status = strtol(arg, &endptr, 10);
 
 	if ((endptr == NULL) || (*endptr != 0)) {
@@ -419,8 +493,11 @@ int add_expect_status(char* arg) {
 	return 0;
 }
 
-int parse_args(const int argc, char* const argv[], char* (**child_args_ptr_ptr)[], int* const parse_fail_exitcode_ptr) {
-	char* name = argv[0];
+int parse_args(const int argc, char *const argv[],
+	       char *(**child_args_ptr_ptr)[],
+	       int *const parse_fail_exitcode_ptr)
+{
+	char *name = argv[0];
 
 	// We handle --version if it's the *only* argument provided.
 	if (argc == 2 && strcmp("--version", argv[1]) == 0) {
@@ -433,67 +510,70 @@ int parse_args(const int argc, char* const argv[], char* (**child_args_ptr_ptr)[
 	int c;
 	while ((c = getopt(argc, argv, OPT_STRING)) != -1) {
 		switch (c) {
-			case 'h':
-				print_usage(name, stdout);
-				*parse_fail_exitcode_ptr = 0;
-				return 1;
+		case 'h':
+			print_usage(name, stdout);
+			*parse_fail_exitcode_ptr = 0;
+			return 1;
 #if HAS_SUBREAPER
-			case 's':
-				subreaper++;
-				break;
+		case 's':
+			subreaper++;
+			break;
 #endif
-			case 'p':
-				if (set_pdeathsig(optarg)) {
-					PRINT_FATAL("Not a valid option for -p: %s", optarg);
-					*parse_fail_exitcode_ptr = 1;
-					return 1;
-				}
-				break;
-
-			case 'v':
-				verbosity++;
-				break;
-
-			case 'w':
-				warn_on_reap++;
-				break;
-
-			case 'g':
-				kill_process_group++;
-				break;
-
-			case 'e':
-				if (add_expect_status(optarg)) {
-					PRINT_FATAL("Not a valid option for -e: %s", optarg);
-					*parse_fail_exitcode_ptr = 1;
-					return 1;
-				}
-				break;
-
-			case 'l':
-				print_license(stdout);
-				*parse_fail_exitcode_ptr = 0;
+		case 'p':
+			if (set_pdeathsig(optarg)) {
+				PRINT_FATAL("Not a valid option for -p: %s",
+					    optarg);
+				*parse_fail_exitcode_ptr = 1;
 				return 1;
+			}
+			break;
 
-			case '?':
-				print_usage(name, stderr);
+		case 'v':
+			verbosity++;
+			break;
+
+		case 'w':
+			warn_on_reap++;
+			break;
+
+		case 'g':
+			kill_process_group++;
+			break;
+
+		case 'e':
+			if (add_expect_status(optarg)) {
+				PRINT_FATAL("Not a valid option for -e: %s",
+					    optarg);
+				*parse_fail_exitcode_ptr = 1;
 				return 1;
-			default:
-				/* Should never happen */
-				return 1;
+			}
+			break;
+
+		case 'l':
+			print_license(stdout);
+			*parse_fail_exitcode_ptr = 0;
+			return 1;
+
+		case '?':
+			print_usage(name, stderr);
+			return 1;
+		default:
+			/* Should never happen */
+			return 1;
 		}
 	}
 #endif
 
-	*child_args_ptr_ptr = calloc(argc-optind+1, sizeof(char*));
+	*child_args_ptr_ptr = calloc(argc - optind + 1, sizeof(char *));
 	if (*child_args_ptr_ptr == NULL) {
-		PRINT_FATAL("Failed to allocate memory for child args: '%s'", strerror(errno));
+		PRINT_FATAL("Failed to allocate memory for child args: '%s'",
+			    strerror(errno));
 		return 1;
 	}
 
 	int i;
 	for (i = 0; i < argc - optind; i++) {
-		(**child_args_ptr_ptr)[i] = argv[optind+i];
+		(**child_args_ptr_ptr)[i] = argv[optind + i];
 	}
 	(**child_args_ptr_ptr)[i] = NULL;
 
@@ -506,7 +586,8 @@ int parse_args(const int argc, char* const argv[], char* (**child_args_ptr_ptr)[
 	return 0;
 }
 
-int parse_env() {
+int parse_env()
+{
 #if HAS_SUBREAPER
 	if (getenv(SUBREAPER_ENV_VAR) != NULL) {
 		subreaper++;
@@ -517,7 +598,7 @@ int parse_env() {
 		kill_process_group++;
 	}
 
-	char* env_verbosity = getenv(VERBOSITY_ENV_VAR);
+	char *env_verbosity = getenv(VERBOSITY_ENV_VAR);
 	if (env_verbosity != NULL) {
 		verbosity = atoi(env_verbosity);
 	}
@@ -525,15 +606,18 @@ int parse_env() {
 	return 0;
 }
 
-
 #if HAS_SUBREAPER
-int register_subreaper () {
+int register_subreaper()
+{
 	if (subreaper > 0) {
 		if (prctl(PR_SET_CHILD_SUBREAPER, 1)) {
 			if (errno == EINVAL) {
-				PRINT_FATAL("PR_SET_CHILD_SUBREAPER is unavailable on this platform. Are you using Linux >= 3.4?")
+				PRINT_FATAL(
+					"PR_SET_CHILD_SUBREAPER is unavailable on this platform. Are you using Linux >= 3.4?")
 			} else {
-				PRINT_FATAL("Failed to register as child subreaper: %s", strerror(errno))
+				PRINT_FATAL(
+					"Failed to register as child subreaper: %s",
+					strerror(errno))
 			}
 			return 1;
 		} else {
@@ -544,8 +628,8 @@ int register_subreaper () {
 }
 #endif
 
-
-void reaper_check () {
+void reaper_check()
+{
 	/* Check that we can properly reap zombies */
 #if HAS_SUBREAPER
 	int bit = 0;
@@ -557,7 +641,8 @@ void reaper_check () {
 
 #if HAS_SUBREAPER
 	if (prctl(PR_GET_CHILD_SUBREAPER, &bit)) {
-		PRINT_DEBUG("Failed to read child subreaper attribute: %s", strerror(errno));
+		PRINT_DEBUG("Failed to read child subreaper attribute: %s",
+			    strerror(errno));
 	} else if (bit == 1) {
 		return;
 	}
@@ -566,8 +651,9 @@ void reaper_check () {
 	PRINT_WARNING(reaper_warning);
 }
 
-
-int configure_signals(sigset_t* const parent_sigset_ptr, const signal_configuration_t* const sigconf_ptr) {
+int configure_signals(sigset_t *const parent_sigset_ptr,
+		      const signal_configuration_t *const sigconf_ptr)
+{
 	/* Block all signals that are meant to be collected by the main loop */
 	if (sigfillset(parent_sigset_ptr)) {
 		PRINT_FATAL("sigfillset failed: '%s'", strerror(errno));
@@ -576,15 +662,18 @@ int configure_signals(sigset_t* const parent_sigset_ptr, const signal_configurat
 
 	// These ones shouldn't be collected by the main loop
 	uint i;
-	int signals_for_tini[] = {SIGFPE, SIGILL, SIGSEGV, SIGBUS, SIGABRT, SIGTRAP, SIGSYS, SIGTTIN, SIGTTOU};
+	int signals_for_tini[] = { SIGFPE,  SIGILL, SIGSEGV, SIGBUS, SIGABRT,
+				   SIGTRAP, SIGSYS, SIGTTIN, SIGTTOU };
 	for (i = 0; i < ARRAY_LEN(signals_for_tini); i++) {
 		if (sigdelset(parent_sigset_ptr, signals_for_tini[i])) {
-			PRINT_FATAL("sigdelset failed: '%i'", signals_for_tini[i]);
+			PRINT_FATAL("sigdelset failed: '%i'",
+				    signals_for_tini[i]);
 			return 1;
 		}
 	}
 
-	if (sigprocmask(SIG_SETMASK, parent_sigset_ptr, sigconf_ptr->sigmask_ptr)) {
+	if (sigprocmask(SIG_SETMASK, parent_sigset_ptr,
+			sigconf_ptr->sigmask_ptr)) {
 		PRINT_FATAL("sigprocmask failed: '%s'", strerror(errno));
 		return 1;
 	}
@@ -612,47 +701,56 @@ int configure_signals(sigset_t* const parent_sigset_ptr, const signal_configurat
 	return 0;
 }
 
-int wait_and_forward_signal(sigset_t const* const parent_sigset_ptr, pid_t const child_pid) {
+int wait_and_forward_signal(sigset_t const *const parent_sigset_ptr,
+			    pid_t const child_pid)
+{
 	siginfo_t sig;
 
 	if (sigtimedwait(parent_sigset_ptr, &sig, &ts) == -1) {
 		switch (errno) {
-			case EAGAIN:
-				break;
-			case EINTR:
-				break;
-			default:
-				PRINT_FATAL("Unexpected error in sigtimedwait: '%s'", strerror(errno));
-				return 1;
+		case EAGAIN:
+			break;
+		case EINTR:
+			break;
+		default:
+			PRINT_FATAL("Unexpected error in sigtimedwait: '%s'",
+				    strerror(errno));
+			return 1;
 		}
 	} else {
 		/* There is a signal to handle here */
 		switch (sig.si_signo) {
-			case SIGCHLD:
-				/* Special-cased, as we don't forward SIGCHLD. Instead, we'll
+		case SIGCHLD:
+			/* Special-cased, as we don't forward SIGCHLD. Instead, we'll
 				 * fallthrough to reaping processes.
 				 */
-				PRINT_DEBUG("Received SIGCHLD");
-				break;
-			default:
-				PRINT_DEBUG("Passing signal: '%s'", strsignal(sig.si_signo));
-				/* Forward anything else */
-				if (kill(kill_process_group ? -child_pid : child_pid, sig.si_signo)) {
-					if (errno == ESRCH) {
-						PRINT_WARNING("Child was dead when forwarding signal");
-					} else {
-						PRINT_FATAL("Unexpected error when forwarding signal: '%s'", strerror(errno));
-						return 1;
-					}
+			PRINT_DEBUG("Received SIGCHLD");
+			break;
+		default:
+			PRINT_DEBUG("Passing signal: '%s'",
+				    strsignal(sig.si_signo));
+			/* Forward anything else */
+			if (kill(kill_process_group ? -child_pid : child_pid,
+				 sig.si_signo)) {
+				if (errno == ESRCH) {
+					PRINT_WARNING(
+						"Child was dead when forwarding signal");
+				} else {
+					PRINT_FATAL(
+						"Unexpected error when forwarding signal: '%s'",
+						strerror(errno));
+					return 1;
 				}
-				break;
+			}
+			break;
 		}
 	}
 
 	return 0;
 }
 
-int reap_zombies(const pid_t child_pid, int* const child_exitcode_ptr) {
+int reap_zombies(const pid_t child_pid, int *const child_exitcode_ptr)
+{
 	pid_t current_pid;
 	int current_status;
 
@@ -660,54 +758,68 @@ int reap_zombies(const pid_t child_pid, int* const child_exitcode_ptr) {
 		current_pid = waitpid(-1, &current_status, WNOHANG);
 
 		switch (current_pid) {
-
-			case -1:
-				if (errno == ECHILD) {
-					PRINT_TRACE("No child to wait");
-					break;
-				}
-				PRINT_FATAL("Error while waiting for pids: '%s'", strerror(errno));
-				return 1;
-
-			case 0:
-				PRINT_TRACE("No child to reap");
+		case -1:
+			if (errno == ECHILD) {
+				PRINT_TRACE("No child to wait");
 				break;
+			}
+			PRINT_FATAL("Error while waiting for pids: '%s'",
+				    strerror(errno));
+			return 1;
 
-			default:
-				/* A child was reaped. Check whether it's the main one. If it is, then
+		case 0:
+			PRINT_TRACE("No child to reap");
+			break;
+
+		default:
+			/* A child was reaped. Check whether it's the main one. If it is, then
 				 * set the exit_code, which will cause us to exit once we've reaped everyone else.
 				 */
-				PRINT_DEBUG("Reaped child with pid: '%i'", current_pid);
-				if (current_pid == child_pid) {
-					if (WIFEXITED(current_status)) {
-						/* Our process exited normally. */
-						PRINT_INFO("Main child exited normally (with status '%i')", WEXITSTATUS(current_status));
-						*child_exitcode_ptr = WEXITSTATUS(current_status);
-					} else if (WIFSIGNALED(current_status)) {
-						/* Our process was terminated. Emulate what sh / bash
+			PRINT_DEBUG("Reaped child with pid: '%i'", current_pid);
+			if (current_pid == child_pid) {
+				if (WIFEXITED(current_status)) {
+					/* Our process exited normally. */
+					PRINT_INFO(
+						"Main child exited normally (with status '%i')",
+						WEXITSTATUS(current_status));
+					*child_exitcode_ptr =
+						WEXITSTATUS(current_status);
+				} else if (WIFSIGNALED(current_status)) {
+					/* Our process was terminated. Emulate what sh / bash
 						 * would do, which is to return 128 + signal number.
 						 */
-						PRINT_INFO("Main child exited with signal (with signal '%s')", strsignal(WTERMSIG(current_status)));
-						*child_exitcode_ptr = 128 + WTERMSIG(current_status);
-					} else {
-						PRINT_FATAL("Main child exited for unknown reason");
-						return 1;
-					}
-
-					// Be safe, ensure the status code is indeed between 0 and 255.
-					*child_exitcode_ptr = *child_exitcode_ptr % (STATUS_MAX - STATUS_MIN + 1);
-
-					// If this exitcode was remapped, then set it to 0.
-					INT32_BITFIELD_CHECK_BOUNDS(expect_status, *child_exitcode_ptr);
-					if (INT32_BITFIELD_TEST(expect_status, *child_exitcode_ptr)) {
-						*child_exitcode_ptr = 0;
-					}
-				} else if (warn_on_reap > 0) {
-					PRINT_WARNING("Reaped zombie process with pid=%i", current_pid);
+					PRINT_INFO(
+						"Main child exited with signal (with signal '%s')",
+						strsignal(WTERMSIG(
+							current_status)));
+					*child_exitcode_ptr =
+						128 + WTERMSIG(current_status);
+				} else {
+					PRINT_FATAL(
+						"Main child exited for unknown reason");
+					return 1;
 				}
 
-				// Check if other childs have been reaped.
-				continue;
+				// Be safe, ensure the status code is indeed between 0 and 255.
+				*child_exitcode_ptr =
+					*child_exitcode_ptr %
+					(STATUS_MAX - STATUS_MIN + 1);
+
+				// If this exitcode was remapped, then set it to 0.
+				INT32_BITFIELD_CHECK_BOUNDS(
+					expect_status, *child_exitcode_ptr);
+				if (INT32_BITFIELD_TEST(expect_status,
+							*child_exitcode_ptr)) {
+					*child_exitcode_ptr = 0;
+				}
+			} else if (warn_on_reap > 0) {
+				PRINT_WARNING(
+					"Reaped zombie process with pid=%i",
+					current_pid);
+			}
+
+			// Check if other childs have been reaped.
+			continue;
 		}
 
 		/* If we make it here, that's because we did not continue in the switch case. */
@@ -717,7 +829,8 @@ int reap_zombies(const pid_t child_pid, int* const child_exitcode_ptr) {
 	return 0;
 }
 
-void maybe_unix_cb() {
+void maybe_unix_cb()
+{
 	struct sockaddr_un addr = { 0 };
 	struct msghdr msg = { 0 };
 	char data[] = "hello\n";
@@ -733,7 +846,8 @@ void maybe_unix_cb() {
 
 	socket_path = getenv(TITUS_CB_PATH);
 	if (!socket_path) {
-		PRINT_INFO("No UNIX_CB_PATH set, not connecting back to callback socket")
+		PRINT_INFO(
+			"No UNIX_CB_PATH set, not connecting back to callback socket")
 		return;
 	}
 
@@ -745,14 +859,16 @@ void maybe_unix_cb() {
 
 	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (sockfd == -1) {
-		PRINT_FATAL("Unable to open unix socket: '%s'", strerror(errno));
+		PRINT_FATAL("Unable to open unix socket: '%s'",
+			    strerror(errno));
 		goto error;
 	}
 
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path)-1);
-	if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-		PRINT_FATAL("Unable to connect unix socket: '%s'", strerror(errno));
+	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+	if (connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+		PRINT_FATAL("Unable to connect unix socket: '%s'",
+			    strerror(errno));
 		goto error;
 	}
 
@@ -777,32 +893,38 @@ void maybe_unix_cb() {
 	}
 
 	if (getenv(TITUS_CONFIRM)) {
-		PRINT_INFO("Waiting to receive message from titus-executor before launching\n");
+		PRINT_INFO(
+			"Waiting to receive message from titus-executor before launching\n");
 		if (recv(sockfd, data, 1, 0) == -1) {
-			PRINT_FATAL("Unable to recv start message from socket: '%s'", strerror(errno));
+			PRINT_FATAL(
+				"Unable to recv start message from socket: '%s'",
+				strerror(errno));
 		}
 		PRINT_INFO("Clear to start\n");
 	}
 
 	return;
 
-	error:
+error:
 	if (rootfd > 0)
 		close(rootfd);
 	if (sockfd > 0)
 		close(sockfd);
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 	pid_t child_pid;
 
 	// Those are passed to functions to get an exitcode back.
-	int child_exitcode = -1;  // This isn't a valid exitcode, and lets us tell whether the child has exited.
-	int parse_exitcode = 1;   // By default, we exit with 1 if parsing fails.
+	int child_exitcode =
+		-1; // This isn't a valid exitcode, and lets us tell whether the child has exited.
+	int parse_exitcode = 1; // By default, we exit with 1 if parsing fails.
 
 	/* Parse command line arguments */
-	char* (*child_args_ptr)[];
-	int parse_args_ret = parse_args(argc, argv, &child_args_ptr, &parse_exitcode);
+	char *(*child_args_ptr)[];
+	int parse_args_ret =
+		parse_args(argc, argv, &child_args_ptr, &parse_exitcode);
 	if (parse_args_ret) {
 		return parse_exitcode;
 	}
@@ -829,10 +951,11 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Trigger signal on this process when the parent process exits. */
-	if (parent_death_signal && prctl(PR_SET_PDEATHSIG, parent_death_signal)) {
+	if (parent_death_signal &&
+	    prctl(PR_SET_PDEATHSIG, parent_death_signal)) {
 		PRINT_FATAL("Failed to set up parent death signal");
 		return 1;
-	 }
+	}
 
 #if HAS_SUBREAPER
 	/* If available and requested, register as a subreaper */
