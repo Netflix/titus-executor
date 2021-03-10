@@ -1,77 +1,80 @@
 #define _GNU_SOURCE 1
+#include <errno.h>
+#include <linux/limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <linux/limits.h>
-#include <errno.h>
 #include <string.h>
 
 /* prctl  / waitpid */
-#include <sys/prctl.h>
 #include <signal.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
 /* Open */
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 /* Unshare */
 #include <sched.h>
 #include <unistd.h>
 
-#include "shared.h"
 #include "seccomp_fd_notify.h"
+#include "shared.h"
 
-struct namespace {
+struct namespace
+{
 	int nstype;
 	char *name;
 };
 
 static struct namespace namespaces[] = {
 	{
-		.nstype	= CLONE_NEWNS,
-		.name	= "mnt",
+		.nstype = CLONE_NEWNS,
+		.name = "mnt",
 	},
 	{
-		.nstype	= CLONE_NEWCGROUP,
-		.name 	= "cgroup",
+		.nstype = CLONE_NEWCGROUP,
+		.name = "cgroup",
 	},
 	{
-		.nstype	= CLONE_NEWIPC,
-		.name	= "ipc",
+		.nstype = CLONE_NEWIPC,
+		.name = "ipc",
 	},
 	{
-		.nstype	= CLONE_NEWNET,
-		.name	= "net",
+		.nstype = CLONE_NEWNET,
+		.name = "net",
 	},
 	{
-		.nstype	= CLONE_NEWUSER,
-		.name	= "user",
+		.nstype = CLONE_NEWUSER,
+		.name = "user",
 	},
 	{
-		.nstype	= CLONE_NEWUTS,
-		.name	= "uts",
+		.nstype = CLONE_NEWUTS,
+		.name = "uts",
 	},
 	/* Order here is intentional. We do pid NS last. */
 	{
-		.nstype	= CLONE_NEWPID,
-		.name	= "pid",
+		.nstype = CLONE_NEWPID,
+		.name = "pid",
 	},
 };
 
-
-int __populate_namespaces(int titus_ns_fd, int namespace_fds[]) {
+int __populate_namespaces(int titus_ns_fd, int namespace_fds[])
+{
 	int i;
-
 
 	for (i = 0; i < ARRAY_SIZE(namespaces); i++)
 		namespace_fds[i] = -1;
 
 	for (i = 0; i < ARRAY_SIZE(namespaces); i++) {
-		namespace_fds[i] = openat(titus_ns_fd, namespaces[i].name, O_RDONLY | O_CLOEXEC);
+		namespace_fds[i] = openat(titus_ns_fd, namespaces[i].name,
+					  O_RDONLY | O_CLOEXEC);
 		if (namespace_fds[i] == -1) {
-			fprintf(stderr, "Cannot open NS FD for nstype %s, because: %s\n", namespaces[i].name, strerror(errno));
+			fprintf(stderr,
+				"Cannot open NS FD for nstype %s, because: %s\n",
+				namespaces[i].name, strerror(errno));
 			goto fail;
 		}
 	}
@@ -85,7 +88,8 @@ fail:
 	return 1;
 }
 
-int populate_namespaces(int titus_pid_1_fd, int namespace_fds[]) {
+int populate_namespaces(int titus_pid_1_fd, int namespace_fds[])
+{
 	int ret, nsdir;
 
 	nsdir = openat(titus_pid_1_fd, "ns", O_RDONLY | O_CLOEXEC);
@@ -99,14 +103,17 @@ int populate_namespaces(int titus_pid_1_fd, int namespace_fds[]) {
 	return ret;
 }
 
-static int set_up_apparmor(char apparmor_profile[8192], int apparmor_fd) {
+static int set_up_apparmor(char apparmor_profile[8192], int apparmor_fd)
+{
 	char writebuf[8192];
 	int n, ret = 0;
 
 	// we can use dprintf, but this just makes error handling cleaner
 	memset(writebuf, 0, sizeof(writebuf));
-	n = snprintf(writebuf, sizeof(writebuf) - 1, "changeprofile %s", apparmor_profile);
-	BUG_ON(n < 0 || n >= sizeof(writebuf), "Could not generate exec changehat command");
+	n = snprintf(writebuf, sizeof(writebuf) - 1, "changeprofile %s",
+		     apparmor_profile);
+	BUG_ON(n < 0 || n >= sizeof(writebuf),
+	       "Could not generate exec changehat command");
 
 	if (write(apparmor_fd, writebuf, n) != n) {
 		perror("Writing apparmor changeprofile");
@@ -117,13 +124,16 @@ static int set_up_apparmor(char apparmor_profile[8192], int apparmor_fd) {
 	return ret;
 }
 
-static int __get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192], int *apparmor_fd) {
+static int __get_apparmor_profile(int titus_pid_1_fd,
+				  char apparmor_profile[8192], int *apparmor_fd)
+{
 	int containerfd;
 	char buf[8192];
 	char *profile;
 
 	memset(buf, 0, sizeof(buf));
-	containerfd = openat(titus_pid_1_fd, "attr/current", O_CLOEXEC | O_RDONLY);
+	containerfd =
+		openat(titus_pid_1_fd, "attr/current", O_CLOEXEC | O_RDONLY);
 	if (containerfd == -1) {
 		perror("Open container current");
 		return 1;
@@ -137,7 +147,8 @@ static int __get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192
 	close(containerfd);
 
 	if (strcmp("unconfined", buf) == 0) {
-		fprintf(stderr, "Container unconfined, not setting change exec hat profile\n");
+		fprintf(stderr,
+			"Container unconfined, not setting change exec hat profile\n");
 		return 0;
 	}
 	profile = strtok(buf, " ");
@@ -152,7 +163,9 @@ static int __get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192
 	return 0;
 }
 
-int get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192], int *apparmor_fd) {
+int get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192],
+			 int *apparmor_fd)
+{
 	char lsm_buf[8192];
 	int fd;
 
@@ -177,10 +190,12 @@ int get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192], int *a
 		return 0;
 	}
 
-	return __get_apparmor_profile(titus_pid_1_fd, apparmor_profile, apparmor_fd);
+	return __get_apparmor_profile(titus_pid_1_fd, apparmor_profile,
+				      apparmor_fd);
 }
 
-int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
+int do_nsenter(int argc, char *argv[], int titus_pid_1_fd)
+{
 	// 1. We see if apparmor is loaded, if so, we read the apparmor hat,
 	//    and set our change hat on exec to that.
 	// 2. We do the setns thing
@@ -195,7 +210,8 @@ int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
 	struct stat my_user_ns, other_user_ns;
 
 	memset(apparmor_profile, 0, sizeof(apparmor_profile));
-	if (get_apparmor_profile(titus_pid_1_fd, apparmor_profile, &apparmor_fd)) {
+	if (get_apparmor_profile(titus_pid_1_fd, apparmor_profile,
+				 &apparmor_fd)) {
 		return 1;
 	}
 
@@ -215,20 +231,23 @@ int do_nsenter(int argc, char *argv[], int titus_pid_1_fd) {
 				perror("Stat other user ns");
 				goto fail;
 			}
-			if (my_user_ns.st_dev == other_user_ns.st_dev && my_user_ns.st_ino == other_user_ns.st_ino)
+			if (my_user_ns.st_dev == other_user_ns.st_dev &&
+			    my_user_ns.st_ino == other_user_ns.st_ino)
 				goto skip_setns;
 		}
 		if (setns(namespace_fds[i], namespaces[i].nstype)) {
-			fprintf(stderr, "Cannot join namespace type %s, because: %s\n", namespaces[i].name, strerror(errno));
+			fprintf(stderr,
+				"Cannot join namespace type %s, because: %s\n",
+				namespaces[i].name, strerror(errno));
 			goto fail;
 		}
-skip_setns:
+	skip_setns:
 		close(namespace_fds[i]);
 	}
 
 	if (apparmor_fd != -1)
-		BUG_ON(set_up_apparmor(apparmor_profile, apparmor_fd), "Unable to change / setup apparmor profile");
-
+		BUG_ON(set_up_apparmor(apparmor_profile, apparmor_fd),
+		       "Unable to change / setup apparmor profile");
 
 	BUG_ON_PERROR(setgid(0), "Unable to drop GID");
 	BUG_ON_PERROR(setuid(0), "Unable to drop UID");
@@ -243,7 +262,8 @@ skip_setns:
 		if (use_tsa) {
 			maybe_setup_seccomp_notifer();
 		}
-		BUG_ON_PERROR(execvp(argv[1], &argv[1]) == -1, "Could not execute child");
+		BUG_ON_PERROR(execvp(argv[1], &argv[1]) == -1,
+			      "Could not execute child");
 	}
 
 	/* We will only return here once the child finishes */
@@ -260,7 +280,8 @@ fail_presetns:
 	return 1;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 	char *pid1dir = getenv(TITUS_PID_1_DIR);
 	int titus_pid_1_fd;
 
@@ -275,7 +296,8 @@ int main(int argc, char *argv[]) {
 
 	titus_pid_1_fd = open(pid1dir, O_RDONLY | O_CLOEXEC);
 	if (titus_pid_1_fd == -1) {
-		fprintf(stderr, "Could not open %s: %s", pid1dir, strerror(errno));
+		fprintf(stderr, "Could not open %s: %s", pid1dir,
+			strerror(errno));
 		return 1;
 	}
 

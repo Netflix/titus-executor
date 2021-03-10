@@ -14,3 +14,6 @@ install: titus-mount titus-mount-block-device
 
 clean:
 	rm -f titus-mount titus-mount-block-device
+
+fmt:
+	clang-format -i *.c *.h
