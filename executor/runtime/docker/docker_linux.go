@@ -43,7 +43,6 @@ type schedParam struct {
 type serviceEnabledFunc func(cfg *config.Config, c runtimeTypes.Container) bool
 
 type serviceOpts struct {
-	humanName    string
 	initCommand  string
 	required     bool
 	unitName     string
@@ -61,67 +60,56 @@ const (
 
 var systemServices = []serviceOpts{
 	{
-		humanName:    "spectatord",
 		unitName:     "titus-spectatord",
 		enabledCheck: shouldStartSpectatord,
 		required:     false,
 	},
 	{
-		humanName:    "atlas",
 		unitName:     "titus-atlasd",
 		enabledCheck: shouldStartAtlasd,
 		required:     false,
 	},
 	{
-		humanName:    "atlas",
 		unitName:     "atlas-titus-agent",
 		enabledCheck: shouldStartAtlasAgent,
 		required:     false,
 	},
 	{
-		humanName:    "ssh",
 		unitName:     "titus-sshd",
 		enabledCheck: shouldStartSSHD,
 		required:     false,
 	},
 	{
-		humanName: "metadata proxy",
-		unitName:  "titus-metadata-proxy",
-		required:  true,
+		unitName: "titus-metadata-proxy",
+		required: true,
 	},
 	{
-		humanName:    "metatron",
 		unitName:     "titus-metatron-sync",
 		required:     true,
 		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
 		enabledCheck: shouldStartMetatronSync,
 	},
 	{
-		humanName:    "logviewer",
 		unitName:     "titus-logviewer",
 		required:     true,
 		enabledCheck: shouldStartLogViewer,
 	},
 	{
-		humanName:    "service mesh",
 		unitName:     "titus-servicemesh",
 		required:     true,
 		enabledCheck: shouldStartServiceMesh,
 	},
 	{
-		humanName:    "abmetrix",
 		unitName:     "titus-abmetrix",
 		required:     false,
 		enabledCheck: shouldStartAbmetrix,
 	},
 	{
-		humanName:    "seccomp agent",
 		unitName:     "titus-seccomp-agent",
 		required:     true,
 		enabledCheck: shouldStartTitusSeccompAgent,
 	},
 	{
-		humanName:    "titus-storage",
 		unitName:     "titus-storage",
 		required:     true,
 		enabledCheck: shouldStartTitusStorage,
@@ -207,7 +195,7 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 			runtime = r
 		}
 		if err := startSystemdUnit(ctx, conn, c.TaskID(), c.ID(), runtime, svc); err != nil {
-			logrus.WithError(err).Errorf("Error starting %s service", svc.humanName)
+			logrus.WithError(err).Errorf("Error starting %s service", svc.unitName)
 			return err
 		}
 	}
@@ -247,10 +235,10 @@ func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, r
 			// Find the last non-empty line in stdout and use that as the error message
 			splitOutput := strings.Split(strings.TrimSuffix(strings.TrimSpace(outputStr), "\n"), "\n")
 			errStr := splitOutput[len(splitOutput)-1]
-			return errors.Wrapf(err, "error starting %s service: %s", opts.humanName, errStr)
+			return errors.Wrapf(err, "error starting %s service: %s", opts.unitName, errStr)
 		}
 
-		return errors.Wrapf(err, "error starting %s service", opts.humanName)
+		return errors.Wrapf(err, "error starting %s service", opts.unitName)
 	}
 
 	return nil
@@ -283,24 +271,24 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 		doneErr := ctx.Err()
 		if doneErr == context.DeadlineExceeded {
 			if opts.required {
-				return errors.Wrapf(doneErr, "timeout (overall task start dealine exceeded) starting %s service", opts.humanName)
+				return errors.Wrapf(doneErr, "timeout (overall task start dealine exceeded) starting %s service", opts.unitName)
 			}
-			l.Errorf("timeout (overall task start dealine exceeded) starting %s service (not required to launch this task)", opts.humanName)
+			l.Errorf("timeout (overall task start dealine exceeded) starting %s service (not required to launch this task)", opts.unitName)
 			return nil
 		}
 		return doneErr
 	case val := <-ch:
 		if val != "done" {
 			if opts.required {
-				return fmt.Errorf("could not start %s service (%s): %s", opts.humanName, qualifiedUnitName, val)
+				return fmt.Errorf("could not start %s service (%s): %s", opts.unitName, qualifiedUnitName, val)
 			}
 			l.Errorf("unknown response when starting systemd unit '%s': %s", qualifiedUnitName, val)
 		}
 	case <-time.After(timeout):
 		if opts.required {
-			return fmt.Errorf("timeout after %d seconds starting %s service (which is required to start)", timeout, opts.humanName)
+			return fmt.Errorf("timeout after %d seconds starting %s service (which is required to start)", timeout, opts.unitName)
 		}
-		l.Errorf("timeout after %d seconds starting %s service (not required to launch this task)", timeout, opts.humanName)
+		l.Errorf("timeout after %d seconds starting %s service (not required to launch this task)", timeout, opts.unitName)
 		return nil
 	}
 	return nil
