@@ -3,13 +3,11 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -44,7 +42,6 @@ type serviceEnabledFunc func(cfg *config.Config, c runtimeTypes.Container) bool
 
 type serviceOpts struct {
 	humanName    string
-	initCommand  string
 	required     bool
 	unitName     string
 	enabledCheck serviceEnabledFunc
@@ -55,7 +52,6 @@ const (
 	systemServiceStartTimeout = 90 * time.Second
 	umountNoFollow            = 0x8
 	sysFsCgroup               = "/sys/fs/cgroup"
-	runcArgFormat             = "--root /var/run/docker/runtime-%s/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s %s"
 	defaultOomScore           = 1000
 )
 
@@ -93,7 +89,6 @@ var systemServices = []serviceOpts{
 		humanName:    "metatron",
 		unitName:     "titus-metatron-sync",
 		required:     true,
-		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
 		enabledCheck: shouldStartMetatronSync,
 	},
 	{
@@ -215,47 +210,6 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	return nil
 }
 
-func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, runtime string, opts serviceOpts) error {
-	if opts.initCommand == "" {
-		return nil
-	}
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	l := log.WithField("initCommand", opts.initCommand)
-	cmdArgStr := fmt.Sprintf(runcArgFormat, runtime, cID, opts.initCommand)
-	cmdArgs := strings.Split(cmdArgStr, " ")
-
-	runcCommand, err := exec.LookPath(runtimeTypes.DefaultOciRuntime)
-	if err != nil {
-		return err
-	}
-
-	l.WithField("args", cmdArgStr).Infof("Running init command for %s service", opts.unitName)
-	cmd := exec.CommandContext(ctx, runcCommand, cmdArgs...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if err != nil {
-		outputStr := stdout.String()
-		l.WithError(err).WithField("exitCode", cmd.ProcessState.ExitCode()).Errorf("error running init command for %s service", opts.unitName)
-		l.Infof("%s service stdout: %s", opts.unitName, outputStr)
-		l.Infof("%s service sterr: %s", opts.unitName, stderr.String())
-
-		if len(outputStr) != 0 {
-			// Find the last non-empty line in stdout and use that as the error message
-			splitOutput := strings.Split(strings.TrimSuffix(strings.TrimSpace(outputStr), "\n"), "\n")
-			errStr := splitOutput[len(splitOutput)-1]
-			return errors.Wrapf(err, "error starting %s service: %s", opts.humanName, errStr)
-		}
-
-		return errors.Wrapf(err, "error starting %s service", opts.humanName)
-	}
-
-	return nil
-}
-
 func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, runtime string, opts serviceOpts) error {
 	qualifiedUnitName := fmt.Sprintf("%s@%s.service", opts.unitName, taskID)
 	l := logrus.WithFields(logrus.Fields{
@@ -263,10 +217,6 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 		"taskID":      taskID,
 		"unit":        opts.unitName,
 	})
-
-	if err := runServiceInitCommand(ctx, l, cID, runtime, opts); err != nil {
-		return err
-	}
 
 	timeout := 5 * time.Second
 	if opts.required {

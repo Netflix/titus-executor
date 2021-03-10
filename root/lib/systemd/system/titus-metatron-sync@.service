@@ -9,6 +9,7 @@ StartLimitBurst=10
 [Service]
 EnvironmentFile=/var/lib/titus-environments/%i.env
 # Run as root (UID 0, GID 0) and with CAP_DAC_OVERRIDE so that containers with a `USER` instruction work
+ExecStartPre=/usr/bin/runc --root /var/run/docker/runtime-${TITUS_OCI_RUNTIME}/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE ${TITUS_CONTAINER_ID} /titus/metatron/bin/titus-metatrond --init
 ExecStart=/usr/bin/runc --root /var/run/docker/runtime-${TITUS_OCI_RUNTIME}/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE ${TITUS_CONTAINER_ID} /titus/metatron/bin/titus-metatrond
 
 Restart=on-failure
