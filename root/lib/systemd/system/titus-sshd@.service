@@ -2,9 +2,8 @@
 Description=SSHD for container %s
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
-# If the service restarts more than 10 times in 30 seconds, let it die
 StartLimitIntervalSec=30
-StartLimitBurst=10
+StartLimitBurst=5
 
 [Service]
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
@@ -18,6 +17,7 @@ LimitNOFILE=65535
 ## TODO: Wire up more "lockdown" so this unit can't wreck havoc if it gets compromised
 PrivateTmp=yes
 
+RestartSec=3
 Restart=on-failure
 KillMode=mixed
 
