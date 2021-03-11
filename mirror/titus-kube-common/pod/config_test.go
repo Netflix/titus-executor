@@ -97,9 +97,9 @@ func TestParsePod(t *testing.T) {
 		AnnotationKeyNetworkElasticIPs:       "eip-1,eip-2",
 		AnnotationKeyNetworkIMDSRequireToken: "require-token",
 		// Spaces intentionally added: we need to trim these
-		AnnotationKeyNetworkSecurityGroups:     "sg-1 , sg-2 ",
-		AnnotationKeyNetworkStaticIPAllocation: "static-ip-alloc",
-		AnnotationKeyNetworkSubnetIDs:          "subnet-1,subnet-2",
+		AnnotationKeyNetworkSecurityGroups:         "sg-1 , sg-2 ",
+		AnnotationKeyNetworkStaticIPAllocationUUID: "static-ip-alloc-id",
+		AnnotationKeyNetworkSubnetIDs:              "subnet-1,subnet-2",
 
 		// We don't parse these right now - including them so that
 		// tests fail if we do start parsing them or remove them
@@ -209,7 +209,7 @@ func TestParsePod(t *testing.T) {
 		SeccompAgentPerfEnabled: ptr.BoolPtr(true),
 		SecurityGroupIDs:        &sgIDs,
 		ServiceMeshEnabled:      ptr.BoolPtr(true),
-		StaticIPAllocation:      ptr.StringPtr("static-ip-alloc"),
+		StaticIPAllocationUUID:  ptr.StringPtr("static-ip-alloc-id"),
 		SubnetIDs:               ptr.StringPtr("subnet-1,subnet-2"),
 		TaskID:                  ptr.StringPtr("task-id-in-label"),
 		TTYEnabled:              ptr.BoolPtr(true),

@@ -516,7 +516,7 @@ func (c *PodContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, err
 }
 
 func (c *PodContainer) SignedAddressAllocationUUID() *string {
-	return nil
+	return c.podConfig.StaticIPAllocationUUID
 }
 
 func (c *PodContainer) SortedEnvArray() []string {
@@ -564,7 +564,6 @@ func getContainerResources(userContainer *corev1.Container) (*Resources, error) 
 		return nil, fmt.Errorf("pod did not contain network resource limit: %s", resourceCommon.ResourceNameNetwork)
 	}
 
-	// XXX: what about when bytes are used?
 	return &Resources{
 		CPU:     userContainer.Resources.Limits.Cpu().Value(),
 		Disk:    userContainer.Resources.Limits.StorageEphemeral().Value() / units.MiB,

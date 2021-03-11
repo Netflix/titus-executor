@@ -157,19 +157,20 @@ func TestNewPodContainer(t *testing.T) {
 		podCommon.AnnotationKeyNetworkAssignIPv6Address: True,
 		podCommon.AnnotationKeyNetworkBurstingEnabled:   True,
 		// In a real job, both the pool and IP list wouldn't be set
-		podCommon.AnnotationKeyNetworkElasticIPPool:       "pool1",
-		podCommon.AnnotationKeyNetworkElasticIPs:          "eipalloc-001,eipalloc-002",
-		podCommon.AnnotationKeyNetworkIMDSRequireToken:    "token",
-		podCommon.AnnotationKeyPodCPUBurstingEnabled:      True,
-		podCommon.AnnotationKeyPodFuseEnabled:             True,
-		podCommon.AnnotationKeyPodKvmEnabled:              True,
-		podCommon.AnnotationKeyPodOomScoreAdj:             "99",
-		podCommon.AnnotationKeyPodSchedPolicy:             "idle",
-		podCommon.AnnotationKeyPodSeccompAgentNetEnabled:  True,
-		podCommon.AnnotationKeyPodSeccompAgentPerfEnabled: True,
-		podCommon.AnnotationKeyNetworkSecurityGroups:      "sg-1,sg-2",
-		podCommon.AnnotationKeyNetworkSubnetIDs:           expSubnets,
-		podCommon.AnnotationKeyNetworkJumboFramesEnabled:  True,
+		podCommon.AnnotationKeyNetworkElasticIPPool:          "pool1",
+		podCommon.AnnotationKeyNetworkElasticIPs:             "eipalloc-001,eipalloc-002",
+		podCommon.AnnotationKeyNetworkIMDSRequireToken:       "token",
+		podCommon.AnnotationKeyPodCPUBurstingEnabled:         True,
+		podCommon.AnnotationKeyPodFuseEnabled:                True,
+		podCommon.AnnotationKeyPodKvmEnabled:                 True,
+		podCommon.AnnotationKeyPodOomScoreAdj:                "99",
+		podCommon.AnnotationKeyPodSchedPolicy:                "idle",
+		podCommon.AnnotationKeyPodSeccompAgentNetEnabled:     True,
+		podCommon.AnnotationKeyPodSeccompAgentPerfEnabled:    True,
+		podCommon.AnnotationKeyNetworkSecurityGroups:         "sg-1,sg-2",
+		podCommon.AnnotationKeyNetworkSubnetIDs:              expSubnets,
+		podCommon.AnnotationKeyNetworkJumboFramesEnabled:     True,
+		podCommon.AnnotationKeyNetworkStaticIPAllocationUUID: "static-ip-uuid",
 	})
 
 	uc := podCommon.GetUserContainer(pod)
@@ -406,7 +407,7 @@ func TestNewPodContainer(t *testing.T) {
 			SidecarServiceSshd:       {ServiceName: "sshd", Volumes: map[string]struct{}{"/titus/sshd": {}}},
 		})
 
-	assert.Equal(t, c.SignedAddressAllocationUUID(), stringNil)
+	assert.DeepEqual(t, c.SignedAddressAllocationUUID(), ptr.StringPtr("static-ip-uuid"))
 	assert.DeepEqual(t, c.SubnetIDs(), &expSubnets)
 	assert.Equal(t, c.TTYEnabled(), true)
 	assert.Equal(t, c.UploadDir("foo"), "titan/mainvpc/foo/"+taskID)

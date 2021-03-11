@@ -10,13 +10,12 @@ replace (
 require (
 	github.com/Netflix/titus-controllers-api v0.0.6
 	github.com/go-logr/logr v0.1.0
-	github.com/golangci/golangci-lint v1.30.0 // indirect
-	github.com/hashicorp/go-multierror v1.0.0
 	github.com/google/uuid v1.1.1
+	github.com/hashicorp/go-multierror v1.0.0
 	github.com/stretchr/testify v1.6.1
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.17.2
 	k8s.io/apimachinery v0.17.2
-	sigs.k8s.io/controller-runtime v0.5.0
 	k8s.io/utils v0.0.0-20201104234853-8146046b121e
+	sigs.k8s.io/controller-runtime v0.5.0
 )
