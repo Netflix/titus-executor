@@ -1,0 +1,1 @@
+drop table warm_pool_override;

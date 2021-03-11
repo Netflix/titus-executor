@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	warmPoolPerSubnet            = 50
+	defaultWarmPoolPerSubnet     = 50
 	timeBetweenErrors            = 10 * time.Second
 	timeBetweenNoDeletions       = 2 * time.Minute
 	timeBetweenDeletions         = 5 * time.Second
@@ -98,6 +98,49 @@ func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, pro
 	}
 }
 
+func (vpcService *vpcService) getWarmPoolSize(ctx context.Context, subnet *subnet) (int, error) {
+	ctx, span := trace.StartSpan(ctx, "getWarmPoolSize")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = fmt.Errorf("Could not start read only txn: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	row := tx.QueryRowContext(ctx, "SELECT warm_pool_size FROM warm_pool_override WHERE subnet_id = $1", subnet.subnetID)
+	var warmPoolSize int
+	err = row.Scan(&warmPoolSize)
+	if err == sql.ErrNoRows {
+		warmPoolSize = defaultWarmPoolPerSubnet
+	} else if err != nil {
+		err = fmt.Errorf("Could not query warm pool override for subnet %q: %w", subnet.subnetID, err)
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	if warmPoolSize <= 0 {
+		err = fmt.Errorf("Warm pool size is not greater than 0: %d", warmPoolSize)
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = fmt.Errorf("Could not commit transaction: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return 0, err
+	}
+
+	return warmPoolSize, nil
+}
+
 func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet *subnet) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, deleteExcessBranchENITimeout)
 	defer cancel()
@@ -115,6 +158,13 @@ func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet
 		"az":        subnet.az,
 	})
 	logger.G(ctx).Debug("Beginning GC of excess branch ENIs")
+
+	warmPoolSize, err := vpcService.getWarmPoolSize(ctx, subnet)
+	if err != nil {
+		err = fmt.Errorf("Could not get warm pool size for subnet %q: %w", subnet.subnetID, err)
+		tracehelpers.SetStatus(err, span)
+	}
+
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.accountID, Region: subnet.region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get EC2 session")
@@ -150,10 +200,10 @@ get_eni:
           FROM branch_eni_attachments WHERE state = 'attached' OR state = 'attaching' OR state = 'unattaching')
        AND subnet_id = $1
        AND created_at < now() - ($3 * interval '1 sec')
-     ORDER BY id DESC
+     ORDER BY last_assigned_to ASC, id DESC
      LIMIT 1
      OFFSET $2
-`, subnet.subnetID, warmPoolPerSubnet, minTimeExisting.Seconds())
+`, subnet.subnetID, warmPoolSize, minTimeExisting.Seconds())
 	err = row.Scan(&branchENI)
 	if isSerializationFailure(err) {
 		serializationFailuresGetENI++
