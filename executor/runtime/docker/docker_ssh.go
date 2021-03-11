@@ -85,7 +85,7 @@ AcceptEnv LANG LC_*
 
 Subsystem sftp /titus/sshd/usr/lib64/misc/sftp-server
 
-PidFile /run/sshd.pid
+PidFile /dev/null
 `
 
 func addContainerSSHDConfig(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config) error {
