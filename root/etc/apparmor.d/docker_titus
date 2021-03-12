@@ -34,6 +34,8 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
   /titus/sshd/usr/sbin/sshd Cx,
 
   profile sshd /titus/sshd/usr/sbin/sshd {
+    # Allow signals from unconfined, usually systemd
+    signal (receive) peer="unconfined",
     signal (send,receive) peer=@{profile_name},
 
     network,
