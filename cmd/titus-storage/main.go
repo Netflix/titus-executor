@@ -14,7 +14,6 @@ import (
 const (
 	ebsVolumeFlagName     = "titus-ebs-volume-id"
 	taskIDFlagName        = "titus-task-id"
-	ec2InstanceIDFlagName = "ec2-instance-id"
 	ebsMountPointFlagName = "ebs-mount-point"
 	ebsMountPermFlagName  = "ebs-mount-perm"
 	ebsFSTypeFlagName     = "ebs-fstype"
@@ -23,7 +22,6 @@ const (
 
 type MountConfig struct {
 	taskID        string
-	instanceID    string
 	pid1Dir       string
 	ebsMountPoint string
 	ebsMountPerm  string
@@ -85,9 +83,6 @@ func bindVariables(v *viper.Viper) {
 	if err := v.BindEnv(taskIDFlagName, "TITUS_TASK_ID"); err != nil {
 		panic(err)
 	}
-	if err := v.BindEnv(ec2InstanceIDFlagName, "EC2_INSTANCE_ID"); err != nil {
-		panic(err)
-	}
 	if err := v.BindEnv(ebsMountPointFlagName, "TITUS_EBS_MOUNT_POINT"); err != nil {
 		panic(err)
 	}
@@ -107,7 +102,6 @@ func newMountConfigFromViper(v *viper.Viper) MountConfig {
 	return MountConfig{
 		ebsVolumeID:   v.GetString(ebsVolumeFlagName),
 		taskID:        v.GetString(taskIDFlagName),
-		instanceID:    v.GetString(ec2InstanceIDFlagName),
 		ebsMountPoint: v.GetString(ebsMountPointFlagName),
 		ebsMountPerm:  v.GetString(ebsMountPermFlagName),
 		ebsFStype:     v.GetString(ebsFSTypeFlagName),
