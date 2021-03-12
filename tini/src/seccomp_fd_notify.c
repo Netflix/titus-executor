@@ -1,10 +1,8 @@
 #include <sys/prctl.h>
-
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-
 #include <linux/audit.h>
 #include <linux/filter.h>
 #include <linux/perf_event.h>
@@ -13,10 +11,8 @@
 #include <stddef.h>
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
-
 #include <sys/socket.h>
 #include <sys/un.h>
-
 #include <pthread.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>  
@@ -27,6 +23,8 @@
 
 #define MAX_EVENTS 16
 #define EPOLL_IGNORED_VAL 3
+/* For the x32 ABI, all system call numbers have bit 30 set */
+#define X32_SYSCALL_BIT 0x40000000
 
 #define PRINT_WARNING(...)                                                     \
 	{                                                                      \
@@ -77,9 +75,6 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
 	return syscall(__NR_seccomp, operation, flags, args);
 }
 
-/* For the x32 ABI, all system call numbers have bit 30 set */
-#define X32_SYSCALL_BIT 0x40000000
-
 /* install_notify_filter() install_notify_filter a seccomp filter that generates user-space
    notifications (SECCOMP_RET_USER_NOTIF) when the process calls mkdir(2); the
    filter allows all other system calls.
@@ -89,6 +84,7 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
 */
 static int install_notify_filter(void) {
 	struct sock_fprog prog = {0};
+	int notify_fd = -1;
 	
 	struct sock_filter perf_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
@@ -144,25 +140,33 @@ struct sock_filter net_perf_filter[] = {
 	};
 
 	char *is_handle_net = getenv("TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS");
+	char *is_handle_perf = getenv("TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS");
 	if (is_handle_net != NULL) {
 		prog.filter = net_perf_filter;
 		prog.len = 
 			(unsigned short)(sizeof(net_perf_filter) / sizeof(net_perf_filter[0]));
 		PRINT_INFO("Networking system calls will be intercepted");
-	} else {
+	} else if (is_handle_perf != NULL) {
 		prog.filter = perf_filter;
 		prog.len = 
 			(unsigned short)(sizeof(perf_filter) / sizeof(perf_filter[0]));
 		PRINT_INFO("BPF/Perf system calls will be intercepted");
+	} else {
+		PRINT_INFO("No env variables set, no interception of system calls");
+		return -1;
 	}
 
+	/* Setting up permissions to issue seccomp system call */
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		PRINT_WARNING("Failed to setup priveleges before calling seccomp")
+	}
 	/* Install the filter with the SECCOMP_FILTER_FLAG_NEW_LISTENER flag; as
 	   a result, seccomp() returns a notification file descriptor. */
 
 	/* Only one listening file descriptor can be established. An attempt to
 	   establish a second listener yields an EBUSY error. */
 
-	int notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
+	notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
 				SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
 	if (notify_fd == -1) {
 		PRINT_WARNING("seccomp install_notify_filter failed: %s",
@@ -238,9 +242,9 @@ void * catch_send_fd(void *fd_arg)
 	PRINT_INFO("Listening to networking syscall notifications on %d..", notify_fd);
 
 	for (;;) {
-		/* Wait for next notification, returning info in '*req' */
 		memset(req, 0, sizeof(*req));
 		memset(resp, 0, sizeof(*resp));
+		/* We have begun the polling loop, notify main thread to send the notify fd */
 		pthread_mutex_lock(&wait_to_send);
 		send_notify_fd = 1;
 		pthread_cond_signal(&ready_to_send);
@@ -296,7 +300,7 @@ void * catch_send_fd(void *fd_arg)
 			break;
 		}
 	}
-	PRINT_INFO("Stopped polling notifyfd = %d!", notify_fd);
+	PRINT_INFO("Stopped polling notifyfd on Tini, over to TSA!");
 	return NULL;
 }
 
@@ -351,8 +355,17 @@ void maybe_setup_seccomp_notifer() {
 
 		int notify_fd = -1;
 		notify_fd = install_notify_filter();
+		if (notify_fd == -1) {
+			close(sock_fd);
+			return;
+		}
 
-		pthread_create(&thread_id, NULL, &catch_send_fd, (void *)&notify_fd);		
+		/* 
+		   We need Tini to be ready to intercept and pass through the first 
+		   sendmsg() system call before sending the notify fd. 
+		   So, we wait until the polling has been set up.
+		*/
+		pthread_create(&thread_id, NULL, &catch_send_fd, (void *)&notify_fd);
 		pthread_mutex_lock(&wait_to_send);
 		while(send_notify_fd == 0) {
 			pthread_cond_wait(&ready_to_send, &wait_to_send);
@@ -360,7 +373,6 @@ void maybe_setup_seccomp_notifer() {
 		PRINT_INFO("Can send the notify fd now!");
 		pthread_mutex_unlock(&wait_to_send);
 		
-
 		if (send_fd(sock_fd, notify_fd) == -1) {
 			PRINT_WARNING(
 				"Couldn't send fd to the socket at %s: %s",
