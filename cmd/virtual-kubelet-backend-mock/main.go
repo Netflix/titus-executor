@@ -2,27 +2,20 @@ package main
 
 import (
 	"context"
+	"os"
+	"sync"
+	"time"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor/runner"
+	executorTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/Netflix/titus-executor/uploader"
 	"github.com/Netflix/titus-executor/vk/backend"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	logruslogger "github.com/virtual-kubelet/virtual-kubelet/log/logrus"
 	"gopkg.in/urfave/cli.v1"
-	"sync"
-	"time"
-
-	"os"
-)
-
-const (
-	prepareTime = "github.com.netflix.titus.executor/prepareTime"
-	runTime = "github.com.netflix.titus.executor/runTime"
-	killTime = "github.com.netflix.titus.executor/killTime"
 )
 
 func main() {
@@ -69,7 +62,6 @@ func mainWithError(podFileName string, statusPipe string) error {
 	log.L = logruslogger.FromLogrus(logrus.NewEntry(logger))
 	ctx = log.WithLogger(ctx, log.L)
 
-
 	podFile, err := os.Open(podFileName)
 	if err != nil {
 		panic(err)
@@ -88,45 +80,41 @@ func mainWithError(podFileName string, statusPipe string) error {
 	defer pipe.Close()
 	log.G(ctx).WithField("pod", pod.Name).Debugf("Got pipe %v", statusPipe)
 
-	runtime := func(ctx context.Context, cfg config.Config) (runtimeTypes.Runtime, error) {
+	runtime := func(ctx context.Context, c executorTypes.Container, startTime time.Time) (executorTypes.Runtime, error) {
 		rm := &runtimeMock{}
 
 		var timer *time.Timer
-		if rt, ok := pod.Annotations[runTime]; ok {
-			if dur, err := time.ParseDuration(rt); err != nil {
-				log.G(ctx).WithError(err).Error("Could not parse duration")
-				return nil, err
-			} else {
-				timer = time.AfterFunc(dur, func() {
-					rm.statusChan<- runtimeTypes.StatusMessage{
-						Status: runtimeTypes.StatusFinished,
-						Msg:    "Slept, and completed",
-					}
-				})
-			}
+		behavior := NewRunStateBehavior(pod)
+		delayWithJitter := behavior.DelayWithJitter()
+		log.G(ctx).WithField("behavior", behavior).WithField("delayWithJitter", delayWithJitter).Info("Run state behavior")
+		if delayWithJitter > 0 {
+			timer = time.AfterFunc(delayWithJitter, func() {
+				rm.statusChan <- runtimeTypes.StatusMessage{
+					Status: behavior.ExecutionStatus,
+					Msg:    behavior.Message,
+				}
+			})
 		}
 
 		rm.ctx = ctx
 		rm.prepareCallback = func(ctx2 context.Context) error {
-				if t, ok := pod.Annotations[prepareTime]; ok {
-					if dur, err := time.ParseDuration(t); err != nil {
-						return err
-					} else {
-						time.Sleep(dur)
-					}
-				}
-				return nil
+			behavior := NewPrepareStateBehavior(pod)
+			delayWithJitter := behavior.DelayWithJitter()
+			log.G(ctx).WithField("behavior", behavior).WithField("delayWithJitter", delayWithJitter).Info("Prepared state behavior")
+			if delayWithJitter > 0 {
+				time.Sleep(delayWithJitter)
 			}
-		rm.killCallback = func(c *runtimeTypes.Container) error {
+			return nil
+		}
+		rm.killCallback = func(ctx2 context.Context) error {
 			if timer != nil {
 				timer.Stop()
 			}
-			if t, ok := pod.Annotations[killTime]; ok {
-				if dur, err := time.ParseDuration(t); err != nil {
-					return err
-				} else {
-					time.Sleep(dur)
-				}
+			behavior := NewKillStateBehavior(pod)
+			delayWithJitter := behavior.DelayWithJitter()
+			log.G(ctx).WithField("behavior", behavior).WithField("delayWithJitter", delayWithJitter).Info("Kill state behavior")
+			if delayWithJitter > 0 {
+				time.Sleep(delayWithJitter)
 			}
 			return nil
 		}
@@ -134,10 +122,7 @@ func mainWithError(podFileName string, statusPipe string) error {
 	}
 
 	cfg, _ := config.NewConfig()
-
-	mockRunner, err := runner.WithRuntime(ctx, metrics.Discard, runtime, &uploader.Uploaders{}, *cfg)
-
-	err = backend.RunWithBackend(ctx, mockRunner, pipe, pod)
+	err = backend.RunWithBackend(ctx, runtime, metrics.Discard, pipe, pod, *cfg)
 	if err != nil {
 		log.G(ctx).WithError(err).Fatal("Could not run container")
 	}
@@ -145,40 +130,40 @@ func mainWithError(podFileName string, statusPipe string) error {
 	return err
 }
 
-
 // runtimeMock implements the Runtime interface
 type runtimeMock struct {
 	ctx context.Context
 
-	mu sync.Mutex
+	mu     sync.Mutex
+	taskId string
 
 	statusChan chan runtimeTypes.StatusMessage
 
 	prepareCallback func(context.Context) error
-	cleanupCallback func(*runtimeTypes.Container) error
-	killCallback    func(c *runtimeTypes.Container) error
+	cleanupCallback func(context.Context) error
+	killCallback    func(context.Context) error
 
 	shutdownAfter time.Timer
 }
 
-func (r *runtimeMock) Prepare(ctx context.Context, c *runtimeTypes.Container, bindMounts []string, startTime time.Time) error {
-	logrus.Info("runtimeMock.Prepare", c.TaskID)
+func (r *runtimeMock) Prepare(containerCtx context.Context) error {
+	logrus.Info("runtimeMock.Prepare", r.taskId)
 	if r.prepareCallback != nil {
-		return r.prepareCallback(ctx)
+		return r.prepareCallback(containerCtx)
 	}
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
-	logrus.Info("runtimeMock.Start", c.TaskID)
+func (r *runtimeMock) Start(containerCtx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+	logrus.Info("runtimeMock.Start", r.taskId)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	details := &runtimeTypes.Details{
 		IPAddresses: make(map[string]string),
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: true,
-			IPAddress: "1.2.3.4",
-			EniID: "Sargun's favourite ENI",
+			IPAddress:    "1.2.3.4",
+			EniID:        "Sargun's favourite ENI",
 		},
 	}
 
@@ -195,13 +180,13 @@ func (r *runtimeMock) Start(ctx context.Context, c *runtimeTypes.Container) (str
 	return "", details, r.statusChan, nil
 }
 
-func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
-	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, c.TaskID)
+func (r *runtimeMock) Kill(ctx context.Context) error {
+	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, r.taskId)
 	if r.killCallback != nil {
-		return r.killCallback(c)
+		return r.killCallback(ctx)
 	}
 	defer close(r.statusChan)
-	defer logrus.Info("runtimeMock.Killed: ", c.TaskID)
+	defer logrus.Info("runtimeMock.Killed: ", r.taskId)
 	// send a kill request and wait for a grant
 	select {
 	case <-r.ctx.Done():
@@ -212,10 +197,10 @@ func (r *runtimeMock) Kill(c *runtimeTypes.Container) error {
 	return nil
 }
 
-func (r *runtimeMock) Cleanup(c *runtimeTypes.Container) error {
-	logrus.Info("runtimeMock.Cleanup", c.TaskID)
+func (r *runtimeMock) Cleanup(ctx context.Context) error {
+	logrus.Info("runtimeMock.Cleanup", r.taskId)
 	if r.cleanupCallback != nil {
-		return r.cleanupCallback(c)
+		return r.cleanupCallback(ctx)
 	}
 	return nil
 }
