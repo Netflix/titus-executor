@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,14 +24,16 @@ func ebsRunner(ctx context.Context, command string, config MountConfig) error {
 	if config.ebsVolumeID == "" {
 		return errors.New("TITUS_EBS_VOLUME_ID unset, unable to perform any EBS-related operations")
 	}
-	ec2Client := getEc2Client()
+	ec2Session := getEC2Session()
+	ec2Client := getEc2Client(ec2Session)
+	ec2InstanceID := getEC2InstanceID(ec2Session)
 	var err error
 
 	switch command {
 	case "start":
-		err = ebsStart(ctx, ec2Client, config)
+		err = ebsStart(ctx, ec2Client, config, ec2InstanceID)
 	case "stop":
-		err = ebsStop(ctx, ec2Client, config)
+		err = ebsStop(ctx, ec2Client, config, ec2InstanceID)
 	default:
 		return fmt.Errorf("Command %q unsupported. Must be either start or stop", command)
 	}
@@ -40,7 +43,7 @@ func ebsRunner(ctx context.Context, command string, config MountConfig) error {
 	return nil
 }
 
-func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig) error {
+func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2InstanceID string) error {
 	var err error
 	l := logger.GetLogger(ctx)
 
@@ -52,7 +55,7 @@ func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig) error {
 		if err != nil {
 			return fmt.Errorf("%s is not unused. Not safe to detach. %s", c.ebsVolumeID, err)
 		}
-		ec2DeviceName, err = attachEBS(ctx, c.ebsVolumeID, ec2Client, c.instanceID)
+		ec2DeviceName, err = attachEBS(ctx, c.ebsVolumeID, ec2Client, ec2InstanceID)
 		if err != nil {
 			return err
 		}
@@ -76,7 +79,7 @@ func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig) error {
 	return nil
 }
 
-func ebsStop(ctx context.Context, ec2Client *ec2.EC2, c MountConfig) error {
+func ebsStop(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2InstanceID string) error {
 	l := logger.GetLogger(ctx)
 	ec2Device, ok := getDeviceName(c.ebsVolumeID)
 	if !ok {
@@ -101,14 +104,30 @@ func ebsStop(ctx context.Context, ec2Client *ec2.EC2, c MountConfig) error {
 	}
 
 	// By the time we get here, we are confident the volume is attached, not in use, and safe to detatch
-	err = detatchEBS(ctx, c.ebsVolumeID, ec2Client, c.instanceID)
+	err = detatchEBS(ctx, c.ebsVolumeID, ec2Client, ec2InstanceID)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func getEc2Client() *ec2.EC2 {
+func getEc2Client(sess *session.Session) *ec2.EC2 {
+	return ec2.New(sess)
+}
+
+func getEC2InstanceID(sess *session.Session) string {
+	mdSvc := ec2metadata.New(sess)
+	if !mdSvc.Available() {
+		log.Fatal("Metadata service cannot be reached.")
+	}
+	identify, err := mdSvc.GetInstanceIdentityDocument()
+	if err != nil {
+		log.Fatalf("Couldn't even get my ec2 instance identify document: %s", err)
+	}
+	return identify.InstanceID
+}
+
+func getEC2Session() *session.Session {
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 	}))
@@ -120,7 +139,7 @@ func getEc2Client() *ec2.EC2 {
 	)
 	sess.Config.Credentials = creds
 	sess.Config.Region = aws.String(os.Getenv("EC2_REGION"))
-	return ec2.New(sess)
+	return sess
 }
 
 func waitForVolumeToBeUnused(ctx context.Context, ebsVolumeID string, ec2Client *ec2.EC2, timeout int) error {
