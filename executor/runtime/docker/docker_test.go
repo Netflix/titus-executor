@@ -252,3 +252,15 @@ func TestFlags(t *testing.T) {
 	_, flags := NewConfig()
 	properties.ConvertFlagsForAltSrc(flags)
 }
+
+func TestIsEFSID(t *testing.T) {
+	var actual bool
+	actual, _ = isEFSID("fs-123450")
+	assert.True(t, actual)
+
+	actual, _ = isEFSID("fs-123450.efs.us-west-1.amazonaws.com")
+	assert.False(t, actual)
+
+	actual, _ = isEFSID("nfs.example.com")
+	assert.False(t, actual)
+}

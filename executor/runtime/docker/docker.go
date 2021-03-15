@@ -1315,15 +1315,34 @@ func (r *DockerRuntime) processEFSMounts(c runtimeTypes.Container) ([]efsMountIn
 			return nil, fmt.Errorf("Invalid EFS mount (read/write flag): %+v", configInfo)
 		}
 
-		if r.awsRegion == "" {
-			// We don't validate at client creation time, because we don't get this during testing.
-			return nil, errors.New("Could not retrieve EC2 region")
+		isRealEfsID, err := isEFSID(emi.efsFsID)
+		if err != nil {
+			return nil, err
 		}
-		emi.hostname = fmt.Sprintf("%s.efs.%s.amazonaws.com", emi.efsFsID, r.awsRegion)
+		if isRealEfsID {
+			if r.awsRegion == "" {
+				// We don't validate at client creation time, because we don't get this during testing.
+				return nil, errors.New("Could not retrieve EC2 region")
+			} // Get the remote IP. -- Is this really the best way how? Go doesn't have a simpler API for this?
+			emi.hostname = fmt.Sprintf("%s.efs.%s.amazonaws.com", emi.efsFsID, r.awsRegion)
+		} else {
+			// Non-EFS ID: pass in the hostname for the NFS server right on through
+			// We are just abusing the "efsID" field to just be the hostname.
+			emi.hostname = emi.efsFsID
+		}
 		efsMountInfos = append(efsMountInfos, emi)
 	}
 
 	return efsMountInfos, nil
+}
+
+func isEFSID(FsID string) (bool, error) {
+	matched, err := regexp.MatchString(`^fs-[0-9a-f]+$`, FsID)
+	if err != nil {
+		// The only type of errors that might hit this are regex compile errors
+		return false, fmt.Errorf("Something went really wrong determining if '%s' is an EFS ID: %s", FsID, err)
+	}
+	return matched, nil
 }
 
 func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListener, efsMountInfos []efsMountInfo, c runtimeTypes.Container) (string, error) {
