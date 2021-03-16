@@ -18,6 +18,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "common.h"
+
 char nfs4[] = "nfs4";
 #define E(x)                                                                   \
 	do {                                                                   \
@@ -312,6 +314,7 @@ int main(int argc, char *argv[])
 
 	/* Now we can do the fs_config calls and actual mount */
 	do_fsconfigs(fsfd, final_options);
+	mkdir_p(target);
 	mount_and_move(fsfd, target, pidfd, flags_ul);
 
 	fprintf(stderr, "titus-mount-nfs: All done, mounted on %s\n", target);

@@ -22,6 +22,8 @@
 #include <signal.h>
 #include <sys/stat.h>
 
+#include "common.h"
+
 #define E(x)                                                                   \
 	do {                                                                   \
 		if ((x) == -1) {                                               \
@@ -264,7 +266,7 @@ int main(int argc, char *argv[])
 	looks right from the container's perspective */
 	switch_namespaces(nsfd);
 	close(nsfd);
-	mkdir(target, 0777);
+	mkdir_p(target);
 	mount_and_move(fsfd, target, flags_ul);
 
 	fprintf(stderr, "titus-mount-block-device: All done, mounted on %s\n", target);
