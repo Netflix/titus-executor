@@ -19,7 +19,7 @@ import (
 
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/coreos/go-systemd/dbus"
+	"github.com/ShinyTrinkets/overseer"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -47,6 +47,9 @@ type serviceOpts struct {
 	required     bool
 	unitName     string
 	enabledCheck serviceEnabledFunc
+	command      string
+	notify       bool
+	nsenter      bool
 }
 
 const (
@@ -58,61 +61,80 @@ const (
 	defaultOomScore           = 1000
 )
 
+// TODO: get this data from some other place, like docker labels or config maps or maybe just a json file to start
 var systemServices = []serviceOpts{
 	{
 		unitName:     "titus-spectatord",
 		enabledCheck: shouldStartSpectatord,
 		required:     false,
+		command:      "/titus/spectatord/start-spectatord",
 	},
 	{
 		unitName:     "titus-atlasd",
 		enabledCheck: shouldStartAtlasd,
 		required:     false,
+		command:      "/titus/atlas-titus-agent/start-atlas-titus-agent",
+		nsenter:      true,
 	},
 	{
 		unitName:     "atlas-titus-agent",
 		enabledCheck: shouldStartAtlasAgent,
 		required:     false,
+		command:      "/usr/local/bin/atlas-titus-agent",
 	},
 	{
 		unitName:     "titus-sshd",
 		enabledCheck: shouldStartSSHD,
 		required:     false,
+		command:      "/titus/sshd/usr/sbin/sshd -D -e",
+		nsenter:      true,
 	},
 	{
 		unitName: "titus-metadata-proxy",
 		required: true,
+		command:  "/apps/titus-executor/bin/run-titus-metadata-proxy.sh",
+		notify:   true,
 	},
 	{
 		unitName:     "titus-metatron-sync",
 		required:     true,
 		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
 		enabledCheck: shouldStartMetatronSync,
+		command:      " /titus/metatron/bin/titus-metatrond",
+		nsenter:      true,
 	},
 	{
 		unitName:     "titus-logviewer",
 		required:     true,
 		enabledCheck: shouldStartLogViewer,
+		command:      "bin/adminlogs",
+		nsenter:      true,
 	},
 	{
 		unitName:     "titus-servicemesh",
 		required:     true,
 		enabledCheck: shouldStartServiceMesh,
+		command:      "/titus/proxyd/launcher",
+		nsenter:      true,
 	},
 	{
 		unitName:     "titus-abmetrix",
 		required:     false,
 		enabledCheck: shouldStartAbmetrix,
+		command:      "/titus/abmetrix/start",
+		nsenter:      true,
 	},
 	{
 		unitName:     "titus-seccomp-agent",
 		required:     true,
 		enabledCheck: shouldStartTitusSeccompAgent,
+		command:      "/usr/bin/tsa",
 	},
 	{
 		unitName:     "titus-storage",
 		required:     true,
 		enabledCheck: shouldStartTitusStorage,
+		command:      "/apps/titus-executor/bin/titus-storage start",
 	},
 }
 
@@ -177,12 +199,6 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 
-	conn, connErr := dbus.New()
-	if connErr != nil {
-		return connErr
-	}
-	defer conn.Close()
-
 	for _, svc := range systemServices {
 		if svc.enabledCheck != nil && !svc.enabledCheck(&cfg, c) {
 			continue
@@ -194,10 +210,12 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 		if r := c.Runtime(); r != "" {
 			runtime = r
 		}
-		if err := startSystemdUnit(ctx, conn, c.TaskID(), c.ID(), runtime, svc); err != nil {
+		if err := startSystemService(ctx, c.TaskID(), c.ID(), runtime, svc); err != nil {
 			logrus.WithError(err).Errorf("Error starting %s service", svc.unitName)
 			return err
 		}
+		// TODO: Somehow get the overseer object back out so that we can see the
+		// status and expose it via pod status.conditions
 	}
 
 	return nil
@@ -244,7 +262,12 @@ func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, r
 	return nil
 }
 
-func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, runtime string, opts serviceOpts) error {
+func (s serviceOpts) generateFullCommand() string {
+	// TODO: Compose the full command, including moby, nsenter and junk
+	return s.command
+}
+
+func startSystemService(ctx context.Context, taskID string, cID string, runtime string, opts serviceOpts) error {
 	qualifiedUnitName := fmt.Sprintf("%s@%s.service", opts.unitName, taskID)
 	l := logrus.WithFields(logrus.Fields{
 		"containerId": cID,
@@ -262,10 +285,7 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 	}
 
 	l.Infof("starting systemd unit %s", qualifiedUnitName)
-	ch := make(chan string, 1)
-	if _, err := conn.StartUnit(qualifiedUnitName, "fail", ch); err != nil {
-		return err
-	}
+	ch := startAndSupervise(qualifiedUnitName, opts.generateFullCommand())
 	select {
 	case <-ctx.Done():
 		doneErr := ctx.Err()
@@ -292,6 +312,37 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 		return nil
 	}
 	return nil
+}
+
+func startAndSupervise(unitName string, command string) <-chan string {
+	o := overseer.NewOverseer()
+	// TODO: Copy these from the unit files
+	options := overseer.Options{
+		Group:      "",
+		Dir:        "",
+		Env:        []string{},
+		DelayStart: 0,
+		RetryTimes: 0,
+		Buffered:   false,
+		Streaming:  false,
+	}
+	runnableCmd := o.Add(unitName, command, options)
+
+	stdoutChan := make(chan string, 100)
+	go func() {
+		for line := range stdoutChan {
+			// TODO: use the journal hook somehow to pipe this to the right place
+			logrus.Info(line)
+		}
+	}()
+	stdout := overseer.NewOutputStream(stdoutChan)
+	runnableCmd.Stdout = stdout
+
+	go o.SuperviseAll()
+
+	c := make(chan string)
+	o.Watch(c)
+	return c
 }
 
 func getOwnCgroup(subsystem string) (string, error) {
