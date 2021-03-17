@@ -58,7 +58,7 @@ static void check_messages(int fd)
 static __attribute__((noreturn)) void mount_error(int fd, const char *s)
 {
 	check_messages(fd);
-	fprintf(stderr, "titus-mount mount error on '%s': %m\n", s);
+	fprintf(stderr, "titus-mount-block-device mount error on '%s': %m\n", s);
 	exit(1);
 }
 
@@ -106,7 +106,7 @@ static void process_option(char *option, int fsfd)
 	key = strtok_r(option, "=", &saveptr);
 	option = NULL;
 	value = strtok_r(option, "=", &saveptr);
-	fprintf(stderr, "titus-mount: Setting filesystem mount option %s=%s\n",
+	fprintf(stderr, "titus-mount-block-device: Setting filesystem mount option %s=%s\n",
 		key, value);
 	E_fsconfig(fsfd, FSCONFIG_SET_STRING, key, value, 0);
 }
@@ -254,7 +254,7 @@ int main(int argc, char *argv[])
 	/* First we need to get a fsfd, but it must be created inside the user namespace */
 	fsfd = fork_and_get_fsfd(nsfd, fstype);
 
-	fprintf(stderr, "titus-mount: user-inputed options: %s\n", options);
+	fprintf(stderr, "titus-mount-block-device: user-inputed options: %s\n", options);
 
 	/* Now we can do the fs_config calls and actual mount
 	This isn't possible *inside* the conatiner, because it can't see the device */
@@ -267,6 +267,6 @@ int main(int argc, char *argv[])
 	mkdir(target, 0777);
 	mount_and_move(fsfd, target, flags_ul);
 
-	fprintf(stderr, "titus-mount: All done, mounted on %s\n", target);
+	fprintf(stderr, "titus-mount-block-device: All done, mounted on %s\n", target);
 	return 0;
 }

@@ -1574,7 +1574,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes
 		// because the parent window should be greater
 		ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount", strconv.Itoa(int(cred.pid))) // nolint: gosec
+		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount-nfs", strconv.Itoa(int(cred.pid))) // nolint: gosec
 		flags := 0
 		if efsMountInfo.readWriteFlags == ro {
 			flags = flags | MS_RDONLY
