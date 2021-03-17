@@ -34,22 +34,22 @@ static int dns_lookup(const char *hostname, struct sockaddr_in *addr)
 
 	if (inet_aton(hostname, &addr->sin_addr)) {
 		fprintf(stderr,
-			"titus-mount: %s is already an IP. Not doing a DNS lookup\n",
+			"titus-mount-nfs: %s is already an IP. Not doing a DNS lookup\n",
 			hostname);
 		return 0;
 	}
 	fprintf(stderr,
-		"titus-mount: Decoding and resolving dns hostname for %s\n",
+		"titus-mount-nfs: Decoding and resolving dns hostname for %s\n",
 		hostname);
 	hp = gethostbyname(hostname);
 	if (hp == NULL) {
 		int err_ret = h_errno;
-		fprintf(stderr, "titus-mount: can't get address for %s: %s\n",
+		fprintf(stderr, "titus-mount-nfs: can't get address for %s: %s\n",
 			hostname, hstrerror(err_ret));
 		return -1;
 	}
 	if (hp->h_length > (int)sizeof(struct in_addr)) {
-		fprintf(stderr, "titus-mount: got bad hp->h_length");
+		fprintf(stderr, "titus-mount-nfs: got bad hp->h_length");
 		return -1;
 	}
 	memcpy(&addr->sin_addr, hp->h_addr, hp->h_length);
@@ -64,14 +64,14 @@ static void compose_final_options(const char *nfs_mount_hostname,
 	char *ip_string;
 
 	if (dns_lookup(nfs_mount_hostname, &server_addr)) {
-		fprintf(stderr, "titus-mount: DNS lookup failed for %s",
+		fprintf(stderr, "titus-mount-nfs: DNS lookup failed for %s",
 			nfs_mount_hostname);
 		exit(1);
 	}
 	ip_string = inet_ntoa(server_addr.sin_addr);
 	strcat(final_options, ",addr=");
 	strcat(final_options, ip_string);
-	fprintf(stderr, "titus-mount: using these nfs mount options: %s\n",
+	fprintf(stderr, "titus-mount-nfs: using these nfs mount options: %s\n",
 		final_options);
 }
 
@@ -103,7 +103,7 @@ static void check_messages(int fd)
 static __attribute__((noreturn)) void mount_error(int fd, const char *s)
 {
 	check_messages(fd);
-	fprintf(stderr, "titus-mount mount error on '%s': %m\n", s);
+	fprintf(stderr, "titus-mount-nfs mount error on '%s': %m\n", s);
 	exit(1);
 }
 
@@ -151,7 +151,7 @@ static void process_option(char *option, int fsfd)
 	key = strtok_r(option, "=", &saveptr);
 	option = NULL;
 	value = strtok_r(option, "=", &saveptr);
-	fprintf(stderr, "titus-mount: Setting filesystem mount option %s=%s\n",
+	fprintf(stderr, "titus-mount-nfs: Setting filesystem mount option %s=%s\n",
 		key, value);
 	E_fsconfig(fsfd, FSCONFIG_SET_STRING, key, value, 0);
 }
@@ -305,15 +305,15 @@ int main(int argc, char *argv[])
 
 	/* Now we can switch net/mount namespaces so we can lookup the ip and eventually mount */
 	switch_namespaces(pidfd);
-	fprintf(stderr, "titus-mount: user-inputed options: %s\n", options);
+	fprintf(stderr, "titus-mount-nfs: user-inputed options: %s\n", options);
 	compose_final_options(nfs_mount_hostname, final_options);
-	fprintf(stderr, "titus-mount: computed final_options: %s\n",
+	fprintf(stderr, "titus-mount-nfs: computed final_options: %s\n",
 		final_options);
 
 	/* Now we can do the fs_config calls and actual mount */
 	do_fsconfigs(fsfd, final_options);
 	mount_and_move(fsfd, target, pidfd, flags_ul);
 
-	fprintf(stderr, "titus-mount: All done, mounted on %s\n", target);
+	fprintf(stderr, "titus-mount-nfs: All done, mounted on %s\n", target);
 	return 0;
 }
