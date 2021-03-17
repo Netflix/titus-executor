@@ -120,6 +120,12 @@ static int install_notify_filter(void)
 	/* Only one listening file descriptor can be established. An attempt to
 	   establish a second listener yields an EBUSY error. */
 
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		PRINT_WARNING(
+			"failed doing no new privs, won't be able to setup the seccomp filter");
+		return -1;
+	}
+
 	int notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
 				SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
 	if (notify_fd == -1) {
@@ -145,8 +151,8 @@ void maybe_setup_seccomp_notifer()
 				break;
 			}
 			PRINT_INFO(
-				"Titus seccomp socket unix socket not ready yet on attempt %d, Sleeping 1 second",
-				attempts);
+				"Titus seccomp unix socket not ready on attempt %d/%d, Sleeping 1 second",
+				i, attempts);
 			sleep(1);
 		}
 		if (sock_fd == -1) {
@@ -167,8 +173,8 @@ void maybe_setup_seccomp_notifer()
 				break;
 			}
 			PRINT_INFO(
-				"Titus seccomp socket unix socket not ready yet on attempt %d, Sleeping 1 second",
-				attempts);
+				"Titus seccomp unix socket not connectable yet on attempt %d/%d, Sleeping 1 second",
+				i, attempts);
 			sleep(1);
 		}
 		if (result == -1) {
