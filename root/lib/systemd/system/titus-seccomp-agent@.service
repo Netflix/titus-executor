@@ -1,5 +1,7 @@
 [Unit]
 Description=Titus seccomp agent for container %i
+# PartOf ensures that it will shutdown as part of the main titus-executor when it stops
+PartOf=titus-executor@default__%i.service
 
 StartLimitIntervalSec=30
 StartLimitBurst=5
@@ -7,7 +9,7 @@ StartLimitBurst=5
 [Service]
 Type=notify
 EnvironmentFile=/var/lib/titus-environments/%i.env
-ExecStart=/usr/bin/tsa
+ExecStart=/usr/bin/tsa --titus-task-id=%i
 
 Restart=on-failure
 RestartSec=3
