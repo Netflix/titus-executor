@@ -909,6 +909,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		hostCfg             *container.HostConfig
 		sidecarConfigs      map[string]*runtimeTypes.SidecarContainerConfig
 		size                int64
+		bindMounts          []string
 	)
 	dockerCreateStartTime := time.Now()
 	group := groupWithContext(ctx)
@@ -1067,7 +1068,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		volumeContainers = append(volumeContainers, abmetrixContainerName)
 	}
 
-	dockerCfg, hostCfg, err = r.dockerConfig(r.c, getLXCFsBindMounts(), size, volumeContainers)
+	bindMounts = append(bindMounts, getLXCFsBindMounts()...)
+	bindMounts = append(bindMounts, getContainerToolsBindMounts()...)
+
+	dockerCfg, hostCfg, err = r.dockerConfig(r.c, bindMounts, size, volumeContainers)
 	if err != nil {
 		goto error
 	}
