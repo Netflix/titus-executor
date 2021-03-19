@@ -157,7 +157,6 @@ func TestStandalone(t *testing.T) {
 		testSystemdImageMount,
 		testShm,
 		testContainerLogViewer,
-		testcve202014386,
 		testnc,
 		testGPUManager1GPU,
 	}
@@ -1129,17 +1128,6 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 		JobID: jobID,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
-		t.Fail()
-	}
-}
-
-func testcve202014386(t *testing.T, jobID string) {
-	ji := &JobInput{
-		ImageName:     ubuntu.name,
-		Version:       ubuntu.tag,
-		EntrypointOld: "/usr/bin/cve-2020-14386",
-	}
-	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
 	}
 }
