@@ -60,57 +60,57 @@ const (
 
 var systemServices = []serviceOpts{
 	{
-		unitName:     "titus-spectatord",
+		unitName:     "titus-sidecar-spectatord",
 		enabledCheck: shouldStartSpectatord,
 		required:     false,
 	},
 	{
-		unitName:     "titus-atlasd",
+		unitName:     "titus-sidecar-atlasd",
 		enabledCheck: shouldStartAtlasd,
 		required:     false,
 	},
 	{
-		unitName:     "atlas-titus-agent",
+		unitName:     "titus-sidecar-atlas-titus-agent",
 		enabledCheck: shouldStartAtlasAgent,
 		required:     false,
 	},
 	{
-		unitName:     "titus-sshd",
+		unitName:     "titus-sidecar-titus-sshd",
 		enabledCheck: shouldStartSSHD,
 		required:     false,
 	},
 	{
-		unitName: "titus-metadata-proxy",
+		unitName: "titus-sidecar-metadata-proxy",
 		required: true,
 	},
 	{
-		unitName:     "titus-metatron-sync",
+		unitName:     "titus-sidecar-metatron-sync",
 		required:     true,
 		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
 		enabledCheck: shouldStartMetatronSync,
 	},
 	{
-		unitName:     "titus-logviewer",
+		unitName:     "titus-sidecar-logviewer",
 		required:     true,
 		enabledCheck: shouldStartLogViewer,
 	},
 	{
-		unitName:     "titus-servicemesh",
+		unitName:     "titus-sidecar-servicemesh",
 		required:     true,
 		enabledCheck: shouldStartServiceMesh,
 	},
 	{
-		unitName:     "titus-abmetrix",
+		unitName:     "titus-sidecar-abmetrix",
 		required:     false,
 		enabledCheck: shouldStartAbmetrix,
 	},
 	{
-		unitName:     "titus-seccomp-agent",
+		unitName:     "titus-sidecar-seccomp-agent",
 		required:     true,
 		enabledCheck: shouldStartTitusSeccompAgent,
 	},
 	{
-		unitName:     "titus-storage",
+		unitName:     "titus-sidecar-storage",
 		required:     true,
 		enabledCheck: shouldStartTitusStorage,
 	},
