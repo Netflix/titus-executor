@@ -3,6 +3,7 @@ Description=Titus seccomp agent for container %i
 
 StartLimitIntervalSec=30
 StartLimitBurst=5
+BindsTo=titus-executor@default__%i.service
 
 [Service]
 Type=notify

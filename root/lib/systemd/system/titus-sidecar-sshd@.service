@@ -5,6 +5,8 @@ ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 StartLimitIntervalSec=30
 StartLimitBurst=5
 
+BindsTo=titus-executor@default__%i.service
+
 [Service]
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
 # TSA is used in the main container processes to handle certain syscalls

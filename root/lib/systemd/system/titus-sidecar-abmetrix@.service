@@ -4,6 +4,7 @@ ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
 StartLimitIntervalSec=30
 StartLimitBurst=5
+BindsTo=titus-executor@default__%i.service
 
 [Service]
 EnvironmentFile=/var/lib/titus-environments/%i.env
