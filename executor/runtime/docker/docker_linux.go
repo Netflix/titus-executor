@@ -75,7 +75,7 @@ var systemServices = []serviceOpts{
 		required:     false,
 	},
 	{
-		unitName:     "titus-sidecar-titus-sshd",
+		unitName:     "titus-sidecar-sshd",
 		enabledCheck: shouldStartSSHD,
 		required:     false,
 	},
