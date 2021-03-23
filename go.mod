@@ -17,7 +17,8 @@ require (
 	github.com/apparentlymart/go-cidr v1.0.0
 	github.com/aws/aws-sdk-go v1.35.10
 	github.com/containernetworking/cni v0.7.1
-	github.com/coreos/go-systemd v0.0.0-20200109085637-d657f9650837
+	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
+	github.com/coreos/go-systemd/v22 v22.3.0
 	github.com/cyphar/filepath-securejoin v0.2.2
 	github.com/deckarep/golang-set v1.7.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
@@ -58,7 +59,7 @@ require (
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 	github.com/tmthrgd/atomics v0.0.0-20190904060638-dc7a5fcc7e0d // indirect
-	github.com/tmthrgd/tmpfile v0.0.0-20190904054337-6ce9e75706ab
+	github.com/tmthrgd/tmpfile v0.0.0-20190904054337-6ce9e75706ab // indirect
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
@@ -86,8 +87,6 @@ require (
 )
 
 replace github.com/docker/docker => github.com/moby/moby v0.0.0-20190408150954-50ebe4562dfc
-
-replace github.com/coreos/go-systemd => github.com/coreos/go-systemd/v22 v22.0.0
 
 replace sourcegraph.com/sqs/pbtypes => github.com/sqs/pbtypes v1.0.0
 
