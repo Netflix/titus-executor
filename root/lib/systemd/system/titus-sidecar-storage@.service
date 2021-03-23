@@ -6,6 +6,7 @@ PartOf=titus-executor@default__%i.service
 
 StartLimitIntervalSec=30
 StartLimitBurst=5
+PartOf=titus-container@%i.target
 
 [Service]
 # This command is oneshot, it runs once, mounts and returns

@@ -1761,6 +1761,17 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		log.WithError(err).Error("Unable to launch system services")
 		return err
 	}
+
+	r.registerRuntimeCleanup(func() error {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		if err := stopSystemServices(ctx, c); err != nil {
+			log.WithError(err).Error("Unable to stop system services")
+			return fmt.Errorf("Unable to stop system services: %w", err)
+		}
+		return nil
+	})
+
 	return nil
 }
 

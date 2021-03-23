@@ -49,3 +49,7 @@ func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cre
 func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
 	return errUnsupported
 }
+
+func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
+	return errUnsupported
+}

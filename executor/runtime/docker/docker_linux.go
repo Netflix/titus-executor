@@ -19,7 +19,7 @@ import (
 
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/coreos/go-systemd/dbus"
+	"github.com/coreos/go-systemd/v22/dbus"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -47,6 +47,7 @@ type serviceOpts struct {
 	required     bool
 	unitName     string
 	enabledCheck serviceEnabledFunc
+	target       bool
 }
 
 const (
@@ -59,6 +60,11 @@ const (
 )
 
 var systemServices = []serviceOpts{
+	{
+		unitName: "titus-container",
+		required: true,
+		target:   true,
+	},
 	{
 		unitName:     "titus-sidecar-spectatord",
 		enabledCheck: shouldStartSpectatord,
@@ -173,11 +179,30 @@ func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Con
 	return nil
 }
 
+func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
+	ctx, cancel := context.WithTimeout(ctx, systemServiceStartTimeout)
+	defer cancel()
+
+	conn, err := dbus.NewWithContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	target := fmt.Sprintf("titus-container@%s.target", c.TaskID())
+	_, err = conn.StopUnitContext(ctx, target, "fail", nil)
+	if err != nil {
+		return fmt.Errorf("Could not stop target %q: %w", target, err)
+	}
+
+	return nil
+}
+
 func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 
-	conn, connErr := dbus.New()
+	conn, connErr := dbus.NewWithContext(ctx)
 	if connErr != nil {
 		return connErr
 	}
@@ -245,7 +270,11 @@ func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, r
 }
 
 func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, runtime string, opts serviceOpts) error {
-	qualifiedUnitName := fmt.Sprintf("%s@%s.service", opts.unitName, taskID)
+	postFix := "service"
+	if opts.target {
+		postFix = "target"
+	}
+	qualifiedUnitName := fmt.Sprintf("%s@%s.%s", opts.unitName, taskID, postFix)
 	l := logrus.WithFields(logrus.Fields{
 		"containerId": cID,
 		"taskID":      taskID,
@@ -263,7 +292,7 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 
 	l.Infof("starting systemd unit %s", qualifiedUnitName)
 	ch := make(chan string, 1)
-	if _, err := conn.StartUnit(qualifiedUnitName, "fail", ch); err != nil {
+	if _, err := conn.StartUnitContext(ctx, qualifiedUnitName, "fail", ch); err != nil {
 		return err
 	}
 	select {
