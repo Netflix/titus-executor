@@ -4,6 +4,7 @@ ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
 StartLimitIntervalSec=30
 StartLimitBurst=5
+CollectMode=inactive-or-failed
 
 [Service]
 EnvironmentFile=/var/lib/titus-environments/%i.env

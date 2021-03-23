@@ -5,6 +5,7 @@ ConditionPathExists=!/etc/disable-atlas-titus-agent
 
 StartLimitIntervalSec=30
 StartLimitBurst=5
+CollectMode=inactive-or-failed
 
 [Service]
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i

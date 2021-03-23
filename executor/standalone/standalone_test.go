@@ -1043,7 +1043,7 @@ func testMetatronFailure(t *testing.T, jobID string) {
 	assert.Nil(t, err)
 	assert.NotNil(t, status)
 	if status != nil {
-		assert.Equal(t, "error starting titus-metatron-sync service: initialization failed: exit status 1", status.Mesg)
+		assert.Equal(t, "error starting titus-sidecar-metatron-sync service: initialization failed: exit status 1", status.Mesg)
 	}
 }
 
