@@ -6,7 +6,6 @@ ConditionPathExists=!/etc/disable-atlas-titus-agent
 StartLimitIntervalSec=30
 StartLimitBurst=5
 PartOf=titus-executor@default__%i.service
-Requisite=titus-executor@default__%i.service
 CollectMode=inactive-or-failed
 
 [Service]
