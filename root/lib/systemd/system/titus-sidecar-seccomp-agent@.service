@@ -3,7 +3,6 @@ Description=Titus seccomp agent for container %i
 
 StartLimitIntervalSec=30
 StartLimitBurst=5
-PartOf=titus-executor@default__%i.service
 CollectMode=inactive-or-failed
 
 [Service]

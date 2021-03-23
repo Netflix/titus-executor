@@ -7,7 +7,6 @@ StartLimitBurst=5
 
 After=titus-salt-generator.service
 Wants=titus-salt-generator.service
-PartOf=titus-executor@default__%i.service
 CollectMode=inactive-or-failed
 
 [Service]
