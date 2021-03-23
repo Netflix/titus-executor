@@ -13,20 +13,20 @@ import (
 )
 
 func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentityProviderGetter) *cobra.Command {
-	withTransition := false
-
-	netNS := []interface{}{v.GetInt("netns")}
-	if v.GetString("trans-netns") != "" {
-		withTransition = true
-		netNS = append(netNS, v.GetString("trans-netns"))
-	}
 	cmd := &cobra.Command{
 		Use:   "setup-container",
 		Short: "Setup networking for a particular container",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			withTransition := false
 			bandwidth := v.GetInt64("bandwidth")
 			burst := v.GetBool("burst")
 			jumbo := v.GetBool("jumbo")
+
+			netNS := []interface{}{v.GetInt("netns")}
+			if v.GetString("transition-netns") != "" {
+				withTransition = true
+				netNS = append(netNS, v.GetString("transition-netns"))
+			}
 			switch strings.ToLower(v.GetString(generationFlagName)) {
 			case "v1":
 				return container.SetupContainer(ctx, iipGetter(), netNS, withTransition, uint64(bandwidth), burst, jumbo)
@@ -39,7 +39,7 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 	}
 
 	cmd.Flags().Int("netns", 3, "The File Descriptor # of the network namespace to setup")
-	cmd.Flags().String("transition-netns", "trans-netns", "The name # of the network namespace to setup for transition")
+	cmd.Flags().String("transition-netns", "", "The name # of the network namespace to setup for transition")
 	cmd.Flags().Int64("bandwidth", 128*1024*1024, "Bandwidth to allocate to the device, in bps")
 	cmd.Flags().Bool("burst", false, "Allow this container to burst its network allocation")
 	cmd.Flags().Bool("jumbo", false, "Allow this container to use jumbo frames")

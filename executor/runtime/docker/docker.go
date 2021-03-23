@@ -1744,7 +1744,7 @@ func setupNetworkingArgs(burst bool, c runtimeTypes.Container) []string {
 		args = append(args, "--jumbo=true")
 	}
 	if c.SeccompAgentEnabledForNetSyscalls() {
-		args = append(args, "--trans-netns="+c.TaskID()+"trans-netns")
+		args = append(args, "--transition-netns="+c.TaskID()+"trans-netns")
 	}
 
 	return args
@@ -1879,7 +1879,7 @@ func setupNetworking(burst bool, c runtimeTypes.Container, cred ucred) (cleanupF
 			return nil, errors.Wrap(err, "Unable to open container network namespace file")
 		}
 		return func() error {
-			return teardownCommand(f2, allocation)
+			return teardownCommand(f2, allocation, c)
 		}, nil
 	default:
 		err = fmt.Errorf("Unknown generation: %s", g)
@@ -1890,12 +1890,12 @@ func setupNetworking(burst bool, c runtimeTypes.Container, cred ucred) (cleanupF
 
 }
 
-func teardownCommand(netnsFile *os.File, allocation vpcTypes.HybridAllocation) error {
+func teardownCommand(netnsFile *os.File, allocation vpcTypes.HybridAllocation, c runtimeTypes.Container) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	defer shouldClose(netnsFile)
 
-	teardownCommand := exec.CommandContext(ctx, vpcToolPath(), "teardown-container", "--netns", "3") // nolint: gosec
+	teardownCommand := exec.CommandContext(ctx, vpcToolPath(), "teardown-container", "--netns", "3", "--transition-netns", c.TaskID()+"trans-netns") // nolint: gosec
 	stdin, err := teardownCommand.StdinPipe()
 	if err != nil {
 		return errors.Wrap(err, "Cannot get teardown stdin")

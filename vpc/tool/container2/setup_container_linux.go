@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"os"
 	"runtime"
 	"time"
 	"unsafe"
@@ -91,7 +92,11 @@ func getNsFd(netNS interface{}) (int, bool, error) {
 		isTransLink = true
 		nsHdl, err := netns.NewNamed(v)
 		if err != nil {
-			return netnsfd, false, err
+			if !os.IsNotExist(err) {
+				nsHdl, err = netns.GetFromName(v)
+			} else {
+				return netnsfd, false, err
+			}
 		}
 		netnsfd = int(nsHdl)
 	}
@@ -142,7 +147,11 @@ func DoSetupContainer(ctx context.Context, netNS []interface{}, withTrans bool, 
 			return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 		}
 
-		return configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, allocation, netnsfd)
+		err = configureLink(ctx, nsHandle, newLink, isTransLink, withTrans, bandwidth, ceil, allocation, netnsfd)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not configure after adding link")
+			return errors.Wrapf(err, "Could not configure link with name %s", containerInterfaceName)
+		}
 	}
 	return nil
 }
@@ -601,7 +610,7 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netNS []interface{}) error {
 	var result *multierror.Error
 	for _, ns := range netNS {
-		netnsfd, _, err := getNsFd(ns)
+		netnsfd, isTransLink, err := getNsFd(ns)
 		if err != nil {
 			err = errors.Wrap(err, "Could not get netnsfd from namespace")
 			result = multierror.Append(result, err)
@@ -631,6 +640,10 @@ func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netNS
 						logger.G(ctx).WithError(err).Warning("eth0 not found in container on delete")
 					}
 				}
+			}
+			if isTransLink {
+				hdl := netns.NsHandle(netnsfd)
+				hdl.Close()
 			}
 			nsHandle.Delete()
 		}

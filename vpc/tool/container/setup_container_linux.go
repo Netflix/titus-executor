@@ -58,6 +58,7 @@ func doSetupContainer(ctx context.Context, netNS []interface{}, withTrans bool, 
 		}
 
 		netnsfd, isTransLink, err := getNsFd(ns)
+		logger.G(ctx).WithError(err).Error("setting up links for netnsfd")
 		if err != nil {
 			return nil, err
 		}
