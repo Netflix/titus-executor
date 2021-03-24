@@ -23,6 +23,16 @@
 #include "seccomp_fd_notify.h"
 #include "shared.h"
 
+/* This subprofile is expected to exist for any AppArmor transitions to happen.
+For example, if the existing profile is docker_titus, there MUST be a subprofile
+called 'sshd' defined inside that profile for this to work.
+Why do we do this? Because sometimes we set no_new_privs, which will not allow you
+to change your profile on exec. (because that *might* grant you new privs, and we can't be sure)
+Therefore, we must use our "final" AppArmor profile name *before* we fork.
+Why is it hard-coded to sshd? Well because we only have one use-case for titus-nsenter right
+now, and that is for titus-sshd. */
+#define APPARMOR_SUBPROFILE "sshd"
+
 struct namespace
 {
 	int nstype;
@@ -110,8 +120,13 @@ static int set_up_apparmor(char apparmor_profile[8192], int apparmor_fd)
 
 	// we can use dprintf, but this just makes error handling cleaner
 	memset(writebuf, 0, sizeof(writebuf));
-	n = snprintf(writebuf, sizeof(writebuf) - 1, "changeprofile %s",
-		     apparmor_profile);
+	/* This final profile name *must* be the actual name of the profile that
+	we will actually get when we do the final exec into our destination process.
+	AppArmor may not like it if we end up using some other profile, just because
+	our process name matches something else. No switching on exec is allow
+	if no_new_privs is set. */
+	n = snprintf(writebuf, sizeof(writebuf) - 1, "changeprofile %s//%s",
+		     apparmor_profile, APPARMOR_SUBPROFILE);
 	BUG_ON(n < 0 || n >= sizeof(writebuf),
 	       "Could not generate exec changehat command");
 

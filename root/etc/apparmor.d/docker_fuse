@@ -1,5 +1,8 @@
 #include <tunables/global>
 
+# DEBUGGING THIS FILE!? :)
+# See the top note in the docker_titus file.
+
 profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
@@ -9,6 +12,8 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
   umount,
   mount,
 
+  # Allow signals send to titus-sshd, usually systemd-shutdown ends up sending these out on shutdown
+  signal (send) peer="docker_titus//sshd",
   signal (send,receive) peer=@{profile_name},
 
   deny mount fstype=tmpfs,
@@ -43,9 +48,11 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
 
   deny /titus/** wl,
 
-/titus/sshd/usr/sbin/sshd Cx,
+  /titus/sshd/usr/sbin/sshd Cx,
 
   profile sshd /titus/sshd/usr/sbin/sshd {
+    # Allow signals from unconfined, usually systemd on the host
+    signal (receive) peer="unconfined",
     signal (send,receive) peer=@{profile_name},
 
     network,

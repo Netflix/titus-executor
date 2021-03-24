@@ -1,5 +1,16 @@
 #include <tunables/global>
 
+# DEBUGGING THIS FILE!? :)
+# Try putting it into complain mode:
+# $ sudo apt-get -y install apparmor-utils
+# $ sudo aa-complain /etc/apparmor.d/docker_titus
+# Do something! What 'would have been DENIED and why?' Check the logs with:
+# $ sudo tail -f /var/log/syslog  | grep apparmor
+# Then reparse the file after changes
+# $ sudo apparmor_parser -r /etc/apparmor.d/docker_titus
+# Then re-enable enforcing to see if you fixed it
+# $ sudo aa-enforce /etc/apparmor.d/docker_titus
+
 profile docker_titus flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
@@ -8,6 +19,8 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
   file,
   umount,
 
+  # Allow signals send to titus-sshd, usually systemd-shutdown ends up sending these out on shutdown
+  signal (send) peer="docker_titus//sshd",
   signal (send,receive) peer=@{profile_name},
 
   deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
@@ -34,7 +47,7 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
   /titus/sshd/usr/sbin/sshd Cx,
 
   profile sshd /titus/sshd/usr/sbin/sshd {
-    # Allow signals from unconfined, usually systemd
+    # Allow signals from unconfined, usually systemd on the host
     signal (receive) peer="unconfined",
     signal (send,receive) peer=@{profile_name},
 
