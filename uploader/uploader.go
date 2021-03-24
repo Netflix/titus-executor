@@ -22,15 +22,20 @@ type Uploader struct {
 
 // Config specifies the config for the uploader
 type Config struct {
-	S3WriterRole string
-	S3BucketName string
-	S3PathPrefix string
+	DisableUpload bool
+	S3WriterRole  string
+	S3BucketName  string
+	S3PathPrefix  string
 }
 
 // The upload always prefers s3, then copy, and will use a black hole sink if nothing else is configured. The first
 // s3 location or copy destination specified is used. Rest are ignored.
 func NewUploader(config *config.Config, uploaderConfig *Config, iamRole string, taskID string, m metrics.Reporter) (*Uploader, error) {
 	bucketName, useTitusRole := "", true
+
+	if uploaderConfig.DisableUpload {
+		return NewUploaderWithBackend(NewNoopBackend()), nil
+	}
 
 	if len(config.S3Uploaders) > 0 {
 		bucketName = config.S3Uploaders[0]
