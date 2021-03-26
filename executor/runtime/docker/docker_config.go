@@ -3,8 +3,6 @@ package docker
 import (
 	"time"
 
-	"github.com/Netflix/titus-executor/config"
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"gopkg.in/urfave/cli.v1"
 )
 

@@ -111,12 +111,6 @@ type EBSInfo struct {
 	FSType    string
 }
 
-type SidecarContainerConfig struct {
-	ServiceName string
-	Image       string
-	Volumes     map[string]struct{}
-}
-
 // Container contains config state for a container. It should be Read Only. It should only be initialized via a
 // constructor, and not directly.
 type Container interface {
@@ -177,7 +171,7 @@ type Container interface {
 	SetSystemD(bool)
 	SetVPCAllocation(*vpcTypes.HybridAllocation)
 	ShmSizeMiB() *uint32
-	SidecarConfigs() (map[string]*SidecarContainerConfig, error)
+	SidecarConfigs() (map[string]*ServiceOpts, error)
 	SignedAddressAllocationUUID() *string
 	SortedEnvArray() []string
 	SubnetIDs() *string
@@ -379,4 +373,18 @@ const (
 type StatusMessage struct {
 	Status Status
 	Msg    string
+}
+
+// Function to determine if a service should be enabled or not
+type serviceEnabledFunc func(cfg *config.Config, c Container) bool
+
+type ServiceOpts struct {
+	InitCommand   string
+	Required      bool
+	UnitName      string
+	EnabledCheck  serviceEnabledFunc
+	Target        bool
+	Image         string
+	Volumes       map[string]struct{}
+	ContainerName string
 }

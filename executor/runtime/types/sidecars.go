@@ -8,49 +8,80 @@ const (
 	SidecarServiceSshd        = "sshd"
 	SidecarServiceSpectatord  = "spectatord"
 	SidecarServiceAtlasd      = "atlasd"
+	SidecarTitusStorage       = "titus-storage"
+	SidecarSeccompAgent       = "seccomp-agent"
 )
 
-var sideCars = []SidecarContainerConfig{
-	{
-		ServiceName: SidecarServiceAbMetrix,
-		Volumes: map[string]struct{}{
-			"/titus/abmetrix": {},
-		},
+var sideCars = map[string]*ServiceOpts{
+	"titus-container": {
+		UnitName: "titus-container",
+		Required: true,
+		Target:   true,
 	},
-	{
-		ServiceName: SidecarServiceLogViewer,
-		Volumes: map[string]struct{}{
-			"/titus/adminlogs": {},
-		},
-	},
-	{
-		ServiceName: SidecarServiceMetatron,
-		Volumes: map[string]struct{}{
-			"/titus/metatron": {},
-		},
-	},
-	{
-		ServiceName: SidecarServiceSshd,
-		Volumes: map[string]struct{}{
-			"/titus/sshd": {},
-		},
-	},
-	{
-		ServiceName: SidecarServiceServiceMesh,
-		Volumes: map[string]struct{}{
-			"/titus/proxyd": {},
-		},
-	},
-	{
-		ServiceName: SidecarServiceSpectatord,
+	SidecarServiceSpectatord: {
+		UnitName:     "titus-sidecar-spectatord",
+		EnabledCheck: shouldStartSpectatord,
+		Required:     false,
 		Volumes: map[string]struct{}{
 			"/titus/spectatord": {},
 		},
 	},
-	{
-		ServiceName: SidecarServiceAtlasd,
+	SidecarServiceAtlasd: {
+		UnitName:     "titus-sidecar-atlasd",
+		EnabledCheck: shouldStartAtlasd,
+		Required:     false,
 		Volumes: map[string]struct{}{
 			"/titus/atlas-titus-agent": {},
+		},
+	},
+	"titus-sidecar-atlas-titus-agent": {
+		UnitName:     "titus-sidecar-atlas-titus-agent",
+		EnabledCheck: shouldStartAtlasAgent,
+		Required:     false,
+	},
+	SidecarServiceSshd: {
+		UnitName:     "titus-sidecar-sshd",
+		EnabledCheck: shouldStartSSHD,
+		Required:     false,
+		Volumes: map[string]struct{}{
+			"/titus/sshd": {},
+		},
+	},
+	"titus-sidecar-metadata-proxy": {
+		UnitName: "titus-sidecar-metadata-proxy",
+		Required: true,
+	},
+	SidecarServiceMetatron: {
+		UnitName:     "titus-sidecar-metatron-sync",
+		Required:     true,
+		InitCommand:  "/titus/metatron/bin/titus-metatrond --init",
+		EnabledCheck: shouldStartMetatronSync,
+		Volumes: map[string]struct{}{
+			"/titus/metatron": {},
+		},
+	},
+	SidecarServiceLogViewer: {
+		UnitName:     "titus-sidecar-logviewer",
+		Required:     true,
+		EnabledCheck: shouldStartLogViewer,
+		Volumes: map[string]struct{}{
+			"/titus/adminlogs": {},
+		},
+	},
+	SidecarServiceServiceMesh: {
+		UnitName:     "titus-sidecar-servicemesh",
+		Required:     true,
+		EnabledCheck: shouldStartServiceMesh,
+		Volumes: map[string]struct{}{
+			"/titus/proxyd": {},
+		},
+	},
+	SidecarServiceAbMetrix: {
+		UnitName:     "titus-sidecar-abmetrix",
+		Required:     false,
+		EnabledCheck: shouldStartAbmetrix,
+		Volumes: map[string]struct{}{
+			"/titus/abmetrix": {},
 		},
 	},
 	SidecarSeccompAgent: {

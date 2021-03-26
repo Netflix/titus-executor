@@ -39,17 +39,6 @@ type schedParam struct {
 	schedPriority int32
 }
 
-// Function to determine if a service should be enabled or not
-type serviceEnabledFunc func(cfg *config.Config, c runtimeTypes.Container) bool
-
-type serviceOpts struct {
-	initCommand  string
-	required     bool
-	unitName     string
-	enabledCheck serviceEnabledFunc
-	target       bool
-}
-
 const (
 	titusInits                = "/var/lib/titus-inits"
 	systemServiceStartTimeout = 90 * time.Second
@@ -58,69 +47,6 @@ const (
 	runcArgFormat             = "--root /var/run/docker/runtime-%s/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s %s"
 	defaultOomScore           = 1000
 )
-
-var systemServices = []serviceOpts{
-	{
-		unitName: "titus-container",
-		required: true,
-		target:   true,
-	},
-	{
-		unitName:     "titus-sidecar-spectatord",
-		enabledCheck: shouldStartSpectatord,
-		required:     false,
-	},
-	{
-		unitName:     "titus-sidecar-atlasd",
-		enabledCheck: shouldStartAtlasd,
-		required:     false,
-	},
-	{
-		unitName:     "titus-sidecar-atlas-titus-agent",
-		enabledCheck: shouldStartAtlasAgent,
-		required:     false,
-	},
-	{
-		unitName:     "titus-sidecar-sshd",
-		enabledCheck: shouldStartSSHD,
-		required:     false,
-	},
-	{
-		unitName: "titus-sidecar-metadata-proxy",
-		required: true,
-	},
-	{
-		unitName:     "titus-sidecar-metatron-sync",
-		required:     true,
-		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
-		enabledCheck: shouldStartMetatronSync,
-	},
-	{
-		unitName:     "titus-sidecar-logviewer",
-		required:     true,
-		enabledCheck: shouldStartLogViewer,
-	},
-	{
-		unitName:     "titus-sidecar-servicemesh",
-		required:     true,
-		enabledCheck: shouldStartServiceMesh,
-	},
-	{
-		unitName:     "titus-sidecar-abmetrix",
-		required:     false,
-		enabledCheck: shouldStartAbmetrix,
-	},
-	{
-		unitName:     "titus-sidecar-seccomp-agent",
-		required:     true,
-		enabledCheck: shouldStartTitusSeccompAgent,
-	},
-	{
-		unitName:     "titus-sidecar-storage",
-		required:     true,
-		enabledCheck: shouldStartTitusStorage,
-	},
-}
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
 	unixConnFile, err := unixConn.File()
