@@ -134,10 +134,12 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	}
 	defer conn.Close()
 
+	// TODO: it would be nice not to fetch this twice
 	sidecars, err := c.SidecarConfigs()
 	if err != nil {
 		return err
 	}
+	// TODO: Can we somehow make sure titus-container always starts first?
 	for _, svc := range sidecars {
 		if svc.EnabledCheck != nil && !svc.EnabledCheck(&cfg, c) {
 			continue

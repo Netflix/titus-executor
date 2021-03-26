@@ -799,7 +799,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(serviceName string, sCfg *runt
 	return func(ctx context.Context) error {
 		logger.G(ctx).WithField("serviceName", serviceName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname:   fmt.Sprintf("titus-%s", serviceName),
+			Hostname:   serviceName,
 			Volumes:    sCfg.Volumes,
 			Entrypoint: []string{"/bin/bash"},
 			Image:      sCfg.Image,
@@ -810,7 +810,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(serviceName string, sCfg *runt
 
 		createErr := r.createVolumeContainer(ctx, &sCfg.ContainerName, cfg, hostConfig)
 		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container", sCfg.ContainerName)
+			return errors.Wrapf(createErr, "Unable to setup %s container '%s'", serviceName, sCfg.ContainerName)
 		}
 
 		return nil
@@ -890,13 +890,6 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
-	var logViewerContainerName string
-	var abmetrixContainerName string
-	var metatronContainerName string
-	var serviceMeshContainerName string
-	var sshdContainerName string
-	var spectatordContainerName string
-	var atlasdContainerName string
 	var volumeContainers []string
 
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
@@ -951,8 +944,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	})
 
 	for sidecarName, sidecarConfig := range sidecarConfigs {
-		if sidecarConfig.Volumes != nil {
-			fmt.Printf("Creating volume for %s: %+v", sidecarName, sidecarConfig)
+		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
 			sidecarConfig.ContainerName = sidecarName
 			group.Go(r.createVolumeContainerFunc(sidecarName, sidecarConfig))
 		}
@@ -1027,28 +1019,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		goto error
 	}
 
-	if spectatordContainerName != "" {
-		volumeContainers = append(volumeContainers, spectatordContainerName)
-	}
-
-	if atlasdContainerName != "" {
-		volumeContainers = append(volumeContainers, atlasdContainerName)
-	}
-
-	if metatronContainerName != "" {
-		volumeContainers = append(volumeContainers, metatronContainerName)
-	}
-	if sshdContainerName != "" {
-		volumeContainers = append(volumeContainers, sshdContainerName)
-	}
-	if logViewerContainerName != "" {
-		volumeContainers = append(volumeContainers, logViewerContainerName)
-	}
-	if serviceMeshContainerName != "" {
-		volumeContainers = append(volumeContainers, serviceMeshContainerName)
-	}
-	if abmetrixContainerName != "" {
-		volumeContainers = append(volumeContainers, abmetrixContainerName)
+	for _, sidecarConfig := range sidecarConfigs {
+		if sidecarConfig.ContainerName != "" {
+			volumeContainers = append(volumeContainers, sidecarConfig.ContainerName)
+		}
 	}
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)

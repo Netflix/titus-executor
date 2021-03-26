@@ -3,19 +3,22 @@ package types
 import "github.com/Netflix/titus-executor/config"
 
 const (
-	SidecarServiceAbMetrix    = "abmetrix"
-	SidecarServiceLogViewer   = "logviewer"
-	SidecarServiceMetatron    = "metatron"
-	SidecarServiceServiceMesh = "servicemesh"
-	SidecarServiceSshd        = "sshd"
-	SidecarServiceSpectatord  = "spectatord"
-	SidecarServiceAtlasd      = "atlasd"
-	SidecarTitusStorage       = "titus-storage"
-	SidecarSeccompAgent       = "seccomp-agent"
+	SidecarTitusContainer       = "titus-container"
+	SidecarServiceAbMetrix      = "abmetrix"
+	SidecarServiceLogViewer     = "logviewer"
+	SidecarServiceMetatron      = "metatron"
+	SidecarServiceServiceMesh   = "servicemesh"
+	SidecarServiceSshd          = "sshd"
+	SidecarServiceSpectatord    = "spectatord"
+	SidecarServiceAtlasd        = "atlasd"
+	SidecarServiceAtlasAgent    = "atlas-agent"
+	SidecarTitusStorage         = "titus-storage"
+	SidecarSeccompAgent         = "seccomp-agent"
+	SidecarServiceMetadataProxy = "metadata-proxy"
 )
 
 var sideCars = map[string]*ServiceOpts{
-	"titus-container": {
+	SidecarTitusContainer: {
 		UnitName: "titus-container",
 		Required: true,
 		Target:   true,
@@ -36,7 +39,7 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/atlas-titus-agent": {},
 		},
 	},
-	"titus-sidecar-atlas-titus-agent": {
+	SidecarServiceAtlasAgent: {
 		UnitName:     "titus-sidecar-atlas-titus-agent",
 		EnabledCheck: shouldStartAtlasAgent,
 		Required:     false,
@@ -49,7 +52,7 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/sshd": {},
 		},
 	},
-	"titus-sidecar-metadata-proxy": {
+	SidecarServiceMetadataProxy: {
 		UnitName: "titus-sidecar-metadata-proxy",
 		Required: true,
 	},
