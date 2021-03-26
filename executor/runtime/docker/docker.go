@@ -947,35 +947,15 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		return nil
 	})
 
-	if shouldStartSpectatord(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSpectatord], &spectatordContainerName))
+	for sidecarName, sidecarConfig := range sidecarConfigs {
+		if sidecarConfig.Volumes != nil {
+			fmt.Printf("Creating volume for %s: %+v", sidecarName, sidecarConfig)
+			sidecarConfig.ContainerName = sidecarName
+			group.Go(r.createVolumeContainerFunc(sidecarName, sidecarConfig))
+		}
 	}
 
-	if shouldStartAtlasd(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAtlasd], &atlasdContainerName))
-	}
-
-	if shouldStartMetatronSync(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceMetatron], &metatronContainerName))
-	}
-
-	if shouldStartSSHD(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSshd], &sshdContainerName))
-	}
-
-	if shouldStartLogViewer(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceLogViewer], &logViewerContainerName))
-	}
-
-	if shouldStartServiceMesh(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceServiceMesh], &serviceMeshContainerName))
-	}
-
-	if shouldStartAbmetrix(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAbMetrix], &abmetrixContainerName))
-	}
-
-	if shouldStartTitusSeccompAgent(&r.cfg, r.c) {
+	if sidecarConfigs[runtimeTypes.SidecarSeccompAgent].EnabledCheck(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
 			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
 			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
@@ -992,7 +972,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}
 	}
 
-	if shouldStartTitusStorage(&r.cfg, r.c) {
+	if sidecarConfigs[runtimeTypes.SidecarTitusStorage].EnabledCheck(&r.cfg, r.c) {
 		v := r.c.EBSInfo()
 		r.c.SetEnvs(map[string]string{
 			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
