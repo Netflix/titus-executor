@@ -80,11 +80,13 @@ configure_file (
 include_directories ("${PROJECT_BINARY_DIR}")
 
 add_executable (tini src/tini.c src/seccomp_fd_notify.c)
+target_link_libraries(tini seccomp-fd-notify cap)
 
 add_library (seccomp-fd-notify STATIC src/seccomp_fd_notify.c)
+target_link_libraries(seccomp-fd-notify cap)
 
 add_executable (tini-static src/tini.c src/seccomp_fd_notify.c)
-set_target_properties (tini-static PROPERTIES LINK_FLAGS "-Wl,--no-export-dynamic -static")
+target_link_libraries(tini-static seccomp-fd-notify cap -static)
 
 # Installation
 install (TARGETS tini DESTINATION bin)
