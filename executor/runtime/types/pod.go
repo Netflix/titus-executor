@@ -289,8 +289,8 @@ func (c *PodContainer) ShmSizeMiB() *uint32 {
 	return nil
 }
 
-func (c *PodContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, error) {
-	return map[string]*SidecarContainerConfig{}, nil
+func (c *PodContainer) SidecarConfigs() (map[string]*ServiceOpts, error) {
+	return map[string]*ServiceOpts{}, nil
 }
 
 func (c *PodContainer) SignedAddressAllocationUUID() *string {

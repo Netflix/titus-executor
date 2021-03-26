@@ -1,5 +1,7 @@
 package types
 
+import "github.com/Netflix/titus-executor/config"
+
 const (
 	SidecarServiceAbMetrix    = "abmetrix"
 	SidecarServiceLogViewer   = "logviewer"

@@ -795,11 +795,11 @@ func cleanContainerName(prefix string, imageName string) string {
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarContainerConfig, containerName *string) func(ctx context.Context) error {
+func (r *DockerRuntime) createVolumeContainerFunc(serviceName string, sCfg *runtimeTypes.ServiceOpts) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		logger.G(ctx).WithField("serviceName", sCfg.ServiceName).Infof("Setting up container")
+		logger.G(ctx).WithField("serviceName", serviceName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname:   fmt.Sprintf("titus-%s", sCfg.ServiceName),
+			Hostname:   fmt.Sprintf("titus-%s", serviceName),
 			Volumes:    sCfg.Volumes,
 			Entrypoint: []string{"/bin/bash"},
 			Image:      sCfg.Image,
@@ -808,9 +808,9 @@ func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarCont
 			NetworkMode: "none",
 		}
 
-		createErr := r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
+		createErr := r.createVolumeContainer(ctx, &sCfg.ContainerName, cfg, hostConfig)
 		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container", sCfg.ServiceName)
+			return errors.Wrapf(createErr, "Unable to setup %s container", sCfg.ContainerName)
 		}
 
 		return nil
@@ -820,6 +820,9 @@ func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarCont
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
 func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
 	image := cfg.Image
+	if image == "" {
+		return fmt.Errorf("No image set for %s, can't create a volume container for it", *containerName)
+	}
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
 		return err
@@ -907,7 +910,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		myImageInfo         *types.ImageInspect
 		dockerCfg           *container.Config
 		hostCfg             *container.HostConfig
-		sidecarConfigs      map[string]*runtimeTypes.SidecarContainerConfig
+		sidecarConfigs      map[string]*runtimeTypes.ServiceOpts
 		size                int64
 		bindMounts          []string
 	)
