@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"net/http"
 
 	log2 "github.com/Netflix/titus-executor/utils/log"
@@ -16,13 +17,37 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func listenOnHTTPSOptionally(r *http.ServeMux) {
+	if conf.CertFile != "" && conf.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(conf.CertFile, conf.KeyFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		s := &http.Server{
+			Addr:    ":8005",
+			Handler: r,
+			TLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				MinVersion:   tls.VersionTLS12,
+			},
+		}
+		if err := s.ListenAndServeTLS("", ""); err != nil {
+			log.Error("Error: HTTPS ListenAndServe: ", err)
+		}
+	} else {
+		log.Print("TITUS_LOGVIEWER_CERT / TITUS_LOGVIEWER_KEY not set. Not serving HTTPS")
+	}
+}
+
 func main() {
 	log2.MaybeSetupLoggerIfOnJournaldAvailable()
 	log.Println("Titus logviewer is starting")
 	r := newMux()
+	go listenOnHTTPSOptionally(r)
 	if err := http.ListenAndServe(":8004", r); err != nil {
-		log.Error("Error: HTTP ListenAndServe: ", err)
+		log.Fatal("Error: HTTP ListenAndServe: ", err)
 	}
+
 }
 
 func newMux() *http.ServeMux {

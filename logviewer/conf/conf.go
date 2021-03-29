@@ -12,6 +12,8 @@ var (
 	ContainerID        = ""
 	RunningInContainer = false
 	ProxyMode          = true
+	CertFile           = ""
+	KeyFile            = ""
 )
 
 func init() {
@@ -32,10 +34,15 @@ func init() {
 		ProxyMode = false
 	}
 
+	CertFile = os.Getenv("TITUS_LOGVIEWER_CERT")
+	KeyFile = os.Getenv("TITUS_LOGVIEWER_KEY")
+
 	log.WithFields(log.Fields{
 		"ContainersHome":     ContainersHome,
 		"ContainerID":        ContainerID,
 		"RunningInContainer": RunningInContainer,
 		"ProxyMode":          ProxyMode,
+		"CertFile":           CertFile,
+		"KeyFile":            KeyFile,
 	}).Info("Config loaded")
 }
