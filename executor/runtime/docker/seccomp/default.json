@@ -591,27 +591,9 @@
 		},
 		{
 			"names": [
-				"bpf",
-				"clone",
-				"fanotify_init",
-				"fsconfig",
-				"fsmount",
-				"fsopen",
-				"fspick",
-				"lookup_dcookie",
 				"mount",
-				"move_mount",
-				"name_to_handle_at",
-				"open_tree",
-				"perf_event_open",
-				"quotactl",
-				"setdomainname",
-				"sethostname",
-				"setns",
-				"syslog",
 				"umount",
-				"umount2",
-				"unshare"
+				"umount2"
 			],
 			"action": "SCMP_ACT_ALLOW",
 			"args": [],
