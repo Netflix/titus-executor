@@ -1,6 +1,7 @@
 #include <sys/prctl.h>
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -10,6 +11,7 @@
 #include <linux/perf_event.h>
 #include <linux/seccomp.h>
 #include <stddef.h>
+#include <sys/capability.h>
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
 
@@ -29,6 +31,18 @@
 		fprintf(stderr, __VA_ARGS__);                                  \
 		fprintf(stderr, "\n");                                         \
 	}
+
+bool have_cap_sysadmin()
+{
+	cap_t current_capabilties = cap_get_proc();
+	// cap_get_flag() obtains the current value of the capability flag, flag, of the capability, cap,
+	// from the capability state identified by cap_p and places it in the location pointed to by value_p.
+	cap_flag_value_t cap_value;
+	// Look at our EFFECTIVE current_capabilities for CAP_SYS_ADMIN, and set the result in cap_value
+	cap_get_flag(current_capabilties, CAP_SYS_ADMIN, CAP_EFFECTIVE,
+		     &cap_value);
+	return cap_value == CAP_SET;
+}
 
 static int send_fd(int sock, int fd)
 {
@@ -114,17 +128,24 @@ static int install_notify_filter(void)
 		.filter = filter,
 	};
 
+	/* If we don't have CAP_SYSADMIN, we MUST set NO_NEW_PRIVS.
+	Why? Read https://unix.stackexchange.com/a/562899/411719
+	Or, from the seccomp man page:
+	> In order to use the SECCOMP_SET_MODE_FILTER operation, either the caller must have the CAP_SYS_ADMIN
+	> capability in its user namespace, or the thread must already have the no_new_privs bit set. */
+	if (!have_cap_sysadmin()) {
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+			PRINT_WARNING(
+				"failed doing no new privs, won't be able to setup the seccomp filter");
+			return -1;
+		}
+	}
+
 	/* Install the filter with the SECCOMP_FILTER_FLAG_NEW_LISTENER flag; as
 	   a result, seccomp() returns a notification file descriptor. */
 
 	/* Only one listening file descriptor can be established. An attempt to
 	   establish a second listener yields an EBUSY error. */
-
-	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-		PRINT_WARNING(
-			"failed doing no new privs, won't be able to setup the seccomp filter");
-		return -1;
-	}
 
 	int notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
 				SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
