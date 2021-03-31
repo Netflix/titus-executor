@@ -15,6 +15,14 @@ const (
 	mountCommand = "/apps/titus-executor/bin/titus-mount-block-device"
 )
 
+type MountCommand struct {
+	device     string
+	perms      string
+	pid1Dir    string
+	mountPoint string
+	fstype     string
+}
+
 func calculateFlags(mountPerm string) (string, error) {
 	if mountPerm == "RW" {
 		return "0", nil
@@ -24,33 +32,28 @@ func calculateFlags(mountPerm string) (string, error) {
 	return "", fmt.Errorf("error parsing the mount permissions: '%s', needs to be only RW/RO", mountPerm)
 }
 
-func mountIt(ctx context.Context, dev string, fstype string, mountPoint string, mountPerm string, pid1Dir string) error {
+func mountBlockDeviceInContainer(ctx context.Context, mc MountCommand) error {
 	l := logger.GetLogger(ctx)
-	flags, err := calculateFlags(mountPerm)
+	flags, err := calculateFlags(mc.perms)
 	if err != nil {
 		return err
 	}
-	if pid1Dir == "" {
+	if mc.pid1Dir == "" {
 		return fmt.Errorf("env var TITUS_PID_1_DIR is not set, unable to mount")
 	}
-	l.Printf("Running %s to mount %s onto %s in the container", mountCommand, dev, mountPoint)
+	l.Printf("Running %s to mount %s onto %s in the container", mountCommand, mc.device, mc.mountPoint)
 	cmd := exec.Command(mountCommand)
 	cmd.Env = []string{
-		"TITUS_PID_1_DIR=" + pid1Dir,
-		"MOUNT_TARGET=" + mountPoint,
-		"MOUNT_OPTIONS=source=" + dev,
+		"TITUS_PID_1_DIR=" + mc.pid1Dir,
+		"MOUNT_TARGET=" + mc.mountPoint,
+		"MOUNT_OPTIONS=source=" + mc.device,
 		"MOUNT_FLAGS=" + flags,
-		"MOUNT_FSTYPE=" + fstype,
+		"MOUNT_FSTYPE=" + mc.fstype,
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	l.Printf("%s %s", strings.Join(cmd.Env, " "), mountCommand)
 	return cmd.Run()
-}
-
-func mkfsIfNeeded(dev string, fstype string) error {
-	// TODO: Not currently supported
-	return nil
 }
 
 func waitForDeviceToBeNotInUse(device string, timeout int) error {
