@@ -1,0 +1,39 @@
+--- stock.docker.json	2021-04-01 17:07:57.000000000 -0700
++++ default.jsonnet	2021-04-01 17:11:45.000000000 -0700
+@@ -590,28 +590,9 @@
+ 			"excludes": {}
+ 		},
+ 		{
++			# Foo
+ 			"names": [
+-				"bpf",
+ 				"clone",
+-				"fanotify_init",
+-				"fsconfig",
+-				"fsmount",
+-				"fsopen",
+-				"fspick",
+-				"lookup_dcookie",
+-				"mount",
+-				"move_mount",
+-				"name_to_handle_at",
+-				"open_tree",
+-				"perf_event_open",
+-				"quotactl",
+-				"setdomainname",
+-				"sethostname",
+-				"setns",
+-				"syslog",
+-				"umount",
+-				"umount2",
+-				"unshare"
+ 			],
+ 			"action": "SCMP_ACT_ALLOW",
+ 			"args": [],
+@@ -825,4 +806,4 @@
+ 			"excludes": {}
+ 		}
+ 	]
+-}
+\ No newline at end of file
++}

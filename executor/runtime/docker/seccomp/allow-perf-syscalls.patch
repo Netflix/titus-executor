@@ -1,0 +1,61 @@
+--- stock.docker.json	2021-04-01 17:07:57.000000000 -0700
++++ allow-perf-syscalls.jsonnet	2021-04-01 17:08:18.000000000 -0700
+@@ -58,6 +58,9 @@
+ 				"adjtimex",
+ 				"alarm",
+ 				"bind",
++				# For allow-perf-syscalls, we allow bpf because
++				# later it will get sent to the titus-seccomp-agent for interception
++				"bpf",
+ 				"brk",
+ 				"capget",
+ 				"capset",
+@@ -234,6 +237,9 @@
+ 				"openat",
+ 				"openat2",
+ 				"pause",
++				# For allow-perf-syscalls, we allow perf_event_open because
++				# later it will get sent to the titus-seccomp-agent for interception
++				"perf_event_open",
+ 				"pidfd_open",
+ 				"pidfd_send_signal",
+ 				"pipe",
+@@ -590,28 +596,10 @@
+ 			"excludes": {}
+ 		},
+ 		{
++			# Like the default profile, allow-per-syscalls shouldn't have
++			# Anything special if you have SYS_ADMIN
+ 			"names": [
+-				"bpf",
+-				"clone",
+-				"fanotify_init",
+-				"fsconfig",
+-				"fsmount",
+-				"fsopen",
+-				"fspick",
+-				"lookup_dcookie",
+-				"mount",
+-				"move_mount",
+-				"name_to_handle_at",
+-				"open_tree",
+-				"perf_event_open",
+-				"quotactl",
+-				"setdomainname",
+-				"sethostname",
+-				"setns",
+-				"syslog",
+-				"umount",
+-				"umount2",
+-				"unshare"
++				"clone"
+ 			],
+ 			"action": "SCMP_ACT_ALLOW",
+ 			"args": [],
+@@ -825,4 +813,4 @@
+ 			"excludes": {}
+ 		}
+ 	]
+-}
+\ No newline at end of file
++}

@@ -1,0 +1,38 @@
+--- stock.docker.json	2021-04-01 17:07:57.000000000 -0700
++++ fuse-container.jsonnet	2021-04-01 17:08:18.000000000 -0700
+@@ -590,25 +590,17 @@
+ 			"excludes": {}
+ 		},
+ 		{
++			# We give CAP_SYS_ADMIN to fuse-containers, but they only extra
++			# Thing they should be allowed to do is mount/unshare related syscalls
++			# to allow fuse and docker build stuff
+ 			"names": [
+-				"bpf",
+ 				"clone",
+-				"fanotify_init",
+ 				"fsconfig",
+ 				"fsmount",
+ 				"fsopen",
+ 				"fspick",
+-				"lookup_dcookie",
+ 				"mount",
+ 				"move_mount",
+-				"name_to_handle_at",
+-				"open_tree",
+-				"perf_event_open",
+-				"quotactl",
+-				"setdomainname",
+-				"sethostname",
+-				"setns",
+-				"syslog",
+ 				"umount",
+ 				"umount2",
+ 				"unshare"
+@@ -825,4 +817,4 @@
+ 			"excludes": {}
+ 		}
+ 	]
+-}
+\ No newline at end of file
++}
