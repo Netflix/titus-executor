@@ -27,11 +27,16 @@ func ebsRunner(ctx context.Context, command string, config MountConfig) error {
 	ec2Session := getEC2Session()
 	ec2Client := getEc2Client(ec2Session)
 	ec2InstanceID := getEC2InstanceID(ec2Session)
+	l := logger.GetLogger(ctx)
 	var err error
 
 	switch command {
 	case "start":
 		err = ebsStart(ctx, ec2Client, config, ec2InstanceID)
+		if err != nil {
+			l.Error("Failed to start. Running stop sequence now as we wont get a stop command later on TASK_LOST")
+			_ = ebsStop(ctx, ec2Client, config, ec2InstanceID)
+		}
 	case "stop":
 		err = ebsStop(ctx, ec2Client, config, ec2InstanceID)
 	default:
