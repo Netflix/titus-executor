@@ -1,9 +1,11 @@
-FROM registry.svc.ci.openshift.org/coreos/cosa-buildroot as builder-negative-seccomp
+FROM gcc:10 as builder-negative-seccomp
+RUN mkdir -p /srv
 WORKDIR /srv
 COPY negative-seccomp.c .
 RUN gcc -static -Wall -g -o negative-seccomp negative-seccomp.c
 
-FROM registry.svc.ci.openshift.org/coreos/cosa-buildroot as builder-cve
+FROM gcc:10 as builder-cve
+RUN mkdir -p /srv
 WORKDIR /srv
 COPY cve-cap-net-raw.c .
 RUN gcc -Wall -o cve-cap-net-raw cve-cap-net-raw.c
