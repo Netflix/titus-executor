@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"os"
 	"runtime"
 	"time"
 	"unsafe"
@@ -20,11 +21,9 @@ import (
 	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/apparentlymart/go-cidr/cidr"
 	multierror "github.com/hashicorp/go-multierror"
-	"github.com/mdlayher/ndp"
 	"github.com/pkg/errors"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
-	"golang.org/x/net/ipv6"
 	"golang.org/x/sys/unix"
 )
 
@@ -252,12 +251,102 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 	return nil
 }
 
+// If mtu is nil, it will not be configured
+func configureSysCtls(ctx context.Context, mtu *uint32) error {
+	acceptRAPrefixInfo, err := os.OpenFile("/proc/sys/net/ipv6/conf/eth0/accept_ra_pinfo", os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("Could not open accept_ra_pinfo: %w", err)
+	}
+	_, err = acceptRAPrefixInfo.WriteString("0")
+	_ = acceptRAPrefixInfo.Close()
+	if err != nil {
+		return fmt.Errorf("Could not write 0 to accept_ra_pinfo: %w", err)
+	}
+
+	if mtu == nil {
+		return nil
+	}
+
+	acceptRAMTU, err := os.OpenFile("/proc/sys/net/ipv6/conf/eth0/accept_ra_mtu", os.O_RDWR, 0)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could open accept_ra_mtu")
+		return fmt.Errorf("Could open accept_ra_mtu: %w", err)
+	}
+	_, err = acceptRAMTU.WriteString("0")
+	_ = acceptRAMTU.Close()
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could write to accept_ra_mtu")
+		return fmt.Errorf("Could write to accept_ra_mtu: %w", err)
+	}
+
+	mtuFile, err := os.OpenFile("/proc/sys/net/ipv6/conf/eth0/mtu", os.O_RDWR, 0)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could open mtu")
+		return fmt.Errorf("Could open mtu: %w", err)
+	}
+	_, err = fmt.Fprintf(mtuFile, "%d", *mtu)
+	_ = mtuFile.Close()
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could write to mtu")
+		return fmt.Errorf("Could write to mtu: %w", err)
+	}
+
+	logger.G(ctx).WithField("mtu", *mtu).Debug("Overrode MTU")
+
+	return nil
+}
+
 func addIPv6AddressAndRoutes(ctx context.Context, allocation types.Allocation, nsHandle *netlink.Handle, link netlink.Link, netnsfd int) error {
 	ctx, cancel := context.WithTimeout(ctx, networkSetupWait)
 	defer cancel()
 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+
+	origns, err := netns.Get()
+	if err != nil {
+		return fmt.Errorf("Could not get current net ns: %w", err)
+	}
+	defer origns.Close()
+
+	err = netns.Set(netns.NsHandle(netnsfd))
+	if err != nil {
+		return fmt.Errorf("Could not switch net ns: %w", err)
+	}
+
+	// MTU is the MTU sent from the VPC Service if there is a default route MTU. We set this via a sysctl.
+	// All other MTUs are route specific
+	var mtu *uint32
+	var routes []struct {
+		mtu   uint32
+		route net.IPNet
+	}
+	for _, route := range allocation.Routes {
+		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv6 {
+			continue
+		}
+
+		_, routeNet, err := net.ParseCIDR(route.Destination)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not parse route")
+			return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
+		}
+
+		ones, zeros := routeNet.Mask.Size()
+		if routeNet.IP.Equal(net.IPv6zero) && ones == 0 && zeros == 128 {
+			mtu = &route.Mtu
+		} else {
+			routes = append(routes, struct {
+				mtu   uint32
+				route net.IPNet
+			}{mtu: route.Mtu, route: *routeNet})
+		}
+	}
+
+	err = configureSysCtls(ctx, mtu)
+	if err != nil {
+		return fmt.Errorf("Could not configure sysctls: %w", err)
+	}
 
 	// Amazon only gives out /128s
 	new6IP := net.IPNet{IP: net.ParseIP(allocation.IPV6Address.Address.Address), Mask: net.CIDRMask(128, 128)}
@@ -267,136 +356,44 @@ func addIPv6AddressAndRoutes(ctx context.Context, allocation types.Allocation, n
 		Flags: unix.IFA_F_PERMANENT | unix.IFA_F_NODAD,
 		Scope: unix.RT_SCOPE_UNIVERSE,
 	}
-	err := nsHandle.AddrAdd(link, &new6Addr)
+	err = nsHandle.AddrAdd(link, &new6Addr)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add IPv6 addr to link")
 		return errors.Wrap(err, "Unable to add IPv6 addr to link")
 	}
 
-	var linkLocalAddr netlink.Addr
+	var defaultRoutes []netlink.Route
 	for {
-		// We need *a* permanent address
-		addrs, err := nsHandle.AddrList(link, netlink.FAMILY_V6)
-		if err != nil {
-			return fmt.Errorf("Cannot get addrs: %w", err)
+		defaultRoutes, err = nsHandle.RouteGet(net.ParseIP("2001:DB8::1"))
+		if err == nil {
+			break
 		}
 
-		for _, addr := range addrs {
-			if addr.Scope == unix.RT_SCOPE_LINK {
-				linkLocalAddr = addr
-				goto out
-			}
+		if err != unix.ESRCH && err != unix.ENETUNREACH {
+			logger.G(ctx).WithError(err).Error("Unable to resolve default route")
+			return fmt.Errorf("Unable to resolve default route: %w", err)
 		}
+
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("Did not find permanent link-local address in set: %v: %w", addrs, ctx.Err())
+			return fmt.Errorf("Could not resolve default route: %w", err)
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 
-out:
-	origns, err := netns.Get()
-	defer origns.Close()
-	if err != nil {
-		return fmt.Errorf("Could not get current net ns: %w", err)
+	if len(defaultRoutes) != 1 {
+		return fmt.Errorf("Got unexpected number of default routes: %d", len(defaultRoutes))
 	}
 
-	err = netns.Set(netns.NsHandle(netnsfd))
-	if err != nil {
-		return fmt.Errorf("Could not switch net ns: %w", err)
-	}
+	logger.G(ctx).WithField("defaultRoutes", defaultRoutes).Debug("Got default route")
 
-	networkInterface, err := net.InterfaceByName("eth0")
-	if err != nil {
-		return fmt.Errorf("Could not get network interface eth0: %w", err)
-	}
-
-	conn, _, err := ndp.Dial(networkInterface, ndp.Addr(linkLocalAddr.IP.String()))
-	if err != nil {
-		return fmt.Errorf("Unable to dial NDP conn: %w", err)
-	}
-	defer conn.Close()
-
-	var filter ipv6.ICMPFilter
-	filter.SetAll(true)
-	filter.Accept(ipv6.ICMPTypeRouterAdvertisement)
-	err = conn.SetICMPFilter(&filter)
-	if err != nil {
-		return fmt.Errorf("Unable to setup ICMP filter %v: %w", filter, err)
-	}
-
-	m := &ndp.RouterSolicitation{
-		Options: []ndp.Option{
-			&ndp.LinkLayerAddress{
-				Direction: ndp.Source,
-				Addr:      networkInterface.HardwareAddr,
-			},
-		},
-	}
-
-	/* Poll for the router */
-	var routerAddr net.IP
-	for {
-		err = ctx.Err()
-		if err != nil {
-			return fmt.Errorf("Context complete before NDP finished: %w", err)
-		}
-
-		err = conn.WriteTo(m, &ipv6.ControlMessage{
-			HopLimit: 1,
-			Src:      linkLocalAddr.IP,
-			Dst:      net.IPv6linklocalallrouters,
-			IfIndex:  networkInterface.Index,
-		}, net.IPv6linklocalallrouters)
-		if err != nil {
-			return fmt.Errorf("Could not write router solicitication message: %w", err)
-		}
-
-		// TODO: Maybe don't hardcode this?
-		deadline := time.Now().Add(time.Second)
-		if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
-			deadline = ctxDeadline
-		}
-		err = conn.SetReadDeadline(deadline)
-		if err != nil {
-			return fmt.Errorf("Unable to set read deadline to %v: %w", deadline, err)
-		}
-
-		srcMsg, srcCM, srcAddr, err := conn.ReadFrom()
-		if err == nil {
-			// We're guaranteed only to get router advertisements because of the filter we setup
-			logger.G(ctx).WithFields(map[string]interface{}{
-				"msg":     fmt.Sprintf("%+v", srcMsg),
-				"srcCM":   fmt.Sprintf("%+v", srcCM),
-				"srcAddr": srcAddr,
-			}).Info("Received router advertisement")
-			routerAddr = srcAddr
-			break
-		}
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			logger.G(ctx).Debug("I/O read timeout")
-			continue
-		}
-		return fmt.Errorf("Could not read router soliticiation response / router advertisement: %w", err)
-	}
-
-	for _, route := range allocation.Routes {
-		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv6 {
-			continue
-		}
-		logger.G(ctx).WithField("route", route).Debug("Adding route")
-		_, routeNet, err := net.ParseCIDR(route.Destination)
-		if err != nil {
-			logger.G(ctx).WithError(err).Error("Could not parse route")
-			return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
-		}
-
+	for _, route := range routes {
 		newRoute := netlink.Route{
-			Gw:        routerAddr,
+			Gw:        defaultRoutes[0].Gw,
 			Src:       new6IP.IP,
 			LinkIndex: link.Attrs().Index,
-			Dst:       routeNet,
-			MTU:       int(route.Mtu),
+			Dst:       &route.route,
+			MTU:       int(route.mtu),
 		}
 		// RA may have already installed a route, therefore we need to use route replace.
 		err = nsHandle.RouteReplace(&newRoute)
@@ -404,6 +401,28 @@ out:
 			logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
 			return fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
 		}
+	}
+
+	// We mimic the behaaviour on IPv4 by forcing all traffic through the default gateway.
+	// The reason is that we want to avoid learning ARP / doing neighbor discovery, and rely
+	// on the gateway to do this heavy lifting.
+	oldLinkRoute := netlink.Route{
+		Protocol:  unix.RTPROT_UNSPEC,
+		Dst:       &net.IPNet{IP: new6IP.IP, Mask: net.CIDRMask(64, 128)},
+		LinkIndex: link.Attrs().Index,
+		Src:       new6IP.IP,
+		Table:     unix.RT_TABLE_MAIN,
+		Scope:     unix.RT_SCOPE_NOWHERE,
+		Type:      unix.RTN_UNSPEC,
+	}
+	logger.G(ctx).WithField("route", oldLinkRoute).Debug("Deleting link ipv6 route")
+
+	err = nsHandle.RouteDel(&oldLinkRoute)
+	if err == unix.ESRCH {
+		logger.G(ctx).WithError(err).WithField("route", oldLinkRoute).Warn("Unable to delete ipv6 route on link as old route was not found, continuing")
+	} else if err != nil {
+		logger.G(ctx).WithError(err).Error("Unable to delete ipv6 route on link")
+		return errors.Wrap(err, "Unable to add delete existing 'link' ipv6 route to link")
 	}
 
 	err = netns.Set(origns)

@@ -41,7 +41,6 @@ require (
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.3.0
-	github.com/mdlayher/ndp v0.0.0-20200602162440-17ab9e3e5567
 	github.com/mvisonneau/go-ebsnvme v0.0.0-20201026165225-e63797fabc2f
 	github.com/myitcv/gobin v0.0.9
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
@@ -58,8 +57,6 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
-	github.com/tmthrgd/atomics v0.0.0-20190904060638-dc7a5fcc7e0d // indirect
-	github.com/tmthrgd/tmpfile v0.0.0-20190904054337-6ce9e75706ab // indirect
 	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.0.1-0.20190930145447-2ec5bdc52b86
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
@@ -67,7 +64,6 @@ require (
 	go.opencensus.io v0.22.3
 	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
-	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
 	golang.org/x/sys v0.0.0-20210119212857-b64e53b001e4
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
