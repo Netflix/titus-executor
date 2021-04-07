@@ -2,6 +2,7 @@ package tls
 
 import (
 	"crypto/tls"
+	"sync"
 	"time"
 )
 
@@ -10,6 +11,7 @@ type CachedCertificateLoader struct {
 	KeyPath     string
 	certificate *tls.Certificate
 	nextReload  time.Time
+	lock        sync.Mutex
 }
 
 // Get Certificate uses the cachedCertificateLoader struct
@@ -22,6 +24,8 @@ func (c *CachedCertificateLoader) GetCertificate(nowFunc func() time.Time) (*tls
 		now = nowFunc()
 	}
 	if now.After(c.nextReload) {
+		c.lock.Lock()
+		defer c.lock.Unlock()
 		cert, err := tls.LoadX509KeyPair(c.CertPath, c.KeyPath)
 		if err != nil {
 			return nil, err
