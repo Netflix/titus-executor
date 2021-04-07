@@ -158,7 +158,7 @@ static int32_t expect_status[(STATUS_MAX - STATUS_MIN + 1) / 32];
 #define VERBOSITY_ENV_VAR "TINI_VERBOSITY"
 #define KILL_PROCESS_GROUP_GROUP_ENV_VAR "TINI_KILL_PROCESS_GROUP"
 
-#define TINI_VERSION_STRING "tini version " TINI_VERSION TINI_GIT
+#define TINI_VERSION_STRING "tini version " TINI_VERSION
 
 #if HAS_SUBREAPER
 static unsigned int subreaper = 0;
