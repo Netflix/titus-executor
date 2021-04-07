@@ -49,7 +49,6 @@ func TestService(t *testing.T) {
 			ReconcileInterval:     5 * time.Minute,
 			RefreshInterval:       30 * time.Second,
 			TLSConfig:             nil,
-			TitusAgentCACertPool:  nil,
 			EnabledTaskLoops:      []string{},
 			EnabledLongLivedTasks: []string{},
 			WorkerRole:            "testWorkerRole",
