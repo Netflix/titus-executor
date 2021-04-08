@@ -51,10 +51,9 @@ const (
 	maxConcurrentRequestsFlagName = "max-concurrent-requests"
 	workerRoleFlagName            = "worker-role"
 
-	sslCertFlagName         = "ssl-cert"
-	sslPrivateKeyFlagName   = "ssl-private-key"
-	sslCAFlagName           = "ssl-ca"
-	sslTitusAgentCAFlagName = "ssl-titusagent-ca"
+	sslCertFlagName       = "ssl-cert"
+	sslPrivateKeyFlagName = "ssl-private-key"
+	sslCAFlagName         = "ssl-ca"
 
 	enabledLongLivedTasksFlagName = "enabled-long-lived-tasks"
 	enabledTaskLoopsFlagName      = "enabled-task-loops"
@@ -241,18 +240,9 @@ func main() {
 			}
 			signingKeyFile.Close()
 
-			tlsConfig, err := getTLSConfig(ctx, v.GetString(sslCertFlagName), v.GetString(sslPrivateKeyFlagName), v.GetString(sslCAFlagName), v.GetString(sslTitusAgentCAFlagName))
+			tlsConfig, err := getTLSConfig(ctx, v.GetString(sslCertFlagName), v.GetString(sslPrivateKeyFlagName), v.GetString(sslCAFlagName))
 			if err != nil {
 				return errors.Wrap(err, "Could not generate TLS Config")
-			}
-
-			titusAgentCACertPool := x509.NewCertPool()
-			if s := v.GetString(sslTitusAgentCAFlagName); s != "" {
-				data, err := ioutil.ReadFile(s)
-				if err != nil {
-					return errors.Wrap(err, "Could not read file")
-				}
-				titusAgentCACertPool.AppendCertsFromPEM(data)
 			}
 
 			return service.Run(ctx, &service.Config{
@@ -266,7 +256,6 @@ func main() {
 				ReconcileInterval:     v.GetDuration("reconcile-interval"),
 				RefreshInterval:       v.GetDuration(refreshIntervalFlagName),
 				TLSConfig:             tlsConfig,
-				TitusAgentCACertPool:  titusAgentCACertPool,
 
 				EnabledLongLivedTasks: v.GetStringSlice(enabledLongLivedTasksFlagName),
 				EnabledTaskLoops:      v.GetStringSlice(enabledTaskLoopsFlagName),
@@ -289,7 +278,6 @@ func main() {
 	rootCmd.Flags().String(sslPrivateKeyFlagName, "", "The SSL Private Key")
 	rootCmd.Flags().String(sslCertFlagName, "", "The SSL Certificate")
 	rootCmd.Flags().String(sslCAFlagName, "", "General SSL CA")
-	rootCmd.Flags().String(sslTitusAgentCAFlagName, "", "Titus Agent CA")
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
 	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
@@ -367,10 +355,6 @@ func bindVariables(v *pkgviper.Viper) {
 	}
 
 	if err := v.BindEnv(sslCAFlagName, "SSL_CA"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(sslTitusAgentCAFlagName, "SSL_TITUSAGENT_CA"); err != nil {
 		panic(err)
 	}
 

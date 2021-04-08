@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"database/sql"
 	"fmt"
 	"net"
@@ -89,8 +88,6 @@ type vpcService struct {
 
 	refreshLock *semaphore.Weighted
 
-	TitusAgentCACertPool *x509.CertPool
-
 	dbRateLimiter *rate.Limiter
 
 	trunkNetworkInterfaceDescription  string
@@ -170,7 +167,6 @@ type Config struct {
 	ReconcileInterval     time.Duration
 	RefreshInterval       time.Duration
 	TLSConfig             *tls.Config
-	TitusAgentCACertPool  *x509.CertPool
 
 	EnabledLongLivedTasks []string
 	EnabledTaskLoops      []string
@@ -223,8 +219,6 @@ func Run(ctx context.Context, config *Config) error {
 		refreshInterval: config.RefreshInterval,
 
 		refreshLock: semaphore.NewWeighted(config.MaxConcurrentRefresh),
-
-		TitusAgentCACertPool: config.TitusAgentCACertPool,
 
 		dbRateLimiter: rate.NewLimiter(1000, 1),
 
