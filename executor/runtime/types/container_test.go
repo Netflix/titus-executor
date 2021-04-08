@@ -185,7 +185,7 @@ func TestNewContainer(t *testing.T) {
 	assert.False(t, container.ServiceMeshEnabled())
 	scConfs, err := container.SidecarConfigs()
 	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
 	// service mesh image should be unset by default
 	assert.Equal(t, svcMeshConf.Image, "")
@@ -669,7 +669,7 @@ func TestServiceMeshEnabled(t *testing.T) {
 	assert.True(t, c.ServiceMeshEnabled())
 	scConfs, err := c.SidecarConfigs()
 	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
 	assert.Equal(t, svcMeshConf.Image, imgName)
 }
@@ -688,7 +688,7 @@ func TestServiceMeshEnabledWithConfig(t *testing.T) {
 	assert.False(t, c.ServiceMeshEnabled())
 	scConfs, err := c.SidecarConfigs()
 	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
 	assert.Equal(t, svcMeshConf.Image, "")
 }
@@ -707,7 +707,7 @@ func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 	assert.False(t, c.ServiceMeshEnabled())
 	scConfs, err := c.SidecarConfigs()
 	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
+	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
 	assert.Equal(t, svcMeshConf.Image, "")
 }

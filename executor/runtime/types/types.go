@@ -171,7 +171,7 @@ type Container interface {
 	SetSystemD(bool)
 	SetVPCAllocation(*vpcTypes.HybridAllocation)
 	ShmSizeMiB() *uint32
-	SidecarConfigs() (map[string]*ServiceOpts, error)
+	SidecarConfigs() ([]*ServiceOpts, error)
 	SignedAddressAllocationUUID() *string
 	SortedEnvArray() []string
 	SubnetIDs() *string
@@ -379,12 +379,13 @@ type StatusMessage struct {
 type serviceEnabledFunc func(cfg *config.Config, c Container) bool
 
 type ServiceOpts struct {
-	InitCommand   string
-	Required      bool
-	UnitName      string
-	EnabledCheck  serviceEnabledFunc
-	Target        bool
-	Image         string
-	Volumes       map[string]struct{}
-	ContainerName string
+	ServiceName   string              // A human-friendly name for the system sidecar
+	UnitName      string              // The systemd unit filename
+	InitCommand   string              // Optional command to run first before starting, outside the systemd unit
+	Required      bool                // If true, the startup of a task will fail, otherwise will just log
+	EnabledCheck  serviceEnabledFunc  // A function the returns a bool representing if titus-executor should run this sidecar or not
+	Target        bool                // If true, treat this as a systemd target, not a service
+	Image         string              // If set, represents a docker image for the code representing this sidecar. This is populated at runtime.
+	Volumes       map[string]struct{} // Volumes to map in from the docker image into the main container, usually /titus/$servicename
+	ContainerName string              // A mutable string that is dynamically configured to be compatible with docker ps, calculated at runtime
 }

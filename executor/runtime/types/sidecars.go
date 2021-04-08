@@ -17,13 +17,15 @@ const (
 	SidecarServiceMetadataProxy = "metadata-proxy"
 )
 
-var sideCars = map[string]*ServiceOpts{
-	SidecarTitusContainer: {
-		UnitName: "titus-container",
-		Required: true,
-		Target:   true,
+var sideCars = []*ServiceOpts{
+	{
+		ServiceName: SidecarTitusContainer,
+		UnitName:    "titus-container",
+		Required:    true,
+		Target:      true,
 	},
-	SidecarServiceSpectatord: {
+	{
+		ServiceName:  SidecarServiceSpectatord,
 		UnitName:     "titus-sidecar-spectatord",
 		EnabledCheck: shouldStartSpectatord,
 		Required:     false,
@@ -31,7 +33,8 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/spectatord": {},
 		},
 	},
-	SidecarServiceAtlasd: {
+	{
+		ServiceName:  SidecarServiceAtlasd,
 		UnitName:     "titus-sidecar-atlasd",
 		EnabledCheck: shouldStartAtlasd,
 		Required:     false,
@@ -39,12 +42,14 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/atlas-titus-agent": {},
 		},
 	},
-	SidecarServiceAtlasAgent: {
+	{
+		ServiceName:  SidecarServiceAtlasAgent,
 		UnitName:     "titus-sidecar-atlas-titus-agent",
 		EnabledCheck: shouldStartAtlasAgent,
 		Required:     false,
 	},
-	SidecarServiceSshd: {
+	{
+		ServiceName:  SidecarServiceSshd,
 		UnitName:     "titus-sidecar-sshd",
 		EnabledCheck: shouldStartSSHD,
 		Required:     false,
@@ -52,11 +57,13 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/sshd": {},
 		},
 	},
-	SidecarServiceMetadataProxy: {
-		UnitName: "titus-sidecar-metadata-proxy",
-		Required: true,
+	{
+		ServiceName: SidecarServiceMetadataProxy,
+		UnitName:    "titus-sidecar-metadata-proxy",
+		Required:    true,
 	},
-	SidecarServiceMetatron: {
+	{
+		ServiceName:  SidecarServiceMetatron,
 		UnitName:     "titus-sidecar-metatron-sync",
 		Required:     true,
 		InitCommand:  "/titus/metatron/bin/titus-metatrond --init",
@@ -65,7 +72,8 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/metatron": {},
 		},
 	},
-	SidecarServiceLogViewer: {
+	{
+		ServiceName:  SidecarServiceLogViewer,
 		UnitName:     "titus-sidecar-logviewer",
 		Required:     true,
 		EnabledCheck: shouldStartLogViewer,
@@ -73,7 +81,8 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/adminlogs": {},
 		},
 	},
-	SidecarServiceServiceMesh: {
+	{
+		ServiceName:  SidecarServiceServiceMesh,
 		UnitName:     "titus-sidecar-servicemesh",
 		Required:     true,
 		EnabledCheck: shouldStartServiceMesh,
@@ -81,7 +90,8 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/proxyd": {},
 		},
 	},
-	SidecarServiceAbMetrix: {
+	{
+		ServiceName:  SidecarServiceAbMetrix,
 		UnitName:     "titus-sidecar-abmetrix",
 		Required:     false,
 		EnabledCheck: shouldStartAbmetrix,
@@ -89,12 +99,14 @@ var sideCars = map[string]*ServiceOpts{
 			"/titus/abmetrix": {},
 		},
 	},
-	SidecarSeccompAgent: {
+	{
+		ServiceName:  SidecarSeccompAgent,
 		UnitName:     "titus-sidecar-seccomp-agent",
 		Required:     true,
 		EnabledCheck: shouldStartTitusSeccompAgent,
 	},
-	SidecarTitusStorage: {
+	{
+		ServiceName:  SidecarTitusStorage,
 		UnitName:     "titus-sidecar-storage",
 		Required:     true,
 		EnabledCheck: shouldStartTitusStorage,
@@ -169,4 +181,15 @@ func shouldStartLogViewer(cfg *config.Config, c Container) bool {
 
 func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
 	return c.EBSInfo().VolumeID != ""
+}
+
+// GetSidecarConfig is a helper to get a particular sidecar config out by name
+// returns nil if you get the name wrong. Use the types Consts when possible.
+func GetSidecarConfig(sidecars []*ServiceOpts, sidecarName string) *ServiceOpts {
+	for _, s := range sidecars {
+		if s.ServiceName == sidecarName {
+			return s
+		}
+	}
+	return nil
 }

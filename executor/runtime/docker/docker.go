@@ -795,11 +795,11 @@ func cleanContainerName(prefix string, imageName string) string {
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(serviceName string, sCfg *runtimeTypes.ServiceOpts) func(ctx context.Context) error {
+func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.ServiceOpts) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		logger.G(ctx).WithField("serviceName", serviceName).Infof("Setting up container")
+		logger.G(ctx).WithField("serviceName", sCfg.ServiceName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname:   serviceName,
+			Hostname:   sCfg.ServiceName,
 			Volumes:    sCfg.Volumes,
 			Entrypoint: []string{"/bin/bash"},
 			Image:      sCfg.Image,
@@ -810,7 +810,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(serviceName string, sCfg *runt
 
 		createErr := r.createVolumeContainer(ctx, &sCfg.ContainerName, cfg, hostConfig)
 		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container '%s'", serviceName, sCfg.ContainerName)
+			return errors.Wrapf(createErr, "Unable to setup %s container '%s'", sCfg.ServiceName, sCfg.ContainerName)
 		}
 
 		return nil
@@ -903,7 +903,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		myImageInfo         *types.ImageInspect
 		dockerCfg           *container.Config
 		hostCfg             *container.HostConfig
-		sidecarConfigs      map[string]*runtimeTypes.ServiceOpts
+		sidecarConfigs      []*runtimeTypes.ServiceOpts
 		size                int64
 		bindMounts          []string
 	)
@@ -943,14 +943,14 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		return nil
 	})
 
-	for sidecarName, sidecarConfig := range sidecarConfigs {
-		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
-			sidecarConfig.ContainerName = sidecarName
-			group.Go(r.createVolumeContainerFunc(sidecarName, sidecarConfig))
+	for _, sidecarConfig := range sidecarConfigs {
+		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
+			sidecarConfig.ContainerName = sidecarConfig.ServiceName
+			group.Go(r.createVolumeContainerFunc(sidecarConfig))
 		}
 	}
 
-	if sidecarConfigs[runtimeTypes.SidecarSeccompAgent].EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
 			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
 			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
@@ -967,7 +967,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}
 	}
 
-	if sidecarConfigs[runtimeTypes.SidecarTitusStorage].EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
 		v := r.c.EBSInfo()
 		r.c.SetEnvs(map[string]string{
 			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
