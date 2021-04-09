@@ -11,8 +11,9 @@ gox -gcflags="${GC_FLAGS:--N -l}" -osarch="linux/amd64 darwin/amd64" \
 
 # titus-mount helpers
 make -C mount all
-mv mount/titus-mount-nfs build/bin/linux-amd64/
+mv mount/titus-mount-bind build/bin/linux-amd64/
 mv mount/titus-mount-block-device build/bin/linux-amd64/
+mv mount/titus-mount-nfs build/bin/linux-amd64/
 
 # tini
 make build/tini/tini-static
