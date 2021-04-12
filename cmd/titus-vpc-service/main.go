@@ -21,6 +21,7 @@ import (
 	"contrib.go.opencensus.io/exporter/zipkin"
 	spectator "github.com/Netflix/spectator-go"
 	"github.com/Netflix/titus-executor/logger"
+	titusTLS "github.com/Netflix/titus-executor/utils/tls"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service"
 	"github.com/Netflix/titus-executor/vpc/service/db"
@@ -393,13 +394,18 @@ func getTLSConfig(ctx context.Context, certificateFile, privateKey string, trust
 		}
 	}
 
-	return &tls.Config{
-		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-			cert, err := tls.LoadX509KeyPair(certificateFile, privateKey)
-			return &cert, err
-		},
+	certLoader := &titusTLS.CachedCertificateLoader{
+		CertPath: certificateFile,
+		KeyPath:  privateKey,
+	}
+
+	tlsConfig := &tls.Config{
 		ClientCAs:  certPool,
 		ClientAuth: tls.RequireAndVerifyClientCert,
 		MinVersion: tls.VersionTLS12,
-	}, nil
+	}
+	tlsConfig.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+		return certLoader.GetCertificate(tlsConfig.Time)
+	}
+	return tlsConfig, nil
 }

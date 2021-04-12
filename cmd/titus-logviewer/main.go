@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	log2 "github.com/Netflix/titus-executor/utils/log"
+	titusTLS "github.com/Netflix/titus-executor/utils/tls"
 
 	"github.com/Netflix/titus-executor/logviewer/api"
 	"github.com/Netflix/titus-executor/logviewer/conf"
@@ -19,17 +20,14 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 
 func listenOnHTTPSOptionally(r *http.ServeMux) {
 	if conf.CertFile != "" && conf.KeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(conf.CertFile, conf.KeyFile)
+		tlsConfig, err := getTLSConfig(conf.CertFile, conf.KeyFile)
 		if err != nil {
 			log.Fatal(err)
 		}
 		s := &http.Server{
-			Addr:    ":8005",
-			Handler: r,
-			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				MinVersion:   tls.VersionTLS12,
-			},
+			Addr:      ":8005",
+			Handler:   r,
+			TLSConfig: tlsConfig,
 		}
 		if err := s.ListenAndServeTLS("", ""); err != nil {
 			log.Error("Error: HTTPS ListenAndServe: ", err)
@@ -37,6 +35,20 @@ func listenOnHTTPSOptionally(r *http.ServeMux) {
 	} else {
 		log.Print("TITUS_LOGVIEWER_CERT / TITUS_LOGVIEWER_KEY not set. Not serving HTTPS")
 	}
+}
+
+func getTLSConfig(certificateFile string, privateKey string) (*tls.Config, error) {
+	certLoader := &titusTLS.CachedCertificateLoader{
+		CertPath: certificateFile,
+		KeyPath:  privateKey,
+	}
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	tlsConfig.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+		return certLoader.GetCertificate(tlsConfig.Time)
+	}
+	return tlsConfig, nil
 }
 
 func main() {
