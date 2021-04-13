@@ -1,7 +1,5 @@
 [Unit]
-Description=Titus Virtual Kubelet Executor Service
-BindsTo=titus-systemd@%i.service
-After=titus-systemd@%i.service
+Description=Titus Per-executor Systemd
 
 [Service]
 ExecStartPre=/bin/mkdir -p /run/titus-executor/%i/tmp
@@ -15,15 +13,10 @@ Environment=XDG_RUNTIME_DIR=/run/titus-executor/%i/run
 Environment=XDG_CONFIG_HOME=/run/titus-executor/%i/etc
 Enivronment=XDG_CONFIG_DIRS=/apps/titus-executor/etc/systemd:$XDG_CONFIG_DIRS
 
-Slice=containers.slice
-ExecStart=/apps/titus-executor/bin/run-titus-virtual-kubelet-backend.sh --runtime-dir=/run/titus-executor/%i
-Restart=no
-KillSignal=SIGINT
+[Service]
+Type=notify
+ExecStart=-/lib/systemd/systemd --user
 KillMode=mixed
-TimeoutStopSec=600
-TimeoutStartSec=1200
-TasksMax=50000
-RemainAfterExit=yes
-# The runtime directory gets removed upon unit shutdown
-RuntimeDirectory=titus-executor/%i
-Delegate=true
+Delegate=yes
+TasksMax=infinity
+TimeoutStopSec=600s
