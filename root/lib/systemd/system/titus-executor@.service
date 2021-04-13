@@ -3,7 +3,6 @@ Description=Titus Virtual Kubelet Executor Service
 
 [Service]
 Slice=containers.slice
-ExecStartPre=/bin/mkdir -p /run/titus-executor/pod-status
 ExecStart=/apps/titus-executor/bin/run-titus-virtual-kubelet-backend.sh --runtime-dir=/run/titus-executor/%i
 Restart=no
 KillSignal=SIGINT
@@ -14,6 +13,7 @@ TasksMax=50000
 RemainAfterExit=yes
 # The runtime directory gets removed upon unit shutdown
 RuntimeDirectory=titus-executor/%i
+Delegate=true
 
 [Install]
 WantedBy=multi-user.target
