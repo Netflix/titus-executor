@@ -1,0 +1,55 @@
+#!/titus/sshd/bin/busybox sh
+
+# For security and portability we make sure we only use the busybox utilities
+# and make no assumptions about the path and what other binaries
+# might be deployed
+cat="/titus/sshd/bin/busybox cat"
+grep="/titus/sshd/bin/busybox grep"
+mkdir="/titus/sshd/bin/busybox mkdir"
+touch="/titus/sshd/bin/busybox touch"
+
+log() {
+  echo "titus-sshd: $*" >&2
+}
+
+write_etc_profile() {
+$cat > /etc/profile <<'EOF'
+if [ -d /etc/profile.d ]; then
+  for i in /etc/profile.d/*.sh; do
+    if [ -r $i ]; then
+      . $i
+    fi
+  done
+  unset i
+fi
+EOF
+}
+
+setup_files() {
+  # These are the bare minimum set of files that
+  # must exist for ssh to work
+  [ -f /etc/passwd ] || ($touch /etc/passwd && log "setting up /etc/passwd for ssh to work")
+  [ -d /var/log ] || ($mkdir -p /var/log && log "creating /var/log for ssh to work")
+  [ -f /var/log/lastlog ] || ($touch /var/log/lastlog && log "creating /var/log/lastlog for ssh to work")
+  [ -f /etc/profile ] || (write_etc_profile && log "creating /etc/profile for environment variables to work")
+}
+
+setup_users() {
+  # nfsuper is the standard user that netflix users to
+  # ssh containers. If it doesn't exist in /etc/passwd,
+  # then we might as well make it a 'root' (uid 0) user.
+  if ! $grep -q nfsuper /etc/passwd; then
+    log "Adding the 'nfsuper' user into /etc/passwd"
+    echo 'nfsuper:x:0:0:root:/root:/titus/sshd/bin/sh' >> /etc/passwd
+  fi
+  # Nobody is an ssh requirement for privilege separation
+  if ! $grep -q nobody /etc/passwd; then
+    log "Adding the 'nobody' user into /etc/passwd"
+    echo 'nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin' >> /etc/passwd
+  fi
+}
+
+setup_files
+setup_users
+
+exec /titus/sshd/usr/sbin/sshd "$@"
