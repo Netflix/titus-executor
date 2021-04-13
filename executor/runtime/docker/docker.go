@@ -795,22 +795,22 @@ func cleanContainerName(prefix string, imageName string) string {
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.ServiceOpts) func(ctx context.Context) error {
+func (r *DockerRuntime) createVolumeContainerFunc(sOpts *runtimeTypes.ServiceOpts) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		logger.G(ctx).WithField("serviceName", sCfg.ServiceName).Infof("Setting up container")
+		logger.G(ctx).WithField("serviceName", sOpts.ServiceName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname:   sCfg.ServiceName,
-			Volumes:    sCfg.Volumes,
+			Hostname:   sOpts.ServiceName,
+			Volumes:    sOpts.Volumes,
 			Entrypoint: []string{"/bin/bash"},
-			Image:      sCfg.Image,
+			Image:      sOpts.Image,
 		}
 		hostConfig := &container.HostConfig{
 			NetworkMode: "none",
 		}
 
-		createErr := r.createVolumeContainer(ctx, &sCfg.ContainerName, cfg, hostConfig)
+		createErr := r.createVolumeContainer(ctx, &sOpts.ContainerName, cfg, hostConfig)
 		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container '%s'", sCfg.ServiceName, sCfg.ContainerName)
+			return errors.Wrapf(createErr, "Unable to setup %s container '%s'", sOpts.ServiceName, sOpts.ContainerName)
 		}
 
 		return nil
