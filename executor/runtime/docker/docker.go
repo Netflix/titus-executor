@@ -810,9 +810,12 @@ func (r *DockerRuntime) createVolumeContainerFunc(sOpts *runtimeTypes.ServiceOpt
 
 		createErr := r.createVolumeContainer(ctx, &sOpts.ContainerName, cfg, hostConfig)
 		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container '%s'", sOpts.ServiceName, sOpts.ContainerName)
+			if sOpts.Required {
+				return errors.Wrapf(createErr, "Unable to setup required %s container '%s'", sOpts.ServiceName, sOpts.ContainerName)
+			}
+			logger.G(ctx).WithField("serviceName", sOpts.ServiceName).Warnf("Unable to setup optional %s container '%s': %s", sOpts.ServiceName, sOpts.ContainerName, createErr)
+			return nil
 		}
-
 		return nil
 	}
 }
