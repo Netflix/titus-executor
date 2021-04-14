@@ -8,7 +8,7 @@ FROM ubuntu:bionic
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y apt-transport-https ca-certificates
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
-    apt-get install -y build-essential curl make cmake libattr1-dev dbus systemd
+    apt-get install -y build-essential curl make cmake libattr1-dev dbus systemd dbus-x11 dbus-user-session
 
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
 RUN echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable" > /etc/apt/sources.list.d/docker.list
