@@ -1,0 +1,13 @@
+[Unit]
+Description=Titus Virtual Kubelet Executor Service
+
+[Service]
+ExecStart=/apps/titus-executor/bin/run-titus-virtual-kubelet-backend.sh --runtime-dir=${TITUS_EXECUTOR_RUNTIME_DIR}
+Restart=no
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=600
+TimeoutStartSec=1200
+TasksMax=50000
+RemainAfterExit=yes
+Delegate=true

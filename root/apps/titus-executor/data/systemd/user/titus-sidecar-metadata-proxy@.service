@@ -22,6 +22,7 @@ ExecStart=/apps/titus-executor/bin/run-titus-metadata-proxy.sh
 LimitNOFILE=65535
 ## TODO: Wire up more "lockdown" so this unit can't wreck havoc if it gets compromised
 PrivateTmp=yes
+ExecStartPre=/bin/chmod 777 $NOTIFY_SOCKET
 
 Restart=on-failure
 KillMode=mixed

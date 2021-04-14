@@ -93,6 +93,8 @@ fpm -t deb -s dir -C root \
   --deb-recommends lxcfs \
   --deb-recommends atlas-titus-agent \
   --deb-recommends nvidia-container-runtime-hook \
+  --deb-recommends dbus-user-session \
+  --deb-recommends dbus-x11 \
   ${provides:-} \
   --after-install /tmp/post-install.sh \
   --package "${outdir}/"

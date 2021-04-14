@@ -183,7 +183,7 @@ func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
 	ctx, cancel := context.WithTimeout(ctx, systemServiceStartTimeout)
 	defer cancel()
 
-	conn, err := dbus.NewWithContext(ctx)
+	conn, err := dbus.NewUserConnectionContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 
-	conn, connErr := dbus.NewWithContext(ctx)
+	conn, connErr := dbus.NewUserConnectionContext(ctx)
 	if connErr != nil {
 		return connErr
 	}

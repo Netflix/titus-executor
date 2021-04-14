@@ -1,29 +1,28 @@
 [Unit]
-Description=Titus Virtual Kubelet Executor Service
-BindsTo=titus-systemd@%i.service
-After=titus-systemd@%i.service
+Description=Titus Per-executor Systemd for %i
 
 [Service]
 ExecStartPre=/bin/mkdir -p /run/titus-executor/%i/tmp
 ExecStartPre=/bin/mkdir -p /run/titus-executor/%i/run
 ExecStartPre=/bin/mkdir -p /run/titus-executor/%i/etc
 ExecStartPre=/bin/mkdir -p /run/titus-executor/%i/systemd
+ExecStartPre=/bin/mkdir -p /run/titus-executor/%i/cache
 
-Environment=XDG_DATA_DIR=/run/titus-executor/%i/systemd
-Environment=XDG_DATA_DIRS=/apps/titus-executor/systemd:$XDG_DATA_DIRS
+Environment=XDG_DATA_DIRS=/apps/titus-executor/data
 Environment=XDG_RUNTIME_DIR=/run/titus-executor/%i/run
-Environment=XDG_CONFIG_HOME=/run/titus-executor/%i/etc
-Enivronment=XDG_CONFIG_DIRS=/apps/titus-executor/etc/systemd:$XDG_CONFIG_DIRS
+Environment=XDG_CONFIG_DIRS=/apps/titus-executor/etc:/run/titus-executor/%i/etc
+Environment=XDG_CACHE_HOME=/run/titus-executor/%i/cache
+Environment=NAMESPACE_NAME=%i
+Environment=TITUS_EXECUTOR_RUNTIME_DIR=/run/titus-executor/%i/pod-status
 
+[Service]
 Slice=containers.slice
-ExecStart=/apps/titus-executor/bin/run-titus-virtual-kubelet-backend.sh --runtime-dir=/run/titus-executor/%i
-Restart=no
-KillSignal=SIGINT
+Type=notify
+ExecStart=-/lib/systemd/systemd --user --log-level=debug --log-target=journal
 KillMode=mixed
-TimeoutStopSec=600
-TimeoutStartSec=1200
-TasksMax=50000
-RemainAfterExit=yes
+Delegate=true
+TasksMax=infinity
+TimeoutStopSec=600s
 # The runtime directory gets removed upon unit shutdown
 RuntimeDirectory=titus-executor/%i
-Delegate=true
+KillSignal=58
