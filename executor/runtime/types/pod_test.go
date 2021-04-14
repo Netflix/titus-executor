@@ -142,7 +142,7 @@ func TestNewPodContainer(t *testing.T) {
 
 	sidecars, err := c.SidecarConfigs()
 	assert.NilError(t, err)
-	assert.DeepEqual(t, sidecars, map[string]*SidecarContainerConfig{})
+	assert.DeepEqual(t, sidecars, []*ServiceOpts{})
 
 	assert.Equal(t, c.SignedAddressAllocationUUID(), stringNil)
 	assert.DeepEqual(t, c.SortedEnvArray(), []string{})

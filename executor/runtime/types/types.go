@@ -111,12 +111,6 @@ type EBSInfo struct {
 	FSType    string
 }
 
-type SidecarContainerConfig struct {
-	ServiceName string
-	Image       string
-	Volumes     map[string]struct{}
-}
-
 // Container contains config state for a container. It should be Read Only. It should only be initialized via a
 // constructor, and not directly.
 type Container interface {
@@ -177,7 +171,7 @@ type Container interface {
 	SetSystemD(bool)
 	SetVPCAllocation(*vpcTypes.HybridAllocation)
 	ShmSizeMiB() *uint32
-	SidecarConfigs() (map[string]*SidecarContainerConfig, error)
+	SidecarConfigs() ([]*ServiceOpts, error)
 	SignedAddressAllocationUUID() *string
 	SortedEnvArray() []string
 	SubnetIDs() *string
@@ -379,4 +373,19 @@ const (
 type StatusMessage struct {
 	Status Status
 	Msg    string
+}
+
+// Function to determine if a service should be enabled or not
+type serviceEnabledFunc func(cfg *config.Config, c Container) bool
+
+type ServiceOpts struct {
+	ServiceName   string              // A human-friendly name for the system sidecar
+	UnitName      string              // The systemd unit filename
+	InitCommand   string              // Optional command to run first before starting, outside the systemd unit
+	Required      bool                // If true, the startup of a task will fail, otherwise will just log
+	EnabledCheck  serviceEnabledFunc  // A function the returns a bool representing if titus-executor should run this sidecar or not
+	Target        bool                // If true, treat this as a systemd target, not a service
+	Image         string              // If set, represents a docker image for the code representing this sidecar. This is populated at runtime.
+	Volumes       map[string]struct{} // Volumes to map in from the docker image into the main container, usually /titus/$servicename
+	ContainerName string              // A mutable string that is dynamically configured to be compatible with docker ps, calculated at runtime
 }

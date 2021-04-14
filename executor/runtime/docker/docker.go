@@ -795,22 +795,22 @@ func cleanContainerName(prefix string, imageName string) string {
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarContainerConfig, containerName *string) func(ctx context.Context) error {
+func (r *DockerRuntime) createVolumeContainerFunc(sOpts *runtimeTypes.ServiceOpts) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		logger.G(ctx).WithField("serviceName", sCfg.ServiceName).Infof("Setting up container")
+		logger.G(ctx).WithField("serviceName", sOpts.ServiceName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname:   fmt.Sprintf("titus-%s", sCfg.ServiceName),
-			Volumes:    sCfg.Volumes,
+			Hostname:   sOpts.ServiceName,
+			Volumes:    sOpts.Volumes,
 			Entrypoint: []string{"/bin/bash"},
-			Image:      sCfg.Image,
+			Image:      sOpts.Image,
 		}
 		hostConfig := &container.HostConfig{
 			NetworkMode: "none",
 		}
 
-		createErr := r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
+		createErr := r.createVolumeContainer(ctx, &sOpts.ContainerName, cfg, hostConfig)
 		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container", sCfg.ServiceName)
+			return errors.Wrapf(createErr, "Unable to setup %s container '%s'", sOpts.ServiceName, sOpts.ContainerName)
 		}
 
 		return nil
@@ -820,6 +820,9 @@ func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarCont
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
 func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
 	image := cfg.Image
+	if image == "" {
+		return fmt.Errorf("No image set for %s, can't create a volume container for it", *containerName)
+	}
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
 		return err
@@ -887,13 +890,6 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
-	var logViewerContainerName string
-	var abmetrixContainerName string
-	var metatronContainerName string
-	var serviceMeshContainerName string
-	var sshdContainerName string
-	var spectatordContainerName string
-	var atlasdContainerName string
 	var volumeContainers []string
 
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
@@ -907,7 +903,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		myImageInfo         *types.ImageInspect
 		dockerCfg           *container.Config
 		hostCfg             *container.HostConfig
-		sidecarConfigs      map[string]*runtimeTypes.SidecarContainerConfig
+		sidecarConfigs      []*runtimeTypes.ServiceOpts
 		size                int64
 		bindMounts          []string
 	)
@@ -947,35 +943,14 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		return nil
 	})
 
-	if shouldStartSpectatord(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSpectatord], &spectatordContainerName))
+	for _, sidecarConfig := range sidecarConfigs {
+		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
+			sidecarConfig.ContainerName = sidecarConfig.ServiceName
+			group.Go(r.createVolumeContainerFunc(sidecarConfig))
+		}
 	}
 
-	if shouldStartAtlasd(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAtlasd], &atlasdContainerName))
-	}
-
-	if shouldStartMetatronSync(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceMetatron], &metatronContainerName))
-	}
-
-	if shouldStartSSHD(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSshd], &sshdContainerName))
-	}
-
-	if shouldStartLogViewer(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceLogViewer], &logViewerContainerName))
-	}
-
-	if shouldStartServiceMesh(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceServiceMesh], &serviceMeshContainerName))
-	}
-
-	if shouldStartAbmetrix(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAbMetrix], &abmetrixContainerName))
-	}
-
-	if shouldStartTitusSeccompAgent(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
 			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
 			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
@@ -992,7 +967,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		}
 	}
 
-	if shouldStartTitusStorage(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
 		v := r.c.EBSInfo()
 		r.c.SetEnvs(map[string]string{
 			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
@@ -1044,28 +1019,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		goto error
 	}
 
-	if spectatordContainerName != "" {
-		volumeContainers = append(volumeContainers, spectatordContainerName)
-	}
-
-	if atlasdContainerName != "" {
-		volumeContainers = append(volumeContainers, atlasdContainerName)
-	}
-
-	if metatronContainerName != "" {
-		volumeContainers = append(volumeContainers, metatronContainerName)
-	}
-	if sshdContainerName != "" {
-		volumeContainers = append(volumeContainers, sshdContainerName)
-	}
-	if logViewerContainerName != "" {
-		volumeContainers = append(volumeContainers, logViewerContainerName)
-	}
-	if serviceMeshContainerName != "" {
-		volumeContainers = append(volumeContainers, serviceMeshContainerName)
-	}
-	if abmetrixContainerName != "" {
-		volumeContainers = append(volumeContainers, abmetrixContainerName)
+	for _, sidecarConfig := range sidecarConfigs {
+		if sidecarConfig.ContainerName != "" {
+			volumeContainers = append(volumeContainers, sidecarConfig.ContainerName)
+		}
 	}
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)

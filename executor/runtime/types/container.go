@@ -979,13 +979,12 @@ func (c *TitusInfoContainer) ShmSizeMiB() *uint32 {
 	return nil
 }
 
-func (c *TitusInfoContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, error) {
-	scMap := make(map[string]*SidecarContainerConfig)
+func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 	svcMeshImage := ""
 	if c.ServiceMeshEnabled() {
 		img, err := c.serviceMeshImageName()
 		if err != nil {
-			return scMap, err
+			return sideCars, err
 		}
 		svcMeshImage = img
 	}
@@ -1002,12 +1001,10 @@ func (c *TitusInfoContainer) SidecarConfigs() (map[string]*SidecarContainerConfi
 
 	for _, sc := range sideCars {
 		sc.Image = path.Join(c.config.DockerRegistry, imageMap[sc.ServiceName])
-		scAddr := sc
-		scMap[sc.ServiceName] = &scAddr
 		log.Infof("sidecar name=%s image=%s", sc.ServiceName, sc.Image)
 	}
 
-	return scMap, nil
+	return sideCars, nil
 }
 
 func (c *TitusInfoContainer) SignedAddressAllocationUUID() *string {
