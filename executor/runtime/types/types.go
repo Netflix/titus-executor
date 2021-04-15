@@ -444,7 +444,7 @@ type Runtime interface {
 	// NOT per-operation
 	Prepare(containerCtx context.Context) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
-	Start(containerCtx context.Context) (string, *Details, <-chan StatusMessage, error)
+	Start(containerCtx context.Context, pod *corev1.Pod) (string, *Details, <-chan StatusMessage, error)
 	// Kill a container. MUST be idempotent.
 	Kill(ctx context.Context) error
 	// Cleanup can be called to tear down resources after a container has been Killed or has naturally

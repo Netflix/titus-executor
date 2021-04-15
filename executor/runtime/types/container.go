@@ -206,9 +206,6 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 	}
 
 	if pod != nil {
-		if l := len(pod.Spec.Containers); l != 1 {
-			return nil, fmt.Errorf("Pod has unexpected number of containers (not 1): %d", l)
-		}
 		c.pod = pod.DeepCopy()
 	}
 
