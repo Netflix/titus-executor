@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/urfave/cli.v1"
@@ -16,6 +18,7 @@ type Config struct { // nolint: maligned
 	prepareTimeout                  time.Duration
 	startTimeout                    time.Duration
 	bumpTiniSchedPriority           bool
+	tiniPath                        string
 	waitForSecurityGroupLockTimeout time.Duration
 
 	titusIsolateBlockTime   time.Duration
@@ -26,6 +29,7 @@ type Config struct { // nolint: maligned
 
 // NewConfig generates a configuration, with a set of flags tied to it for the docker runtime
 func NewConfig() (*Config, []cli.Flag) {
+	defaultTiniPath := getTiniDefaultPath()
 	cfg := &Config{}
 	flags := []cli.Flag{
 		cli.DurationFlag{
@@ -101,8 +105,21 @@ func NewConfig() (*Config, []cli.Flag) {
 				"systems. Kernels with CONFIG_RT_GROUP_SCHED=y require all cgroups in the hierarchy to have some " +
 				"cpu.rt_runtime_us allocated to each one of them",
 		},
+		cli.StringFlag{
+			Name:        "titus.executor.tiniPath",
+			EnvVar:      "TITUS_EXECUTOR_TINI_PATH",
+			Destination: &cfg.tiniPath,
+			Usage:       "Location of the tini binary. Defaults to be 'tini-static' in the same location as the titus-executor binary",
+			Value:       defaultTiniPath,
+		},
 	}
+
 	return cfg, flags
+}
+
+func getTiniDefaultPath() string {
+	dir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
+	return dir + "/tini-static"
 }
 
 // GenerateConfiguration is only meant to validate the behaviour of parsing command line arguments
