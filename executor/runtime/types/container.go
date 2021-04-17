@@ -20,6 +20,7 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
+	"github.com/apex/log"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -960,7 +961,11 @@ func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 	for _, scOrig := range sideCars {
 		// Make a copy to avoid mutating the original
 		sc := scOrig
-		sc.Image = path.Join(c.config.DockerRegistry, imageMap[sc.ServiceName])
+		image, ok := imageMap[sc.ServiceName]
+		if ok {
+			sc.Image = path.Join(c.config.DockerRegistry, image)
+			log.Debugf("computed sidecar image for %s image=%s", sc.ServiceName, sc.Image)
+		}
 		sideCarPtrs = append(sideCarPtrs, &sc)
 	}
 

@@ -217,18 +217,6 @@ static void mount_and_move(int fsfd, const char *target, unsigned long flags)
 	E(close(mfd));
 }
 
-const char *get_underlying_block_device_for(const char *source)
-{
-	// TODO: Calculate this dynamically instead of assuming root Titus setup
-	return "/dev/nvme0n1";
-}
-
-const char *get_underlying_filesystem_for(const char *source)
-{
-	// TODO: Calculate this dynamically instead of assuming root Titus setup
-	return "ext4";
-}
-
 int main(int argc, char *argv[])
 {
 	int ret;
@@ -242,6 +230,8 @@ int main(int argc, char *argv[])
 	 */
 	const char *target = getenv("MOUNT_TARGET");
 	const char *source = getenv("MOUNT_HOST_PATH");
+	const char *fstype = getenv("MOUNT_HOST_FSTYPE");
+	const char *block_device = getenv("MOUNT_HOST_BLOCK_DEVICE");
 	const char *flags = getenv("MOUNT_FLAGS");
 	const char *pid1dir = getenv("TITUS_PID_1_DIR");
 
@@ -262,7 +252,7 @@ int main(int argc, char *argv[])
 
 	if (!(target && flags && source && pid1dir)) {
 		fprintf(stderr,
-			"Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, MOUNT_HOST_PATH, and TITUS_PID_1_DIR env vars");
+			"Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, MOUNT_HOST_PATH, MOUNT_HOST_FSTYPE, MOUNT_HOST_BLOCK_DEVICE, and TITUS_PID_1_DIR env vars");
 		return 1;
 	}
 
@@ -295,12 +285,10 @@ int main(int argc, char *argv[])
 
 	Step 1 is complex, but a solved problem. Step 2 and 3 are easy once you are in the mount namespace */
 
-	strcpy(temp_block_fstype, get_underlying_filesystem_for(source));
 	/* First we need to get a fsfd, but it must be created inside the user namespace */
-	fsfd = fork_and_get_fsfd(nsfd, temp_block_fstype);
+	fsfd = fork_and_get_fsfd(nsfd, fstype);
 
-	strcpy(temp_block_source, get_underlying_block_device_for(source));
-	sprintf(temp_block_options, "source=%s", temp_block_source);
+	sprintf(temp_block_options, "source=%s", block_device);
 	/* Now we can do the fs_config calls and actual mount
 	This isn't possible *inside* the conatiner, because it can't see the device */
 	fprintf(stderr, "titus-mount-bind: temporary block options: %s\n",

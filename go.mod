@@ -14,6 +14,7 @@ require (
 	github.com/Netflix/titus-kube-common v0.10.2-0.20210420003404-4e53c4032156
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
+	github.com/apex/log v1.9.0
 	github.com/apparentlymart/go-cidr v1.0.0
 	github.com/aws/aws-sdk-go v1.35.10
 	github.com/containernetworking/cni v0.7.1
