@@ -13,4 +13,4 @@ if [[ -e /etc/titus-executor/metadata-proxy-config.sh ]]; then
   set +o allexport
 fi
 
-exec /apps/titus-executor/bin/titus-inject-metadataproxy /apps/titus-executor/bin/titus-metadata-service --listener-fd=169
+exec /apps/titus-executor/bin/titus-inject-metadataproxy -- /apps/titus-executor/bin/titus-metadata-service --listener-fd=169

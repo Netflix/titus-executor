@@ -19,14 +19,13 @@ mv mount/titus-mount-nfs build/bin/linux-amd64/
 make build/tini/tini-static
 mv build/tini/tini-static build/bin/linux-amd64
 
-# metadata service injector
+# titus-nsenter
 (
     rm -rf build/inject && mkdir -p build/inject
     cd build/inject
     TINI_INCLUDE_DIR=../tini/src TINI_LIBRARY_DIR=../build/tini cmake ../../inject
     make V=1
 )
-mv build/inject/titus-inject-metadataproxy build/bin/linux-amd64
 mv build/inject/titus-nsenter build/bin/linux-amd64
 
 install -t root/apps/titus-executor/bin build/bin/linux-amd64/*
