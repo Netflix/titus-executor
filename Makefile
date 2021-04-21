@@ -45,7 +45,7 @@ build-standalone:
 	hack/builder/titus-executor-builder.sh
 
 .PHONY: test
-test: test-local test-standalone
+test: test-local test-standalone test-misc
 
 TEST_DIRS = $(shell go list -f 'TEST-{{.ImportPath}}' ./...)
 .PHONY: $(TEST_DIRS)
@@ -71,6 +71,9 @@ test-local: | $(clean)
 test-standalone: titus-agent | $(clean) $(builder)
 	./hack/tests-with-dind.sh
 
+.PHONY: test-misc
+test-misc:
+	shellcheck --shell=sh --exclude=SC1008 ./hack/images/titus-sshd/run-titus-sshd
 
 ## Source code
 

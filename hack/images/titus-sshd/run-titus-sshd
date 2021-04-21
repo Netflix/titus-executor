@@ -1,4 +1,5 @@
 #!/titus/sshd/bin/busybox sh
+# shellcheck shell=sh
 
 # For security and portability we make sure we only use the busybox utilities
 # and make no assumptions about the path and what other binaries
