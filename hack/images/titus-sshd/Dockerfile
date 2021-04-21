@@ -37,6 +37,8 @@ RUN for i in $(scanelf --recursive --mount --symlink --etype ET_DYN --perms 0700
 RUN /titus/sshd/usr/bin/ssh-keygen -A
 RUN ln -s /etc/resolv.conf /titus/sshd/etc/
 RUN ln -s /etc/passwd /titus/sshd/etc/
+RUN ln -s /titus/sshd/bin/busybox /titus/sshd/bin/sh
 RUN rm /titus/sshd/etc/ssh/sshd_config && ln -s /titus/etc/ssh/sshd_config /titus/sshd/etc/ssh/sshd_config
 FROM scratch
 COPY --from=builder /titus/sshd /titus/sshd
+ADD run-titus-sshd /titus/sshd/run-titus-sshd
