@@ -39,6 +39,7 @@ type PodContainer struct {
 	capabilities   *corev1.Capabilities
 	config         config.Config
 	containerImage reference.Reference
+	ebsInfo        EBSInfo
 	envLock        sync.Mutex
 	// envOverrides are set by the executor for things like IPv4 / IPv6 address
 	envOverrides map[string]string
@@ -117,9 +118,9 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 
 	c.labels = addLabels(c.id, c, resources)
 
-	err = c.parsePodNFSVolumes()
+	err = c.parsePodVolumes()
 	if err != nil {
-		return c, fmt.Errorf("error parsing NFS mounts: %w", err)
+		return c, fmt.Errorf("error parsing mounts: %w", err)
 	}
 	err = c.parsePodEmptyDirVolumes()
 	if err != nil {
@@ -201,7 +202,7 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 }
 
 func (c *PodContainer) EBSInfo() EBSInfo {
-	return EBSInfo{}
+	return c.ebsInfo
 }
 
 func (c *PodContainer) Env() map[string]string {
@@ -613,12 +614,13 @@ func createLogUploadConfig(pConf *podCommon.Config) *uploader.Config {
 	return &conf
 }
 
-func (c *PodContainer) parsePodNFSVolumes() error {
+func (c *PodContainer) parsePodVolumes() error {
 	c.nfsMounts = []NFSMount{}
 	nameToMount := map[string]corev1.Volume{}
+	c.ebsInfo = EBSInfo{}
 
 	for _, vol := range c.pod.Spec.Volumes {
-		if vol.VolumeSource.NFS == nil {
+		if vol.VolumeSource.NFS == nil && vol.VolumeSource.AWSElasticBlockStore == nil {
 			continue
 		}
 		nameToMount[vol.Name] = vol
@@ -631,12 +633,29 @@ func (c *PodContainer) parsePodNFSVolumes() error {
 			continue
 		}
 
-		c.nfsMounts = append(c.nfsMounts, NFSMount{
-			MountPoint: filepath.Clean(vm.MountPath),
-			Server:     vol.NFS.Server,
-			ServerPath: filepath.Clean(vol.NFS.Path),
-			ReadOnly:   vol.NFS.ReadOnly,
-		})
+		if vol.VolumeSource.NFS != nil {
+			c.nfsMounts = append(c.nfsMounts, NFSMount{
+				MountPoint: filepath.Clean(vm.MountPath),
+				Server:     vol.NFS.Server,
+				ServerPath: filepath.Clean(vol.NFS.Path),
+				ReadOnly:   vol.NFS.ReadOnly,
+			})
+		}
+
+		if vol.VolumeSource.AWSElasticBlockStore != nil {
+			if c.ebsInfo.VolumeID != "" {
+				return errors.New("only one EBS volume per task can be specified")
+			}
+			c.ebsInfo = EBSInfo{
+				VolumeID:  vol.AWSElasticBlockStore.VolumeID,
+				FSType:    vol.AWSElasticBlockStore.FSType,
+				MountPath: vm.MountPath,
+				MountPerm: "RW",
+			}
+			if vol.VolumeSource.AWSElasticBlockStore.ReadOnly {
+				c.ebsInfo.MountPerm = "RO"
+			}
+		}
 
 		delete(nameToMount, vm.Name)
 	}

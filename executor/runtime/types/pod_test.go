@@ -109,6 +109,12 @@ func TestNewPodContainer(t *testing.T) {
 			ReadOnly:   true,
 		},
 	}
+	expEBSMount := EBSInfo{
+		VolumeID:  "vol-abcdef",
+		MountPath: "/ebs_mnt",
+		MountPerm: "RO",
+		FSType:    "xfs",
+	}
 	expOomScoreAdj := int32(99)
 	expResources := &Resources{
 		CPU:     2,
@@ -188,7 +194,7 @@ func TestNewPodContainer(t *testing.T) {
 	err = AddContainerInfoToPod(pod, cInfo)
 	assert.NilError(t, err)
 
-	// Add EFS mounts
+	// Add EFS, NFS, SHM mounts
 	uc.VolumeMounts = []corev1.VolumeMount{
 		{
 			Name:      "efs-fs-abcdef-rwm.subdir1",
@@ -197,6 +203,10 @@ func TestNewPodContainer(t *testing.T) {
 		{
 			Name:      "dev-shm",
 			MountPath: "/dev/shm",
+		},
+		{
+			Name:      "ebs-vol-abcdef",
+			MountPath: "/ebs_mnt",
 		},
 	}
 	shmRes := resource.MustParse("256Mi")
@@ -217,6 +227,16 @@ func TestNewPodContainer(t *testing.T) {
 				EmptyDir: &corev1.EmptyDirVolumeSource{
 					Medium:    corev1.StorageMediumMemory,
 					SizeLimit: &shmRes,
+				},
+			},
+		},
+		{
+			Name: "ebs-vol-abcdef",
+			VolumeSource: corev1.VolumeSource{
+				AWSElasticBlockStore: &corev1.AWSElasticBlockStoreVolumeSource{
+					VolumeID: "vol-abcdef",
+					FSType:   "xfs",
+					ReadOnly: true,
 				},
 			},
 		},
@@ -252,6 +272,7 @@ func TestNewPodContainer(t *testing.T) {
 	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
 	assert.Equal(t, c.CombinedAppStackDetails(), "appName-appStack-appDetail")
 	assert.DeepEqual(t, c.NFSMounts(), expNFSMounts)
+	assert.DeepEqual(t, c.EBSInfo(), expEBSMount)
 
 	expEnv := map[string]string{
 		"AWS_METADATA_SERVICE_NUM_ATTEMPTS": "3",
@@ -467,6 +488,42 @@ func TestNewPodContainerErrors(t *testing.T) {
 	})
 	_, err = NewPodContainer(pod, *conf)
 	assert.Error(t, err, "error parsing EmptyDir mounts: container volume mount found with unmatched pod volume: dev-shm")
+
+	// Can't specify more than one EBS volume per task
+	pod.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+		{
+			Name:      "ebs-vol-1",
+			MountPath: "/ebs_mnt1",
+		},
+		{
+			Name:      "ebs-vol-2",
+			MountPath: "/ebs_mnt2",
+		},
+	}
+	pod.Spec.Volumes = []corev1.Volume{
+		{
+			Name: "ebs-vol-1",
+			VolumeSource: corev1.VolumeSource{
+				AWSElasticBlockStore: &corev1.AWSElasticBlockStoreVolumeSource{
+					VolumeID: "vol-1",
+					FSType:   "xfs",
+					ReadOnly: true,
+				},
+			},
+		},
+		{
+			Name: "ebs-vol-2",
+			VolumeSource: corev1.VolumeSource{
+				AWSElasticBlockStore: &corev1.AWSElasticBlockStoreVolumeSource{
+					VolumeID: "vol-2",
+					FSType:   "xfs",
+					ReadOnly: true,
+				},
+			},
+		},
+	}
+	_, err = NewPodContainer(pod, *conf)
+	assert.Error(t, err, "error parsing mounts: only one EBS volume per task can be specified")
 }
 
 func TestNewPodContainerHostnameStyle(t *testing.T) {
