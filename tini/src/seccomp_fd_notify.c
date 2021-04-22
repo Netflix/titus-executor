@@ -39,6 +39,10 @@
 		fprintf(stderr, "\n");                                         \
 	}
 
+pthread_mutex_t wait_to_send = PTHREAD_MUTEX_INITIALIZER;
+int send_notify_fd = 0;
+pthread_cond_t ready_to_send = PTHREAD_COND_INITIALIZER;
+
 bool have_cap_sysadmin()
 {
 	cap_t current_capabilties = cap_get_proc();
