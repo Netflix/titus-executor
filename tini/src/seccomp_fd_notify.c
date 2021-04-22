@@ -183,10 +183,6 @@ struct sock_filter net_perf_filter[] = {
 		return -1;
 	}
 
-	/* Setting up permissions to issue seccomp system call */
-	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-		PRINT_WARNING("Failed to setup priveleges before calling seccomp")
-	}
 	/* Install the filter with the SECCOMP_FILTER_FLAG_NEW_LISTENER flag; as
 	   a result, seccomp() returns a notification file descriptor. */
 
