@@ -99,7 +99,7 @@
         "imagePullPolicy": "IfNotPresent"
       },
       {
-        "name": "843863f1-41a2-4a73-89bc-89c506bc1e14-nginx",
+        "name": "nginx",
         "image": "nginx",
         "command": [],
         "env": [{
@@ -110,9 +110,8 @@
         "imagePullPolicy": "IfNotPresent"
       },
       {
-        "name": "843863f1-41a2-4a73-89bc-89c506bc1e14-mysql",
+        "name": "mysql",
         "image": "mysql",
-        "command": [],
         "env": [{
 		"name": "MYSQL_ALLOW_EMPTY_PASSWORD",
 		"value": "true"

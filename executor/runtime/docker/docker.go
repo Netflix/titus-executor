@@ -1437,6 +1437,7 @@ func k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID strin
 		WorkingDir: v1Container.WorkingDir,
 		Entrypoint: v1Container.Command,
 		Labels:     labels,
+		Env:        v1ConatinerEnvToList(v1Container.Env),
 	}
 	dockerHostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode("container:" + mainContainerID),
@@ -1459,6 +1460,14 @@ func k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID strin
 	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
 	dockerNetworkConfig := &network.NetworkingConfig{}
 	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig
+}
+
+func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
+	envList := []string{}
+	for _, e := range v1Env {
+		envList = append(envList, e.Name+"="+e.Value)
+	}
+	return envList
 }
 
 // return true to exit
