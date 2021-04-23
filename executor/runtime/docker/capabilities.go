@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	SYS_ADMIN = "SYS_ADMIN" // nolint: golint
-	NET_ADMIN = "NET_ADMIN" // nolint: golint
+	SYS_ADMIN              = "SYS_ADMIN" // nolint: golint
+	NET_ADMIN              = "NET_ADMIN" // nolint: golint
+	defaultApparmorProfile = "docker_titus"
 )
 
 func addAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.HostConfig) map[string]struct{} {
@@ -38,7 +39,7 @@ func addAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Host
 func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.HostConfig) error {
 	addedCapabilities := addAdditionalCapabilities(c, hostCfg)
 	seccompProfile := "default.json"
-	apparmorProfile := "docker_titus"
+	apparmorProfile := defaultApparmorProfile
 
 	if aProf := c.AppArmorProfile(); aProf != nil {
 		apparmorProfile = *aProf
@@ -54,6 +55,10 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 			PathInContainer:   fuseDev,
 			CgroupPermissions: "rmw",
 		})
+
+		if apparmorProfile == defaultApparmorProfile {
+			apparmorProfile = "docker_fuse"
+		}
 		seccompProfile = "fuse-container.json"
 	}
 
