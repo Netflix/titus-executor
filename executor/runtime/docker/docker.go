@@ -1336,7 +1336,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		return "", nil, statusMessageChan, err
 	}
 
-	logDir, err := r.waitForTini(ctx, listener, efsMountInfos, r.c)
+	logDir, err := r.waitForTini(ctx, listener, r.c)
 	if err != nil {
 		eventCancel()
 		err = fmt.Errorf("container prestart error: %w", err)

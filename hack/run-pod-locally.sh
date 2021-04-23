@@ -39,12 +39,18 @@ docker run -ti --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:
   -e METATRON_SERVICE_IMAGE="/ps/titus-metatron-identity" \
   -e PROXYD_SERVICE_IMAGE="/ipc/proxyd-rootless-candidate@sha256:9d5e5292015856b60cfcca51024cdceba1b07f9fe952b96ccac4b741aab43708" \
   -e ABMETRIX_SERVICE_IMAGE="/baseos/nflx-abmetrix-titus@sha256:0b01b2d74b9b62c7ad85007da0491d40c1f80e5812676667bedcade2448f24e3" \
+  -e TITUS_EXECUTOR_TINI_PATH="${PWD}/build/bin/linux-amd64/tini-static" \
   --rm --name "$docker_container_name" \
   -d \
   -e SHORT_CIRCUIT_QUITELITE=true --label "$run_id" titusoss/titus-agent
 
 log "Copying test metatron certs to their correct location"
 docker exec "$docker_container_name" /metatron/certificates/setup-metatron-certs.sh
+
+if [[ -e ${PWD}/build/bin/linux-amd64/tini-static ]]; then
+  log "Copying the linux tini binary out for use"
+  docker cp "$docker_container_name":/apps/titus-executor/bin/tini-static ${PWD}/build/bin/linux-amd64/tini-static
+fi
 
 log "Running titus-standalone in $docker_container_name"
 docker exec "$docker_container_name" /apps/titus-executor/bin/titus-standalone \
