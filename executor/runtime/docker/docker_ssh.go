@@ -22,8 +22,11 @@ Port 7522
 Protocol 2
 # HostKeys for protocol version 2
 HostKey /titus/sshd/etc/ssh/ssh_host_rsa_key
+HostCertificate /run/metatron/certificates/ssh_host_rsa_key-cert.pub
 HostKey /titus/sshd/etc/ssh/ssh_host_ecdsa_key
+HostCertificate /run/metatron/certificates/ssh_host_ecdsa_key-cert.pub
 HostKey /titus/sshd/etc/ssh/ssh_host_ed25519_key
+HostCertificate /run/metatron/certificates/ssh_host_ed25519_key-cert.pub
 
 Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
 MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
