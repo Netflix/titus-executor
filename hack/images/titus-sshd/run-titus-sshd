@@ -30,6 +30,7 @@ setup_files() {
   # must exist for ssh to work
   [ -f /etc/passwd ] || ($touch /etc/passwd && log "setting up /etc/passwd for ssh to work")
   [ -d /var/log ] || ($mkdir -p /var/log && log "creating /var/log for ssh to work")
+  [ -d /var/empty ] || ($mkdir -p /var/empty && log "creating /var/empty for ssh to work")
   [ -f /var/log/lastlog ] || ($touch /var/log/lastlog && log "creating /var/log/lastlog for ssh to work")
   [ -f /etc/profile ] || (write_etc_profile && log "creating /etc/profile for environment variables to work")
 }
@@ -42,14 +43,14 @@ setup_users() {
     log "Adding the 'nfsuper' user into /etc/passwd"
     echo 'nfsuper:x:0:0:root:/root:/titus/sshd/bin/sh' >> /etc/passwd
   fi
-  # Nobody is an ssh requirement for privilege separation
-  if ! $grep -q nobody /etc/passwd; then
-    log "Adding the 'nobody' user into /etc/passwd"
-    echo 'nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin' >> /etc/passwd
+  # sshd is an ssh requirement for privilege separation
+  if ! $grep -q sshd: /etc/passwd; then
+    log "Adding the 'sshd' user into /etc/passwd"
+    echo 'sshd:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin' >> /etc/passwd
   fi
 }
 
 setup_files
 setup_users
 
-exec /titus/sshd/usr/sbin/sshd "$@"
+exec /titus/sshd/usr/sbin/sshd -f /titus/etc/ssh/sshd_config "$@"
