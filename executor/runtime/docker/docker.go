@@ -1382,43 +1382,119 @@ func (r *DockerRuntime) startOtherUserContainers(ctx context.Context, pod *v1.Po
 		return nil
 	}
 	l := log.WithField("taskID", r.c.TaskID())
-	l.Infof("Starting up %d other user containers", len(otherUserContainers))
+
+	// For speed, we pull and creat containers in parallel
+	l.Infof("Pulling %d other user containers", len(otherUserContainers))
+	err := r.pullAllUserContainers(ctx, pod)
+	if err != nil {
+		return fmt.Errorf("Failed to pull an image for user container: %s", err)
+	}
+	l.Infof("Creating %d other user containers", len(otherUserContainers))
+	cidMapping, err := r.createAllUserContainers(ctx, pod, r.c.TaskID())
+	if err != nil {
+		return fmt.Errorf("Failed to create a user container: %s", err)
+	}
+
+	// Starting, however, has its own logic
+	l.Infof("Starting %d other user containers", len(cidMapping))
+	err = r.startAllUserContainers(ctx, cidMapping, r.c.TaskID())
+	if err != nil {
+		return fmt.Errorf("Failed to start a user container: %s", err)
+	}
+
+	l.Info("Finished launching other user containers")
+	return nil
+}
+
+func (r *DockerRuntime) pullAllUserContainers(ctx context.Context, pod *v1.Pod) error {
+	l := log.WithField("taskID", r.c.TaskID())
+	// In this design, the first container has already been pulled and started, so we only look
+	// at the other containers here.
+	otherUserContainers := pod.Spec.Containers[1:]
+	group := groupWithContext(ctx)
+	images := getAllUserContainerImages(otherUserContainers)
+	for idx := range images {
+		image := images[idx]
+		group.Go(func(ctx context.Context) error {
+			l.Debugf("pulling other user container %s", image)
+			return pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
+		})
+	}
+	return group.Wait()
+}
+
+func getAllUserContainerImages(containers []v1.Container) []string {
+	images := []string{}
+	for _, c := range containers {
+		images = append(images, c.Image)
+	}
+	return images
+}
+
+func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string) (map[string]string, error) {
+	l := log.WithField("taskID", r.c.TaskID())
+	// With this design, the first container is already created and ready for us
+	// to link to (mainContainerID), so we only look at 1+ containers to create
+	otherUserContainers := pod.Spec.Containers[1:]
+	group := groupWithContext(ctx)
+	// We use a sync map for safety here, we need a mapping from Name: ContainerID to return
+	// so the caller can start the containers we create in the correct order.
+	// We *creating* (not starting) the containers in parallel for speed
+	var cidSyncMapping sync.Map
+	for idx := range otherUserContainers {
+		c := otherUserContainers[idx]
+		group.Go(func(ctx context.Context) error {
+			cid, err := r.createOtherUserContainer(ctx, c, mainContainerID)
+			if err != nil {
+				return fmt.Errorf("Failed to create %s container: %w", c.Name, err)
+			}
+			cidSyncMapping.Store(c.Name, cid)
+			l.Debugf("Created %s, CID: %s", c.Name, cid)
+			return nil
+		})
+	}
+	err := group.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	// And the convert back to a normal map before returning
+	cidMapping := make(map[string]string)
+	cidSyncMapping.Range(func(k interface{}, v interface{}) bool {
+		cidMapping[k.(string)] = v.(string)
+		return true
+	})
+	return cidMapping, err
+}
+
+func (r *DockerRuntime) startAllUserContainers(ctx context.Context, cidMapping map[string]string, mainContainerID string) error {
 	// Currently the order here is hard-coded to be whatever order it is in the podspec
-	// with no health or startup probes
-	for i, v1Container := range otherUserContainers {
-		l.Debugf("Starting other user container %d/%d: %s", i+1, len(otherUserContainers), v1Container.Name)
-		err := pullWithRetries(ctx, r.metrics, r.client, v1Container.Image, doDockerPull)
+	// with no health or startup probes. Someday we'll add more logic here.
+	l := log.WithField("taskID", r.c.TaskID())
+	for name, cid := range cidMapping {
+		l.Debugf("Starting up user container %s, Conatiner id %s", name, cid)
+		err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
 		if err != nil {
-			return fmt.Errorf("Failed to pull an image for user container %s: %s", v1Container.Name, err)
-		}
-		err = r.startOtherUserContainer(ctx, v1Container, mainContainerID)
-		if err != nil {
-			return fmt.Errorf("Failed to create/start user container %s: %s", v1Container.Name, err)
+			return fmt.Errorf("Failed to start %s container: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func (r *DockerRuntime) startOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string) error {
+func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string) (string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
-	containerName := r.c.TaskID() + v1Container.Name
+	containerName := r.c.TaskID() + "-" + v1Container.Name
 	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := k8sContainerToDockerConfigs(v1Container, mainContainerID)
 	l.WithFields(map[string]interface{}{
 		"dockerCfg": logger.ShouldJSON(ctx, *dockerContainerConfig),
 		"hostCfg":   logger.ShouldJSON(ctx, *dockerHostConfig),
-	}).Info("Creating other user container in docker")
+	}).Infof("Creating other user container in docker: %s", v1Container.Name)
 	containerCreateBody, err := r.client.ContainerCreate(ctx, dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, containerName)
 	if err != nil {
-		return err
+		return "", err
 	}
-	cID := containerCreateBody.ID
-
-	l.Debugf("Created container %s, cid: %s. Now starting it...", containerName, cID)
-	err = r.client.ContainerStart(ctx, cID, types.ContainerStartOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
+	l.Debugf("Finished creating usercontainer %s, CID: %s, Env: %+v", v1Container.Name, containerCreateBody.ID, dockerContainerConfig.Env)
+	return containerCreateBody.ID, nil
 }
 
 func k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
