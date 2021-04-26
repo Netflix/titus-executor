@@ -1087,25 +1087,24 @@ func getPassthroughBool(titusInfo *titus.ContainerInfo, key string) (bool, bool,
 // - TitusInfo.EntrypointStr, the old code path being deprecated. The flat string will be parsed according to shell
 //   rules and be returned as entrypoint, while cmd will be nil
 // - TitusInfo.Process, the new code path where both entrypoint and cmd are lists. Docker rules on how they interact
-//   apply
+//   apply.
 //
-// If both are set, EntrypointStr has precedence to allow for smoother transition.
-func parseEntryPointAndCommand(titusInfo *titus.ContainerInfo) ([]string, []string, error) {
-	if titusInfo.EntrypointStr != nil { // nolint: staticcheck
-		// deprecated (old) way of passing entrypoints as a flat string. We need to parse it
-		entrypoint, err := dockershellparser.ProcessWords(titusInfo.GetEntrypointStr(), []string{}) // nolint: megacheck
-		if err != nil {
-			return nil, nil, err
-		}
+// If both are set, TitusInfo.Process has precedence since metatron fails with TitusInfo.EntrypointStr when an array is being
+// submitted as the entry point via the API.
+func parseEntryPointAndCommand(titusInfo *titus.ContainerInfo) (entrypoint []string, command []string, err error) {
+	process := titusInfo.GetProcess()
+	command = process.GetCommand()
+	entrypoint = process.GetEntrypoint()
 
-		// nil cmd because everything is in the entrypoint
-		return entrypoint, nil, nil
+	if entrypoint == nil && command == nil && titusInfo.EntrypointStr != nil {
+		// Attempt the deprecated (old) way of passing entrypoints as a flat string. We need to parse it:
+		entrypoint, err = dockershellparser.ProcessWords(titusInfo.GetEntrypointStr(), []string{}) // nolint: megacheck
+		if err != nil {
+			return
+		}
 	}
 
-	process := titusInfo.GetProcess()
-	command := process.GetCommand()
-	entrypoint := process.GetEntrypoint()
-	return entrypoint, command, nil
+	return
 }
 
 func (c *TitusInfoContainer) parseLogUploadThresholdTime(logUploadThresholdTimeStr string) (time.Duration, error) {
