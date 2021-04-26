@@ -71,16 +71,47 @@ func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2Instanc
 		return err
 	}
 
-	err = mkfsIfNeeded(device, c.ebsFStype)
-	if err != nil {
-		return err
+	if c.ebsMountPerm == "RW" {
+		// Replicating kubelet behavior, we try to fsck before mount, but if there
+		// are errors we try to continue anyway
+		fsck(ctx, device, c.ebsFStype)
 	}
 
-	err = mountIt(ctx, device, c.ebsFStype, c.ebsMountPoint, c.ebsMountPerm, c.pid1Dir)
-	if err != nil {
-		return err
+	mc := MountCommand{
+		device:     device,
+		fstype:     c.ebsFStype,
+		mountPoint: c.ebsMountPoint,
+		perms:      c.ebsMountPerm,
+		pid1Dir:    c.pid1Dir,
 	}
-	l.Printf("finished setting up EBS %s at %s inside the container", c.ebsVolumeID, c.ebsMountPoint)
+	mountErr := mountBlockDeviceInContainer(ctx, mc)
+	if mountErr != nil {
+		// Replicating kubelet behavior, it is safer to just try to mount something,
+		// and only if it fails do we risk running mkfs and trying again.
+		mkfsIsNeeded, mkfsIsNeedederr := isMkfsNeeded(ctx, device, c.ebsFStype)
+		if mkfsIsNeedederr != nil {
+			return mkfsIsNeedederr
+		}
+		if mkfsIsNeeded {
+			if c.ebsMountPerm != "RW" {
+				return fmt.Errorf("A mkfs is needed on this device, but the mount permissions were not RW, they were %q", c.ebsMountPerm)
+			}
+			l.Infof("mkfs required on %s", device)
+			mkfsErr := mkfs(ctx, device, c.ebsFStype)
+			if mkfsErr == nil {
+				l.Infof("mkfs finished on %s, trying to mount again", device)
+				secondMountErr := mountBlockDeviceInContainer(ctx, mc)
+				if secondMountErr != nil {
+					return fmt.Errorf("Failed to mount a second time, even after a mkfs: %w", secondMountErr)
+				}
+				l.Infof("finished setting up EBS %s at %s inside the container after mkfs", c.ebsVolumeID, c.ebsMountPoint)
+				return nil
+			}
+			return mkfsErr
+		}
+		return mountErr
+	}
+	l.Infof("finished setting up EBS %s at %s inside the container", c.ebsVolumeID, c.ebsMountPoint)
 	return nil
 }
 
