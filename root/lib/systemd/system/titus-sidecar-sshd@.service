@@ -14,7 +14,7 @@ Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
 # get TSA help too. This environment variable ensures that will happen.
 Environment=TITUS_NSENTER_USE_TSA=true
 EnvironmentFile=/var/lib/titus-environments/%i.env
-ExecStart=/apps/titus-executor/bin/titus-nsenter /titus/sshd/usr/sbin/run-titus-sshd -D -e
+ExecStart=/apps/titus-executor/bin/titus-nsenter /titus/sshd/usr/sbin/sshd -D -e
 LimitNOFILE=65535
 ## TODO: Wire up more "lockdown" so this unit can't wreck havoc if it gets compromised
 PrivateTmp=yes
