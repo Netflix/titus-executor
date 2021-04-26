@@ -144,10 +144,27 @@ struct sock_filter net_perf_filter[] = {
 		/* Trap sendmsg */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_sendmsg, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		/* Trap sendmmsg */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_sendmmsg, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 		/* Trap connect */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_connect, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
-
+		/* Trap perf-related syscalls */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_bpf, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_perf_event_open, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		/* We only need to trap the 2 perf-related ioctls */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 5),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+			 (offsetof(struct seccomp_data, args[1]))),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_SET_BPF, 0,
+			 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_QUERY_BPF, 0,
+			 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 
 		/* Every other system call is allowed */
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
