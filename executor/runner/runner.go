@@ -16,6 +16,7 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	multierror "github.com/hashicorp/go-multierror"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 )
 
 // Task contains all information for running a task
@@ -37,6 +38,7 @@ type Runner struct {
 	metricsTagger tagger // the presence of tagger indicates extra Atlas tag is enabled
 	runtime       runtimeTypes.Runtime
 	config        config.Config
+	pod           *corev1.Pod
 
 	container runtimeTypes.Container
 	watcher   *filesystems.Watcher
@@ -66,6 +68,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 	if err != nil {
 		return nil, err
 	}
+	pod := task.Pod
 	runner := &Runner{
 		metrics:       m,
 		metricsTagger: metricsTagger,
@@ -74,6 +77,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
 		container:     container,
+		pod:           pod,
 	}
 
 	rt, err := rp(ctx, runner.container, startTime)
@@ -106,7 +110,7 @@ func (r *Runner) startRunner(ctx context.Context, startTime time.Time) {
 	defer close(r.StoppedChan)
 
 	updateChan := make(chan update, 10)
-	go r.runContainer(ctx, startTime, updateChan)
+	go r.runMainContainerAndStartSidecars(ctx, startTime, updateChan)
 
 	var lastUpdate *update
 	for update := range updateChan {
@@ -164,11 +168,24 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 		return update{status: titusdriver.Lost, msg: err.Error()}
 	}
 
-	return update{status: titusdriver.Starting, msg: "starting"}
+	containerNames := getContainerNames(r.pod)
+	startingMsg := fmt.Sprintf("starting up %d containers: %s", len(containerNames), containerNames)
+	return update{status: titusdriver.Starting, msg: startingMsg}
+}
+
+func getContainerNames(pod *v1.Pod) []string {
+	if pod == nil || pod.Spec.Containers == nil {
+		return []string{"main"}
+	}
+	names := []string{}
+	for _, c := range pod.Spec.Containers {
+		names = append(names, c.Name)
+	}
+	return names
 }
 
 // This is just splitting the "run" part of the of the runner
-func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateChan chan update) {
+func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime time.Time, updateChan chan update) {
 	defer close(updateChan)
 	select {
 	case <-r.killChan:
@@ -189,7 +206,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 		return
 	}
 
-	logDir, details, statusChan, err := r.runtime.Start(ctx)
+	logDir, details, statusChan, err := r.runtime.Start(ctx, r.pod)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		logger.G(ctx).WithError(err).Error("error starting container")
@@ -216,7 +233,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
 
-	r.monitorContainer(ctx, startTime, statusChan, updateChan, details)
+	r.monitorMainContainer(ctx, startTime, statusChan, updateChan, details)
 }
 
 func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
@@ -232,7 +249,7 @@ func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
 	}
 }
 
-func (r *Runner) monitorContainer(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
+func (r *Runner) monitorMainContainer(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
 	lastMessage := ""
 	runningSent := false
 

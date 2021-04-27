@@ -24,6 +24,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/nvidia"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -32,6 +33,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
@@ -41,6 +43,7 @@ import (
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
+	v1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -463,7 +466,7 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 }
 
 func (r *DockerRuntime) setupLogs(c runtimeTypes.Container, hostCfg *container.HostConfig) {
-	// TODO(fabio): move this to a daemon-level config
+	// Only configure journald config journald is available
 	if _, journalAvailable := os.LookupEnv("JOURNAL_STREAM"); journalAvailable {
 		hostCfg.LogConfig = container.LogConfig{
 			Type: "journald",
@@ -1253,7 +1256,7 @@ func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListe
 
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
 // valid if err == nil, otherwise it will block indefinitely.
-func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)
 	defer cancel()
 	var err error
@@ -1327,6 +1330,12 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 		details.NetworkConfiguration.ElasticIPAddress = allocation.ElasticAddress.Ip
 	}
 
+	err = r.startOtherUserContainers(ctx, pod, r.c.ID())
+	if err != nil {
+		eventCancel()
+		return "", nil, statusMessageChan, err
+	}
+
 	logDir, err := r.waitForTini(ctx, listener, r.c)
 	if err != nil {
 		eventCancel()
@@ -1358,6 +1367,183 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.
 			}
 		}
 	}
+}
+
+// startOtherUserContainers launches the other user containers, only looking
+// any container objects in the pod *after* the first one, converting the
+// v1.Container spec into something docker can understand, and then
+// running that container.
+func (r *DockerRuntime) startOtherUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string) error {
+	if pod == nil || pod.Spec.Containers == nil {
+		return nil
+	}
+	otherUserContainers := pod.Spec.Containers[1:]
+	if len(otherUserContainers) == 0 {
+		return nil
+	}
+	l := log.WithField("taskID", r.c.TaskID())
+
+	// For speed, we pull and creat containers in parallel
+	l.Infof("Pulling %d other user containers", len(otherUserContainers))
+	err := r.pullAllUserContainers(ctx, pod)
+	if err != nil {
+		return fmt.Errorf("Failed to pull an image for user container: %s", err)
+	}
+	l.Infof("Creating %d other user containers", len(otherUserContainers))
+	cidMapping, err := r.createAllUserContainers(ctx, pod, r.c.TaskID())
+	if err != nil {
+		return fmt.Errorf("Failed to create a user container: %s", err)
+	}
+
+	// Starting, however, has its own logic
+	l.Infof("Starting %d other user containers", len(cidMapping))
+	err = r.startAllUserContainers(ctx, cidMapping, r.c.TaskID())
+	if err != nil {
+		return fmt.Errorf("Failed to start a user container: %s", err)
+	}
+
+	l.Info("Finished launching other user containers")
+	return nil
+}
+
+func (r *DockerRuntime) pullAllUserContainers(ctx context.Context, pod *v1.Pod) error {
+	l := log.WithField("taskID", r.c.TaskID())
+	// In this design, the first container has already been pulled and started, so we only look
+	// at the other containers here.
+	otherUserContainers := pod.Spec.Containers[1:]
+	group := groupWithContext(ctx)
+	images := getAllUserContainerImages(otherUserContainers)
+	for idx := range images {
+		image := images[idx]
+		group.Go(func(ctx context.Context) error {
+			l.Debugf("pulling other user container %s", image)
+			return pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
+		})
+	}
+	return group.Wait()
+}
+
+func getAllUserContainerImages(containers []v1.Container) []string {
+	images := []string{}
+	for _, c := range containers {
+		images = append(images, c.Image)
+	}
+	return images
+}
+
+func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string) (map[string]string, error) {
+	l := log.WithField("taskID", r.c.TaskID())
+	// With this design, the first container is already created and ready for us
+	// to link to (mainContainerID), so we only look at 1+ containers to create
+	otherUserContainers := pod.Spec.Containers[1:]
+	group := groupWithContext(ctx)
+	// We use a sync map for safety here, we need a mapping from Name: ContainerID to return
+	// so the caller can start the containers we create in the correct order.
+	// We *creating* (not starting) the containers in parallel for speed
+	var cidSyncMapping sync.Map
+	for idx := range otherUserContainers {
+		c := otherUserContainers[idx]
+		group.Go(func(ctx context.Context) error {
+			cid, err := r.createOtherUserContainer(ctx, c, mainContainerID)
+			if err != nil {
+				return fmt.Errorf("Failed to create %s container: %w", c.Name, err)
+			}
+			cidSyncMapping.Store(c.Name, cid)
+			l.Debugf("Created %s, CID: %s", c.Name, cid)
+			return nil
+		})
+	}
+	err := group.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	// And the convert back to a normal map before returning
+	cidMapping := make(map[string]string)
+	cidSyncMapping.Range(func(k interface{}, v interface{}) bool {
+		cidMapping[k.(string)] = v.(string)
+		return true
+	})
+	return cidMapping, err
+}
+
+func (r *DockerRuntime) startAllUserContainers(ctx context.Context, cidMapping map[string]string, mainContainerID string) error {
+	// Currently the order here is hard-coded to be whatever order it is in the podspec
+	// with no health or startup probes. Someday we'll add more logic here.
+	l := log.WithField("taskID", r.c.TaskID())
+	for name, cid := range cidMapping {
+		l.Debugf("Starting up user container %s, Conatiner id %s", name, cid)
+		err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
+		if err != nil {
+			return fmt.Errorf("Failed to start %s container: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string) (string, error) {
+	l := log.WithField("taskID", r.c.TaskID())
+	containerName := r.c.TaskID() + "-" + v1Container.Name
+	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := k8sContainerToDockerConfigs(v1Container, mainContainerID)
+	l.WithFields(map[string]interface{}{
+		"dockerCfg": logger.ShouldJSON(ctx, *dockerContainerConfig),
+		"hostCfg":   logger.ShouldJSON(ctx, *dockerHostConfig),
+	}).Infof("Creating other user container in docker: %s", v1Container.Name)
+	containerCreateBody, err := r.client.ContainerCreate(ctx, dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, containerName)
+	if err != nil {
+		return "", err
+	}
+	l.Debugf("Finished creating usercontainer %s, CID: %s, Env: %+v", v1Container.Name, containerCreateBody.ID, dockerContainerConfig.Env)
+	return containerCreateBody.ID, nil
+}
+
+func k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
+	// These labels are needed for titus-node-problem-detector
+	// to know that this container is actually part of the "main" one.
+	labels := map[string]string{
+		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
+		models.TaskIDLabel:      mainContainerID,
+	}
+	dockerContainerConfig := &container.Config{
+		// Hostname must be empty here because setting the hostname is incompatible with
+		// a container:foo network mode
+		Hostname:   "",
+		Cmd:        v1Container.Args,
+		Image:      v1Container.Image,
+		WorkingDir: v1Container.WorkingDir,
+		Entrypoint: v1Container.Command,
+		Labels:     labels,
+		Env:        v1ConatinerEnvToList(v1Container.Env),
+	}
+	dockerHostConfig := &container.HostConfig{
+		NetworkMode: container.NetworkMode("container:" + mainContainerID),
+		// Currently there is no restart policy, if the sidecar dies it just dies.
+		// TODO: come up with a sane policy here
+		RestartPolicy: container.RestartPolicy{
+			Name:              "",
+			MaximumRetryCount: 0,
+		},
+		// Currently we don't garbage collect other user containers like the main one
+		// TODO: clean these up via the normal garbage collection mechanism instead of this `--rm`
+		AutoRemove: true,
+		IpcMode:    container.IpcMode("container:" + mainContainerID),
+		// Currently only supporting a shared pid namespace with the container, which
+		// ensures the other user containers die automatically whe the main one dies.
+		PidMode:     container.PidMode("container:" + mainContainerID),
+		Privileged:  false,
+		VolumesFrom: []string{mainContainerID},
+	}
+	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
+	dockerNetworkConfig := &network.NetworkingConfig{}
+	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig
+}
+
+func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
+	envList := []string{}
+	for _, e := range v1Env {
+		envList = append(envList, e.Name+"="+e.Value)
+	}
+	return envList
 }
 
 // return true to exit

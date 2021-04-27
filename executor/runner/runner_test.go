@@ -16,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -62,7 +63,7 @@ func (r *runtimeMock) Prepare(ctx context.Context) error {
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+func (r *runtimeMock) Start(ctx context.Context, pod *v1.Pod) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	r.t.Log("runtimeMock.Start", r.c.TaskID())
 	r.mu.Lock()
 	defer r.mu.Unlock()
