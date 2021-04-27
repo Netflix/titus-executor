@@ -29,6 +29,8 @@ type Config struct {
 	// Docker returns the Docker-specific configuration settings
 	DockerHost     string
 	DockerRegistry string
+	DockerUsername string
+	DockerPassword string
 	// What region we're running in
 	AwsRegion string
 
@@ -150,6 +152,18 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value:       "docker.io",
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
+		},
+		cli.StringFlag{
+			Name:        "titus.executor.dockerUser",
+			EnvVar:      "DOCKER_USER",
+			Destination: &cfg.DockerUsername,
+			Usage:       "Docker registry (hub) login username",
+		},
+		cli.StringFlag{
+			Name:        "titus.executor.dockerPass",
+			EnvVar:      "DOCKER_PASS",
+			Destination: &cfg.DockerPassword,
+			Usage:       "Docker registry (hub) login password",
 		},
 		cli.StringFlag{
 			Name:        "aws-region",
