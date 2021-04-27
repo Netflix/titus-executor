@@ -25,14 +25,6 @@ func networkInterface(ni ec2.NetworkInterface) *vpcapi.NetworkInterface {
 	return tni
 }
 
-func networkInterfaces(nis []*ec2.NetworkInterface) []*vpcapi.NetworkInterface {
-	interfaces := make([]*vpcapi.NetworkInterface, len(nis))
-	for idx := range nis {
-		interfaces[idx] = networkInterface(*nis[idx])
-	}
-	return interfaces
-}
-
 func instanceNetworkInterface(instance ec2.Instance, ni ec2.InstanceNetworkInterface) *vpcapi.NetworkInterface {
 	az := instance.Placement.AvailabilityZone
 	tni := &vpcapi.NetworkInterface{
@@ -47,12 +39,4 @@ func instanceNetworkInterface(instance ec2.Instance, ni ec2.InstanceNetworkInter
 	}
 
 	return tni
-}
-
-func instanceNetworkInterfaces(instance ec2.Instance, nis []*ec2.InstanceNetworkInterface) []*vpcapi.NetworkInterface {
-	interfaces := make([]*vpcapi.NetworkInterface, len(nis))
-	for idx := range nis {
-		interfaces[idx] = instanceNetworkInterface(instance, *nis[idx])
-	}
-	return interfaces
 }

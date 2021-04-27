@@ -2,23 +2,18 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"net"
-	"strings"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	set "github.com/deckarep/golang-set"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
-	"github.com/lib/pq"
-	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -105,16 +100,6 @@ func utilizedAddressesToIPMap(ips []*vpcapi.UtilizedAddress) (map[string]utilize
 	return ipMap, nil
 }
 
-func setToStringSlice(s set.Set) []string {
-	values := make([]string, s.Cardinality())
-	slice := s.ToSlice()
-	for idx := range slice {
-		values[idx] = slice[idx].(string)
-	}
-
-	return values
-}
-
 func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*vpcapi.GCResponse, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -126,146 +111,15 @@ func (vpcService *vpcService) GC(ctx context.Context, req *vpcapi.GCRequest) (*v
 		"deviceIdx": req.NetworkInterfaceAttachment.DeviceIndex,
 		"instance":  req.InstanceIdentity.InstanceID,
 	})
+	_ = ctx
 
 	span.AddAttributes(
 		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 		trace.Int64Attribute("deviceIdx", int64(req.NetworkInterfaceAttachment.DeviceIndex)))
 
-	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	instance, ownerID, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
-	if err != nil {
-		return nil, err
-	}
-
-	instanceNetworkInterface, err := ec2wrapper.GetInterfaceByIdxWithRetries(ctx, session, instance, req.NetworkInterfaceAttachment.DeviceIndex)
-	if err != nil {
-		if ec2wrapper.IsErrInterfaceByIdxNotFound(err) {
-			err = status.Errorf(codes.NotFound, err.Error())
-		}
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	networkInteface, err := session.GetNetworkInterfaceByID(ctx, aws.StringValue(instanceNetworkInterface.NetworkInterfaceId), 5*time.Second)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	if interfaceOwnerID := aws.StringValue(networkInteface.OwnerId); interfaceOwnerID != ownerID {
-		region := ec2wrapper.RegionFromAZ(aws.StringValue(instance.Placement.AvailabilityZone))
-		session, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: interfaceOwnerID})
-		if err != nil {
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-	}
-
-	return vpcService.gcInterface(ctx, instanceNetworkInterface, session, req, vpcService.gcTimeout)
-}
-
-func (vpcService *vpcService) unassignAddresses(ctx context.Context, session *ec2wrapper.EC2Session, networkInterfaceID string, addrsToRemoveSet set.Set, retryAllowed bool) error {
-	if addrsToRemoveSet.Cardinality() == 0 {
-		return nil
-	}
-
-	ctx, span := trace.StartSpan(ctx, "unassignAddresses")
-	defer span.End()
-	span.AddAttributes(trace.BoolAttribute("retryAllowed", retryAllowed), trace.StringAttribute("addrsToRemove", addrsToRemoveSet.String()))
-
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		ReadOnly: true,
-	})
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	addrsToRemove := setToStringSlice(addrsToRemoveSet)
-
-	rows, err := tx.QueryContext(ctx, "SELECT array_agg(ip_address), home_eni FROM ip_addresses WHERE host(ip_address) = any($1) GROUP BY home_eni", pq.Array(addrsToRemove))
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return err
-	}
-
-	// Ugh, I feel bad keeping the txn open so long
-	for rows.Next() {
-		var eni string
-		var staticIPAddresses []string
-		err = rows.Scan(pq.Array(&staticIPAddresses), &eni)
-		if err != nil {
-			return errors.Wrap(err, "Unable to fetch rows from db")
-		}
-		for idx := range staticIPAddresses {
-			addrsToRemoveSet.Remove(staticIPAddresses[idx])
-		}
-
-		logger.G(ctx).WithField("staticIPAddresses", staticIPAddresses).WithField("retryAllowed", retryAllowed).WithField("eni", eni).Info("relocating addrs")
-		assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
-			AllowReassignment:  aws.Bool(true),
-			NetworkInterfaceId: aws.String(eni),
-			PrivateIpAddresses: aws.StringSlice(staticIPAddresses),
-		}
-
-		_, err = session.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput)
-		if err != nil {
-			return errors.Wrap(err, "Unable to relocate IP addresses")
-		}
-	}
-	_ = tx.Commit()
-	// There were only static addresses to remove, neat.
-	if addrsToRemoveSet.Cardinality() == 0 {
-		return nil
-	}
-
-	logger.G(ctx).WithField("addrsToRemove", addrsToRemoveSet.String()).WithField("retryAllowed", retryAllowed).Info("Removing addrs")
-	unassignPrivateIPAddressesInput := ec2.UnassignPrivateIpAddressesInput{
-		PrivateIpAddresses: aws.StringSlice(setToStringSlice(addrsToRemoveSet)),
-		NetworkInterfaceId: aws.String(networkInterfaceID),
-	}
-	_, err = session.UnassignPrivateIPAddresses(ctx, unassignPrivateIPAddressesInput)
-	if err == nil {
-		return nil
-	}
-	awsErr, ok := err.(awserr.Error)
-	if !ok {
-		span.SetStatus(traceStatusFromError(err))
-		return err
-	}
-	if awsErr.Code() != "InvalidParameterValue" {
-		span.SetStatus(traceStatusFromError(awsErr))
-		return awsErr
-	}
-
-	if !strings.Contains(awsErr.Message(), "Some of the specified addresses are not assigned") {
-		span.SetStatus(traceStatusFromError(awsErr))
-		return awsErr
-	}
-
-	logger.G(ctx).WithError(awsErr).WithField("retryAllowed", retryAllowed).Info("Tried to free too many IPs. Likely due to a stale cache entry")
-	if !retryAllowed {
-		span.SetStatus(traceStatusFromError(awsErr))
-		return awsErr
-	}
-
-	iface, err := session.GetNetworkInterfaceByID(ctx, networkInterfaceID, 10*time.Second)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return err
-	}
-
-	currentIPv4AddressesSet := ifaceIPv4Set(iface)
-
-	return vpcService.unassignAddresses(ctx, session, networkInterfaceID, currentIPv4AddressesSet.Intersect(addrsToRemoveSet), false)
+	err := status.Error(codes.Unimplemented, "GC Call is deprecated")
+	tracehelpers.SetStatus(err, span)
+	return nil, err
 }
 
 type gcCalculation struct {
@@ -362,95 +216,18 @@ func calculateGcInterface(ctx context.Context, iface *ec2.NetworkInterface, req 
 	}, nil
 }
 
-func (vpcService *vpcService) gcInterface(ctx context.Context, instanceNetworkInterface *ec2.InstanceNetworkInterface, session *ec2wrapper.EC2Session, req *vpcapi.GCRequest, gcTimeout time.Duration) (*vpcapi.GCResponse, error) {
-	ctx, span := trace.StartSpan(ctx, "gcInterface")
-	defer span.End()
-	iface, err := session.GetNetworkInterfaceByID(ctx, aws.StringValue(instanceNetworkInterface.NetworkInterfaceId), time.Second*10)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
-
-	gcCalculation, err := calculateGcInterface(ctx, iface, req, gcTimeout)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"allocatedAddressesSet":   gcCalculation.allocatedAddressesSet.String(),
-		"unallocatedAddressesSet": gcCalculation.unallocatedAddressesSet.String(),
-	})
-
-	err = vpcService.unassignAddresses(ctx, session, aws.StringValue(instanceNetworkInterface.NetworkInterfaceId), gcCalculation.ipsToFreeSet, true)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		logger.G(ctx).WithError(err).Error()
-		return nil, err
-	}
-
-	// We can get the addresses to delete quite easily. We take the unallocated + nonviable set and subtract the current
-	// set.
-	resp := vpcapi.GCResponse{}
-
-	span.AddAttributes(trace.StringAttribute("newCurrentIPAddressesSet", gcCalculation.newCurrentIPAddressesSet.String()))
-	ctx = logger.WithField(ctx, "newCurrentIPAddressesSet", gcCalculation.newCurrentIPAddressesSet.String())
-
-	span.AddAttributes(trace.StringAttribute("addressesToDeleteSet", gcCalculation.addressesToDeleteSet.String()))
-	ctx = logger.WithField(ctx, "addressesToDeleteSet", gcCalculation.addressesToDeleteSet.String())
-
-	span.AddAttributes(trace.StringAttribute("addressesToBumpSet", gcCalculation.addressesToBumpSet.String()))
-	ctx = logger.WithField(ctx, "addressesToBumpSet", gcCalculation.addressesToBumpSet.String())
-
-	logger.G(ctx).Info("gc interface result")
-
-	for addrInterface := range gcCalculation.addressesToDeleteSet.Iter() {
-		addr := vpcapi.Address{
-			Address: addrInterface.(string),
-		}
-		resp.AddressToDelete = append(resp.AddressToDelete, &addr)
-	}
-
-	for addrInterface := range gcCalculation.addressesToBumpSet.Iter() {
-		addr := &vpcapi.Address{
-			Address: addrInterface.(string),
-		}
-		resp.AddressToBump = append(resp.AddressToBump, addr)
-	}
-
-	return &resp, nil
-}
-
 func (vpcService *vpcService) GCSetupLegacy(ctx context.Context, req *vpcapi.GCLegacySetupRequest) (*vpcapi.GCLegacySetupResponse, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "GCSetupLegacy")
+	_ = ctx
 	defer span.End()
 
 	span.AddAttributes(trace.StringAttribute("instance", req.InstanceIdentity.InstanceID))
-	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
 
-	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
-	if err != nil {
-		return nil, err
-	}
-
-	resp := &vpcapi.GCLegacySetupResponse{
-		NetworkInterfaceAttachment: []*vpcapi.NetworkInterfaceAttachment{},
-	}
-	for _, ni := range instance.NetworkInterfaces {
-		if aws.StringValue(ni.Description) == vpc.NetworkInterfaceDescription {
-			resp.NetworkInterfaceAttachment = append(resp.NetworkInterfaceAttachment, &vpcapi.NetworkInterfaceAttachment{
-				DeviceIndex: uint32(aws.Int64Value(ni.Attachment.DeviceIndex)),
-				Id:          aws.StringValue(ni.NetworkInterfaceId),
-			})
-		}
-	}
-	return resp, nil
+	err := status.Error(codes.Unimplemented, "GCSetupLegacy Call is deprecated")
+	tracehelpers.SetStatus(err, span)
+	return nil, err
 }
 
 func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRequest) (*vpcapi.GCSetupResponse, error) {
@@ -458,62 +235,11 @@ func (vpcService *vpcService) GCSetup(ctx context.Context, req *vpcapi.GCSetupRe
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "GCSetup")
 	defer span.End()
-	log := ctxlogrus.Extract(ctx)
-	ctx = logger.WithLogger(ctx, log)
+	_ = ctx
 
 	span.AddAttributes(trace.StringAttribute("instance", req.InstanceIdentity.InstanceID))
-	session, err := vpcService.ec2.GetSessionFromInstanceIdentity(ctx, req.InstanceIdentity)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
 
-	instance, _, err := session.GetInstance(ctx, req.InstanceIdentity.InstanceID, false)
-	if err != nil {
-		return nil, err
-	}
-
-	trunkENI := vpcService.getTrunkENI(instance)
-	if trunkENI == nil {
-		err = status.Error(codes.FailedPrecondition, "Instance does not have trunk ENI")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		ReadOnly: true,
-	})
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	rows, err := tx.QueryContext(ctx, "SELECT branch_eni, idx FROM branch_eni_attachments WHERE trunk_eni = $1", aws.StringValue(trunkENI.NetworkInterfaceId))
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not run database query").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	resp := &vpcapi.GCSetupResponse{
-		NetworkInterfaceAttachment: []*vpcapi.NetworkInterfaceAttachment{},
-	}
-
-	for rows.Next() {
-		var branchENI string
-		var idx int
-		err := rows.Scan(&branchENI, &idx)
-		if err != nil {
-			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not scan row from database").Error())
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		resp.NetworkInterfaceAttachment = append(resp.NetworkInterfaceAttachment, &vpcapi.NetworkInterfaceAttachment{
-			DeviceIndex: uint32(idx),
-			Id:          branchENI,
-		})
-	}
-
-	return resp, nil
+	err := status.Error(codes.Unimplemented, "GCSetup Call is deprecated")
+	tracehelpers.SetStatus(err, span)
+	return nil, err
 }
