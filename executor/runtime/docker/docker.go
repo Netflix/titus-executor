@@ -1722,7 +1722,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 	 */
 	cred, err := getPeerInfo(unixConn)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, fmt.Errorf("Error getting peerinfo: %w", err)
 
 	}
 	files, err := fd.Get(unixConn, 1, []string{})
@@ -1756,7 +1756,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 
 	// This required (write) access to c.RegisterRuntimeCleanup
 	if err := r.mountContainerProcPid1InTitusInits(parentCtx, c, cred); err != nil {
-		return err
+		return fmt.Errorf("error mounting proc pid1 in titus init: %w", err)
 	}
 
 	if r.cfg.UseNewNetworkDriver && c.VPCAllocation().IPV4Address != nil {
@@ -1782,7 +1782,11 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 
 	if r.dockerCfg.bumpTiniSchedPriority {
 		group.Go(func() error {
-			return setupScheduler(cred)
+			err := setupScheduler(cred)
+			if err != nil {
+				log.WithError(err).Warning("Non-fatal error when bumping the priority of tini: %w", err)
+			}
+			return nil
 		})
 	}
 

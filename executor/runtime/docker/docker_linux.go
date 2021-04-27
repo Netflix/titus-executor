@@ -327,9 +327,13 @@ func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
 	oomScoreAdjPath := filepath.Join("/proc", pid, "oom_score_adj")
 	file, err := os.OpenFile(oomScoreAdjPath, os.O_RDWR, 0000)
 	if err != nil {
+		err = fmt.Errorf("Failed to open oom_score_adj: %w", err)
 		return err
 	}
 	defer shouldClose(file)
 	_, err = file.WriteString(fmt.Sprintf("%d\n", oomScore))
+	if err != nil {
+		err = fmt.Errorf("Failed to set oom_score_adj: %w", err)
+	}
 	return err
 }
