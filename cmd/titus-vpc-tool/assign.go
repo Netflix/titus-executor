@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/vpc/tool/assign3"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
@@ -28,7 +29,6 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					assign3.Arguments{
 						SecurityGroups:     v.GetStringSlice("security-groups"),
 						SubnetIds:          v.GetStringSlice("subnet-ids"),
-						AssignIPv6Address:  v.GetBool("assign-ipv6-address"),
 						IPv4AllocationUUID: v.GetString("ipv4-allocation-uuid"),
 						InterfaceAccount:   v.GetString(interfaceAccount),
 						TaskID:             v.GetString("task-id"),
@@ -38,6 +38,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						Jumbo:              v.GetBool("jumbo"),
 						Bandwidth:          v.GetUint64("bandwidth"),
 						Burst:              v.GetBool("burst"),
+						NetworkMode:        v.GetString("network-mode"),
 					},
 				)
 			default:
@@ -48,7 +49,6 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 
 	cmd.Flags().Int("device-idx", 0, "The device index to setup, 1-indexed (1 correlates to AWS device 1) -- using device index 0 not allowed")
 	cmd.Flags().StringSlice("security-groups", []string{}, "Comma separated list of security groups")
-	cmd.Flags().Bool("assign-ipv6-address", false, "Assign IPv6 Address for container")
 	cmd.Flags().String("ipv4-allocation-uuid", "", "The UUID of the allocation")
 	cmd.Flags().String(interfaceAccount, "", "The account that the interface should live in")
 	cmd.Flags().String("task-id", "", "The task ID for the allocation")
@@ -59,8 +59,17 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().Bool("jumbo", false, "Container needs jumbo frames")
 	cmd.Flags().Uint64("bandwidth", 0, "Bandwidth in bps")
 	cmd.Flags().Bool("burst", false, "Allow for bursting")
+	cmd.Flags().String("network-mode", titus.NetworkConfiguration_UnknownNetworkMode.String(), getNetHelp())
 
 	addSharedFlags(cmd.Flags())
 
 	return cmd
+}
+
+func getNetHelp() string {
+	modes := []string{}
+	for m := range titus.NetworkConfiguration_NetworkMode_value {
+		modes = append(modes, m)
+	}
+	return fmt.Sprintf("Network Mode, options: %s", modes)
 }

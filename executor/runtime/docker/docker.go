@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
@@ -350,6 +351,25 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
+func (r *DockerRuntime) computeDNSServers() []string {
+	switch r.c.EffectiveNetworkMode() {
+	case titus.NetworkConfiguration_Ipv6AndIpv4.String():
+		// True dual stack means we should provide both
+		return []string{"fd00:ec2::253", "169.254.169.253"}
+	case titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String():
+		// IPv6 with fallback means we only want v6 resolvers, which reduces
+		// the burden on TSA for ipv4 udp traffic
+		return []string{"fd00:ec2::253"}
+	case titus.NetworkConfiguration_Ipv6Only.String():
+		// True ipv6 only means we really can only have a v6
+		// resolver
+		return []string{"fd00:ec2::253"}
+	default:
+		// Any other situation means we can return the classic v4 resolver
+		return []string{"169.254.169.253"}
+	}
+}
+
 func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint and command from the pod. If either is empty,
 	// pass them along and let Docker extract them from the image instead.
@@ -377,7 +397,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		Privileged: false,
 		Binds:      binds,
 		ExtraHosts: []string{},
-		DNS:        []string{"169.254.169.253"},
+		DNS:        r.computeDNSServers(),
 		Sysctls: map[string]string{
 			"net.ipv4.tcp_ecn":                    "1",
 			"net.ipv6.conf.all.disable_ipv6":      "0",
@@ -389,14 +409,6 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		},
 		Init:    &useInit,
 		Runtime: c.Runtime(),
-	}
-
-	if r.c.AssignIPv6Address() {
-		if r.c.SeccompAgentEnabledForNetSyscalls() {
-			hostCfg.DNS = []string{"fd00:ec2::253"}
-		} else {
-			hostCfg.DNS = []string{"fd00:ec2::253", "169.254.169.253"}
-		}
 	}
 
 	maybeAddOptimisticDad(hostCfg.Sysctls)
@@ -688,6 +700,7 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		"--security-groups", strings.Join(*sgIDs, ","),
 		"--task-id", c.TaskID(),
 		"--bandwidth", strconv.FormatInt(bw, 10),
+		"--network-mode", c.EffectiveNetworkMode(),
 	}
 
 	if c.SignedAddressAllocationUUID() != nil {
@@ -708,10 +721,6 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 
 	if c.ElasticIPs() != nil {
 		args = append(args, "--elastic-ips", *c.ElasticIPs())
-	}
-
-	if c.AssignIPv6Address() {
-		args = append(args, "--assign-ipv6-address=true")
 	}
 
 	if c.UseJumboFrames() {
@@ -987,7 +996,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 				"TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS": "true",
 			})
 		}
-		if r.c.SeccompAgentEnabledForNetSyscalls() {
+		if r.c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
 			r.c.SetEnvs(map[string]string{
 				"TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS": "true",
 			})

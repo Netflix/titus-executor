@@ -144,23 +144,23 @@ func TestInvalidHostnameStyle(t *testing.T) {
 	assert.IsType(t, &InvalidConfigurationError{}, err)
 }
 
-func TestDefaultIPv6AddressAssignment(t *testing.T) {
+func TestDefaultNetworkMode(t *testing.T) {
 	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
 	assert.NoError(t, err)
-	assert.False(t, c.AssignIPv6Address())
+	assert.Equal(t, titus.NetworkConfiguration_UnknownNetworkMode.String(), c.EffectiveNetworkMode())
 }
 
-func TestIPv6AddressAssignment(t *testing.T) {
+func TestIPv6NetworkModeRespectsThePassthroughBool(t *testing.T) {
 	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 	titusInfo.PassthroughAttributes[assignIPv6AddressParam] = "true"
 
 	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
 	assert.NoError(t, err)
-	assert.True(t, c.AssignIPv6Address())
+	assert.Equal(t, titus.NetworkConfiguration_Ipv6AndIpv4.String(), c.EffectiveNetworkMode())
 }
 
 func TestTtyEnabled(t *testing.T) {

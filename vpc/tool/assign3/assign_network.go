@@ -22,7 +22,6 @@ import (
 type Arguments struct {
 	SecurityGroups     []string
 	SubnetIds          []string
-	AssignIPv6Address  bool
 	IPv4AllocationUUID string
 	InterfaceAccount   string
 	TaskID             string
@@ -32,14 +31,15 @@ type Arguments struct {
 	Jumbo              bool
 	Bandwidth          uint64
 	Burst              bool
+	NetworkMode        string
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, args Arguments) error {
 	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"security-groups":     args.SecurityGroups,
-		"allocateIPv6Address": args.AssignIPv6Address,
-		"allocationUUID":      args.IPv4AllocationUUID,
-		"account":             args.InterfaceAccount,
+		"network-mode":    args.NetworkMode,
+		"security-groups": args.SecurityGroups,
+		"allocationUUID":  args.IPv4AllocationUUID,
+		"account":         args.InterfaceAccount,
 	})
 	logger.G(ctx).Info()
 
@@ -101,9 +101,12 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	defer span.End()
 	span.AddAttributes(trace.Int64Attribute("pid", int64(os.Getpid())))
 
+	shouldAssignV6 := shouldAssignV6(args)
+	shouldAssignV4 := shouldAssignV4(args)
+
 	span.AddAttributes(
 		trace.StringAttribute("security-groups", fmt.Sprintf("%v", args.SecurityGroups)),
-		trace.BoolAttribute("allocateIPv6Address", args.AssignIPv6Address),
+		trace.BoolAttribute("allocateIPv6Address", shouldAssignV6),
 		trace.StringAttribute("account", args.InterfaceAccount),
 		trace.StringAttribute("subnet-ids", fmt.Sprintf("%v", args.SubnetIds)),
 	)
@@ -126,7 +129,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		TaskId:           args.TaskID,
 		SecurityGroupIds: args.SecurityGroups,
 		Ipv6: &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{
-			Ipv6AddressRequested: args.AssignIPv6Address,
+			Ipv6AddressRequested: shouldAssignV6,
 		},
 		Subnets:          args.SubnetIds,
 		InstanceIdentity: instanceIdentity,
@@ -161,8 +164,10 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 				},
 			},
 		}
-	} else {
+	} else if shouldAssignV4 {
 		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true}
+	} else {
+		logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Experimental: Not assigning IPv4")
 	}
 
 	logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Making assign IP request")
@@ -180,4 +185,20 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 			AssignIPResponseV3: response,
 		},
 	}, nil
+}
+
+func shouldAssignV6(args Arguments) bool {
+	switch args.NetworkMode {
+	case titus.NetworkConfiguration_Ipv6AndIpv4.String():
+		return true
+	case titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String():
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldAssignV4(args Arguments) bool {
+	// The only case where we don't assign V4 is the V6-only mode.
+	return args.NetworkMode != titus.NetworkConfiguration_Ipv6Only.String()
 }

@@ -148,7 +148,6 @@ type Container interface {
 	AllowNetworkBursting() bool
 	AppArmorProfile() *string
 	AppName() string
-	AssignIPv6Address() bool
 	BandwidthLimitMbps() *int64
 	BatchPriority() *string
 	Capabilities() *corev1.Capabilities
@@ -187,6 +186,7 @@ type Container interface {
 	LogUploadRegexp() *regexp.Regexp
 	LogUploadThresholdTime() *time.Duration
 	MetatronCreds() *titus.ContainerInfo_MetatronCreds
+	EffectiveNetworkMode() string
 	NormalizedENIIndex() *int
 	NFSMounts() []NFSMount
 	OomScoreAdj() *int32
@@ -359,6 +359,24 @@ func GenerateTestPod(taskID string, resources *Resources, cfg *config.Config) *c
 			},
 		},
 	}
+}
+
+// computeEffectiveNetworkMode takes in the original Network mode and the surrounding context.
+// If the original network mode is Unset, then we look at other parameters to compute what
+// as user *effectively* meant.
+// Someday when network mode is set across the board, we can drop this function and just fail
+// fast when network mode is Unknown, but till then, this function encpasulates the busines logic
+// of interpretting the legacy attributes and computing what the effective network mode "should" be
+func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address bool, seccompAgentEnabledForNetSyscalls bool) string {
+	if originalNetworkMode == titus.NetworkConfiguration_UnknownNetworkMode.String() {
+		if assignIPv6Address {
+			if seccompAgentEnabledForNetSyscalls {
+				return titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
+			}
+			return titus.NetworkConfiguration_Ipv6AndIpv4.String()
+		}
+	}
+	return originalNetworkMode
 }
 
 // ContainerTestArgs generates test arguments appropriate for passing to NewContainer()
