@@ -566,7 +566,7 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container
 	r.metrics.Counter("titus.executor.dockerImagePulls", 1, nil)
 	logger.Infof("DockerPull: pulling image")
 	pullStartTime := time.Now()
-	if err := pullWithRetries(ctx, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
+	if err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
 		return nil, err
 	}
 	r.metrics.Timer("titus.executor.imagePullTime", time.Since(pullStartTime), c.ImageTagForMetrics())
@@ -840,7 +840,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 	if tmpImageInfo == nil || imageSpecifiedByTag {
 		logger.G(ctx).WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
-		err = pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
+		err = pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
 		if err != nil {
 			return err
 		}
@@ -1417,7 +1417,7 @@ func (r *DockerRuntime) pullAllUserContainers(ctx context.Context, pod *v1.Pod) 
 		image := images[idx]
 		group.Go(func(ctx context.Context) error {
 			l.Debugf("pulling other user container %s", image)
-			return pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
+			return pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
 		})
 	}
 	return group.Wait()
@@ -1722,7 +1722,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 	 */
 	cred, err := getPeerInfo(unixConn)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, fmt.Errorf("Error getting peerinfo: %w", err)
 
 	}
 	files, err := fd.Get(unixConn, 1, []string{})
@@ -1756,7 +1756,7 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 
 	// This required (write) access to c.RegisterRuntimeCleanup
 	if err := r.mountContainerProcPid1InTitusInits(parentCtx, c, cred); err != nil {
-		return err
+		return fmt.Errorf("error mounting proc pid1 in titus init: %w", err)
 	}
 
 	if r.cfg.UseNewNetworkDriver && c.VPCAllocation().IPV4Address != nil {
@@ -1782,7 +1782,11 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 
 	if r.dockerCfg.bumpTiniSchedPriority {
 		group.Go(func() error {
-			return setupScheduler(cred)
+			err := setupScheduler(cred)
+			if err != nil {
+				log.WithError(err).Warning("Non-fatal error when bumping the priority of tini: %w", err)
+			}
+			return nil
 		})
 	}
 

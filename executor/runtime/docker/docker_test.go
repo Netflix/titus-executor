@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
+	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/properties"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -25,11 +26,12 @@ func TestDockerPullRetries(t *testing.T) {
 	begin := time.Now()
 	myErr := errors.New("Fake error")
 	retries := 0
-	fakePuller := func(context.Context, metrics.Reporter, *docker.Client, string) error {
+	fakePuller := func(context.Context, config.Config, metrics.Reporter, *docker.Client, string) error {
 		retries = retries + 1
 		return myErr
 	}
-	err := pullWithRetries(context.Background(), metrics.Discard, nil, "", fakePuller)
+	cfg := config.Config{}
+	err := pullWithRetries(context.Background(), cfg, metrics.Discard, nil, "", fakePuller)
 	if retries != 5 {
 		t.Fatal("Not enough retries: ", retries)
 	}
@@ -49,15 +51,16 @@ func TestDockerCancel(t *testing.T) {
 	t.Parallel()
 	begin := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
+	cfg := config.Config{}
 
-	fakePuller := func(context.Context, metrics.Reporter, *docker.Client, string) error {
+	fakePuller := func(context.Context, config.Config, metrics.Reporter, *docker.Client, string) error {
 		return errors.New("Fake Error")
 	}
 
 	c := make(chan error)
 	go func() {
 		defer close(c)
-		c <- pullWithRetries(ctx, metrics.Discard, nil, "", fakePuller)
+		c <- pullWithRetries(ctx, cfg, metrics.Discard, nil, "", fakePuller)
 	}()
 	time.AfterFunc(time.Second*15, cancel)
 	if err := <-c; err == nil {

@@ -62,6 +62,9 @@ docker run --privileged --security-opt seccomp=unconfined \
   -v ${PWD}:${PWD} \
   ${metatron_cert_mnt} \
   -w ${PWD} \
+  -e DOCKER_USER \
+  -e DOCKER_PASS \
+  -e BUMP_TINI_SCHED_PRIORITY=false \
   -e DEBUG=${debug} \
   -e SHORT_CIRCUIT_QUITELITE=true \
   -e GOPATH=${GOPATH} \

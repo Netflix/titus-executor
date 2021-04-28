@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,15 +10,16 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
+	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	log "github.com/sirupsen/logrus"
 )
 
-type dockerPuller func(context.Context, metrics.Reporter, *docker.Client, string) error
+type dockerPuller func(context.Context, config.Config, metrics.Reporter, *docker.Client, string) error
 
-func pullWithRetries(ctx context.Context, metrics metrics.Reporter, client *docker.Client, qualifiedImageName string, puller dockerPuller) error {
+func pullWithRetries(ctx context.Context, cfg config.Config, metrics metrics.Reporter, client *docker.Client, qualifiedImageName string, puller dockerPuller) error {
 	var err error
 
 	for sleep := 0; sleep < 5; sleep++ {
@@ -26,7 +28,7 @@ func pullWithRetries(ctx context.Context, metrics metrics.Reporter, client *dock
 			return err
 		}
 
-		err = puller(ctx, metrics, client, qualifiedImageName)
+		err = puller(ctx, cfg, metrics, client, qualifiedImageName)
 		if err == nil {
 			return nil
 		} else if isBadImageErr(err) {
@@ -43,8 +45,14 @@ func isBadImageErr(err error) bool {
 		strings.Contains(err.Error(), "invalid reference format")
 }
 
-func doDockerPull(ctx context.Context, metrics metrics.Reporter, client *docker.Client, ref string) error {
-	resp, err := client.ImagePull(ctx, ref, types.ImagePullOptions{})
+func doDockerPull(ctx context.Context, cfg config.Config, metrics metrics.Reporter, client *docker.Client, ref string) error {
+
+	auth, err := getDockerAuthOptions(cfg)
+	if err != nil {
+		metrics.Counter("titus.executor.dockerPullImageError", 1, nil)
+		return fmt.Errorf("Error creating docker registry credentials: %w", err)
+	}
+	resp, err := client.ImagePull(ctx, ref, types.ImagePullOptions{RegistryAuth: auth})
 	defer func() {
 		if resp != nil {
 			// We really don't care what the error is here, we can't do anything about it
@@ -87,4 +95,19 @@ func doDockerPull(ctx context.Context, metrics metrics.Reporter, client *docker.
 			return fmt.Errorf("Error while pulling Docker image: %s", errorMessage)
 		}
 	}
+}
+
+func getDockerAuthOptions(cfg config.Config) (string, error) {
+	if cfg.DockerUsername == "" || cfg.DockerPassword == "" {
+		return "", nil
+	}
+	authConfig := types.AuthConfig{
+		Username: cfg.DockerUsername,
+		Password: cfg.DockerPassword,
+	}
+	encodedJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(encodedJSON), nil
 }
