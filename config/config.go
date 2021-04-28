@@ -155,13 +155,13 @@ func NewConfig() (*Config, []cli.Flag) {
 		},
 		cli.StringFlag{
 			Name:        "titus.executor.dockerUser",
-			EnvVar:      "DOCKER_USER",
+			EnvVar:      "DOCKER_USERNAME",
 			Destination: &cfg.DockerUsername,
 			Usage:       "Docker registry (hub) login username",
 		},
 		cli.StringFlag{
 			Name:        "titus.executor.dockerPass",
-			EnvVar:      "DOCKER_PASS",
+			EnvVar:      "DOCKER_PASSWORD",
 			Destination: &cfg.DockerPassword,
 			Usage:       "Docker registry (hub) login password",
 		},

@@ -58,12 +58,11 @@ log "Running a docker daemon named $titus_agent_name"
 docker run --privileged --security-opt seccomp=unconfined \
   -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
   -v ${GOPATH}:${GOPATH} \
-  -v ~/.docker/config.json:/root/.docker/config.json \
   -v ${PWD}:${PWD} \
   ${metatron_cert_mnt} \
   -w ${PWD} \
-  -e DOCKER_USER \
-  -e DOCKER_PASS \
+  -e DOCKER_USERNAME \
+  -e DOCKER_PASSWORD \
   -e BUMP_TINI_SCHED_PRIORITY=false \
   -e DEBUG=${debug} \
   -e SHORT_CIRCUIT_QUITELITE=true \
