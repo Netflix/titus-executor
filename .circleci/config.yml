@@ -102,9 +102,6 @@ jobs:
           name: Local tests
           command: make test-local
       - run:
-          name: Upload code coverage reports to codecov.io
-          command: bash <(curl -s https://codecov.io/bash)
-      - run:
           name: Validate local
           command: make validate
       - run:
