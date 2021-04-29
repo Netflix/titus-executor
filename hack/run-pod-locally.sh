@@ -39,6 +39,7 @@ docker run -ti --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:
   -e METATRON_SERVICE_IMAGE="/ps/titus-metatron-identity" \
   -e PROXYD_SERVICE_IMAGE="/ipc/proxyd-rootless-candidate@sha256:9d5e5292015856b60cfcca51024cdceba1b07f9fe952b96ccac4b741aab43708" \
   -e ABMETRIX_SERVICE_IMAGE="/baseos/nflx-abmetrix-titus@sha256:0b01b2d74b9b62c7ad85007da0491d40c1f80e5812676667bedcade2448f24e3" \
+  -e CONTAINER_TOOLS_IMAGE="/tn/titus-container-tools-image@sha256:f993a8de3173fd13006623f541fbfb25ce8f205f595842caeffcaa8573b52d35" \
   -e TITUS_EXECUTOR_TINI_PATH="${PWD}/build/bin/linux-amd64/tini-static" \
   --rm --name "$docker_container_name" \
   -d \

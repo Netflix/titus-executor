@@ -1028,7 +1028,6 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	}
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)
-	bindMounts = append(bindMounts, getContainerToolsBindMounts()...)
 
 	dockerCfg, hostCfg, err = r.dockerConfig(r.c, bindMounts, size, volumeContainers)
 	if err != nil {
@@ -1685,11 +1684,11 @@ func (r *DockerRuntime) setupPostStartLogDirTini(ctx context.Context, l *net.Uni
 	genericConn, err := l.Accept()
 	if err != nil {
 		if ctx.Err() != nil {
-			log.WithField("ctxError", ctx.Err()).Error("Never received connection from container: ", err)
-			return "", nil, nil, nil, errors.New("Never received connection from container")
+			log.WithField("ctxError", ctx.Err()).Error("Never received connection from container from tini: ", err)
+			return "", nil, nil, nil, errors.New("Never received connection from container from tini")
 		}
 		log.WithError(err).Error("Error accepting tini connection from container")
-		return "", nil, nil, nil, fmt.Errorf("error accepting connection from container: %w", err)
+		return "", nil, nil, nil, fmt.Errorf("error accepting tini connection from container: %w", err)
 	}
 
 	switch typedConn := genericConn.(type) {

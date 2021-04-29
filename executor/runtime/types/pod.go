@@ -507,6 +507,7 @@ func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 		SidecarServiceSshd:        c.config.SSHDServiceImage,
 		SidecarServiceSpectatord:  c.config.SpectatordServiceImage,
 		SidecarServiceAtlasd:      c.config.AtlasdServiceImage,
+		SidecarContainerTools:     c.config.ContainerToolsImage,
 	}
 
 	sideCarPtrs := []*ServiceOpts{}
