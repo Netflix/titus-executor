@@ -400,6 +400,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		vpcService.associateActionWorker().longLivedTask(),
 		vpcService.disassociateActionWorker().longLivedTask(),
 		vpcService.reconcileTrunkENIsLongLivedTask(),
+		vpcService.reconcileSecurityGroupsLongLivedTask(),
 	}
 }
 
