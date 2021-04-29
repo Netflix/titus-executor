@@ -22,6 +22,4 @@ log "Building executor"
 make clean
 make --output-sync -j16 builder all 2>&1 | tee build.log
 
-log "Running code coverage"
 
-bash <(curl -s https://codecov.io/bash)
