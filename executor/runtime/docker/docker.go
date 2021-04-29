@@ -1232,26 +1232,22 @@ func maybeConvertIntoBadEntryPointError(err error) error {
 	return err
 }
 
-func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListener, c runtimeTypes.Container) (string, error) {
+// setupTini connects to tini, and also sets up NFS mounts
+// it does *not* send the L (launch) signal to tini though
+func (r *DockerRuntime) setupTini(ctx context.Context, listener *net.UnixListener, c runtimeTypes.Container) (string, *net.UnixConn, error) {
 	// This can block for up to the full ctx timeout
 	logDir, containerCred, rootFile, unixConn, err := r.setupPostStartLogDirTini(ctx, listener, c)
 	if err != nil {
-		return logDir, err
+		return logDir, unixConn, err
 	}
 
 	if len(c.NFSMounts()) > 0 {
 		err = r.setupEFSMounts(ctx, c, rootFile, containerCred)
 		if err != nil {
-			return logDir, err
+			return logDir, unixConn, err
 		}
 	}
-
-	err = launchTini(unixConn)
-	if err != nil {
-		shouldClose(unixConn)
-		err = fmt.Errorf("error launching tini: %w", err)
-	}
-	return logDir, err
+	return logDir, unixConn, err
 }
 
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
@@ -1330,19 +1326,20 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		details.NetworkConfiguration.ElasticIPAddress = allocation.ElasticAddress.Ip
 	}
 
-	err = r.startOtherUserContainers(ctx, pod, r.c.ID())
+	logDir, tiniConn, err := r.setupTini(ctx, listener, r.c)
+	if err != nil {
+		eventCancel()
+		err = fmt.Errorf("container prestart error: %w", err)
+		return "", nil, statusMessageChan, err
+	}
+	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
+
+	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn)
 	if err != nil {
 		eventCancel()
 		return "", nil, statusMessageChan, err
 	}
 
-	logDir, err := r.waitForTini(ctx, listener, r.c)
-	if err != nil {
-		eventCancel()
-		err = fmt.Errorf("container prestart error: %w", err)
-	} else {
-		go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
-	}
 	return logDir, details, statusMessageChan, err
 }
 
@@ -1361,7 +1358,7 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.
 			log.Fatal("Got error while listening for docker events, bailing: ", err)
 		case event := <-eventChan:
 			log.Info("Got docker event: ", event)
-			if handleEvent(c, event, statusMessageChan) {
+			if handleDockerEvent(c, event, statusMessageChan) {
 				log.Info("Terminating docker status monitor because terminal docker event received")
 				return
 			}
@@ -1369,40 +1366,40 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.
 	}
 }
 
-// startOtherUserContainers launches the other user containers, only looking
-// any container objects in the pod *after* the first one, converting the
-// v1.Container spec into something docker can understand, and then
-// running that container.
-func (r *DockerRuntime) startOtherUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string) error {
-	if pod == nil || pod.Spec.Containers == nil {
-		return nil
-	}
-	otherUserContainers := pod.Spec.Containers[1:]
-	if len(otherUserContainers) == 0 {
-		return nil
+// startUserContainers launches all user containers (including the main one)
+// for containers other than the main one, it must pull and create them
+func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn) error {
+	otherUserContainers := []v1.Container{}
+	if pod != nil && pod.Spec.Containers != nil {
+		otherUserContainers = pod.Spec.Containers[1:]
 	}
 	l := log.WithField("taskID", r.c.TaskID())
 
-	// For speed, we pull and creat containers in parallel
-	l.Infof("Pulling %d other user containers", len(otherUserContainers))
-	err := r.pullAllUserContainers(ctx, pod)
-	if err != nil {
-		return fmt.Errorf("Failed to pull an image for user container: %s", err)
-	}
-	l.Infof("Creating %d other user containers", len(otherUserContainers))
-	cidMapping, err := r.createAllUserContainers(ctx, pod, r.c.TaskID())
-	if err != nil {
-		return fmt.Errorf("Failed to create a user container: %s", err)
+	// For speed, we pull and create other containers in parallel
+	var cidMapping map[string]string
+	if len(otherUserContainers) > 0 {
+		l.Infof("Pulling %d other user containers", len(otherUserContainers))
+		err := r.pullAllUserContainers(ctx, pod)
+		if err != nil {
+			return fmt.Errorf("Failed to pull an image for user container: %s", err)
+		}
+		l.Infof("Creating %d other user containers", len(otherUserContainers))
+		cidMapping, err = r.createAllUserContainers(ctx, pod, r.c.TaskID())
+		if err != nil {
+			return fmt.Errorf("Failed to create a user container: %s", err)
+		}
+	} else {
+		cidMapping = map[string]string{}
 	}
 
 	// Starting, however, has its own logic
-	l.Infof("Starting %d other user containers", len(cidMapping))
-	err = r.startAllUserContainers(ctx, cidMapping, r.c.TaskID())
+	l.Infof("Starting %d user containers", len(cidMapping))
+	err := r.startAllUserContainers(ctx, cidMapping, r.c.TaskID(), tiniConn)
 	if err != nil {
 		return fmt.Errorf("Failed to start a user container: %s", err)
 	}
 
-	l.Info("Finished launching other user containers")
+	l.Info("Finished launching user containers")
 	return nil
 }
 
@@ -1431,6 +1428,9 @@ func getAllUserContainerImages(containers []v1.Container) []string {
 	return images
 }
 
+// createAllUserContainers *creates* the other user containers,
+// except for the 'main' one, which is assumed to be already created
+// to store all the namespaces
 func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string) (map[string]string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
 	// With this design, the first container is already created and ready for us
@@ -1467,18 +1467,28 @@ func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod
 	return cidMapping, err
 }
 
-func (r *DockerRuntime) startAllUserContainers(ctx context.Context, cidMapping map[string]string, mainContainerID string) error {
+// startAllUserContainers actually launches all containers,
+// and requires all containers to be created and ready
+func (r *DockerRuntime) startAllUserContainers(ctx context.Context, cidMapping map[string]string, mainContainerID string, tiniConn *net.UnixConn) error {
 	// Currently the order here is hard-coded to be whatever order it is in the podspec
 	// with no health or startup probes. Someday we'll add more logic here.
 	l := log.WithField("taskID", r.c.TaskID())
 	for name, cid := range cidMapping {
-		l.Debugf("Starting up user container %s, Conatiner id %s", name, cid)
+		l.Debugf("Starting up user container %s, container id %s", name, cid)
 		err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
 		if err != nil {
 			return fmt.Errorf("Failed to start %s container: %w", name, err)
 		}
 	}
-	return nil
+
+	// And then lastly we tell tini to launch the main container
+	l.Debug("Telling tini to launch the main container")
+	err := tellTiniToLaunch(tiniConn)
+	if err != nil {
+		shouldClose(tiniConn)
+		err = fmt.Errorf("error telling tini to launch: %w", err)
+	}
+	return err
 }
 
 func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string) (string, error) {
@@ -1547,7 +1557,7 @@ func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
 }
 
 // return true to exit
-func handleEvent(c runtimeTypes.Container, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
+func handleDockerEvent(c runtimeTypes.Container, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
 	validateMessage(c, message)
 	action := strings.Split(message.Action, " ")[0]
 	action = strings.TrimRight(action, ":")
@@ -1569,17 +1579,19 @@ func handleEvent(c runtimeTypes.Container, message events.Message, statusMessage
 	case "start":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusRunning,
+			Msg:    "main container is now running",
 		}
 		return false
 	case "die":
 		if exitCode := message.Actor.Attributes["exitCode"]; exitCode == "0" {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFinished,
+				Msg:    "main container successfully exited with 0",
 			}
 		} else {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFailed,
-				Msg:    fmt.Sprintf("exited with code %s", exitCode),
+				Msg:    fmt.Sprintf("main container exited with code %s", exitCode),
 			}
 		}
 	case "health_status":
@@ -1591,18 +1603,18 @@ func handleEvent(c runtimeTypes.Container, message events.Message, statusMessage
 	case "kill":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("killed with signal %s", message.Actor.Attributes["signal"]),
+			Msg:    fmt.Sprintf("main container killed with signal %s", message.Actor.Attributes["signal"]),
 		}
 	case "oom":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("%s exited due to OOMKilled", c.TaskID()),
+			Msg:    fmt.Sprintf("main container %s exited due to OOMKilled", c.TaskID()),
 		}
-		// Ignore exec events entirely
+	// Ignore exec events entirely
 	case "exec_create", "exec_start", "exec_die":
 		return false
 	default:
-		log.WithField("taskID", c.ID()).Info("Received unexpected event: ", message)
+		log.WithField("taskID", c.ID()).Info("Received unexpected docker event: ", message)
 		return false
 	}
 
@@ -2028,7 +2040,7 @@ func teardownCommand(netnsFile *os.File, allocation vpcTypes.HybridAllocation) e
 	return nil
 }
 
-func launchTini(conn *net.UnixConn) error {
+func tellTiniToLaunch(conn *net.UnixConn) error {
 	// This should be non-blocking
 	_, err := conn.Write([]byte{'L'}) // L is for Launch
 	return err
