@@ -180,7 +180,9 @@ func shouldStartLogViewer(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
-	return c.EBSInfo().VolumeID != ""
+	// Currently titus-storage only supports EBS and /ephemeral storage
+	// which is currently only available on GPU instance types.
+	return c.EBSInfo().VolumeID != "" || c.Resources().GPU > 0
 }
 
 // GetSidecarConfig is a helper to get a particular sidecar config out by name

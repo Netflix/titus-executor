@@ -21,9 +21,6 @@ import (
 )
 
 func ebsRunner(ctx context.Context, command string, config MountConfig) error {
-	if config.ebsVolumeID == "" {
-		return errors.New("TITUS_EBS_VOLUME_ID unset, unable to perform any EBS-related operations")
-	}
 	ec2Session := getEC2Session()
 	ec2Client := getEc2Client(ec2Session)
 	ec2InstanceID := getEC2InstanceID(ec2Session)

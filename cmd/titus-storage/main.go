@@ -50,11 +50,21 @@ func main() {
 			l := logger.GetLogger(ctx)
 			command := args[0]
 			l.Infof("Running titus-storage with %s", command)
-			err := ebsRunner(ctx, command, mountConfig)
-			if err != nil {
-				l.Error(err)
+			if mountConfig.ebsVolumeID != "" {
+				err := ebsRunner(ctx, command, mountConfig)
+				if err != nil {
+					l.WithError(err)
+					return err
+				}
 			}
-			return err
+			if ephemeralStorageIsAvailable() {
+				err := ephemeralStorageRunner(ctx, command, mountConfig)
+				if err != nil {
+					l.WithError(err).Error("Non-fatal error when mounting ephemeral storage")
+					return nil
+				}
+			}
+			return nil
 		},
 		Use: "titus-storage <start|stop>",
 	}
