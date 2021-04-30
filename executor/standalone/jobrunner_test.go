@@ -96,7 +96,8 @@ type JobInput struct {
 
 	GPUManager runtimeTypes.GPUManager
 	// Raw k8s containers, expected to come from the control plane
-	ExtraContainers []corev1.Container
+	ExtraContainers  []corev1.Container
+	ExtraAnnotations map[string]string
 }
 
 // JobRunResponse returned from RunJob
@@ -420,6 +421,9 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 		},
 	}
 	pod.Spec.Containers = append(pod.Spec.Containers, jobInput.ExtraContainers...)
+	for k, v := range jobInput.ExtraAnnotations {
+		pod.Annotations[k] = v
+	}
 
 	mainContainer := &pod.Spec.Containers[0]
 	pod.Annotations[podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex] = strconv.Itoa(len(mainContainer.Env))

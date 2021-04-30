@@ -1380,7 +1380,7 @@ func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, ma
 
 	// Starting, however, has its own logic
 	l.Infof("Starting %d user containers", len(cidMapping))
-	err := r.startAllUserContainers(ctx, cidMapping, r.c.TaskID(), tiniConn)
+	err := r.startAllUserContainers(ctx, pod, cidMapping, r.c.TaskID(), tiniConn)
 	if err != nil {
 		return fmt.Errorf("Failed to start a user container: %s", err)
 	}
@@ -1455,26 +1455,75 @@ func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod
 
 // startAllUserContainers actually launches all containers,
 // and requires all containers to be created and ready
-func (r *DockerRuntime) startAllUserContainers(ctx context.Context, cidMapping map[string]string, mainContainerID string, tiniConn *net.UnixConn) error {
-	// Currently the order here is hard-coded to be whatever order it is in the podspec
-	// with no health or startup probes. Someday we'll add more logic here.
+// The current implementation of multi-container workloads does
+// ordering in 2 phases:
+// Phase 1: Launch all platform containers (service mesh, gandalf, etc)
+// Phase 2: Launch all user-defined conatiners (main, nginx, etc)
+func (r *DockerRuntime) startAllUserContainers(ctx context.Context, pod *v1.Pod, cidMapping map[string]string, mainContainerID string, tiniConn *net.UnixConn) error {
 	l := log.WithField("taskID", r.c.TaskID())
-	for name, cid := range cidMapping {
-		l.Debugf("Starting up user container %s, container id %s", name, cid)
-		err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
-		if err != nil {
-			return fmt.Errorf("Failed to start %s container: %w", name, err)
-		}
+
+	platformContainerNames := getPlaformContainerNames(pod)
+	l.Debugf("Starting %d platform sidecars: %s", len(platformContainerNames), platformContainerNames)
+	err := r.startPlatformDefinedContainers(ctx, platformContainerNames, cidMapping)
+	if err != nil {
+		return err
 	}
 
-	// And then lastly we tell tini to launch the main container
-	l.Debug("Telling tini to launch the main container")
-	err := tellTiniToLaunch(tiniConn)
-	if err != nil {
-		shouldClose(tiniConn)
-		err = fmt.Errorf("error telling tini to launch: %w", err)
-	}
+	userContainerNames := getUserContainerNames(pod)
+	l.Debugf("Starting %d user containers: %s", len(userContainerNames), userContainerNames)
+	err = r.startUserDefinedContainers(ctx, userContainerNames, cidMapping, tiniConn)
+
 	return err
+}
+
+func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context, names []string, cidMapping map[string]string) error {
+	l := log.WithField("taskID", r.c.TaskID())
+	group := groupWithContext(ctx)
+	for _, name := range names {
+		group.Go(func(ctx context.Context) error {
+			cid := cidMapping[name]
+			l.Debugf("Starting up platform-defined container %s, container id %s", name, cid)
+			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
+			if err != nil {
+				return fmt.Errorf("Failed to start %s platform container: %w", name, err)
+			}
+			return nil
+		})
+	}
+	return group.Wait()
+}
+
+func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, names []string, cidMapping map[string]string, tiniConn *net.UnixConn) error {
+	l := log.WithField("taskID", r.c.TaskID())
+	group := groupWithContext(ctx)
+	for _, name := range names {
+		if name == r.c.TaskID() {
+			// Special case, the main container here is already running, it just needs
+			// to be told to run its own process via tini, we'll handle that in a different case
+			continue
+		}
+		group.Go(func(ctx context.Context) error {
+			cid := cidMapping[name]
+			l.Debugf("Starting up user-defined container %s, container id %s", name, cid)
+			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
+			if err != nil {
+				return fmt.Errorf("Failed to start %s user container: %w", name, err)
+			}
+			return nil
+		})
+	}
+
+	group.Go(func(ctx context.Context) error {
+		// And then lastly we tell tini to launch the main container
+		l.Debug("Telling tini to launch the main container")
+		err := tellTiniToLaunch(tiniConn)
+		if err != nil {
+			shouldClose(tiniConn)
+			return fmt.Errorf("error launching tini: %w", err)
+		}
+		return nil
+	})
+	return group.Wait()
 }
 
 func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string) (string, error) {
@@ -1536,7 +1585,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 	b := true
 	// What docker calls "command", is what k8s calls "Args"
 	dockerCmd := v1Container.Args
-	// What docker calls "entrypoint", k8s calls "command", but in addition, we prepend tinit
+	// What docker calls "entrypoint", k8s calls "command", but in addition, we prepend tini
 	// The reason we do this is because, even with init=true, docker will only inject tini
 	// on containers running in a private pid namespace.
 	// On titus, we want tini on *every* container, because it gives us features like stdout/err
@@ -1587,6 +1636,35 @@ func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
 		envList = append(envList, e.Name+"="+e.Value)
 	}
 	return envList
+}
+
+func getUserContainerNames(pod *v1.Pod) []string {
+	userContainerNames := []string{}
+	for _, c := range pod.Spec.Containers {
+		// Currently anything *not* a sidecar needs to fall
+		// into the "user" bucket. No container can be left behind
+		if !isPlatformSidecarContainer(c.Name, pod) {
+			userContainerNames = append(userContainerNames, c.Name)
+		}
+	}
+	return userContainerNames
+}
+
+func getPlaformContainerNames(pod *v1.Pod) []string {
+	platformContainerNames := []string{}
+	for _, c := range pod.Spec.Containers {
+		if isPlatformSidecarContainer(c.Name, pod) {
+			platformContainerNames = append(platformContainerNames, c.Name)
+		}
+	}
+	return platformContainerNames
+}
+
+func isPlatformSidecarContainer(name string, pod *v1.Pod) bool {
+	// TODO: put this in podcommon
+	containerTypeAnnotation := fmt.Sprintf("type.pod.netflix.com/%s", name)
+	value := pod.Annotations[containerTypeAnnotation]
+	return value == "sidecar"
 }
 
 // return true to exit
