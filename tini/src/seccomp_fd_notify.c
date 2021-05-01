@@ -49,7 +49,6 @@ typedef struct tsa_fds {
 } tsa_fds;
 
 pthread_mutex_t wait_to_send = PTHREAD_MUTEX_INITIALIZER;
-//int send_notify_fd = 0;
 pthread_cond_t ready_to_send = PTHREAD_COND_INITIALIZER;
 
 bool have_cap_sysadmin()
@@ -237,6 +236,7 @@ static int child_send_fd(void *arg)
 void maybe_setup_seccomp_notifer() {
 	char *socket_path;
 	const int STACK_SIZE = 64 * 1024;
+	const int MAX_ATTEMPTS = 10;
 	char *stack;
 	char *stack_top;
 	int notify_fd = -1;
@@ -278,21 +278,20 @@ void maybe_setup_seccomp_notifer() {
 	int sock_fd = -1;
 	// Sometimes things are not perfect, and the socket is not ready at first
 	// Instead of enforcing strict ordering, we can be defensive and retry.
-	int attempts = 10;
-	for (int i = 1; i <= attempts; i++) {
+	for (int i = 1; i <= MAX_ATTEMPTS; i++) {
 		sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
 		if (sock_fd != -1) {
 			break;
 		}
 		PRINT_INFO(
 			"Titus seccomp unix socket not ready on attempt %d/%d, Sleeping 1 second",
-			i, attempts);
+			i, MAX_ATTEMPTS);
 		sleep(1);
 	}
 	if (sock_fd == -1) {
 		PRINT_WARNING(
 			"Unable to open unix socket for seccomp handoff after %d attempts: %s",
-			attempts, strerror(errno));
+			MAX_ATTEMPTS, strerror(errno));
 		kill(child_pid, SIGKILL);
 		return;
 	}
@@ -301,7 +300,7 @@ void maybe_setup_seccomp_notifer() {
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 	int result = -1;
-	for (int i = 1; i <= attempts; i++) {
+	for (int i = 1; i <= MAX_ATTEMPTS; i++) {
 		result = connect(sock_fd, (struct sockaddr *)&addr,
 					sizeof(addr));
 		if (result != -1) {
@@ -309,13 +308,13 @@ void maybe_setup_seccomp_notifer() {
 		}
 		PRINT_INFO(
 			"Titus seccomp unix socket not connectable yet on attempt %d/%d, Sleeping 1 second",
-			i, attempts);
+			i, MAX_ATTEMPTS);
 		sleep(1);
 	}
 	if (result == -1) {
 		PRINT_WARNING(
 			"Unable to connect on unix socket (%s) for seccomp handoff after %d attempts: %s",
-			socket_path, attempts, strerror(errno));
+			socket_path, MAX_ATTEMPTS, strerror(errno));
 		kill(child_pid, SIGKILL);
 		return;
 	}
