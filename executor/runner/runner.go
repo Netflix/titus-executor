@@ -168,8 +168,7 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 		return update{status: titusdriver.Lost, msg: err.Error()}
 	}
 
-	containerNames := getContainerNames(r.pod)
-	startingMsg := fmt.Sprintf("starting up %d containers: %s", len(containerNames), containerNames)
+	startingMsg := fmt.Sprintf("main containter (%s) created", r.container.TaskID())
 	return update{status: titusdriver.Starting, msg: startingMsg}
 }
 
@@ -197,7 +196,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
-	updateChan <- update{status: titusdriver.Starting, msg: "creating"}
+	updateChan <- update{status: titusdriver.Starting, msg: "preparing main container"}
 
 	prepareUpdate := r.prepareContainer(ctx)
 	updateChan <- prepareUpdate
@@ -206,6 +205,9 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 		return
 	}
 
+	containerNames := getContainerNames(r.pod)
+	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
+	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 	logDir, details, statusChan, err := r.runtime.Start(ctx, r.pod)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
@@ -220,6 +222,8 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
 		return
 	}
+	startedMsg := fmt.Sprintf("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
+	updateChan <- update{status: titusdriver.Starting, msg: startedMsg, details: details}
 
 	err = r.maybeSetupExternalLogger(ctx, logDir)
 	if err != nil {
@@ -261,7 +265,7 @@ func (r *Runner) monitorMainContainer(ctx context.Context, startTime time.Time, 
 				return
 			}
 			msg := statusMessage.Msg
-			logger.G(ctx).WithField("statusMessage", statusMessage).Info("Processing msg")
+			logger.G(ctx).WithField("statusMessage", statusMessage).Infof("Processing msg from main conatiner: %q - %s", statusMessage.Status, statusMessage.Msg)
 
 			switch statusMessage.Status {
 			case runtimeTypes.StatusRunning:
@@ -319,6 +323,11 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 	killStartTime := time.Now()
 	// Are we in a situation where the container exited gracefully, or less than gracefully?
 	// We need to stop the container
+	if r.wasKilled() {
+		logger.G(ctx).Info("Killing and Shutting down main conatiner because of KillInitiated")
+	} else {
+		logger.G(ctx).Info("Shutting down main container because it finished")
+	}
 	if err := r.runtime.Kill(ctx); err != nil {
 		// TODO(Andrew L): There may be leaked resources that are not being
 		// accounted for. Consider forceful cleanup or tracking leaked resources.

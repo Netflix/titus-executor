@@ -894,7 +894,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 	}
 }
 
-// Prepare host state (pull image, create fs, create container, etc...) for the container
+// Prepare host state (pull image, create fs, create container, etc...) for the main container
 func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
 	var volumeContainers []string
 
@@ -1358,11 +1358,11 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.
 		// 4. Else, keep sending messages until we bail
 		select {
 		case err := <-errChan:
-			log.Fatal("Got error while listening for events, bailing: ", err)
+			log.Fatal("Got error while listening for docker events, bailing: ", err)
 		case event := <-eventChan:
-			log.Info("Got event: ", event)
+			log.Info("Got docker event: ", event)
 			if handleEvent(c, event, statusMessageChan) {
-				log.Info("Terminating docker status monitor")
+				log.Info("Terminating docker status monitor because terminal docker event received")
 				return
 			}
 		}
@@ -1564,7 +1564,7 @@ func handleEvent(c runtimeTypes.Container, message events.Message, statusMessage
 	for k, v := range message.Actor.Attributes {
 		l = l.WithField(fmt.Sprintf("actor.attributes.%s", k), v)
 	}
-	l.Info("Processing message")
+	l.Infof("Processing docker event: %s", action)
 	switch action {
 	case "start":
 		statusMessageChan <- runtimeTypes.StatusMessage{
@@ -2062,7 +2062,7 @@ func (r *DockerRuntime) setupGPU(ctx context.Context) error {
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
 func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
-	logger.G(ctx).Info("Killing task")
+	logger.G(ctx).Debug("Shutting down main container")
 
 	var errs *multierror.Error
 
