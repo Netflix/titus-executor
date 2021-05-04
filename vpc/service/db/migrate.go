@@ -63,7 +63,7 @@ func NeedsMigration(ctx context.Context, db *sql.DB) (bool, error) {
 	if dirty {
 		return true, fmt.Errorf("Database is dirty at version: %d", version)
 	}
-	return version < 26, err
+	return version < 28, err
 }
 
 func MigrateTo(ctx context.Context, db *sql.DB, to uint, check bool) error {

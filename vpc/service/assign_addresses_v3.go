@@ -304,7 +304,10 @@ SELECT assignments.id,
        branch_eni_association,
        ipv4addr,
        ipv6addr,
-       completed
+       completed,
+       jumbo,
+       bandwidth,
+       ceil
 FROM assignments
 JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
 WHERE assignment_id = $1
@@ -313,8 +316,10 @@ WHERE assignment_id = $1
 	var branchENI, trunkENI, associationID string
 	var ipv4addr, ipv6addr sql.NullString
 	var idx, assignmentRowID int
-	var completed bool
-	err = row.Scan(&assignmentRowID, &branchENI, &trunkENI, &idx, &associationID, &ipv4addr, &ipv6addr, &completed)
+	var completed, jumbo bool
+	var bandwidth, ceil uint64
+	err = row.Scan(&assignmentRowID, &branchENI, &trunkENI, &idx, &associationID, &ipv4addr, &ipv6addr, &completed,
+		&jumbo, &bandwidth, &ceil)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
@@ -359,7 +364,14 @@ WHERE assignment_id = $1
 			NetworkInterfaceAttachment: nil,
 		},
 		VlanId: uint32(idx),
+		Bandwidth: &vpcapi.AssignIPResponseV3_Bandwidth{
+			Bandwidth: bandwidth,
+			Burst:     ceil,
+		},
 	}
+
+	addDefaultRoute(ctx, jumbo, &resp)
+
 	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1", branchENI)
 	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
 		&resp.BranchNetworkInterface.AvailabilityZone,
@@ -545,7 +557,6 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 			return nil, err
 		}
 		if val != nil {
-			addDefaultRoute(ctx, req, val)
 			return val, nil
 		}
 	}
@@ -598,6 +609,12 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
+	maxBandwidth, err := vpc.GetMaxNetworkbps(aws.StringValue(instance.InstanceType))
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
 	ass, err := vpcService.generateAssignmentID(ctx, getENIRequest{
 		region:           subnet.region,
 		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
@@ -609,6 +626,10 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		securityGroups:   req.SecurityGroupIds,
 		maxBranchENIs:    maxBranchENIs,
 		maxIPAddresses:   maxIPAddresses,
+
+		bandwidth: req.Bandwidth,
+		ceil:      maxBandwidth,
+		jumbo:     req.Jumbo,
 	})
 	if err != nil {
 		return nil, err
@@ -617,8 +638,8 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	return vpcService.assignIPsToENI(ctx, req, ass, maxIPAddresses, instance, trunkENI)
 }
 
-func addDefaultRoute(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *vpcapi.AssignIPResponseV3) {
-	if req.Jumbo {
+func addDefaultRoute(ctx context.Context, jumbo bool, ass *vpcapi.AssignIPResponseV3) {
+	if jumbo {
 		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
 			{
 				Destination: "0.0.0.0/0",
@@ -749,7 +770,12 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		return nil, err
 	}
 
-	resp := vpcapi.AssignIPResponseV3{}
+	resp := vpcapi.AssignIPResponseV3{
+		Bandwidth: &vpcapi.AssignIPResponseV3_Bandwidth{
+			Bandwidth: ass.bandwidth,
+			Burst:     ass.ceil,
+		},
+	}
 	switch ipv4req := (req.Ipv4).(type) {
 	case *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation:
 		resp.Ipv4Address, err = assignSpecificIPv4AddressV3(ctx, tx, iface, maxIPAddresses, ipv4req, ass)
@@ -866,7 +892,7 @@ WHERE id=
 		return nil, err
 	}
 
-	addDefaultRoute(ctx, req, &resp)
+	addDefaultRoute(ctx, ass.jumbo, &resp)
 	return &resp, nil
 }
 

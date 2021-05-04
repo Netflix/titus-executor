@@ -126,6 +126,8 @@ message AssignIPRequestV3 {
     bool idempotent = 13;
     // Jumbo: I want "default routes" with an MTU of "Jumbo"
     bool jumbo = 14;
+    bool burst = 15;
+    uint64 bandwidth = 16;
 };
 
 message ElasticAddress {
@@ -148,6 +150,10 @@ message AssignIPResponseV3 {
         uint32 mtu = 2;
         Family family = 3;
     }
+    message Bandwidth {
+        uint64 bandwidth = 1;
+        uint64 burst = 2;
+    }
     UsableAddress ipv4address = 1;
     UsableAddress ipv6address = 2;
     NetworkInterface branchNetworkInterface = 3;
@@ -158,7 +164,20 @@ message AssignIPResponseV3 {
     // Routes act as overrides. There may be an override for default, but it if it not present, one should still be
     // assigned.
     repeated Route routes = 9;
+    Bandwidth bandwidth = 10;
 };
+
+message Error {
+    string error = 1;
+}
+
+// This is for storage of an assignment in the titus executor.
+message Assignment {
+    oneof assignment {
+        AssignIPResponseV3 assignIPResponseV3 = 1;
+        Error error = 2;
+    }
+}
 
 message UnassignIPRequestV3 {
     string taskId = 1;
