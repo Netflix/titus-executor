@@ -130,7 +130,7 @@ static int install_notify_filter(void) {
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 	};
 
-struct sock_filter net_perf_filter[] = {
+struct sock_filter net_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 0, 2),
@@ -149,21 +149,6 @@ struct sock_filter net_perf_filter[] = {
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 		/* Trap connect */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_connect, 0, 1),
-		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
-		/* Trap perf-related syscalls */
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_bpf, 0, 1),
-		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_perf_event_open, 0, 1),
-		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
-		/* We only need to trap the 2 perf-related ioctls */
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 5),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
-			 (offsetof(struct seccomp_data, args[1]))),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_SET_BPF, 0,
-			 1),
-		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_QUERY_BPF, 0,
-			 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 
 		/* Every other system call is allowed */
@@ -186,9 +171,9 @@ struct sock_filter net_perf_filter[] = {
 	char *is_handle_net = getenv("TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS");
 	char *is_handle_perf = getenv("TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS");
 	if (is_handle_net != NULL) {
-		prog.filter = net_perf_filter;
+		prog.filter = net_filter;
 		prog.len = 
-			(unsigned short)(sizeof(net_perf_filter) / sizeof(net_perf_filter[0]));
+			(unsigned short)(sizeof(net_filter) / sizeof(net_filter[0]));
 		PRINT_INFO("Networking system calls will be intercepted");
 	} else if (is_handle_perf != NULL) {
 		prog.filter = perf_filter;
@@ -400,30 +385,31 @@ void maybe_setup_seccomp_notifer() {
 			return;
 		}
 
-		/* 
-		   We need Tini to be ready to intercept and pass through the first 
-		   sendmsg() system call before sending the notify fd. 
-		   So, we wait until the polling has been set up.
-		*/
-		pthread_create(&thread_id, NULL, &catch_send_fd, (void *)&notify_fd);
-		pthread_mutex_lock(&wait_to_send);
-		while(send_notify_fd == 0) {
-			pthread_cond_wait(&ready_to_send, &wait_to_send);
+		char *is_handle_net = getenv("TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS");
+		if (is_handle_net != NULL) {
+			PRINT_INFO("Going to intercept first sendmsg");	
+			/*
+			We need Tini to be ready to intercept and pass through the first
+			sendmsg() system call before sending the notify fd.
+			So, we wait until the polling has been set up.
+			*/
+			pthread_create(&thread_id, NULL, &catch_send_fd, (void *)&notify_fd);
+			pthread_mutex_lock(&wait_to_send);
+			while(send_notify_fd == 0) {
+				pthread_cond_wait(&ready_to_send, &wait_to_send);
+			}
+			PRINT_INFO("Can send the notify fd now!");
+			pthread_mutex_unlock(&wait_to_send);
 		}
-		PRINT_INFO("Can send the notify fd now!");
-		pthread_mutex_unlock(&wait_to_send);
-		
 		if (send_fd(sock_fd, notify_fd) == -1) {
 			PRINT_WARNING(
 				"Couldn't send fd to the socket at %s: %s",
 				socket_path, strerror(errno));
 			return;
-		} else {
-			PRINT_INFO(
-				"Sent the notify fd to the seccomp agent socket at %s",
-				socket_path)
 		}
 		pthread_join(thread_id, NULL);
+		PRINT_INFO("Sent the notify fd to the seccomp agent socket at %s",
+				socket_path);
 	}
 	return;
 }
