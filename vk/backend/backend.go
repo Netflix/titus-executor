@@ -336,12 +336,27 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	b.pod.Status.Message = update.Mesg
 	if update.Details != nil {
 		b.pod.Status.PodIP = update.Details.NetworkConfiguration.IPAddress
-		b.pod.Status.PodIPs = []v1.PodIP{
-			{IP: update.Details.NetworkConfiguration.IPAddress},
+
+		// We only get to have 1 IPv4 and 1 IPv6 address in this array
+		// https://github.com/kubernetes/kubernetes/blob/31030820be979ea0b2c39e08eb18fddd71f353ed/pkg/apis/core/validation/validation.go#L3289
+		// So the best we can do is, if we have an EIP, we put it here, and leave the main `PodIP`
+		// as the non-EIP one.
+		if update.Details.NetworkConfiguration.ElasticIPAddress != "" {
+			b.pod.Status.PodIPs = []v1.PodIP{
+				{IP: update.Details.NetworkConfiguration.ElasticIPAddress},
+			}
+		} else {
+			b.pod.Status.PodIPs = []v1.PodIP{
+				{IP: update.Details.NetworkConfiguration.IPAddress},
+			}
 		}
 
-		if update.Details.NetworkConfiguration.ElasticIPAddress != "" {
-			b.pod.Status.PodIPs = append(b.pod.Status.PodIPs, v1.PodIP{IP: update.Details.NetworkConfiguration.ElasticIPAddress})
+		// And now, V6, if we have one
+		// TODO: append a non-eip v6 if we can determine that we have one
+		if update.Details.NetworkConfiguration.EniIPv6Address != "" {
+			b.pod.Status.PodIPs = append(b.pod.Status.PodIPs, v1.PodIP{
+				IP: update.Details.NetworkConfiguration.EniIPv6Address,
+			})
 		}
 	}
 
