@@ -127,6 +127,7 @@ message AssignIPRequestV3 {
     // Jumbo: I want "default routes" with an MTU of "Jumbo"
     bool jumbo = 14;
     bool burst = 15;
+    // bandwidth is in bits per second
     uint64 bandwidth = 16;
 };
 
@@ -151,7 +152,9 @@ message AssignIPResponseV3 {
         Family family = 3;
     }
     message Bandwidth {
+        // bandwidth is in bits per second
         uint64 bandwidth = 1;
+        // burst is the HTB class's ceil in bits per second
         uint64 burst = 2;
     }
     UsableAddress ipv4address = 1;
@@ -175,6 +178,13 @@ message Error {
 message Assignment {
     oneof assignment {
         AssignIPResponseV3 assignIPResponseV3 = 1;
+    }
+}
+
+// This is the serialized output of the VPC Tool
+message VPCToolResult {
+    oneof result {
+        Assignment assignment = 1;
         Error error = 2;
     }
 }
