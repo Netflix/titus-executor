@@ -21,6 +21,7 @@
 #include <linux/filter.h>
 #include <stddef.h>
 #include <sched.h>
+#include <sys/prctl.h>
 #include "seccomp_fd_notify.h"
 
 #ifndef CHILD_SIG
@@ -50,6 +51,8 @@ typedef struct tsa_fds {
 
 pthread_mutex_t wait_to_send = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t ready_to_send = PTHREAD_COND_INITIALIZER;
+pthread_cond_t pdeathsig_ready = PTHREAD_COND_INITIALIZER;
+int child_pdeathsid_ready = 0;
 
 bool have_cap_sysadmin()
 {
@@ -210,11 +213,37 @@ struct sock_filter net_filter[] = {
 	return notify_fd;
 }
 
+static void sigusr_child_handler()
+{
+	PRINT_WARNING("Parent exited before child before sending notify_fd!");
+	exit(EXIT_FAILURE);
+}
+
 static int child_send_fd(void *arg)
 {
+	struct sigaction sa;
 	tsa_fds *fds = (tsa_fds *)arg;
-	PRINT_INFO("In child_send_fd : notify_fd = %d, going to wait\n", 
-		fds->notify_fd);
+	/* Setup a signal handler to catch parent exiting before child */
+	sa.sa_flags = SA_SIGINFO;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_sigaction = sigusr_child_handler;
+	if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+		PRINT_WARNING("Failed to setup signal handler on the child");
+		return EXIT_FAILURE;
+	}
+
+	/* Prevent race of parent exiting before prctl is setup */
+	pthread_mutex_lock(&wait_to_send);
+	if (prctl(PR_SET_PDEATHSIG, SIGUSR1) == -1) {
+        PRINT_WARNING("Failed to setup PR_SET_PDEATHSIG on the child");
+		return EXIT_FAILURE;
+	}
+	child_pdeathsid_ready = 1;
+	pthread_cond_signal(&pdeathsig_ready);
+	PRINT_WARNING("Setup PR_SET_PDEATHSIG on the child");
+	pthread_mutex_unlock(&wait_to_send);
+
+	/* Wait for parent to setup the TSA fds */
 	pthread_mutex_lock(&wait_to_send);
 	while(fds->notify_fd == -1) {
         pthread_cond_wait(&ready_to_send, &wait_to_send);
@@ -228,7 +257,6 @@ static int child_send_fd(void *arg)
 		PRINT_INFO(
 			"Sent the notify fd to the seccomp agent socket to TSA");
 	}
-
 	pthread_mutex_unlock(&wait_to_send);
 	return 0;
 }
@@ -241,6 +269,9 @@ void maybe_setup_seccomp_notifer() {
 	char *stack_top;
 	int notify_fd = -1;
 	int child_pid = -1;
+	struct sockaddr_un addr = { 0 };
+	int sock_fd = -1;
+	int result = -1;
 	
 	tsa_fds *fds = malloc(sizeof(tsa_fds));
 	if (fds == NULL) {
@@ -262,6 +293,8 @@ void maybe_setup_seccomp_notifer() {
 			return;
 		}
 	}
+
+	/* Set up the client before the seccomp policies are inherited */
 	child_pid = clone(child_send_fd, stack_top, 
 		CLONE_FILES | CLONE_VM| CHILD_SIG, (void *) fds);
 	if (child_pid == -1) {
@@ -269,15 +302,27 @@ void maybe_setup_seccomp_notifer() {
 		return;
 	}
 
+	/* Wait for the child to finish setting up a handler
+	 * to handle the case where the parent exits before the child
+	 */
+	pthread_mutex_lock(&wait_to_send);
+	while (child_pdeathsid_ready == 0) {
+		pthread_cond_wait(&pdeathsig_ready, &wait_to_send);
+	}
+	PRINT_INFO("Child is ready to send");
+	pthread_mutex_unlock(&wait_to_send);
+
+	/* Now setup the client side to connect to TSA */
 	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
 	if (!socket_path) {
 		PRINT_WARNING("TITUS_SECCOMP_NOTIFY_SOCK_PATH not defined.");
 		kill(child_pid, SIGKILL);
 		return;
 	}
-	int sock_fd = -1;
-	// Sometimes things are not perfect, and the socket is not ready at first
-	// Instead of enforcing strict ordering, we can be defensive and retry.
+
+	/* Sometimes things are not perfect, and the socket is not ready at first
+	 * Instead of enforcing strict ordering, we can be defensive and retry.
+	 */ 
 	for (int i = 1; i <= MAX_ATTEMPTS; i++) {
 		sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
 		if (sock_fd != -1) {
@@ -296,10 +341,9 @@ void maybe_setup_seccomp_notifer() {
 		return;
 	}
 
-	struct sockaddr_un addr = { 0 };
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
-	int result = -1;
+	
 	for (int i = 1; i <= MAX_ATTEMPTS; i++) {
 		result = connect(sock_fd, (struct sockaddr *)&addr,
 					sizeof(addr));
@@ -319,6 +363,7 @@ void maybe_setup_seccomp_notifer() {
 		return;
 	}
 
+	/* Sequence the seccomp filter install to happen before sending the notify_fd */
 	pthread_mutex_lock(&wait_to_send);
 	notify_fd = install_notify_filter();
 	if (notify_fd == -1) {
@@ -332,6 +377,7 @@ void maybe_setup_seccomp_notifer() {
 	PRINT_INFO("Notify fd is valid, can be sent to TSA!");
 	pthread_mutex_unlock(&wait_to_send);
 
+	/* Wait for the child to finish sending the notify_fd */
 	if (waitpid(-1, NULL, (CHILD_SIG != SIGCHLD) ? __WCLONE : 0) == -1) {
 		PRINT_WARNING("waitpid error %s", strerror(errno));
 	}
