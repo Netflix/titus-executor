@@ -1,3 +1,4 @@
+#define _GNU_SOURCE  
 #include <sys/prctl.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -11,17 +12,21 @@
 #include <sys/syscall.h>
 #include <stddef.h>
 #include <sys/capability.h>
-#include <sys/ioctl.h>
 #include <sys/syscall.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <pthread.h>
-#include <sys/epoll.h>
-#include <sys/ioctl.h>  
+#include <sys/wait.h>
 #include <linux/seccomp.h>
 #include <linux/filter.h>
 #include <stddef.h>
+#include <sched.h>
+#include <sys/prctl.h>
 #include "seccomp_fd_notify.h"
+
+#ifndef CHILD_SIG
+#define CHILD_SIG SIGUSR1
+#endif
 
 #define MAX_EVENTS 16
 #define EPOLL_IGNORED_VAL 3
@@ -39,9 +44,15 @@
 		fprintf(stderr, "\n");                                         \
 	}
 
+typedef struct tsa_fds {
+	int fd_to_tsa;
+	int notify_fd;
+} tsa_fds;
+
 pthread_mutex_t wait_to_send = PTHREAD_MUTEX_INITIALIZER;
-int send_notify_fd = 0;
 pthread_cond_t ready_to_send = PTHREAD_COND_INITIALIZER;
+pthread_cond_t pdeathsig_ready = PTHREAD_COND_INITIALIZER;
+int child_pdeathsid_ready = 0;
 
 bool have_cap_sysadmin()
 {
@@ -97,8 +108,8 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
    notifications can be fetched. 
 */
 static int install_notify_filter(void) {
-	struct sock_fprog prog = {0};
 	int notify_fd = -1;
+	struct sock_fprog prog = {0};
 	
 	struct sock_filter perf_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
@@ -202,214 +213,173 @@ struct sock_filter net_filter[] = {
 	return notify_fd;
 }
 
-void set_seccomp_response_to_continue(struct seccomp_notif *req,
-				      struct seccomp_notif_resp *resp)
+static void sigusr_child_handler()
 {
-	resp->id = req->id;
-	resp->val = 0;
-	resp->flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
-	resp->error = 0;
+	PRINT_WARNING("Parent exited before child before sending notify_fd!");
+	exit(EXIT_FAILURE);
 }
 
-void respond_to_seccomp_client(int notify_fd, struct seccomp_notif_resp *resp)
+static int child_send_fd(void *arg)
 {
-	if (ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_SEND, resp) == -1) {
-		if (errno == ENOENT) {
-			printf(
-				"response failed with ENOENT; perhaps target "
-				"process's syscall was interrupted by signal?");
-		} else {
-			perror("ioctl-SECCOMP_IOCTL_NOTIF_SEND");
-		}
-	}
-}
-
-void * catch_send_fd(void *fd_arg)
-{
-	struct seccomp_notif *req;
-	struct seccomp_notif_resp *resp;
-	struct seccomp_notif_sizes sizes;
-	struct epoll_event ev;
-	struct epoll_event evlist[MAX_EVENTS];
-	int epfd = -1, ready = 0;
-	int set_break = 0;
-	int notify_fd = *(int *)fd_arg;
-
-	if (seccomp(SECCOMP_GET_NOTIF_SIZES, 0, &sizes) == -1) {
-        PRINT_WARNING("seccomp-SECCOMP_GET_NOTIF_SIZES not available?");
-		return NULL;
-	}
-	
-	req = malloc(sizes.seccomp_notif);
-	if (req == NULL) {
-		PRINT_WARNING("malloc req error!");
-		return NULL;
+	struct sigaction sa;
+	tsa_fds *fds = (tsa_fds *)arg;
+	/* Setup a signal handler to catch parent exiting before child */
+	sa.sa_flags = SA_SIGINFO;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_sigaction = sigusr_child_handler;
+	if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+		PRINT_WARNING("Failed to setup signal handler on the child");
+		return EXIT_FAILURE;
 	}
 
-	resp = malloc(sizes.seccomp_notif_resp);
-	if (resp == NULL) {
-		PRINT_WARNING("malloc resp error!");
-		return NULL;
+	/* Prevent race of parent exiting before prctl is setup */
+	pthread_mutex_lock(&wait_to_send);
+	if (prctl(PR_SET_PDEATHSIG, SIGUSR1) == -1) {
+        PRINT_WARNING("Failed to setup PR_SET_PDEATHSIG on the child");
+		return EXIT_FAILURE;
 	}
+	child_pdeathsid_ready = 1;
+	pthread_cond_signal(&pdeathsig_ready);
+	PRINT_WARNING("Setup PR_SET_PDEATHSIG on the child");
+	pthread_mutex_unlock(&wait_to_send);
 
-	epfd = epoll_create(EPOLL_IGNORED_VAL);
-	if (epfd == -1) {
-		PRINT_WARNING("epoll_create error");
-		return NULL;
-	}
-	ev.events = EPOLLIN;
-	ev.data.fd = notify_fd;
-	if (epoll_ctl(epfd, EPOLL_CTL_ADD, notify_fd, &ev) == -1) {
-		perror("epoll_ctl");
-		PRINT_WARNING("Unexpected error in adding notify_fd to epoll watch");
-		return NULL;
-	}
-	PRINT_INFO("Listening to networking syscall notifications on %d..", notify_fd);
+	/* Wait for parent to setup the TSA fds */
+	pthread_mutex_lock(&wait_to_send);
+	while(fds->notify_fd == -1) {
+        pthread_cond_wait(&ready_to_send, &wait_to_send);
+    }
 
-	for (;;) {
-		memset(req, 0, sizeof(*req));
-		memset(resp, 0, sizeof(*resp));
-		/* We have begun the polling loop, notify main thread to send the notify fd */
-		pthread_mutex_lock(&wait_to_send);
-		send_notify_fd = 1;
-		pthread_cond_signal(&ready_to_send);
-		pthread_mutex_unlock(&wait_to_send);
-		ready = epoll_wait(epfd, evlist, MAX_EVENTS, -1);
-		if (ready == -1) {
-			if (errno == EINTR)
-				continue; /* Restart if interrupted by signal */
-			else {
-				perror("epoll_wait");
-				PRINT_WARNING("epoll_wait error");
-				return NULL;
-			}
-		}
-		PRINT_INFO("  fd=%d; events: %s%s%s", evlist[0].data.fd,
-			    (evlist[0].events & EPOLLIN) ? "EPOLLIN " : "",
-			    (evlist[0].events & EPOLLHUP) ? "EPOLLHUP " : "",
-			    (evlist[0].events & EPOLLERR) ? "EPOLLERR " : "");
-
-		if (evlist[0].events & EPOLLIN) {
-			if (ioctl(evlist[0].data.fd, SECCOMP_IOCTL_NOTIF_RECV,
-				  req) == -1) {
-				PRINT_WARNING(
-					"ioctl SECCOMP_IOCTL_NOTIF_RECV error");
-				return NULL;
-			}
-		}
-		
-		if (evlist[0].events & EPOLLHUP) {
-			/* Client has exited */
-			char buf[16];
-			int r =  read(evlist[0].data.fd, buf, 16);
-			if (r < 0) {
-				PRINT_INFO("Client exited, draining notification, removing notify fd");
-			}
-			if (epoll_ctl(epfd, EPOLL_CTL_DEL, notify_fd, &ev) !=
-			    0) {
-				perror("Could not epoll_del the notifyfd\n");
-			} else {
-				PRINT_INFO("Removed the notify_fd of client");
-			}
-			return NULL;
-		}
-		if (req->data.nr == __NR_sendmsg) {
-			PRINT_INFO("Intercepted sendmsg - passthrough!\n");
-			set_break = 1;
-		} else {
-			PRINT_INFO("Intercepted syscall %d - passthrough!\n", req->data.nr);
-		}
-		set_seccomp_response_to_continue(req, resp);
-		respond_to_seccomp_client(notify_fd, resp);
-		if (set_break) {
-			break;
-		}
+	if (send_fd(fds->fd_to_tsa, fds->notify_fd) == -1) {
+		PRINT_WARNING(
+			"Couldn't send fd to the TSA %s", strerror(errno));
+		return -1;
+	} else {
+		PRINT_INFO(
+			"Sent the notify fd to the seccomp agent socket to TSA");
 	}
-	PRINT_INFO("Stopped polling notifyfd on Tini, over to TSA!");
-	return NULL;
+	pthread_mutex_unlock(&wait_to_send);
+	return 0;
 }
 
 void maybe_setup_seccomp_notifer() {
 	char *socket_path;
-	pthread_t thread_id;
-
-	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
-	if (socket_path) {
-		int sock_fd = -1;
-		// Sometimes things are not perfect, and the socket is not ready at first
-		// Instead of enforcing strict ordering, we can be defensive and retry.
-		int attempts = 10;
-		for (int i = 1; i <= attempts; i++) {
-			sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-			if (sock_fd != -1) {
-				break;
-			}
-			PRINT_INFO(
-				"Titus seccomp unix socket not ready on attempt %d/%d, Sleeping 1 second",
-				i, attempts);
-			sleep(1);
-		}
-		if (sock_fd == -1) {
-			PRINT_WARNING(
-				"Unable to open unix socket for seccomp handoff after %d attempts: %s",
-				attempts, strerror(errno));
-			return;
-		}
-
-		struct sockaddr_un addr = { 0 };
-		addr.sun_family = AF_UNIX;
-		strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
-		int result = -1;
-		for (int i = 1; i <= attempts; i++) {
-			result = connect(sock_fd, (struct sockaddr *)&addr,
-					 sizeof(addr));
-			if (result != -1) {
-				break;
-			}
-			PRINT_INFO(
-				"Titus seccomp unix socket not connectable yet on attempt %d/%d, Sleeping 1 second",
-				i, attempts);
-			sleep(1);
-		}
-		if (result == -1) {
-			PRINT_WARNING(
-				"Unable to connect on unix socket (%s) for seccomp handoff after %d attempts: %s",
-				socket_path, attempts, strerror(errno));
-			return;
-		}
-
-		int notify_fd = -1;
-		notify_fd = install_notify_filter();
-		if (notify_fd == -1) {
-			close(sock_fd);
-			return;
-		}
-
-		char *is_handle_net = getenv("TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS");
-		if (is_handle_net != NULL) {
-			PRINT_INFO("Going to intercept first sendmsg");	
-			/*
-			We need Tini to be ready to intercept and pass through the first
-			sendmsg() system call before sending the notify fd.
-			So, we wait until the polling has been set up.
-			*/
-			pthread_create(&thread_id, NULL, &catch_send_fd, (void *)&notify_fd);
-			pthread_mutex_lock(&wait_to_send);
-			while(send_notify_fd == 0) {
-				pthread_cond_wait(&ready_to_send, &wait_to_send);
-			}
-			PRINT_INFO("Can send the notify fd now!");
-			pthread_mutex_unlock(&wait_to_send);
-		}
-		if (send_fd(sock_fd, notify_fd) == -1) {
-			PRINT_WARNING(
-				"Couldn't send fd to the socket at %s: %s",
-				socket_path, strerror(errno));
-			return;
-		}
-		pthread_join(thread_id, NULL);
-		PRINT_INFO("Sent the notify fd to the seccomp agent socket at %s",
-				socket_path);
+	const int STACK_SIZE = 64 * 1024;
+	const int MAX_ATTEMPTS = 10;
+	char *stack;
+	char *stack_top;
+	int notify_fd = -1;
+	int child_pid = -1;
+	struct sockaddr_un addr = { 0 };
+	int sock_fd = -1;
+	int result = -1;
+	
+	tsa_fds *fds = malloc(sizeof(tsa_fds));
+	if (fds == NULL) {
+		PRINT_WARNING("Could not allocate fds");
+		return;
 	}
-	return;
+	fds->notify_fd = -1;
+	fds->fd_to_tsa = -1;
+	
+	stack = malloc(STACK_SIZE);
+	if (stack == NULL) {
+		PRINT_WARNING("Failure to setup child for clone");
+		return;
+	}
+	stack_top = stack + STACK_SIZE;
+	if (CHILD_SIG != 0 && CHILD_SIG != SIGCHLD) {
+		if (signal(CHILD_SIG, SIG_IGN) == SIG_ERR) {
+			PRINT_WARNING("signal handlingo of child");
+			return;
+		}
+	}
+
+	/* Set up the client before the seccomp policies are inherited */
+	child_pid = clone(child_send_fd, stack_top, 
+		CLONE_FILES | CLONE_VM| CHILD_SIG, (void *) fds);
+	if (child_pid == -1) {
+        PRINT_WARNING("clone failed %s", strerror(errno));
+		return;
+	}
+
+	/* Wait for the child to finish setting up a handler
+	 * to handle the case where the parent exits before the child
+	 */
+	pthread_mutex_lock(&wait_to_send);
+	while (child_pdeathsid_ready == 0) {
+		pthread_cond_wait(&pdeathsig_ready, &wait_to_send);
+	}
+	PRINT_INFO("Child is ready to send");
+	pthread_mutex_unlock(&wait_to_send);
+
+	/* Now setup the client side to connect to TSA */
+	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
+	if (!socket_path) {
+		PRINT_WARNING("TITUS_SECCOMP_NOTIFY_SOCK_PATH not defined.");
+		kill(child_pid, SIGKILL);
+		return;
+	}
+
+	/* Sometimes things are not perfect, and the socket is not ready at first
+	 * Instead of enforcing strict ordering, we can be defensive and retry.
+	 */ 
+	for (int i = 1; i <= MAX_ATTEMPTS; i++) {
+		sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (sock_fd != -1) {
+			break;
+		}
+		PRINT_INFO(
+			"Titus seccomp unix socket not ready on attempt %d/%d, Sleeping 1 second",
+			i, MAX_ATTEMPTS);
+		sleep(1);
+	}
+	if (sock_fd == -1) {
+		PRINT_WARNING(
+			"Unable to open unix socket for seccomp handoff after %d attempts: %s",
+			MAX_ATTEMPTS, strerror(errno));
+		kill(child_pid, SIGKILL);
+		return;
+	}
+
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+	
+	for (int i = 1; i <= MAX_ATTEMPTS; i++) {
+		result = connect(sock_fd, (struct sockaddr *)&addr,
+					sizeof(addr));
+		if (result != -1) {
+			break;
+		}
+		PRINT_INFO(
+			"Titus seccomp unix socket not connectable yet on attempt %d/%d, Sleeping 1 second",
+			i, MAX_ATTEMPTS);
+		sleep(1);
+	}
+	if (result == -1) {
+		PRINT_WARNING(
+			"Unable to connect on unix socket (%s) for seccomp handoff after %d attempts: %s",
+			socket_path, MAX_ATTEMPTS, strerror(errno));
+		kill(child_pid, SIGKILL);
+		return;
+	}
+
+	/* Sequence the seccomp filter install to happen before sending the notify_fd */
+	pthread_mutex_lock(&wait_to_send);
+	notify_fd = install_notify_filter();
+	if (notify_fd == -1) {
+		close(sock_fd);
+		kill(child_pid, SIGKILL);
+		return;
+	}
+	fds->fd_to_tsa = sock_fd;
+	fds->notify_fd = notify_fd;
+	pthread_cond_signal(&ready_to_send);
+	PRINT_INFO("Notify fd is valid, can be sent to TSA!");
+	pthread_mutex_unlock(&wait_to_send);
+
+	/* Wait for the child to finish sending the notify_fd */
+	if (waitpid(-1, NULL, (CHILD_SIG != SIGCHLD) ? __WCLONE : 0) == -1) {
+		PRINT_WARNING("waitpid error %s", strerror(errno));
+	}
+	PRINT_INFO("Child process to send notify_fd to TSA has terminated\n");
 }
