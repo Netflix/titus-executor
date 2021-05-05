@@ -67,6 +67,10 @@ type getENIRequest struct {
 
 	maxBranchENIs  int
 	maxIPAddresses int
+
+	jumbo     bool
+	bandwidth uint64
+	ceil      uint64
 }
 
 type getENIResponse struct {
@@ -81,6 +85,9 @@ type assignment struct {
 	branch         *branchENI
 	securityGroups []string
 	subnet         *subnet
+	bandwidth      uint64
+	ceil           uint64
+	jumbo          bool
 
 	trunkENISession  *ec2wrapper.EC2Session
 	branchENISession *ec2wrapper.EC2Session
@@ -163,6 +170,9 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 		subnet:           req.subnet,
 		trunkENISession:  req.trunkENISession,
 		branchENISession: req.branchENISession,
+		jumbo:            req.jumbo,
+		bandwidth:        req.bandwidth,
+		ceil:             req.ceil,
 	}
 	if !response.dirtySecurityGroups {
 		return assignment, nil
@@ -526,9 +536,12 @@ func insertAssignment(ctx context.Context, req *getENIRequest, fastTx *sql.Tx, e
 		trace.StringAttribute("assignmentID", req.assignmentID),
 	)
 
-	row := fastTx.QueryRowContext(ctx, "INSERT INTO assignments(branch_eni_association, assignment_id) VALUES ($1, $2) RETURNING id", eni.associationID, req.assignmentID)
+	// We do this "trick", where we return the values in order to allow a trigger to change the values on write time
+	// for A/B tests.
+	row := fastTx.QueryRowContext(ctx, "INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil) VALUES ($1, $2, $3, $4, $5) RETURNING id, jumbo, bandwidth, ceil",
+		eni.associationID, req.assignmentID, req.jumbo, req.bandwidth, req.ceil)
 	var id int
-	err := row.Scan(&id)
+	err := row.Scan(&id, &req.jumbo, &req.bandwidth, &req.ceil)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan row / insert into assignments")
 		tracehelpers.SetStatus(err, span)
