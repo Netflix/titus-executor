@@ -223,6 +223,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 		return
 	}
 	startedMsg := fmt.Sprintf("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
+	logger.G(ctx).Info(startedMsg)
 	updateChan <- update{status: titusdriver.Starting, msg: startedMsg, details: details}
 
 	err = r.maybeSetupExternalLogger(ctx, logDir)
