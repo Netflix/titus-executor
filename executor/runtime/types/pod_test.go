@@ -1230,5 +1230,73 @@ func TestPodContainerOomScoreAdj(t *testing.T) {
 	assert.Equal(t, oomScore, *c.OomScoreAdj())
 }
 
+func TestNewPodContainerEntrypointShellParsing(t *testing.T) {
+	var nilStrSlice []string
+
+	fixtures := []struct {
+		inputCommand       []string
+		inputArgs          []string
+		expectedEntrypoint []string
+		expectedCommand    []string
+		setSplitAnnotation bool
+	}{
+		{
+			// If the annotation is not set, don't do the shell parsing
+			inputCommand:       []string{"cmd0 cmd1 cmd2"},
+			inputArgs:          nil,
+			expectedEntrypoint: []string{"cmd0 cmd1 cmd2"},
+			expectedCommand:    nilStrSlice,
+			setSplitAnnotation: false,
+		},
+		{
+			// If len(Command) == 0, no Args, and the annotation is set, do the shell parsing
+			inputCommand:       []string{"pcmd0 pcmd1 pcmd2"},
+			inputArgs:          nil,
+			expectedEntrypoint: []string{"pcmd0", "pcmd1", "pcmd2"},
+			expectedCommand:    nilStrSlice,
+			setSplitAnnotation: true,
+		},
+		{
+			// If Command and Args are both empty, return as-is
+			inputCommand:       []string{},
+			inputArgs:          []string{},
+			expectedEntrypoint: []string{},
+			expectedCommand:    []string{},
+			setSplitAnnotation: true,
+		},
+		{
+			// If len(Args) > 0, don't shell split
+			inputCommand:       []string{"ncmd0 ncmd1 ncmd2"},
+			inputArgs:          []string{"narg0 narg1 narg2"},
+			expectedEntrypoint: []string{"ncmd0 ncmd1 ncmd2"},
+			expectedCommand:    []string{"narg0 narg1 narg2"},
+			setSplitAnnotation: true,
+		},
+	}
+
+	for _, f := range fixtures {
+		pod, conf, err := PodContainerTestArgs()
+		assert.NilError(t, err)
+		if f.inputCommand != nil {
+			pod.Spec.Containers[0].Command = f.inputCommand
+		}
+		if f.inputArgs != nil {
+			pod.Spec.Containers[0].Args = f.inputArgs
+		}
+		if f.setSplitAnnotation {
+			addPodAnnotations(pod, map[string]string{
+				podCommon.AnnotationKeyPodTitusEntrypointShellSplitting: "true",
+			})
+		}
+
+		c, err := NewPodContainer(pod, *conf)
+		assert.NilError(t, err)
+
+		entrypoint, cmd := c.Process()
+		assert.DeepEqual(t, entrypoint, f.expectedEntrypoint)
+		assert.DeepEqual(t, cmd, f.expectedCommand)
+	}
+}
+
 // TODO:
 // - log uploading durations

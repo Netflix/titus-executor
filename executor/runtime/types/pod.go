@@ -6,11 +6,13 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
@@ -40,6 +42,8 @@ type PodContainer struct {
 	config         config.Config
 	containerImage reference.Reference
 	ebsInfo        EBSInfo
+	entrypoint     []string
+	command        []string
 	envLock        sync.Mutex
 	// envOverrides are set by the executor for things like IPv4 / IPv6 address
 	envOverrides map[string]string
@@ -116,8 +120,6 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		userEnv:           userEnv,
 	}
 
-	c.labels = addLabels(c.id, c, resources)
-
 	err = c.parsePodVolumes()
 	if err != nil {
 		return c, fmt.Errorf("error parsing mounts: %w", err)
@@ -135,6 +137,14 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 	if userContainer.SecurityContext != nil && userContainer.SecurityContext.Capabilities != nil {
 		c.capabilities = userContainer.SecurityContext.Capabilities
 	}
+
+	err = c.parsePodCommandAndArgs()
+	if err != nil {
+		return c, fmt.Errorf("error parsing command and args for container \"%s\": %w", userContainer.Name, err)
+	}
+
+	// This requires entrypoint and command to be parsed first
+	c.labels = addLabels(c.id, c, resources)
 
 	return c, nil
 }
@@ -413,8 +423,7 @@ func (c *PodContainer) OwnerEmail() *string {
 }
 
 func (c *PodContainer) Process() ([]string, []string) {
-	uc := podCommon.GetUserContainer(c.pod)
-	return uc.Command, uc.Args
+	return c.entrypoint, c.command
 }
 
 func (c *PodContainer) QualifiedImageName() string {
@@ -742,6 +751,34 @@ func (c *PodContainer) extractServiceMesh() error {
 
 	c.serviceMeshImage = c.config.ProxydServiceImage
 	c.serviceMeshEnabled = true
+
+	return nil
+}
+
+func (c *PodContainer) parsePodCommandAndArgs() error {
+	uc := podCommon.GetUserContainer(c.pod)
+	c.entrypoint = uc.Command
+	c.command = uc.Args
+
+	if c.podConfig.EntrypointShellSplitting == nil || !*c.podConfig.EntrypointShellSplitting {
+		return nil
+	}
+
+	if len(c.entrypoint) == 0 && len(c.command) == 0 {
+		return nil
+	}
+
+	if len(c.command) > 0 {
+		return nil
+	}
+
+	parsedEntryPoint, err := dockershellparser.ProcessWords(strings.Join(c.entrypoint, " "), []string{})
+	if err != nil {
+		return err
+	}
+
+	c.entrypoint = parsedEntryPoint
+	c.command = nil
 
 	return nil
 }
