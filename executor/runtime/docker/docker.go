@@ -328,8 +328,8 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 }
 
 func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
-	// Extract the entrypoint from the proto. If the proto is empty, pass
-	// an empty entrypoint and let Docker extract it from the image.
+	// Extract the entrypoint and command from the pod. If either is empty,
+	// pass them along and let Docker extract them from the image instead.
 	entrypoint, cmd := c.Process()
 
 	// hostname style: ip-{ip-addr} or {task ID}
