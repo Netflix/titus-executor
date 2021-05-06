@@ -1123,6 +1123,7 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 	// Resource environment variables
 	env["TITUS_NUM_MEM"] = itoa(resources.Mem)
 	env["TITUS_NUM_CPU"] = itoa(resources.CPU)
+	env["TITUS_NUM_GPU"] = itoa(resources.GPU)
 	env["TITUS_NUM_DISK"] = itoa(resources.Disk)
 	env["TITUS_NUM_NETWORK_BANDWIDTH"] = itoa(resources.Network)
 

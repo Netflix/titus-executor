@@ -300,6 +300,7 @@ func TestNewPodContainer(t *testing.T) {
 		"TITUS_METATRON_ENABLED":            True,
 		"TITUS_NUM_CPU":                     "2",
 		"TITUS_NUM_DISK":                    "10000",
+		"TITUS_NUM_GPU":                     "1",
 		"TITUS_NUM_MEM":                     "512",
 		"TITUS_NUM_NETWORK_BANDWIDTH":       "128",
 		"TITUS_OCI_RUNTIME":                 DefaultOciRuntime,

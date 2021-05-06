@@ -9,13 +9,19 @@ StartLimitBurst=5
 PartOf=titus-container@%i.target
 
 [Service]
-# This command is oneshot, it runs once, mounts and returns
-# Similar with stop.
+# This command is oneshot, it runs once, mounts and returns on 'start',
+# and on stop, it (may) unmount, clean up anything, and then return.
 Type=oneshot
 RemainAfterExit=yes
 
-# This PID1 
+# This PID1 variable points us to the namespaces required to do mount injection
 Environment=TITUS_PID_1_DIR=/var/lib/titus-inits/%i
+# static-environment has variables like EC2_INSTANCE_TYPE which is useful
+EnvironmentFile=-/etc/nflx/static-environment
+# These two files have things like TITUS_TASK_ID, which we need to operate,
+# however, we cannot guarantee that when we run 'stop', that the file
+# is in place, so we have a backup file too. The '-' tells system to
+# not fail if they don't exist
 EnvironmentFile=-/var/lib/titus-environments/%i.env
 EnvironmentFile=-/var/lib/titus-environments/%i-titus-storage.env
 
