@@ -859,16 +859,18 @@ void maybe_unix_cb()
 
 	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (sockfd == -1) {
-		PRINT_FATAL("Unable to open unix socket: '%s'",
-			    strerror(errno));
+		PRINT_FATAL(
+			"Unable to open titus-executor unix socket %s: '%s'",
+			socket_path, strerror(errno));
 		goto error;
 	}
 
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 	if (connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-		PRINT_FATAL("Unable to connect unix socket: '%s'",
-			    strerror(errno));
+		PRINT_FATAL(
+			"Unable to connect titus-executor unix socket %s: '%s'",
+			socket_path, strerror(errno));
 		goto error;
 	}
 
@@ -973,7 +975,7 @@ int main(int argc, char *argv[])
 	/* Setup a seccomp notification fd and pass it off, if available */
 	maybe_setup_seccomp_notifer();
 
-	/* Go on */
+	/* Go on, even if we couldn't tell titus-executor we started */
 	int spawn_ret = spawn(&child_sigconf, *child_args_ptr, &child_pid);
 	if (spawn_ret) {
 		return spawn_ret;

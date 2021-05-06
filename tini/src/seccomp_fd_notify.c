@@ -273,6 +273,14 @@ void maybe_setup_seccomp_notifer() {
 	int sock_fd = -1;
 	int result = -1;
 	
+	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
+	if (!socket_path) {
+		/* maybe_setup_seccomp_notifer really means 'maybe', if there is no
+		   socket path to connect to at all, we can silently return and not try to
+		   do anything else */
+		return;
+	}
+
 	tsa_fds *fds = malloc(sizeof(tsa_fds));
 	if (fds == NULL) {
 		PRINT_WARNING("Could not allocate fds");
@@ -311,14 +319,6 @@ void maybe_setup_seccomp_notifer() {
 	}
 	PRINT_INFO("Child is ready to send");
 	pthread_mutex_unlock(&wait_to_send);
-
-	/* Now setup the client side to connect to TSA */
-	socket_path = getenv(TITUS_SECCOMP_NOTIFY_SOCK_PATH);
-	if (!socket_path) {
-		PRINT_WARNING("TITUS_SECCOMP_NOTIFY_SOCK_PATH not defined.");
-		kill(child_pid, SIGKILL);
-		return;
-	}
 
 	/* Sometimes things are not perfect, and the socket is not ready at first
 	 * Instead of enforcing strict ordering, we can be defensive and retry.
