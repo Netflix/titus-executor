@@ -281,6 +281,13 @@ done:
 		return nil, fmt.Errorf("Could not set rp_filter in container NS: %w", err)
 	}
 
+	// We do this because the otherwise the kernel takes a while for the address to come up. It's a link-local address.
+	// We don't need to worry about that.
+	err = ioutil.WriteFile(filepath.Join("/proc/sys/net/ipv6/conf", toimdsInterfaceName, "accept_dad"), []byte("0"), 0)
+	if err != nil {
+		return nil, fmt.Errorf("Could not set accept_dad in container NS: %w", err)
+	}
+
 	// All is primed. Let's setup the listener
 	err = netns.Set(intermediateNS)
 	if err != nil {
