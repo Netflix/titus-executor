@@ -1,4 +1,4 @@
-all: titus-mount-nfs titus-mount-block-device titus-mount-bind
+all: titus-mount-nfs titus-mount-block-device
 
 titus-mount-nfs: titus-mount-nfs.c scm_rights.c common.h
 	# musl needs this extra path here
@@ -8,14 +8,11 @@ titus-mount-nfs: titus-mount-nfs.c scm_rights.c common.h
 titus-mount-block-device: titus-mount-block-device.c scm_rights.c common.h
 	gcc -g -static -o titus-mount-block-device titus-mount-block-device.c scm_rights.c
 
-titus-mount-bind: titus-mount-bind.c scm_rights.c common.h
-	gcc -g -static -o titus-mount-bind titus-mount-bind.c scm_rights.c
-
-install: titus-mount-nfs titus-mount-block-device titus-mount-bind
-	sudo rsync -a titus-mount-nfs titus-mount-block-device titus-mount-bind /apps/titus-executor/bin/
+install: titus-mount-nfs titus-mount-block-device
+	sudo rsync -a titus-mount-nfs titus-mount-block-device /apps/titus-executor/bin/
 
 clean:
-	rm -f titus-mount-nfs titus-mount-block-device titus-mount-bind
+	rm -f titus-mount-nfs titus-mount-block-device
 
 fmt:
 	clang-format -i *.c *.h
