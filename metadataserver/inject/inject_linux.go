@@ -114,6 +114,8 @@ func Inject(ctx context.Context, pid1dir string, subsequentExe []string) error {
 // This is a separate function in order to allow for the defer / close statements to execute prior to calling exec
 // upon error, the failure state is undefined. Otherwise, on return, it should return to the host namespace.
 func setupNamespaces(ctx context.Context, pid1dir string) (*int, error) { // nolint: gocyclo
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	hostns, err := netns.Get()
 	if err != nil {
 		return nil, fmt.Errorf("Could not get current net ns: %w", err)
@@ -124,17 +126,6 @@ func setupNamespaces(ctx context.Context, pid1dir string) (*int, error) { // nol
 		return nil, fmt.Errorf("Could not get handle at new host ns: %w", err)
 	}
 	defer hostnsHandle.Delete()
-
-	intermediateNS, err := netns.New()
-	if err != nil {
-		return nil, fmt.Errorf("Could not create new intermediate namespace: %w", err)
-	}
-	defer intermediateNS.Close()
-	intermediateNSHandle, err := netlink.NewHandleAt(intermediateNS)
-	if err != nil {
-		return nil, fmt.Errorf("Could not get handle at intermediate ns: %w", err)
-	}
-	defer intermediateNSHandle.Delete()
 
 	path := filepath.Join(pid1dir, "ns", "net")
 	containerNSFD, err := unix.Open(path, os.O_RDONLY, 0)
@@ -150,12 +141,23 @@ func setupNamespaces(ctx context.Context, pid1dir string) (*int, error) { // nol
 	}
 	defer containerNSHandle.Delete()
 
+	/* This creates the intermediate namespace, and switches us to it */
+	intermediateNS, err := netns.New()
+	if err != nil {
+		return nil, fmt.Errorf("Could not create new intermediate namespace: %w", err)
+	}
+	defer intermediateNS.Close()
+	intermediateNSHandle, err := netlink.NewHandleAt(intermediateNS)
+	if err != nil {
+		return nil, fmt.Errorf("Could not get handle at intermediate ns: %w", err)
+	}
+	defer intermediateNSHandle.Delete()
+
 	err = intermediateNSHandle.LinkAdd(&netlink.Veth{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: tocontainerInterfaceName,
 		},
-		PeerName:         toimdsInterfaceName,
-		PeerHardwareAddr: nil,
+		PeerName: toimdsInterfaceName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("Could not add veth in intermediate namespace: %w", err)
@@ -265,8 +267,6 @@ done:
 		return nil, fmt.Errorf("Could not add route to %v: %w", localhostipnet, err)
 	}
 
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	// We need to enable localnet routing on in the container namespace on the container -> intermediate device.
 	err = netns.Set(containerNS)
 	if err != nil {
@@ -296,6 +296,11 @@ done:
 	err = ioutil.WriteFile(filepath.Join("/proc/sys/net/ipv4/conf", tocontainerInterfaceName, "route_localnet"), []byte("1"), 0)
 	if err != nil {
 		return nil, fmt.Errorf("Could not set route_localnet in container NS: %w", err)
+	}
+
+	err = ioutil.WriteFile(filepath.Join("/proc/sys/net/ipv6/conf", tocontainerInterfaceName, "accept_dad"), []byte("0"), 0)
+	if err != nil {
+		return nil, fmt.Errorf("Could not set accept_dad in container NS: %w", err)
 	}
 
 	socket, err := unix.Socket(unix.AF_INET6, unix.SOCK_STREAM, 0)

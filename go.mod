@@ -45,7 +45,7 @@ require (
 	github.com/lib/pq v1.3.0
 	github.com/moby/sys/mount v0.2.0
 	github.com/mvisonneau/go-ebsnvme v0.0.0-20201026165225-e63797fabc2f
-	github.com/myitcv/gobin v0.0.9
+	github.com/myitcv/gobin v0.0.14
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/runc v1.0.0-rc10
 	github.com/opencontainers/runtime-spec v1.0.1 // indirect
