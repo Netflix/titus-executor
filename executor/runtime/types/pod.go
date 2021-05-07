@@ -755,6 +755,10 @@ func (c *PodContainer) extractServiceMesh() error {
 	return nil
 }
 
+// Optionally do shell splitting on the container's Command if the appropriate annotation is set. We do this
+// because lots of jobs still depend on this behaviour. Unfortunately, this parsing can't be done in
+// the TJC and passed down to the executor, because Titus clients sign jobs with the original unparsed Command
+// and Args. If the executor reports something different than what was in the signature, this breaks Metatron.
 func (c *PodContainer) parsePodCommandAndArgs() error {
 	uc := podCommon.GetUserContainer(c.pod)
 	c.entrypoint = uc.Command
