@@ -185,7 +185,7 @@ func (proxy *iamProxy) AttachRoutes(router *mux.Router) {
 	router.HandleFunc("/info", proxy.info)
 	router.HandleFunc("/policy", proxy.policy)
 	router.HandleFunc("/security-credentials/", proxy.securityCredentials)
-	router.HandleFunc("/security-credentials", redirectSecurityCredentials)
+	router.HandleFunc("/security-credentials", proxy.securityCredentials)
 	router.HandleFunc("/security-credentials/{iamProfile}", proxy.specificInstanceProfile)
 }
 
@@ -503,11 +503,4 @@ func GenerateSessionName(containerID string) string {
 		return sessionName
 	}
 	return sessionName[0:maxSessionNameLen]
-}
-
-func redirectSecurityCredentials(w http.ResponseWriter, r *http.Request) {
-	// This is called if someone hits /latest/meta-data/iam/security-credentials
-	// We need to 301 them to /latest/meta-data/iam/security-credentials/
-	newURI := r.RequestURI + "/"
-	http.Redirect(w, r, newURI, http.StatusMovedPermanently)
 }
