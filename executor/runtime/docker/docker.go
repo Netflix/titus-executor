@@ -34,6 +34,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
@@ -1272,7 +1273,14 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 
-	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn)
+	inspectOutput, err := r.client.ContainerInspect(ctx, r.c.ID())
+	if err != nil {
+		eventCancel()
+		err = fmt.Errorf("container prestart error inspecting main container: %w", err)
+		return "", nil, statusMessageChan, err
+	}
+	mainContainerRoot := inspectOutput.GraphDriver.Data["MergedDir"]
+	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
 	if err != nil {
 		eventCancel()
 		return "", nil, statusMessageChan, err
@@ -1304,9 +1312,12 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.
 	}
 }
 
-// startUserContainers launches all user containers (including the main one)
-// for containers other than the main one, it must pull and create them
-func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn) error {
+// startOtherUserContainers launches the other user containers, only looking
+// any container objects in the pod *after* the first one, converting the
+// v1.Container spec into something docker can understand, and then
+// running that container.
+func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
+
 	otherUserContainers := []v1.Container{}
 	if pod != nil && pod.Spec.Containers != nil {
 		otherUserContainers = pod.Spec.Containers[1:]
@@ -1322,7 +1333,7 @@ func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, ma
 			return fmt.Errorf("Failed to pull an image for user container: %s", err)
 		}
 		l.Infof("Creating %d other user containers", len(otherUserContainers))
-		cidMapping, err = r.createAllUserContainers(ctx, pod, r.c.TaskID())
+		cidMapping, err = r.createAllUserContainers(ctx, pod, r.c.TaskID(), mainContainerRoot)
 		if err != nil {
 			return fmt.Errorf("Failed to create a user container: %s", err)
 		}
@@ -1369,7 +1380,7 @@ func getAllUserContainerImages(containers []v1.Container) []string {
 // createAllUserContainers *creates* the other user containers,
 // except for the 'main' one, which is assumed to be already created
 // to store all the namespaces
-func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string) (map[string]string, error) {
+func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, mainContainerRoot string) (map[string]string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
 	// With this design, the first container is already created and ready for us
 	// to link to (mainContainerID), so we only look at 1+ containers to create
@@ -1382,7 +1393,7 @@ func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod
 	for idx := range otherUserContainers {
 		c := otherUserContainers[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createOtherUserContainer(ctx, c, mainContainerID)
+			cid, err := r.createOtherUserContainer(ctx, c, mainContainerID, mainContainerRoot)
 			if err != nil {
 				return fmt.Errorf("Failed to create %s container: %w", c.Name, err)
 			}
@@ -1429,10 +1440,10 @@ func (r *DockerRuntime) startAllUserContainers(ctx context.Context, cidMapping m
 	return err
 }
 
-func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string) (string, error) {
+func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string) (string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
 	containerName := r.c.TaskID() + "-" + v1Container.Name
-	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := k8sContainerToDockerConfigs(v1Container, mainContainerID)
+	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := r.k8sContainerToDockerConfigs(v1Container, mainContainerID, mainContainerRoot)
 	l.WithFields(map[string]interface{}{
 		"dockerCfg": logger.ShouldJSON(ctx, *dockerContainerConfig),
 		"hostCfg":   logger.ShouldJSON(ctx, *dockerHostConfig),
@@ -1445,23 +1456,54 @@ func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Containe
 	return containerCreateBody.ID, nil
 }
 
-func k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
+func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
 	// These labels are needed for titus-node-problem-detector
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
 		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
 		models.TaskIDLabel:      mainContainerID,
 	}
+	mounts := []mount.Mount{
+		{
+			Type:     "bind",
+			Source:   mainContainerRoot + "/logs",
+			Target:   "/logs",
+			ReadOnly: false,
+		},
+		{
+			Type:     "bind",
+			Source:   r.dockerCfg.tiniPath,
+			ReadOnly: true,
+			Target:   "/sbin/docker-init",
+		},
+	}
+	// TODO: Use the same env logic as the main container
+	baseEnv := []string{
+		"TITUS_REDIRECT_STDERR=/logs/stderr-" + v1Container.Name,
+		"TITUS_REDIRECT_STDOUT=/logs/stdout-" + v1Container.Name,
+	}
+	b := true
+	// What docker calls "command", is what k8s calls "Args"
+	dockerCmd := v1Container.Args
+	// What docker calls "entrypoint", k8s calls "command", but in addition, we prepend tinit
+	// The reason we do this is because, even with init=true, docker will only inject tini
+	// on containers running in a private pid namespace.
+	// On titus, we want tini on *every* container, because it gives us features like stdout/err
+	// TODO: get the entrypoint that comes from the *image* and use it here if `v1Container.Command` is null
+	// Because as is, we are *setting* the entrypoint all the time here, which means docker is going
+	// to ignore whatever entrypoing is on the *image*. We want the normal docker behavior here,
+	// but we *also* want tini.
+	dockerEntrypoint := append([]string{"/sbin/docker-init", "--"}, v1Container.Command...)
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
 		Hostname:   "",
-		Cmd:        v1Container.Args,
+		Cmd:        dockerCmd,
 		Image:      v1Container.Image,
 		WorkingDir: v1Container.WorkingDir,
-		Entrypoint: v1Container.Command,
+		Entrypoint: dockerEntrypoint,
 		Labels:     labels,
-		Env:        v1ConatinerEnvToList(v1Container.Env),
+		Env:        append(baseEnv, v1ConatinerEnvToList(v1Container.Env)...),
 	}
 	dockerHostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode("container:" + mainContainerID),
@@ -1480,6 +1522,8 @@ func k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID strin
 		PidMode:     container.PidMode("container:" + mainContainerID),
 		Privileged:  false,
 		VolumesFrom: []string{mainContainerID},
+		Mounts:      mounts,
+		Init:        &b,
 	}
 	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
 	dockerNetworkConfig := &network.NetworkingConfig{}
