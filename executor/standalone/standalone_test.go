@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"math/rand"
 	"os"
 	"reflect"
 	"runtime"
@@ -104,7 +103,7 @@ var (
 const defaultFailureTimeout = time.Minute
 
 // returns the title-cased test name for a given test function
-func funcToTestName(fun func(*testing.T, string)) string {
+func funcToTestName(fun func(*testing.T)) string {
 	fullName := runtime.FuncForPC(reflect.ValueOf(fun).Pointer()).Name()
 	splitName := strings.Split(fullName, ".")
 	funName := splitName[len(splitName)-1]
@@ -120,7 +119,7 @@ func funcToTestName(fun func(*testing.T, string)) string {
 // This file still uses log as opposed to using the testing library's built-in logging framework.
 // Since we do not configure Logrus, we will just log to stderr.
 func TestStandalone(t *testing.T) {
-	testFunctions := []func(*testing.T, string){
+	testFunctions := []func(*testing.T){
 		testSimpleJob,
 		testSimpleJobWithBadEnvironment,
 		testCustomCmd,
@@ -180,7 +179,7 @@ func TestStandalone(t *testing.T) {
 
 	for _, fun := range testFunctions {
 		testName := funcToTestName(fun)
-		t.Run(testName, wrapTestStandalone(makeTestParallel(addImageNameToTest(fun, testName))))
+		t.Run(testName, wrapTestStandalone(makeTestParallel(fun)))
 	}
 }
 
@@ -198,13 +197,6 @@ func wrapTestStandalone(f func(*testing.T)) func(*testing.T) {
 			t.Skip("Standalone tests are not enabled! Activate with the -standalone cmdline flag")
 		}
 		f(t)
-	}
-}
-
-func addImageNameToTest(f func(*testing.T, string), funTitle string) func(*testing.T) {
-	return func(t *testing.T) {
-		jobID := fmt.Sprintf("%s-%d-%d", funTitle, rand.Intn(1000), time.Now().Second()) // nolint: gosec
-		f(t, jobID)
 	}
 }
 
@@ -257,12 +249,12 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 	return res, err
 }
 
-func testSimpleJob(t *testing.T, jobID string) {
+func testSimpleJob(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: "echo Hello Titus",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -270,7 +262,7 @@ func testSimpleJob(t *testing.T, jobID string) {
 	}
 }
 
-func testSimpleJobWithBadEnvironment(t *testing.T, jobID string) {
+func testSimpleJobWithBadEnvironment(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
@@ -280,7 +272,7 @@ func testSimpleJobWithBadEnvironment(t *testing.T, jobID string) {
 			"BAD":                              `"`,
 			"AlsoBAD":                          "",
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -288,14 +280,14 @@ func testSimpleJobWithBadEnvironment(t *testing.T, jobID string) {
 	}
 }
 
-func testCustomCmd(t *testing.T, jobID string) {
+func testCustomCmd(t *testing.T) {
 	ji := &JobInput{
 		ImageName: alpine.name,
 		Version:   alpine.tag,
 		Process: &Process{
 			Cmd: []string{"echo", "Hello Titus"},
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -303,14 +295,14 @@ func testCustomCmd(t *testing.T, jobID string) {
 	}
 }
 
-func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
+func testInvalidFlatStringAsCmd(t *testing.T) {
 	ji := &JobInput{
 		ImageName: alpine.name,
 		Version:   alpine.tag,
 		Process: &Process{
 			Cmd: []string{"echo Hello Titus"}, // this will exit with status 127 since there is no such binary
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
@@ -322,7 +314,7 @@ func testInvalidFlatStringAsCmd(t *testing.T, jobID string) {
 	}
 }
 
-func testEntrypointAndCmd(t *testing.T, jobID string) {
+func testEntrypointAndCmd(t *testing.T) {
 	ji := &JobInput{
 		ImageName: alpine.name,
 		Version:   alpine.tag,
@@ -330,7 +322,7 @@ func testEntrypointAndCmd(t *testing.T, jobID string) {
 			Entrypoint: []string{"/bin/sh", "-c"},
 			Cmd:        []string{"echo Hello Titus"},
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -338,14 +330,14 @@ func testEntrypointAndCmd(t *testing.T, jobID string) {
 	}
 }
 
-func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
+func testEntrypointAndCmdFromImage(t *testing.T) {
 	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
 		Process:   &Process{
 			// entrypoint and cmd baked into the image will exit with status 123
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
@@ -357,14 +349,14 @@ func testEntrypointAndCmdFromImage(t *testing.T, jobID string) {
 	}
 }
 
-func testOverrideCmdFromImage(t *testing.T, jobID string) {
+func testOverrideCmdFromImage(t *testing.T) {
 	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
 		Process: &Process{
 			Cmd: []string{"exit 5"},
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
@@ -376,7 +368,7 @@ func testOverrideCmdFromImage(t *testing.T, jobID string) {
 	}
 }
 
-func testResetEntrypointFromImage(t *testing.T, jobID string) {
+func testResetEntrypointFromImage(t *testing.T) {
 	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
@@ -384,7 +376,7 @@ func testResetEntrypointFromImage(t *testing.T, jobID string) {
 			Entrypoint: []string{""},
 			Cmd:        []string{"/bin/sh", "-c", "exit 6"},
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 
@@ -396,14 +388,14 @@ func testResetEntrypointFromImage(t *testing.T, jobID string) {
 		t.Fatal(err)
 	}
 }
-func testResetCmdFromImage(t *testing.T, jobID string) {
+func testResetCmdFromImage(t *testing.T) {
 	ji := &JobInput{
 		ImageName: shellEntrypoint.name,
 		Version:   shellEntrypoint.tag,
 		Process: &Process{
 			Cmd: []string{""},
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -411,12 +403,12 @@ func testResetCmdFromImage(t *testing.T, jobID string) {
 	}
 }
 
-func testNoCapPtraceByDefault(t *testing.T, jobID string) {
+func testNoCapPtraceByDefault(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/sh -c '! (/sbin/capsh --print | tee /logs/no-ptrace.log | grep sys_ptrace')",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -424,7 +416,7 @@ func testNoCapPtraceByDefault(t *testing.T, jobID string) {
 	}
 }
 
-func testCanAddCapabilities(t *testing.T, jobID string) {
+func testCanAddCapabilities(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -434,7 +426,7 @@ func testCanAddCapabilities(t *testing.T, jobID string) {
 				titus.ContainerInfo_Capabilities_SYS_PTRACE,
 			},
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -445,13 +437,13 @@ func testCanAddCapabilities(t *testing.T, jobID string) {
 // ensure the default capability set matches what docker and rkt do:
 // https://github.com/docker/docker/blob/master/oci/defaults_linux.go#L62-L77
 // https://github.com/appc/spec/blob/master/spec/ace.md#linux-isolators
-func testDefaultCapabilities(t *testing.T, jobID string) {
+func testDefaultCapabilities(t *testing.T) {
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Older kernels (3.13 on jenkins) have a different bitmask, so we check both the new and old formats
 		EntrypointOld: `/bin/bash -c 'cat /proc/self/status | tee /logs/capabilities.log | egrep "CapEff:\s+(00000020a80425fb|00000000a80425fb)"'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -459,12 +451,12 @@ func testDefaultCapabilities(t *testing.T, jobID string) {
 	}
 }
 
-func testMakesPTY(t *testing.T, jobID string) {
+func testMakesPTY(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     pty.name,
 		Version:       pty.tag,
 		EntrypointOld: "/bin/bash -c '/usr/bin/unbuffer /usr/bin/tty | grep /dev/pts'",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -472,14 +464,14 @@ func testMakesPTY(t *testing.T, jobID string) {
 	}
 }
 
-func testStdoutGoesToLogFile(t *testing.T, jobID string) {
+func testStdoutGoesToLogFile(t *testing.T) {
 	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" && sleep 1 && grep "%[1]s" /logs/stdout'`, message)
 	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: cmd,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -487,14 +479,14 @@ func testStdoutGoesToLogFile(t *testing.T, jobID string) {
 	}
 }
 
-func testStderrGoesToLogFile(t *testing.T, jobID string) {
+func testStderrGoesToLogFile(t *testing.T) {
 	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" >&2 && sleep 1 && grep "%[1]s" /logs/stderr'`, message)
 	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: cmd,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -502,13 +494,13 @@ func testStderrGoesToLogFile(t *testing.T, jobID string) {
 	}
 }
 
-func testImageByDigest(t *testing.T, jobID string) {
+func testImageByDigest(t *testing.T) {
 	cmd := `grep not-latest /etc/who-am-i`
 	ji := &JobInput{
 		ImageName:     byDigest.name,
 		ImageDigest:   byDigest.digest,
 		EntrypointOld: cmd,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -516,7 +508,7 @@ func testImageByDigest(t *testing.T, jobID string) {
 	}
 }
 
-func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
+func testImageByDigestIgnoresTag(t *testing.T) {
 	cmd := `grep not-latest /etc/who-am-i`
 	ji := &JobInput{
 		ImageName: byDigest.name,
@@ -526,7 +518,7 @@ func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
 		// and it doesn't have not-latest in /etc/who-am-i
 		ImageDigest:   byDigest.digest,
 		EntrypointOld: cmd,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -534,14 +526,14 @@ func testImageByDigestIgnoresTag(t *testing.T, jobID string) {
 	}
 }
 
-func testImageInvalidDigestFails(t *testing.T, jobID string) {
+func testImageInvalidDigestFails(t *testing.T) {
 	digest := "some-invalid-digest"
 	ji := &JobInput{
 		ImageName:     byDigest.name,
 		Version:       "latest", // should be ignored
 		ImageDigest:   digest,
 		EntrypointOld: "/bin/true",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if shouldUsePodspecInTest {
@@ -559,13 +551,13 @@ func testImageInvalidDigestFails(t *testing.T, jobID string) {
 	}
 }
 
-func testImageNonExistingDigestFails(t *testing.T, jobID string) {
+func testImageNonExistingDigestFails(t *testing.T) {
 	digest := "sha256:12345123456c6f231ea3adc7960cc7f753ebb0099999999999999a9b4dfdfdcd"
 	ji := &JobInput{
 		ImageName:     byDigest.name,
 		ImageDigest:   digest,
 		EntrypointOld: "/bin/true",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	status, err := RunJob(t, ji)
@@ -577,12 +569,12 @@ func testImageNonExistingDigestFails(t *testing.T, jobID string) {
 	}
 }
 
-func testImagePullError(t *testing.T, jobID string) {
+func testImagePullError(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       "latest1",
 		EntrypointOld: "/usr/bin/true",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	status, err := RunJob(t, ji)
@@ -594,12 +586,12 @@ func testImagePullError(t *testing.T, jobID string) {
 	}
 }
 
-func testCancelPullBigImage(t *testing.T, jobID string) { // nolint: gocyclo
+func testCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	jobResponse, err := StartJob(t, ctx, &JobInput{
-		JobID:      jobID,
+		JobID:      t.Name(),
 		ImageName:  bigImage.name,
 		Version:    bigImage.tag,
 		UsePodSpec: shouldUsePodspecInTest,
@@ -640,12 +632,12 @@ big_task_killed:
 	jobResponse.StopExecutor()
 }
 
-func testBadEntrypoint(t *testing.T, jobID string) {
+func testBadEntrypoint(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: "bad",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	// We expect this to fail
@@ -654,7 +646,7 @@ func testBadEntrypoint(t *testing.T, jobID string) {
 	}
 }
 
-func testNoEntrypoint(t *testing.T, jobID string) {
+func testNoEntrypoint(t *testing.T) {
 	ji := &JobInput{
 		ImageName:  noEntrypoint.name,
 		Version:    noEntrypoint.tag,
@@ -666,14 +658,14 @@ func testNoEntrypoint(t *testing.T, jobID string) {
 	}
 }
 
-func testCanWriteInLogsAndSubDirs(t *testing.T, jobID string) {
+func testCanWriteInLogsAndSubDirs(t *testing.T) {
 	cmd := `sh -c "mkdir -p /logs/prana && echo begining > /logs/prana/prana.log && ` +
 		`mv /logs/prana/prana.log /logs/prana/prana-2016.log && echo ending >> /logs/out"`
 	ji := &JobInput{
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: cmd,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -681,7 +673,7 @@ func testCanWriteInLogsAndSubDirs(t *testing.T, jobID string) {
 	}
 }
 
-func testShutdown(t *testing.T, jobID string) {
+func testShutdown(t *testing.T) {
 	// This test changed from canceling the context to stop the container to calling killTask. The reason being
 	// is that now we plumb through a single context from the test -> jobRunner -> runtime. This is useful for
 	// things like tracing, but it makes it so that once the context is cancelled, we can no longer make calls
@@ -693,7 +685,7 @@ func testShutdown(t *testing.T, jobID string) {
 		ImageName:     alpine.name,
 		Version:       alpine.tag,
 		EntrypointOld: "sleep 6000",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 
@@ -730,12 +722,12 @@ func testShutdown(t *testing.T, jobID string) {
 	}
 }
 
-func testMetadataProxyInjection(t *testing.T, jobID string) {
+func testMetadataProxyInjection(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/local-ipv4 | grep 1.2.3.4'",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -743,12 +735,12 @@ func testMetadataProxyInjection(t *testing.T, jobID string) {
 	}
 }
 
-func testMetadataProxyFromLocalhost(t *testing.T, jobID string) {
+func testMetadataProxyFromLocalhost(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'curl -sf --interface 127.0.0.1 http://169.254.169.254/latest/meta-data/local-ipv4'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -756,12 +748,12 @@ func testMetadataProxyFromLocalhost(t *testing.T, jobID string) {
 	}
 }
 
-func testMetadataProxyOnIPv6(t *testing.T, jobID string) {
+func testMetadataProxyOnIPv6(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'curl -sf http://[fd00:ec2::254]/latest/meta-data/local-ipv4'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -769,12 +761,12 @@ func testMetadataProxyOnIPv6(t *testing.T, jobID string) {
 	}
 }
 
-func testMetadataProxyPublicIP(t *testing.T, jobID string) {
+func testMetadataProxyPublicIP(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 | grep 203.0.113.11",
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -782,7 +774,7 @@ func testMetadataProxyPublicIP(t *testing.T, jobID string) {
 	}
 }
 
-func testTerminateTimeoutWrapped(t *testing.T, jobID string, usePodSpec bool, killWaitSeconds uint32) (*runner.Update, time.Duration) {
+func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uint32) (*runner.Update, time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
@@ -792,7 +784,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, usePodSpec bool, ki
 		ImageName:       ignoreSignals.name,
 		Version:         ignoreSignals.tag,
 		KillWaitSeconds: killWaitSeconds,
-		JobID:           jobID,
+		JobID:           t.Name(),
 		UsePodSpec:      shouldUsePodspecInTest,
 	}
 	// Start the executor
@@ -831,8 +823,8 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, usePodSpec bool, ki
 	return nil, 0
 }
 
-func testTerminateTimeout(t *testing.T, jobID string) {
-	status, killTime := testTerminateTimeoutWrapped(t, jobID, shouldUsePodspecInTest, 15)
+func testTerminateTimeout(t *testing.T) {
+	status, killTime := testTerminateTimeoutWrapped(t, t.Name(), 15)
 	if status.State != titusdriver.Killed {
 		t.Fail()
 	}
@@ -841,8 +833,8 @@ func testTerminateTimeout(t *testing.T, jobID string) {
 	}
 }
 
-func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
-	status, killTime := testTerminateTimeoutWrapped(t, jobID, shouldUsePodspecInTest, 15)
+func testTerminateTimeoutNotTooSlow(t *testing.T) {
+	status, killTime := testTerminateTimeoutWrapped(t, t.Name(), 15)
 	if status.State != titusdriver.Killed {
 		t.Fail()
 	}
@@ -852,12 +844,12 @@ func testTerminateTimeoutNotTooSlow(t *testing.T, jobID string) {
 	}
 }
 
-func testOOMAdj(t *testing.T, jobID string) {
+func testOOMAdj(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'cat /proc/1/oom_score | grep 999'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -865,7 +857,7 @@ func testOOMAdj(t *testing.T, jobID string) {
 	}
 }
 
-func testOOMKill(t *testing.T, jobID string) {
+func testOOMKill(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
@@ -873,7 +865,7 @@ func testOOMKill(t *testing.T, jobID string) {
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `stress --vm 100 --vm-keep --vm-hang 100`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 
@@ -897,12 +889,12 @@ func testOOMKill(t *testing.T, jobID string) {
 	t.Fail()
 }
 
-func testSchedBatch(t *testing.T, jobID string) {
+func testSchedBatch(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_BATCH | grep 19'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		SchedPolicy:   "batch",
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
@@ -911,12 +903,12 @@ func testSchedBatch(t *testing.T, jobID string) {
 	}
 }
 
-func testSchedNormal(t *testing.T, jobID string) {
+func testSchedNormal(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_NORMAL'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -924,12 +916,12 @@ func testSchedNormal(t *testing.T, jobID string) {
 	}
 }
 
-func testSchedIdle(t *testing.T, jobID string) {
+func testSchedIdle(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_IDLE'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		SchedPolicy:   "idle",
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
@@ -938,12 +930,12 @@ func testSchedIdle(t *testing.T, jobID string) {
 	}
 }
 
-func testNewEnvironmentLocationPositive(t *testing.T, jobID string) {
+func testNewEnvironmentLocationPositive(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     envLabel.name,
 		Version:       envLabel.tag,
 		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -951,12 +943,12 @@ func testNewEnvironmentLocationPositive(t *testing.T, jobID string) {
 	}
 }
 
-func testNewEnvironmentLocationNegative(t *testing.T, jobID string) {
+func testNewEnvironmentLocationNegative(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     envLabel.name,
 		Version:       envLabel.tag,
 		EntrypointOld: `cat /etc/profile.d/netflix_environment.sh`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingFailure(t, ji) {
@@ -964,25 +956,25 @@ func testNewEnvironmentLocationNegative(t *testing.T, jobID string) {
 	}
 }
 
-func testOldEnvironmentLocationPositive(t *testing.T, jobID string) {
+func testOldEnvironmentLocationPositive(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `cat /etc/profile.d/netflix_environment.sh`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
 }
-func testOldEnvironmentLocationNegative(t *testing.T, jobID string) {
+func testOldEnvironmentLocationNegative(t *testing.T) {
 
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingFailure(t, ji) {
@@ -990,13 +982,13 @@ func testOldEnvironmentLocationNegative(t *testing.T, jobID string) {
 	}
 }
 
-func testNoCPUBursting(t *testing.T, jobID string) {
+func testNoCPUBursting(t *testing.T) {
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Make sure quota is set
 		EntrypointOld: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.cfs_quota_us|grep -v - -1'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -1004,13 +996,13 @@ func testNoCPUBursting(t *testing.T, jobID string) {
 	}
 }
 
-func testCPUBursting(t *testing.T, jobID string) {
+func testCPUBursting(t *testing.T) {
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Make sure quota is set
 		EntrypointOld: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.cfs_quota_us|grep - -1'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		CPUBursting:   true,
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
@@ -1019,14 +1011,14 @@ func testCPUBursting(t *testing.T, jobID string) {
 	}
 }
 
-func testTwoCPUs(t *testing.T, jobID string) {
+func testTwoCPUs(t *testing.T) {
 	var cpuCount int64 = 2
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
 		// Make sure quota is set
 		EntrypointOld: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.shares|grep 200'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		CPU:           &cpuCount,
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
@@ -1035,12 +1027,12 @@ func testTwoCPUs(t *testing.T, jobID string) {
 	}
 }
 
-func testTty(t *testing.T, jobID string) {
+func testTty(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/usr/bin/tty`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		Tty:           true,
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
@@ -1049,12 +1041,12 @@ func testTty(t *testing.T, jobID string) {
 	}
 }
 
-func testTtyNegative(t *testing.T, jobID string) {
+func testTtyNegative(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/usr/bin/tty`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		// Tty not specified
 		UsePodSpec: shouldUsePodspecInTest,
 	}
@@ -1063,7 +1055,7 @@ func testTtyNegative(t *testing.T, jobID string) {
 	}
 }
 
-func testCachedDockerPull(t *testing.T, jobID string) {
+func testCachedDockerPull(t *testing.T) {
 	// The no entrypoint image should never be in use by any running
 	// containers, so it should be safe to delete
 	dockerImageRemove(t, noEntrypoint.name+"@"+noEntrypoint.digest)
@@ -1080,14 +1072,14 @@ func testCachedDockerPull(t *testing.T, jobID string) {
 	assert.EqualValues(t, noEntrypoint.name+"@"+noEntrypoint.digest, res.RepoDigests[0], "Correct digest should be returned")
 }
 
-func testMetatron(t *testing.T, jobID string) {
+func testMetatron(t *testing.T) {
 	ji := &JobInput{
 		ImageName:       userSet.name,
 		Version:         userSet.tag,
 		MetatronEnabled: true,
 		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
-		EntrypointOld: fmt.Sprintf("/bin/bash -c \"cat /task-identity; grep %s /task-identity && grep jobAcceptedTimestampMs /task-identity | grep -E '[\\d+]'\"", jobID),
-		JobID:         jobID,
+		EntrypointOld: fmt.Sprintf("/bin/bash -c \"cat /task-identity; grep %s /task-identity && grep jobAcceptedTimestampMs /task-identity | grep -E '[\\d+]'\"", t.Name()),
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -1096,7 +1088,7 @@ func testMetatron(t *testing.T, jobID string) {
 }
 
 // Test that we return failure messages from services
-func testMetatronFailure(t *testing.T, jobID string) {
+func testMetatronFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
@@ -1105,12 +1097,12 @@ func testMetatronFailure(t *testing.T, jobID string) {
 		Version:         userSet.tag,
 		MetatronEnabled: true,
 		// We should never get to running this, since we're expecting the metatron service to fail before the entrypoint can run
-		EntrypointOld: "grep " + jobID + " /task-identity",
+		EntrypointOld: "grep " + t.Name() + " /task-identity",
 		Environment: map[string]string{
 			// Setting this env var causes the test metatron image to fail with the message "initialization failed"
 			"TITUS_TEST_FAIL_METATRON_INIT": "true",
 		},
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 
@@ -1127,14 +1119,14 @@ func testMetatronFailure(t *testing.T, jobID string) {
 }
 
 // Test that `/run` is a tmpfs mount, and has the default size
-func testRunTmpFsMount(t *testing.T, jobID string) {
+func testRunTmpFsMount(t *testing.T) {
 	var mem int64 = 256
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run[^/]" | grep 128M'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -1143,12 +1135,12 @@ func testRunTmpFsMount(t *testing.T, jobID string) {
 }
 
 // Test that we can execute files in `/run`
-func testExecSlashRun(t *testing.T, jobID string) {
+func testExecSlashRun(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'cp /bin/ls /run/ && /run/ls'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -1157,14 +1149,14 @@ func testExecSlashRun(t *testing.T, jobID string) {
 }
 
 // Test for a container running a systemd labeled image that `/run/lock` is a tmpfs mount, and has the default size
-func testSystemdImageMount(t *testing.T, jobID string) {
+func testSystemdImageMount(t *testing.T) {
 	var mem int64 = 256
 	ji := &JobInput{
 		ImageName:     systemdImage.name,
 		Version:       systemdImage.tag,
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run/lock[^/]" | grep 5M'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -1173,7 +1165,7 @@ func testSystemdImageMount(t *testing.T, jobID string) {
 }
 
 // Test that the size of `/dev/shm` can be set
-func testShm(t *testing.T, jobID string) {
+func testShm(t *testing.T) {
 	var mem int64 = 256
 	var shmSize uint32 = 192
 	ji := &JobInput{
@@ -1182,7 +1174,7 @@ func testShm(t *testing.T, jobID string) {
 		Mem:           &mem,
 		ShmSize:       &shmSize,
 		EntrypointOld: `/bin/bash -c 'df | grep -e '^shm' | grep 196608'`,
-		JobID:         jobID,
+		JobID:         t.Name(),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -1190,7 +1182,7 @@ func testShm(t *testing.T, jobID string) {
 	}
 }
 
-func testContainerLogViewer(t *testing.T, jobID string) {
+func testContainerLogViewer(t *testing.T) {
 	ji := &JobInput{
 		ImageName:        ubuntu.name,
 		Version:          ubuntu.tag,
@@ -1208,7 +1200,7 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 			"curl -Is $url;" +
 			"curl -sf $url | grep -q stdout-should-go-to-log" +
 			"'",
-		JobID:      jobID,
+		JobID:      t.Name(),
 		UsePodSpec: shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
@@ -1216,7 +1208,7 @@ func testContainerLogViewer(t *testing.T, jobID string) {
 	}
 }
 
-func testnc(t *testing.T, jobID string) {
+func testnc(t *testing.T) {
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
@@ -1229,7 +1221,7 @@ func testnc(t *testing.T, jobID string) {
 	}
 }
 
-func testGPUManager1GPU(t *testing.T, jobID string) {
+func testGPUManager1GPU(t *testing.T) {
 	g := &gpuManager{}
 	var gpu int64 = 1
 
@@ -1237,7 +1229,7 @@ func testGPUManager1GPU(t *testing.T, jobID string) {
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: fmt.Sprintf(`/bin/bash -c 'test "${TITUS_OCI_RUNTIME}" == "%s"'`, gpuTestRuntime),
-		JobID:         jobID,
+		JobID:         t.Name(),
 		GPUManager:    g,
 		GPU:           &gpu,
 		UsePodSpec:    shouldUsePodspecInTest,
