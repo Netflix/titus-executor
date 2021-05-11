@@ -145,6 +145,9 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 			logrus.Debugf("skipping sidecar %s, not enabled", svc.UnitName)
 			continue
 		}
+		if svc.UnitName == "" {
+			continue
+		}
 
 		// Different runtimes have different root paths that need to be passed to runc with `--root`.
 		// In particular, we use the `oci-add-hooks` runtime for GPU containers.

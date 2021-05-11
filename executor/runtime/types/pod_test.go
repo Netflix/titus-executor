@@ -418,6 +418,7 @@ func TestNewPodContainer(t *testing.T) {
 			SidecarServiceAbMetrix,
 			SidecarSeccompAgent,
 			SidecarTitusStorage,
+			SidecarContainerTools,
 		})
 	assert.Equal(t, svcMeshImage, expSvcMeshImage)
 

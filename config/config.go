@@ -66,6 +66,8 @@ type Config struct {
 	ContainerAtlasd    bool
 	AtlasdServiceImage string
 
+	ContainerToolsImage string
+
 	// CopiedFromHost indicates which environment variables to lift from the current config
 	copiedFromHostEnv cli.StringSlice
 	hardCodedEnv      cli.StringSlice
@@ -250,6 +252,11 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-atlasd-image",
 			EnvVar:      "ATLASD_SERVICE_IMAGE",
 			Destination: &cfg.AtlasdServiceImage,
+		},
+		cli.StringFlag{
+			Name:        "container-tools-image",
+			EnvVar:      "CONTAINER_TOOLS_IMAGE",
+			Destination: &cfg.ContainerToolsImage,
 		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",

@@ -956,6 +956,7 @@ func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 		SidecarServiceSshd:        c.config.SSHDServiceImage,
 		SidecarServiceSpectatord:  c.config.SpectatordServiceImage,
 		SidecarServiceAtlasd:      c.config.AtlasdServiceImage,
+		SidecarContainerTools:     c.config.ContainerToolsImage,
 	}
 
 	for _, scOrig := range sideCars {

@@ -15,6 +15,7 @@ const (
 	SidecarTitusStorage         = "titus-storage"
 	SidecarSeccompAgent         = "seccomp-agent"
 	SidecarServiceMetadataProxy = "metadata-proxy"
+	SidecarContainerTools       = "container-tools"
 )
 
 var sideCars = []ServiceOpts{
@@ -111,6 +112,15 @@ var sideCars = []ServiceOpts{
 		Required:     true,
 		EnabledCheck: shouldStartTitusStorage,
 	},
+	{
+		ServiceName:  SidecarContainerTools,
+		UnitName:     "",
+		Required:     false,
+		EnabledCheck: shouldStartContainerTools,
+		Volumes: map[string]struct{}{
+			"/titus/container-tools": {},
+		},
+	},
 }
 
 func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
@@ -183,6 +193,10 @@ func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
 	// Currently titus-storage only supports EBS and /ephemeral storage
 	// which is currently only available on GPU instance types.
 	return c.EBSInfo().VolumeID != "" || c.Resources().GPU > 0
+}
+
+func shouldStartContainerTools(cfg *config.Config, c Container) bool {
+	return cfg.ContainerToolsImage != ""
 }
 
 // GetSidecarConfig is a helper to get a particular sidecar config out by name
