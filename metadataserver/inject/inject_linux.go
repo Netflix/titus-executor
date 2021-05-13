@@ -153,12 +153,22 @@ func setupNamespaces(ctx context.Context, pid1dir string) (*int, error) { // nol
 	}
 	defer intermediateNSHandle.Delete()
 
-	err = intermediateNSHandle.LinkAdd(&netlink.Veth{
-		LinkAttrs: netlink.LinkAttrs{
-			Name: tocontainerInterfaceName,
-		},
-		PeerName: toimdsInterfaceName,
-	})
+	// This bug here is on Linux 5.10+, where sometimes this returns permission denied.
+	// We never go to the bottom of that bug, but simply sleeping and retrying
+	// seems to be a good enough work around.
+	for try := 1; try <= 5; try++ {
+		err = intermediateNSHandle.LinkAdd(&netlink.Veth{
+			LinkAttrs: netlink.LinkAttrs{
+				Name: tocontainerInterfaceName,
+			},
+			PeerName: toimdsInterfaceName,
+		})
+		if err == nil {
+			break
+		}
+		fmt.Printf("DEBUG: error when adding veth in intermediate namespace on try %d (%s). Sleeping and trying again\n", try, err)
+		time.Sleep(1 * time.Second)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("Could not add veth in intermediate namespace: %w", err)
 	}
