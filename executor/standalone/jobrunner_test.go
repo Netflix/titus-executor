@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -273,7 +274,24 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	cfg.MetatronServiceImage = metatronTestImage
 	cfg.SSHDServiceImage = sshdTestImage
 
-	dockerCfg, err := docker.GenerateConfiguration(nil)
+	if runtime.GOOS == "darwin" {
+		// On darwin these don't work yet
+		cfg.LogsTmpDir = "/tmp/titus-container-logs"
+		// Assuming if you are on darwin, then pulling from a local netflix mirror
+		// makes docker hub rate limiting errors go away
+		cfg.DockerRegistry = "docker-hub.netflix.net"
+		// during full docker-in-docker tests, the titus agent touches the default file
+		// for darwin, we can just use /dev/null and it is fine, but it must be *some* file
+		cfg.ContainerSSHDCAFile = "/dev/null"
+	}
+
+	// This ensures that under test we are using the tini that is part of our build,
+	// regardless of our absolute path in the filesystem. This is particularly useful
+	// for running tests on darwin, so that they can also use tini.
+	cwd, _ := os.Getwd()
+	dockerArgs := []string{"--titus.executor.tiniPath=" + cwd + "/../../build/bin/linux-amd64/tini-static"}
+
+	dockerCfg, err := docker.GenerateConfiguration(dockerArgs)
 	if err != nil {
 		panic(err)
 	}
