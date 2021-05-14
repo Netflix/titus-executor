@@ -143,20 +143,29 @@ func getContainerInfo(pod *v1.Pod) (string, error) {
 }
 
 func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, pod *v1.Pod, cfg *config.Config, m metrics.Reporter) (*Backend, error) {
-	containerInfoStr, err := getContainerInfo(pod)
+	var containerInfo titus.ContainerInfo
+
+	podSchemaVer, err := podCommon.PodSchemaVersion(pod)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := base64.StdEncoding.DecodeString(containerInfoStr)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not decode containerInfo from base64")
-	}
-	var containerInfo titus.ContainerInfo
+	// As of pod schema v1, the containerInfo annotation is optional.
+	if podSchemaVer < 1 {
+		containerInfoStr, err := getContainerInfo(pod)
+		if err != nil {
+			return nil, err
+		}
 
-	err = proto.Unmarshal(data, &containerInfo)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not deserialize protobuf")
+		data, err := base64.StdEncoding.DecodeString(containerInfoStr)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not decode containerInfo from base64")
+		}
+
+		err = proto.Unmarshal(data, &containerInfo)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not deserialize protobuf")
+		}
 	}
 
 	useBytes, err := podCommon.ByteUnitsEnabled(pod)
