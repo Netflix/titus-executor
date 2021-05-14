@@ -1181,6 +1181,8 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 
 		if vpcAllocation.IPV6Address != nil {
 			env[metadataserverTypes.EC2IPv6sEnvVarName] = vpcAllocation.IPV6Address.Address.Address
+			env[metadataserverTypes.NetflixIPv6EnvVarName] = vpcAllocation.IPV6Address.Address.Address
+			env[metadataserverTypes.NetflixIPv6sEnvVarName] = vpcAllocation.IPV6Address.Address.Address
 		}
 
 		if vpcAllocation.ElasticAddress != nil {
