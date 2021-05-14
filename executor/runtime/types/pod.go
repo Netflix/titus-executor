@@ -95,11 +95,6 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		userEnv[envVar.Name] = envVar.Value
 	}
 
-	cInfo, err := extractContainerInfo(pConf)
-	if err != nil {
-		return nil, err
-	}
-
 	imgRef, err := reference.Parse(userContainer.Image)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing docker image \"%s\" for container \"%s\": %w", userContainer.Image, userContainer.Name, err)
@@ -115,9 +110,16 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		pod:               pod,
 		podConfig:         pConf,
 		resources:         resources,
-		titusInfo:         cInfo,
 		ttyEnabled:        userContainer.TTY,
 		userEnv:           userEnv,
+	}
+
+	if pConf.UserEnvVarsStartIndex == nil {
+		cInfo, err := extractContainerInfo(pConf)
+		if err != nil {
+			return nil, err
+		}
+		c.titusInfo = cInfo
 	}
 
 	err = c.parsePodVolumes()
@@ -208,7 +210,66 @@ func (c *PodContainer) CombinedAppStackDetails() string {
 
 func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	// TODO: this needs to be removed once Metatron supports pods
-	return c.titusInfo, nil
+
+	if c.titusInfo != nil {
+		// ContainerInfo was passed in the attribute: return it
+		return c.titusInfo, nil
+	}
+
+	userContainer := podCommon.GetUserContainer(c.pod)
+	appName := c.AppName()
+	stack := c.JobGroupStack()
+	detail := c.JobGroupDetail()
+	seq := c.JobGroupSequence()
+	sgIDs := []string{}
+	titusProvidedEnv := map[string]string{}
+	userProvidedEnv := map[string]string{}
+
+	if c.SecurityGroupIDs() != nil {
+		sgIDs = *c.SecurityGroupIDs()
+	}
+
+	userEnvStartIdx := *c.podConfig.UserEnvVarsStartIndex
+	for i, env := range userContainer.Env {
+		if uint32(i) < userEnvStartIdx {
+			titusProvidedEnv[env.Name] = env.Value
+		} else {
+			userProvidedEnv[env.Name] = env.Value
+		}
+	}
+
+	// Only populate ContainerInfo with the fields necessary for a valid task identity document
+	cInfo := &titus.ContainerInfo{
+		ImageName: c.ImageName(),
+		// Command
+		Version: c.ImageVersion(),
+		JobId:   c.JobID(),
+		// EntrypointStr
+		AppName:        &appName,
+		JobGroupStack:  &stack,
+		JobGroupDetail: &detail,
+		IamProfile:     c.IamRole(),
+		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			SecurityGroups: sgIDs,
+		},
+		JobGroupSequence: &seq,
+		MetatronCreds: &titus.ContainerInfo_MetatronCreds{
+			AppMetadata: c.podConfig.AppMetadata,
+			MetadataSig: c.podConfig.AppMetadataSig,
+		},
+		UserProvidedEnv:  userProvidedEnv,
+		TitusProvidedEnv: titusProvidedEnv,
+		ImageDigest:      c.ImageDigest(),
+		// Use the entrypoint and command originally passed to us, not ones in `c`,
+		// since those could have shell splitting performed on them
+		Process: &titus.ContainerInfo_Process{
+			Entrypoint: userContainer.Command,
+			Command:    userContainer.Args,
+		},
+		JobAcceptedTimestampMs: c.podConfig.JobAcceptedTimestampMs,
+	}
+
+	return cInfo, nil
 }
 
 func (c *PodContainer) EBSInfo() EBSInfo {

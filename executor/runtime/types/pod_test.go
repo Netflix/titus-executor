@@ -28,7 +28,13 @@ var (
 	stringNil           *string
 	imageName           = "titusoss/alpine"
 	imageFullWithLatest = "docker.io/titusoss/alpine:latest"
+	testAppDetail       = "appDetail"
+	testAppName         = "appName"
+	testAppOwner        = "user@example.com"
+	testAppStack        = "appStack"
+	testAppSeq          = "appSeq"
 	testDigest          = "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
+	testJobID           = "jobid"
 )
 
 func addPodAnnotations(pod *corev1.Pod, annotations map[string]string) {
@@ -92,8 +98,6 @@ func TestNewPodContainer(t *testing.T) {
 	imgName := "titusoss/alpine"
 	imgDigest := "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
 	expectedImage := "docker.io/" + imgName + "@" + imgDigest
-	expAppName := "appName"
-	expAppOwner := "user@example.com"
 	expBwLimit := int64(128 * units.MB)
 	expCapabilities := &corev1.Capabilities{
 		Add:  []corev1.Capability{"NET_ADMIN"},
@@ -148,13 +152,13 @@ func TestNewPodContainer(t *testing.T) {
 	}
 
 	addPodAnnotations(pod, map[string]string{
-		podCommon.AnnotationKeyAppName:                  expAppName,
-		podCommon.AnnotationKeyAppDetail:                "appDetail",
-		podCommon.AnnotationKeyAppOwnerEmail:            expAppOwner,
-		podCommon.AnnotationKeyAppStack:                 "appStack",
-		podCommon.AnnotationKeyAppSequence:              "appSeq",
+		podCommon.AnnotationKeyAppName:                  testAppName,
+		podCommon.AnnotationKeyAppDetail:                testAppDetail,
+		podCommon.AnnotationKeyAppOwnerEmail:            testAppOwner,
+		podCommon.AnnotationKeyAppStack:                 testAppStack,
+		podCommon.AnnotationKeyAppSequence:              testAppSeq,
 		podCommon.AnnotationKeyIAMRole:                  testIamRole,
-		podCommon.AnnotationKeyJobID:                    "jobid",
+		podCommon.AnnotationKeyJobID:                    testJobID,
 		podCommon.AnnotationKeyJobType:                  "service",
 		podCommon.AnnotationKeyLogKeepLocalFile:         True,
 		podCommon.AnnotationKeyLogStdioCheckInterval:    "11m",
@@ -345,15 +349,15 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.JobGroupDetail(), "appDetail")
 	assert.Equal(t, c.JobGroupStack(), "appStack")
 	assert.Equal(t, c.JobGroupSequence(), "appSeq")
-	assert.DeepEqual(t, c.JobID(), ptr.StringPtr("jobid"))
+	assert.DeepEqual(t, c.JobID(), ptr.StringPtr(testJobID))
 	assert.DeepEqual(t, c.JobType(), ptr.StringPtr("service"))
 	assert.DeepEqual(t, c.KillWaitSeconds(), &expKillWaitSec)
 	assert.Equal(t, c.KvmEnabled(), true)
 	assert.DeepEqual(t, c.Labels(), map[string]string{
-		appNameLabelKey:         expAppName,
+		appNameLabelKey:         testAppName,
 		commandLabelKey:         strings.Join(expectedCommand, " "),
 		entrypointLabelKey:      strings.Join(expectedEntrypoint, " "),
-		ownerEmailLabelKey:      expAppOwner,
+		ownerEmailLabelKey:      testAppOwner,
 		jobTypeLabelKey:         "service",
 		cpuLabelKey:             strconv.Itoa(int(expResources.CPU)),
 		iamRoleLabelKey:         testIamRole,
@@ -459,7 +463,8 @@ func TestNewPodContainerErrors(t *testing.T) {
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name: taskID,
+					Name:  taskID,
+					Image: "docker.io/titus/doesnotexist:latest",
 				},
 			},
 		},
@@ -485,6 +490,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
 	assert.NilError(t, err)
 
+	pod.Spec.Containers[0].Image = ""
 	_, err = NewPodContainer(pod, *conf)
 	assert.ErrorContains(t, err, "error parsing docker image \"\"")
 
@@ -1308,6 +1314,176 @@ func TestNewPodContainerEntrypointShellParsing(t *testing.T) {
 		assert.DeepEqual(t, entrypoint, f.expectedEntrypoint)
 		assert.DeepEqual(t, cmd, f.expectedCommand)
 	}
+}
+
+func TestContainerInfoGenerationBasic(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+	delete(pod.Annotations, podCommon.AnnotationKeyPodTitusContainerInfo)
+	uc := podCommon.GetUserContainer(pod)
+	uc.Env = []corev1.EnvVar{
+		{
+			Name:  "FROM_TITUS_1",
+			Value: "T1",
+		},
+		{
+			Name:  "FROM_TITUS_2",
+			Value: "T2",
+		},
+		{
+			Name:  "FROM_USER_1",
+			Value: "U1",
+		},
+		{
+			Name:  "FROM_USER_2",
+			Value: "U2",
+		},
+	}
+
+	addPodAnnotations(pod, map[string]string{
+		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
+	})
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+
+	cInfo, err := c.ContainerInfo()
+	assert.NilError(t, err)
+	assert.DeepEqual(t, cInfo, &titus.ContainerInfo{
+		AppName:          ptr.StringPtr(""),
+		IamProfile:       ptr.StringPtr(testIamRole),
+		ImageName:        ptr.StringPtr(testImageName),
+		JobGroupSequence: ptr.StringPtr(""),
+		JobGroupStack:    ptr.StringPtr(""),
+		JobGroupDetail:   ptr.StringPtr(""),
+		MetatronCreds:    &titus.ContainerInfo_MetatronCreds{},
+		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			SecurityGroups: []string{},
+		},
+		Process: &titus.ContainerInfo_Process{},
+		TitusProvidedEnv: map[string]string{
+			"FROM_TITUS_1": "T1",
+			"FROM_TITUS_2": "T2",
+		},
+		UserProvidedEnv: map[string]string{
+			"FROM_USER_1": "U1",
+			"FROM_USER_2": "U2",
+		},
+		Version: ptr.StringPtr(testImageTag),
+	})
+}
+
+func TestContainerInfoGenerationAllFields(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+	delete(pod.Annotations, podCommon.AnnotationKeyPodTitusContainerInfo)
+	uc := podCommon.GetUserContainer(pod)
+	uc.Env = []corev1.EnvVar{
+		{
+			Name:  "FROM_TITUS_1",
+			Value: "T1",
+		},
+		{
+			Name:  "FROM_TITUS_2",
+			Value: "T2",
+		},
+		{
+			Name:  "FROM_USER_1",
+			Value: "U1",
+		},
+		{
+			Name:  "FROM_USER_2",
+			Value: "U2",
+		},
+	}
+
+	addPodAnnotations(pod, map[string]string{
+		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
+		podCommon.AnnotationKeyAppName:                       testAppName,
+		podCommon.AnnotationKeyAppDetail:                     testAppDetail,
+		podCommon.AnnotationKeyAppOwnerEmail:                 testAppOwner,
+		podCommon.AnnotationKeyAppStack:                      testAppStack,
+		podCommon.AnnotationKeyAppSequence:                   testAppSeq,
+		podCommon.AnnotationKeyIAMRole:                       testIamRole,
+		podCommon.AnnotationKeyJobAcceptedTimestampMs:        "44",
+		podCommon.AnnotationKeyJobID:                         testJobID,
+		podCommon.AnnotationKeySecurityAppMetadata:           "app-meta",
+		podCommon.AnnotationKeySecurityAppMetadataSig:        "meta-sig",
+		podCommon.AnnotationKeyNetworkSecurityGroups:         "sg-1,sg-2",
+		// enable shell splitting to confirm that ContainerInfo returns the non-split version
+		podCommon.AnnotationKeyPodTitusEntrypointShellSplitting: "true",
+	})
+	expArgs := []string{"arg1 with spaces"}
+	expCmd := []string{"entrypoint with spaces"}
+	expAcceptedTs := uint64(44)
+
+	uc.Args = expArgs
+	uc.Command = expCmd
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+
+	cInfo, err := c.ContainerInfo()
+	assert.NilError(t, err)
+	assert.DeepEqual(t, cInfo, &titus.ContainerInfo{
+		AppName:                ptr.StringPtr(testAppName),
+		IamProfile:             ptr.StringPtr(testIamRole),
+		ImageName:              ptr.StringPtr(testImageName),
+		JobAcceptedTimestampMs: &expAcceptedTs,
+		JobGroupSequence:       ptr.StringPtr(testAppSeq),
+		JobGroupStack:          ptr.StringPtr(testAppStack),
+		JobGroupDetail:         ptr.StringPtr(testAppDetail),
+		JobId:                  ptr.StringPtr(testJobID),
+		MetatronCreds: &titus.ContainerInfo_MetatronCreds{
+			AppMetadata: ptr.StringPtr("app-meta"),
+			MetadataSig: ptr.StringPtr("meta-sig"),
+		},
+		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			SecurityGroups: []string{"sg-1", "sg-2"},
+		},
+		Process: &titus.ContainerInfo_Process{
+			Entrypoint: expCmd,
+			Command:    expArgs,
+		},
+		TitusProvidedEnv: map[string]string{
+			"FROM_TITUS_1": "T1",
+			"FROM_TITUS_2": "T2",
+		},
+		UserProvidedEnv: map[string]string{
+			"FROM_USER_1": "U1",
+			"FROM_USER_2": "U2",
+		},
+		Version: ptr.StringPtr(testImageTag),
+	})
+}
+
+func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+	delete(pod.Annotations, podCommon.AnnotationKeyPodTitusContainerInfo)
+	uc := podCommon.GetUserContainer(pod)
+	uc.Env = []corev1.EnvVar{
+		{
+			Name:  "FROM_TITUS_1",
+			Value: "T1",
+		},
+		{
+			Name:  "FROM_TITUS_2",
+			Value: "T2",
+		},
+	}
+
+	addPodAnnotations(pod, map[string]string{
+		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
+	})
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+
+	cInfo, err := c.ContainerInfo()
+	assert.NilError(t, err)
+	assert.DeepEqual(t, cInfo.TitusProvidedEnv, map[string]string{
+		"FROM_TITUS_1": "T1",
+		"FROM_TITUS_2": "T2",
+	})
+	assert.DeepEqual(t, cInfo.UserProvidedEnv, map[string]string{})
 }
 
 // TODO:

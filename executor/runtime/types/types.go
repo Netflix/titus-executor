@@ -45,7 +45,9 @@ const (
 	False            = "false"
 	ec2HostnameStyle = "ec2"
 	testIamRole      = "arn:aws:iam::0:role/DefaultContainerRole"
+	testImageName    = "titusoss/alpine"
 	testImageWithTag = "titusoss/alpine:latest"
+	testImageTag     = "latest"
 )
 
 // ErrMissingIAMRole indicates that the Titus job was submitted without an IAM role
