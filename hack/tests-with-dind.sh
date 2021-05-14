@@ -2,6 +2,14 @@
 
 set -eu -o pipefail
 
+set -vx
+TTYFLAG=""
+if [ -t 1 ] ;then
+  # Setting the tty flag when available streams the test output in real time
+  TTYFLAG="-ti"
+fi
+
+
 ## Runs integration tests against a docker daemon dedicated to them:
 #  - the docker daemon runs as docker-in-docker (dind) in background
 #  - systemd, dbus and all other titus-executor dependencies are available where the docker daemon runs
@@ -55,7 +63,7 @@ if [[ $(uname) == "Darwin" ]]; then
 fi
 
 log "Running a docker daemon named $titus_agent_name"
-docker run --privileged --security-opt seccomp=unconfined \
+docker run $TTYFLAG --privileged --security-opt seccomp=unconfined \
   -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
   -v ${GOPATH}:${GOPATH} \
   -v ${PWD}:${PWD} \
@@ -76,9 +84,15 @@ docker exec "$titus_agent_name" ${PWD}/hack/agent/certs/setup-metatron-certs.sh
 
 log "Running integration tests against the $titus_agent_name daemon"
 # --privileged is needed here since we are reading FDs from a unix socket
-docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
+log "Running tests with CInfo"
+docker exec $TTYFLAG --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
     -coverpkg=github.com/Netflix/... ./executor/standalone/... -standalone=true 2>&1 | tee test-standalone.log
+log "Running tests with Pod Spec v1"
+docker exec $TTYFLAG --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
+  go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
+    -covermode=count -coverprofile=coverage-standalone.out \
+    -coverpkg=github.com/Netflix/... ./executor/standalone/... -standalone=true -shouldUsePodspecInTest=true 2>&1 | tee test-standalone-podspec.log
 
 log "Integration tests complete (rc: $?)"
