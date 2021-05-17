@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/uploader"
-	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	"google.golang.org/protobuf/proto"
@@ -193,7 +194,7 @@ type Container interface {
 	SetGPUInfo(GPUContainer)
 	SetID(string)
 	SetSystemD(bool)
-	SetVPCAllocation(*vpcTypes.HybridAllocation)
+	SetVPCAllocation(*vpcapi.Assignment)
 	ShmSizeMiB() *uint32
 	SidecarConfigs() ([]*ServiceOpts, error)
 	SignedAddressAllocationUUID() *string
@@ -203,7 +204,7 @@ type Container interface {
 	TTYEnabled() bool
 	UploadDir(string) string
 	UseJumboFrames() bool
-	VPCAllocation() *vpcTypes.HybridAllocation
+	VPCAllocation() *vpcapi.Assignment
 	VPCAccountID() *string
 }
 

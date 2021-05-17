@@ -19,7 +19,7 @@ func operatorCmd(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdent
 		Use:   "describe",
 		Short: "Describe the trunk network interface",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
 			if err != nil {
 				return err
 			}
@@ -33,7 +33,7 @@ func operatorCmd(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdent
 		Use:   "associate",
 		Short: "associate the trunk network interface with a branch ENI",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
 			if err != nil {
 				return err
 			}
@@ -53,7 +53,7 @@ func operatorCmd(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdent
 		Use:   "disassociate",
 		Short: "disassociate the trunk network interface with a branch ENI",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func operatorCmd(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdent
 		Use:   "detach",
 		Short: "detach a branch ENI from a trunk network interface",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
 			if err != nil {
 				return err
 			}

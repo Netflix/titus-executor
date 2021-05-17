@@ -12,13 +12,14 @@ import (
 	"sync"
 	"time"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
-	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/apex/log"
 	"github.com/aws/aws-sdk-go/aws/arn"
@@ -134,7 +135,7 @@ type TitusInfoContainer struct {
 	normalizedENIIndex int
 	subnetIDs          string
 	useJumboFrames     bool
-	vpcAllocation      vpcTypes.HybridAllocation
+	vpcAllocation      *vpcapi.Assignment
 	vpcAccountID       string
 
 	// Log uploader fields
@@ -692,11 +693,16 @@ func (c *TitusInfoContainer) ImageTagForMetrics() map[string]string {
 }
 
 func (c *TitusInfoContainer) IPv4Address() *string {
-	if c.vpcAllocation.IPV4Address == nil {
+	if c.vpcAllocation == nil {
 		return nil
 	}
-
-	return &c.vpcAllocation.IPV4Address.Address.Address
+	switch t := c.vpcAllocation.Assignment.(type) {
+	case *vpcapi.Assignment_AssignIPResponseV3:
+		if t.AssignIPResponseV3.Ipv4Address != nil {
+			return &t.AssignIPResponseV3.Ipv4Address.Address.Address
+		}
+	}
+	panic("Unxpected state")
 }
 
 func (c *TitusInfoContainer) IsSystemD() bool {
@@ -924,8 +930,13 @@ func (c *TitusInfoContainer) SetSystemD(isSystemD bool) {
 	c.isSystemD = isSystemD
 }
 
-func (c *TitusInfoContainer) SetVPCAllocation(allocation *vpcTypes.HybridAllocation) {
-	c.vpcAllocation = *allocation
+func (c *TitusInfoContainer) SetVPCAllocation(allocation *vpcapi.Assignment) {
+	switch allocation.Assignment.(type) {
+	case *vpcapi.Assignment_AssignIPResponseV3:
+	default:
+		panic(fmt.Errorf("Invalid assignment %v", allocation))
+	}
+	c.vpcAllocation = allocation
 }
 
 // ShmSizeMiB determines the container's /dev/shm size
@@ -1018,8 +1029,8 @@ func (c *TitusInfoContainer) VPCAccountID() *string {
 	return strPtrOr(c.vpcAccountID, &c.config.SSHAccountID)
 }
 
-func (c *TitusInfoContainer) VPCAllocation() *vpcTypes.HybridAllocation {
-	return &c.vpcAllocation
+func (c *TitusInfoContainer) VPCAllocation() *vpcapi.Assignment {
+	return c.vpcAllocation
 }
 
 // Get a boolean passthrough attribute and whether it was present
@@ -1185,15 +1196,6 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 			env[metadataserverTypes.NetflixIPv6sEnvVarName] = vpcAllocation.IPV6Address.Address.Address
 		}
 
-		if vpcAllocation.ElasticAddress != nil {
-			env[metadataserverTypes.EC2PublicIPv4EnvVarName] = vpcAllocation.ElasticAddress.Ip
-			env[metadataserverTypes.EC2PublicIPv4sEnvVarName] = vpcAllocation.ElasticAddress.Ip
-		}
-
-		// Heads up, this doesn't work in generation v1 instances of VPC Service
-		env["EC2_VPC_ID"] = vpcAllocation.BranchENIVPC
-		env["EC2_INTERFACE_ID"] = vpcAllocation.BranchENIID
-		env["EC2_SUBNET_ID"] = vpcAllocation.BranchENISubnet
 	}
 
 	if batch := c.BatchPriority(); batch != nil {

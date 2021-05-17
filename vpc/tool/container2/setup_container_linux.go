@@ -18,7 +18,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/setup2"
-	"github.com/Netflix/titus-executor/vpc/types"
 	"github.com/apparentlymart/go-cidr/cidr"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
@@ -36,13 +35,13 @@ var (
 	errNoDefaultRoute   = errors.New("No default route installed")
 )
 
-func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.Link, error) {
-	trunkLink, err := setup2.GetLinkByMac(allocations.TrunkENIMAC)
+func getBranchLink(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) (netlink.Link, error) {
+	trunkLink, err := setup2.GetLinkByMac(assignment.TrunkNetworkInterface.MacAddress)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot find trunk link")
 	}
 
-	vlanLinkName := fmt.Sprintf("vlan%d", allocations.VlanID)
+	vlanLinkName := fmt.Sprintf("vlan%d", assignment.VlanId)
 	vlanLink, err := netlink.LinkByName(vlanLinkName)
 	if err != nil {
 		_, ok := err.(netlink.LinkNotFoundError)
@@ -53,7 +52,7 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 					ParentIndex: trunkLink.Attrs().Index,
 					Name:        vlanLinkName,
 				},
-				VlanId:       allocations.VlanID,
+				VlanId:       int(assignment.VlanId),
 				VlanProtocol: netlink.VLAN_PROTOCOL_8021Q,
 			})
 			if err != nil && err != unix.EEXIST {
@@ -66,10 +65,10 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 		}
 	}
 
-	if vlanLink.Attrs().HardwareAddr.String() != allocations.BranchENIMAC {
-		mac, err := net.ParseMAC(allocations.BranchENIMAC)
+	if vlanLink.Attrs().HardwareAddr.String() != assignment.BranchNetworkInterface.MacAddress {
+		mac, err := net.ParseMAC(assignment.BranchNetworkInterface.MacAddress)
 		if err != nil {
-			return nil, errors.Wrapf(err, "Cannot parse mac %q", allocations.BranchENIMAC)
+			return nil, errors.Wrapf(err, "Cannot parse mac %q", assignment.BranchNetworkInterface.MacAddress)
 		}
 		err = netlink.LinkSetHardwareAddr(vlanLink, mac)
 		if err != nil {
@@ -80,8 +79,8 @@ func getBranchLink(ctx context.Context, allocations types.Allocation) (netlink.L
 	return vlanLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, allocation types.Allocation) error {
-	branchLink, err := getBranchLink(ctx, allocation)
+func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, assignment *vpcapi.AssignIPResponseV3) error {
+	branchLink, err := getBranchLink(ctx, assignment)
 	if err != nil {
 		return err
 	}
@@ -118,7 +117,7 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 	}
 
-	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, allocation, netnsfd)
+	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, assignment, netnsfd)
 }
 
 func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) (uint64, error) {
@@ -212,7 +211,7 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	return mtu, nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, allocation types.Allocation, netnsfd int) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, assignment *vpcapi.AssignIPResponseV3, netnsfd int) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -225,25 +224,25 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return errors.Wrap(err, "Unable to set link up")
 	}
 
-	defaultMTU, err := addIPv4AddressAndRoutes(ctx, nsHandle, link, allocation.IPV4Address, allocation.Routes)
+	defaultMTU, err := addIPv4AddressAndRoutes(ctx, nsHandle, link, assignment.Ipv4Address, assignment.Routes)
 	if err != nil {
 		return err
 	}
 
-	if allocation.IPV6Address != nil {
-		err = addIPv6AddressAndRoutes(ctx, allocation, nsHandle, link, netnsfd)
+	if assignment.Ipv6Address != nil {
+		err = addIPv6AddressAndRoutes(ctx, assignment, nsHandle, link, netnsfd)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Unable to add IPv6 address")
 			return fmt.Errorf("Unable to setup IPv6 address: %w", err)
 		}
 	}
 
-	err = updateBPFMaps(ctx, allocation)
+	err = updateBPFMaps(ctx, assignment)
 	if err != nil {
 		return err
 	}
 
-	err = setupHTBClasses(ctx, bandwidth, ceil, defaultMTU, allocation.AllocationIndex, allocation.TrunkENIMAC)
+	err = setupHTBClasses(ctx, bandwidth, ceil, defaultMTU, uint16(assignment.ClassId), assignment.TrunkNetworkInterface.MacAddress)
 	if err != nil {
 		return err
 	}
@@ -296,7 +295,7 @@ func configureSysCtls(ctx context.Context, mtu *uint32) error {
 	return nil
 }
 
-func addIPv6AddressAndRoutes(ctx context.Context, allocation types.Allocation, nsHandle *netlink.Handle, link netlink.Link, netnsfd int) error {
+func addIPv6AddressAndRoutes(ctx context.Context, assignment *vpcapi.AssignIPResponseV3, nsHandle *netlink.Handle, link netlink.Link, netnsfd int) error {
 	ctx, cancel := context.WithTimeout(ctx, networkSetupWait)
 	defer cancel()
 
@@ -321,7 +320,7 @@ func addIPv6AddressAndRoutes(ctx context.Context, allocation types.Allocation, n
 		mtu   uint32
 		route net.IPNet
 	}
-	for _, route := range allocation.Routes {
+	for _, route := range assignment.Routes {
 		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv6 {
 			continue
 		}
@@ -349,7 +348,7 @@ func addIPv6AddressAndRoutes(ctx context.Context, allocation types.Allocation, n
 	}
 
 	// Amazon only gives out /128s
-	new6IP := net.IPNet{IP: net.ParseIP(allocation.IPV6Address.Address.Address), Mask: net.CIDRMask(128, 128)}
+	new6IP := net.IPNet{IP: net.ParseIP(assignment.Ipv6Address.Address.Address), Mask: net.CIDRMask(128, 128)}
 	new6Addr := netlink.Addr{
 		// TODO (Sargun): Check IP Mask setting.
 		IPNet: &new6IP,
@@ -484,31 +483,31 @@ func updateBPFMap(ctx context.Context, mapName string, key []byte, value uint16)
 	return nil
 }
 
-func updateBPFMaps(ctx context.Context, allocation types.Allocation) error {
-	if allocation.IPV4Address != nil {
+func updateBPFMaps(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
+	if assignment.Ipv4Address != nil {
 		buf := make([]byte, 8)
 
-		binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
-		ip := net.ParseIP(allocation.IPV4Address.Address.Address).To4()
+		binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
+		ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
 		if len(ip) != 4 {
 			panic("Length of IP is not 4")
 		}
 		copy(buf[4:], ip)
-		if err := updateBPFMap(ctx, "ipv4_map", buf, allocation.AllocationIndex); err != nil {
+		if err := updateBPFMap(ctx, "ipv4_map", buf, uint16(assignment.ClassId)); err != nil {
 			return err
 		}
 	}
 
-	if allocation.IPV6Address != nil {
+	if assignment.Ipv6Address != nil {
 		buf := make([]byte, 20)
-		binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
-		ip := net.ParseIP(allocation.IPV6Address.Address.Address).To16()
+		binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
+		ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
 		if len(ip) != 16 {
 			panic("Length of IP is not 16")
 		}
 
 		copy(buf[4:], ip)
-		if err := updateBPFMap(ctx, "ipv6_map", buf, allocation.AllocationIndex); err != nil {
+		if err := updateBPFMap(ctx, "ipv6_map", buf, uint16(assignment.ClassId)); err != nil {
 			return err
 		}
 	}
@@ -589,7 +588,7 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 	return nil
 }
 
-func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netnsfd int) error {
+func DoTeardownContainer(ctx context.Context, assignment *vpcapi.AssignIPResponseV3, netnsfd int) error {
 	var result *multierror.Error
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
 	if err != nil {
@@ -619,17 +618,17 @@ func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netns
 		nsHandle.Delete()
 	}
 
-	result = multierror.Append(result, TeardownNetwork(ctx, allocation))
+	result = multierror.Append(result, TeardownNetwork(ctx, assignment))
 
 	return result.ErrorOrNil()
 }
 
-func TeardownNetwork(ctx context.Context, allocation types.Allocation) error {
+func TeardownNetwork(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
 	var result *multierror.Error
 	// Removing the classes automatically removes the qdiscs
-	trunkENI, err := setup2.GetLinkByMac(allocation.TrunkENIMAC)
+	trunkENI, err := setup2.GetLinkByMac(assignment.TrunkNetworkInterface.MacAddress)
 	if err == nil {
-		err = removeClass(ctx, allocation.AllocationIndex, trunkENI)
+		err = removeClass(ctx, uint16(assignment.ClassId), trunkENI)
 		if err != nil && !isClassNotFound(err) {
 			err = errors.Wrap(err, "Cannot remove class from trunk ENI")
 			result = multierror.Append(result, err)
@@ -642,7 +641,7 @@ func TeardownNetwork(ctx context.Context, allocation types.Allocation) error {
 
 	ifbIngress, err := netlink.LinkByName(vpc.IngressIFB)
 	if err == nil {
-		err = removeClass(ctx, allocation.AllocationIndex, ifbIngress)
+		err = removeClass(ctx, uint16(assignment.ClassId), ifbIngress)
 		if err != nil && !isClassNotFound(err) {
 			err = errors.Wrap(err, "Cannot remove class from ingress IFB")
 			result = multierror.Append(result, err)
@@ -653,24 +652,24 @@ func TeardownNetwork(ctx context.Context, allocation types.Allocation) error {
 		logger.G(ctx).WithError(err).Warning("Unable to find ifb ingress, during deallocation")
 	}
 
-	result = multierror.Append(result, deleteFromBPFMaps(ctx, allocation))
+	result = multierror.Append(result, deleteFromBPFMaps(ctx, assignment))
 	return result.ErrorOrNil()
 }
-func deleteFromBPFMaps(ctx context.Context, allocation types.Allocation) error {
+func deleteFromBPFMaps(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
 	var result *multierror.Error
-	result = multierror.Append(result, deleteFromIPv4BPFMap(ctx, allocation))
-	result = multierror.Append(result, deleteFromIPv6BPFMap(ctx, allocation))
+	result = multierror.Append(result, deleteFromIPv4BPFMap(ctx, assignment))
+	result = multierror.Append(result, deleteFromIPv6BPFMap(ctx, assignment))
 	return result.ErrorOrNil()
 }
 
-func deleteFromIPv4BPFMap(ctx context.Context, allocation types.Allocation) error {
-	if allocation.IPV4Address == nil {
+func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
+	if assignment.Ipv4Address == nil {
 		return nil
 	}
 	buf := make([]byte, 8)
 
-	binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
-	ip := net.ParseIP(allocation.IPV4Address.Address.Address).To4()
+	binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
+	ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
 	if len(ip) != 4 {
 		panic("Length of IP is not 4")
 	}
@@ -713,13 +712,13 @@ func deleteFromIPv4BPFMap(ctx context.Context, allocation types.Allocation) erro
 
 	return nil
 }
-func deleteFromIPv6BPFMap(ctx context.Context, allocation types.Allocation) error {
-	if allocation.IPV6Address == nil {
+func deleteFromIPv6BPFMap(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
+	if assignment.Ipv6Address == nil {
 		return nil
 	}
 	buf := make([]byte, 20)
-	binary.LittleEndian.PutUint16(buf, uint16(allocation.VlanID))
-	ip := net.ParseIP(allocation.IPV6Address.Address.Address).To16()
+	binary.LittleEndian.PutUint16(buf, uint16(assignment.ClassId))
+	ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
 	if len(ip) != 16 {
 		panic("Length of IP is not 16")
 	}

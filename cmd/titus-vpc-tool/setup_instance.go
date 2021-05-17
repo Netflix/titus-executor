@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Netflix/titus-executor/vpc/tool/setup"
-
 	"github.com/Netflix/titus-executor/vpc/tool/setup2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
@@ -17,24 +15,15 @@ func setupInstanceCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 		Use:   "setup-instance",
 		Short: "Setup / configure instance and prepare for service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			locker, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
+			if err != nil {
+				return err
+			}
+			locker, err := getLocker(ctx, v)
 			if err != nil {
 				return err
 			}
 			switch strings.ToLower(v.GetString(generationFlagName)) {
-			case "v1":
-				return setup.Setup(ctx,
-					iipGetter(),
-					locker,
-					conn,
-					v.GetString(interaceSubnet),
-					v.GetString(interfaceAccount))
-			case "v2":
-				return setup2.Setup(ctx,
-					iipGetter(),
-					locker,
-					conn,
-					2)
 			case "v3":
 				return setup2.Setup(ctx,
 					iipGetter(),

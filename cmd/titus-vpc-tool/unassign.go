@@ -14,7 +14,7 @@ func unassignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter in
 		Use:   "unassign",
 		Short: "Unassign a V3 allocation",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
 			if err != nil {
 				return err
 			}

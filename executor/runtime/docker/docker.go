@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/protobuf/jsonpb"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -603,7 +605,10 @@ func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c runt
 }
 
 // This will setup c.Allocation
-func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
+func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
 	log.Printf("Configuring VPC network for %s", c.TaskID())
 
 	eniIdx := c.NormalizedENIIndex()
@@ -653,7 +658,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 	// We intentionally don't use context here, because context only KILLs.
 	// Instead we rely on the idea of the cleanup function below.
 
-	allocationCommand := exec.Command(vpcToolPath(), args...) // nolint: gosec
+	allocationCommand := exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gosec
 	allocationCommand.Stderr = os.Stderr
 	stdoutPipe, err := allocationCommand.StdoutPipe()
 	if err != nil {
@@ -665,126 +670,46 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 		return nil, errors.Wrap(err, "Could not start allocation command")
 	}
 
-	// errCh
-	errCh := make(chan error, 1)
-
-	// if you write to killCh, it will start to try to kill the allocation command
-	killCh := make(chan struct{}, 10)
-
-	// doneCh is closed once the allocation command exits
-	doneCh := make(chan struct{})
-	go func() {
-		defer close(doneCh)
-		errCh <- allocationCommand.Wait()
-	}()
-	go func() {
-		select {
-		case <-killCh:
-			log.Info("Terminating allocation command")
-		case <-doneCh:
-			// The command exited, no need to stand at our perch ready to terminate it.
-			return
-		}
-		err2 := allocationCommand.Process.Signal(unix.SIGTERM)
-		if err2 != nil {
-			log.WithError(err2).Error("Unable to send SIGTERM to allocation command")
-		}
-		timer := time.NewTimer(30 * time.Second)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-		case <-doneCh:
-			// The command successfully exited
-			return
-		}
-		// The timer fired, and it's time to send the kill signal
-		log.Warn("Sending kill signal to allocation command")
-		err2 = allocationCommand.Process.Kill()
-		if err2 != nil {
-			log.WithError(err2).Error("Unable to send SIGKILL to allocation command")
-		}
-	}()
-
-	killTimer := time.AfterFunc(2*time.Minute, func() {
-		killCh <- struct{}{}
-	})
-	var vpcAllocation vpcTypes.HybridAllocation
-	err = json.NewDecoder(stdoutPipe).Decode(&vpcAllocation)
+	var result vpcapi.VPCToolResult
+	var assignment *vpcapi.Assignment
+	err = jsonpb.Unmarshal(stdoutPipe, &result)
 	if err != nil {
-		log.WithError(err).Error("Unable to read JSON from allocate command")
-		return nil, fmt.Errorf("Unable to read json from pipe: %+v", err) // nolint: gosec
+		return nil, fmt.Errorf("Could not read / deserialize JSON from assignment command: %w", err)
 	}
-	c.SetVPCAllocation(&vpcAllocation)
-
-	if !killTimer.Stop() {
-		err = errors.New("Kill timer fired. Race condition")
-		log.WithError(err).Error("Accidentally killed the allocation command, leaving us in a 'unknown' state")
-		return nil, err
-	}
-
-	if !vpcAllocation.Success {
-		// Kill the thing
-		killCh <- struct{}{}
-		log.WithField("error", vpcAllocation.Error).Error("VPC Configuration error")
-		if (strings.Contains(vpcAllocation.Error, "invalid security groups requested for vpc id")) ||
-			(strings.Contains(vpcAllocation.Error, "InvalidGroup.NotFound") ||
-				(strings.Contains(vpcAllocation.Error, "InvalidSecurityGroupID.NotFound")) ||
-				(strings.Contains(vpcAllocation.Error, "Security groups not found"))) {
+	switch t := result.Result.(type) {
+	case *vpcapi.VPCToolResult_Error:
+		log.WithField("error", t.Error.Error).Error("VPC Configuration error")
+		if (strings.Contains(t.Error.Error, "invalid security groups requested for vpc id")) ||
+			(strings.Contains(t.Error.Error, "InvalidGroup.NotFound") ||
+				(strings.Contains(t.Error.Error, "InvalidSecurityGroupID.NotFound")) ||
+				(strings.Contains(t.Error.Error, "Security groups not found"))) {
 			var invalidSg runtimeTypes.InvalidSecurityGroupError
-			invalidSg.Reason = errors.New(vpcAllocation.Error)
+			invalidSg.Reason = errors.New(t.Error.Error)
 			return nil, &invalidSg
 		}
-		return nil, fmt.Errorf("vpc network configuration error: %s", vpcAllocation.Error)
-	}
-
-	if vpcAllocation.Generation == nil {
-		err = errors.New("Unable to determine allocation generation")
-		log.WithError(err).Warn("Could not process allocation")
-		killCh <- struct{}{}
-		return nil, err
-	}
-
-	switch g := (*vpcAllocation.Generation); g {
-	case vpcTypes.V1:
-		return func() error {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-
-			killCh <- struct{}{}
-			var err2 error
-			select {
-			case err2 = <-errCh:
-			case <-ctx.Done():
-				return errors.Wrap(ctx.Err(), "Error waiting for v1 assignment command to exit")
-			}
-			if err2 != nil {
-				log.WithError(err2).Error("Received error on termination of assignment command")
-				return errors.Wrap(err2, "Could not unassign task IP address")
-			}
-			return nil
-		}, nil
-	case vpcTypes.V3:
-		err = <-errCh
-		if err != nil {
-			return nil, errors.Wrap(err, "Error experienced when running V3 allocate command")
-		}
-		return func() error {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-			unassignCommand := exec.CommandContext(ctx, vpcToolPath(), "unassign", "--task-id", c.TaskID()) // nolint: gosec
-			err2 := unassignCommand.Run()
-			if err2 != nil {
-				log.WithError(err2).Error("Experienced error unassigning v3 allocation")
-				return errors.Wrap(err2, "Could not unassign task IP address")
-			}
-			return nil
-		}, nil
+		return nil, fmt.Errorf("vpc network configuration error: %s", t.Error.Error)
+	case *vpcapi.VPCToolResult_Assignment:
+		assignment = t.Assignment
 	default:
-		err = fmt.Errorf("Unknown generation: %s", g)
-		killCh <- struct{}{}
-		log.WithError(err).Error("Received allocation with unknown generation")
-		return nil, err
+		return nil, fmt.Errorf("Unknown type: %t", t)
 	}
+
+	err = allocationCommand.Wait()
+	if err != nil {
+		return nil, fmt.Errorf("Allocation command exited with unexpected error: %w", err)
+	}
+
+	return func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		unassignCommand := exec.CommandContext(ctx, vpcToolPath(), "unassign", "--task-id", c.TaskID()) // nolint: gosec
+		err := unassignCommand.Run()
+		if err != nil {
+			log.WithError(err).Error("Experienced error unassigning v3 allocation")
+			return errors.Wrap(err, "Could not unassign task IP address")
+		}
+		return nil
+	}, nil
 }
 
 // cleanContainerName creates a "clean" container name that adheres to docker's allowed character list
@@ -991,19 +916,28 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		})
 	} else {
 		// Don't call out to network driver for local development
-		allocation := &vpcTypes.HybridAllocation{
-			IPV4Address: &vpcapi.UsableAddress{
-				Address: &vpcapi.Address{
-					Address: "1.2.3.4",
+		allocation := &vpcapi.Assignment{
+			Assignment: &vpcapi.Assignment_AssignIPResponseV3{
+				AssignIPResponseV3: &vpcapi.AssignIPResponseV3{
+					Ipv4Address: &vpcapi.UsableAddress{
+						Address: &vpcapi.Address{
+							Address: "1.2.3.4",
+						},
+						PrefixLength: 32,
+					},
+					Ipv6Address: nil,
+					BranchNetworkInterface: &vpcapi.NetworkInterface{
+						NetworkInterfaceId: "eni-cat-dog",
+					},
+					TrunkNetworkInterface: nil,
+					VlanId:                1,
+					ElasticAddress: &vpcapi.ElasticAddress{
+						Ip: "203.0.113.11",
+					},
+					ClassId:   0,
+					Routes:    nil,
+					Bandwidth: nil,
 				},
-				PrefixLength: 32,
-			},
-			DeviceIndex: 1,
-			Success:     true,
-			Error:       "",
-			BranchENIID: "eni-cat-dog",
-			ElasticAddress: &vpcapi.ElasticAddress{
-				Ip: "203.0.113.11",
 			},
 		}
 		r.c.SetVPCAllocation(allocation)
