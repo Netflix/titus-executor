@@ -5,17 +5,18 @@ package container2
 import (
 	"context"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/types"
 )
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, allocation types.Allocation) error {
+func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, assignment *vpcapi.AssignIPResponseV3) error {
 	return types.ErrUnsupported
 }
 
-func DoTeardownContainer(ctx context.Context, allocation types.Allocation, netnsfd int) error {
+func DoTeardownContainer(ctx context.Context, allocation *vpcapi.AssignIPResponseV3, netnsfd int) error {
 	return types.ErrUnsupported
 }
 
-func TeardownNetwork(ctx context.Context, allocation types.Allocation) error {
+func TeardownNetwork(ctx context.Context, allocation *vpcapi.AssignIPResponseV3) error {
 	return types.ErrUnsupported
 }

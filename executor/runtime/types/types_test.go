@@ -7,7 +7,6 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -111,14 +110,18 @@ func TestEc2HostnameStyle(t *testing.T) {
 
 	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
 	assert.NoError(t, err)
-	c.SetVPCAllocation(&vpcTypes.HybridAllocation{
-		IPV4Address: &vpcapi.UsableAddress{
-			PrefixLength: 32,
-			Address: &vpcapi.Address{
-				Address: "1.2.3.4"},
+	c.SetVPCAllocation(&vpcapi.Assignment{
+		Assignment: &vpcapi.Assignment_AssignIPResponseV3{
+			AssignIPResponseV3: &vpcapi.AssignIPResponseV3{
+				Ipv4Address: &vpcapi.UsableAddress{
+					Address: &vpcapi.Address{
+						Address: "1.2.3.4",
+					},
+					PrefixLength: 32,
+				},
+			},
 		},
 	})
-
 	hostname, err := ComputeHostname(c)
 	assert.Nil(t, err)
 	assert.Equal(t, "ip-1-2-3-4", hostname)

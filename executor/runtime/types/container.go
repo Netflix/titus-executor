@@ -696,13 +696,11 @@ func (c *TitusInfoContainer) IPv4Address() *string {
 	if c.vpcAllocation == nil {
 		return nil
 	}
-	switch t := c.vpcAllocation.Assignment.(type) {
-	case *vpcapi.Assignment_AssignIPResponseV3:
-		if t.AssignIPResponseV3.Ipv4Address != nil {
-			return &t.AssignIPResponseV3.Ipv4Address.Address.Address
-		}
+	addr := c.vpcAllocation.IPV4Address()
+	if addr == nil {
+		return nil
 	}
-	panic("Unxpected state")
+	return &addr.Address.Address
 }
 
 func (c *TitusInfoContainer) IsSystemD() bool {
@@ -1185,17 +1183,25 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 	}
 
 	vpcAllocation := c.VPCAllocation()
-	if vpcAllocation != nil {
-		if vpcAllocation.IPV4Address != nil {
-			env[metadataserverTypes.EC2IPv4EnvVarName] = vpcAllocation.IPV4Address.Address.Address
-		}
+	if a := vpcAllocation.IPV4Address(); a != nil {
+		env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
+	}
 
-		if vpcAllocation.IPV6Address != nil {
-			env[metadataserverTypes.EC2IPv6sEnvVarName] = vpcAllocation.IPV6Address.Address.Address
-			env[metadataserverTypes.NetflixIPv6EnvVarName] = vpcAllocation.IPV6Address.Address.Address
-			env[metadataserverTypes.NetflixIPv6sEnvVarName] = vpcAllocation.IPV6Address.Address.Address
-		}
+	if a := vpcAllocation.IPV6Address(); a != nil {
+		env[metadataserverTypes.EC2IPv6sEnvVarName] = a.Address.Address
+		env[metadataserverTypes.NetflixIPv6EnvVarName] = a.Address.Address
+		env[metadataserverTypes.NetflixIPv6sEnvVarName] = a.Address.Address
+	}
 
+	if a := vpcAllocation.ElasticAddress(); a != nil {
+		env[metadataserverTypes.EC2PublicIPv4EnvVarName] = a.Ip
+		env[metadataserverTypes.EC2PublicIPv4sEnvVarName] = a.Ip
+	}
+
+	if a := vpcAllocation.ContainerENI(); a != nil {
+		env["EC2_VPC_ID"] = a.VpcId
+		env["EC2_INTERFACE_ID"] = a.NetworkInterfaceId
+		env["EC2_SUBNET_ID"] = a.SubnetId
 	}
 
 	if batch := c.BatchPriority(); batch != nil {
