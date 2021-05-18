@@ -655,9 +655,8 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		args = append(args, "--jumbo=true")
 	}
 
-	// We intentionally don't use context here, because context only KILLs.
-	// Instead we rely on the idea of the cleanup function below.
-
+	// There's a narrow chance that there's a race here that the context expires, but the assignment has
+	// been successful, but we didn't read it. the GC should loop back around and fix it.
 	allocationCommand := exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gosec
 	allocationCommand.Stderr = os.Stderr
 	stdoutPipe, err := allocationCommand.StdoutPipe()
