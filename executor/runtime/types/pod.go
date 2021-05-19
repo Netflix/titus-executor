@@ -114,12 +114,18 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		userEnv:           userEnv,
 	}
 
-	if pConf.UserEnvVarsStartIndex == nil {
+	// If the containerInfo annotation was set, use it
+	if pConf.ContainerInfo != nil {
 		cInfo, err := extractContainerInfo(pConf)
 		if err != nil {
 			return nil, err
 		}
 		c.titusInfo = cInfo
+	} else {
+		// No containerInfo: we need to know which env vars are user vs Titus so Metatron works
+		if pConf.UserEnvVarsStartIndex == nil {
+			return nil, fmt.Errorf("user environment variable index annotation is required: %s", podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex)
+		}
 	}
 
 	err = c.parsePodVolumes()

@@ -475,7 +475,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 
 	pod.Spec.Containers[0].Resources = goodPod.Spec.Containers[0].Resources
 	_, err = NewPodContainer(pod, *conf)
-	assert.ErrorContains(t, err, "unable to find containerInfo annotation")
+	assert.ErrorContains(t, err, "user environment variable index annotation is required")
 
 	pod.Annotations = map[string]string{
 		podCommon.AnnotationKeyPodTitusContainerInfo: "0",
@@ -1471,6 +1471,7 @@ func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
 		},
 	}
 
+	// If there are no user env vars, the TJC will set the index to where they would have started
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
 	})
