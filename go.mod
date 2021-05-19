@@ -28,9 +28,8 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0
 	github.com/ftrvxmtrx/fd v0.0.0-20150925145434-c6d800382fff
-	github.com/gogo/protobuf v1.3.1
 	github.com/golang-migrate/migrate v3.5.4+incompatible
-	github.com/golang/protobuf v1.4.2
+	github.com/golang/protobuf v1.4.0
 	github.com/google/go-jsonnet v0.17.0
 	github.com/google/renameio v0.1.0
 	github.com/google/uuid v1.1.2
@@ -73,7 +72,7 @@ require (
 	golang.org/x/tools v0.1.0
 	google.golang.org/genproto v0.0.0-20200218151345-dad8c97a84f5 // indirect
 	google.golang.org/grpc v1.27.1
-	google.golang.org/protobuf v1.23.0
+	google.golang.org/protobuf v1.23.0 // indirect
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/ini.v1 v1.52.0 // indirect
 	gopkg.in/urfave/cli.v1 v1.20.0
@@ -131,6 +130,6 @@ replace k8s.io/kubectl => k8s.io/kubectl v0.18.4
 
 replace k8s.io/api => k8s.io/api v0.18.4
 
-replace github.com/golang/protobuf => github.com/golang/protobuf v1.3.3
+replace github.com/golang/protobuf => github.com/golang/protobuf v1.3.5
 
 replace github.com/aws/aws-sdk-go => ./aws/aws-sdk-go

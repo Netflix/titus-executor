@@ -146,18 +146,18 @@ vendor/modules.txt: go.mod
 $(PROTOS): vendor
 $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p api/netflix/titus
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc:api/ $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc:api/ $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
 	$(GOIMPORT_TOOL) $@
 
 ## TODO: Use git wildcard functionality to "automatically"
 vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p vpc/api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):vpc/api/ vpc/proto/vpc.proto
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):vpc/api/ vpc/proto/vpc.proto
 	$(GOIMPORT_TOOL) $@
 
 metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p metadataserver/api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -m -p github.com/golang/protobuf/protoc-gen-go) -I$(PROTO_DIR)/ -Imetadataserver/proto --titusgo_out=plugins=grpc,source_relative:metadataserver/api/ metadataserver/proto/iam.proto
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Imetadataserver/proto --titusgo_out=plugins=grpc,source_relative:metadataserver/api/ metadataserver/proto/iam.proto
 	$(GOIMPORT_TOOL) $@
 
 .PHONY: clean-proto-defs

@@ -20,8 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang/protobuf/jsonpb"
-
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -39,6 +37,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -1837,7 +1836,11 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	}
 
 	allocation := *c.VPCAllocation()
-	if err := json.NewEncoder(stdin).Encode(allocation); err != nil {
+	marshaler := jsonpb.Marshaler{
+		Indent: "\t",
+	}
+
+	if err := marshaler.Marshal(stdin, &allocation); err != nil {
 		return nil, err
 	}
 

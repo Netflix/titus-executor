@@ -25,9 +25,8 @@ import (
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
-	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/proto"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -297,15 +296,15 @@ func (jobRunResponse *JobRunResponse) StopExecutorAsync() {
 
 func createContainerInfoTask(jobInput *JobInput, jobID string, task *runner.Task, env map[string]string, resources *runtimeTypes.Resources) error {
 	ci := &titus.ContainerInfo{
-		ImageName: protobuf.String(jobInput.ImageName),
-		Version:   protobuf.String(jobInput.Version),
-		JobId:     protobuf.String(jobID),
-		AppName:   protobuf.String("myapp"),
+		ImageName: proto.String(jobInput.ImageName),
+		Version:   proto.String(jobInput.Version),
+		JobId:     proto.String(jobID),
+		AppName:   proto.String("myapp"),
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
-			EniLabel:  protobuf.String("1"),
-			EniLablel: protobuf.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
+			EniLabel:  proto.String("1"),
+			EniLablel: proto.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
 		},
-		IamProfile:       protobuf.String(defaultIamRole),
+		IamProfile:       proto.String(defaultIamRole),
 		Capabilities:     jobInput.Capabilities,
 		TitusProvidedEnv: env,
 		PassthroughAttributes: map[string]string{
@@ -319,10 +318,10 @@ func createContainerInfoTask(jobInput *JobInput, jobID string, task *runner.Task
 			Command:    p.Cmd,
 		}
 	} else {
-		ci.EntrypointStr = protobuf.String(jobInput.EntrypointOld) // nolint: staticcheck
+		ci.EntrypointStr = proto.String(jobInput.EntrypointOld) // nolint: staticcheck
 	}
 	if jobInput.SchedPolicy != "" {
-		ci.Batch = protobuf.Bool(true)
+		ci.Batch = proto.Bool(true)
 	}
 	if jobInput.SchedPolicy == "idle" {
 		ci.PassthroughAttributes["titusParameter.agent.batchPriority"] = "idle"
@@ -336,18 +335,18 @@ func createContainerInfoTask(jobInput *JobInput, jobID string, task *runner.Task
 
 	if jobInput.MetatronEnabled {
 		ci.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: protobuf.String("fake-metatron-app"),
-			MetadataSig: protobuf.String("fake-metatron-sig"),
+			AppMetadata: proto.String("fake-metatron-app"),
+			MetadataSig: proto.String("fake-metatron-sig"),
 		}
 	}
 	if jobInput.KillWaitSeconds > 0 {
-		ci.KillWaitSeconds = protobuf.Uint32(jobInput.KillWaitSeconds)
+		ci.KillWaitSeconds = proto.Uint32(jobInput.KillWaitSeconds)
 	}
 	if id := jobInput.ImageDigest; id != "" {
-		ci.ImageDigest = protobuf.String(id)
+		ci.ImageDigest = proto.String(id)
 	}
 
-	ci.AllowCpuBursting = protobuf.Bool(jobInput.CPUBursting)
+	ci.AllowCpuBursting = proto.Bool(jobInput.CPUBursting)
 	task.TitusInfo = ci
 
 	return nil
@@ -480,8 +479,8 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 
 	if jobInput.MetatronEnabled {
 		titusInfo.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: protobuf.String("fake-metatron-app"),
-			MetadataSig: protobuf.String("fake-metatron-sig"),
+			AppMetadata: proto.String("fake-metatron-app"),
+			MetadataSig: proto.String("fake-metatron-sig"),
 		}
 	}
 

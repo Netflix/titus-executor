@@ -26,8 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/gogo/protobuf/proto"
-	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -343,8 +342,8 @@ func fakeTaskIdentity() *titus.TaskIdentity {
 			Process: &titus.ContainerInfo_Process{
 				Entrypoint: []string{entrypoint},
 			},
-			ImageName: protobuf.String("titusoss/alpine"),
-			Version:   protobuf.String("latest"),
+			ImageName: proto.String("titusoss/alpine"),
+			Version:   proto.String("latest"),
 			RunState: &titus.RunningContainerInfo{
 				HostName:          &taskID,
 				LaunchTimeUnixSec: &launchTime,

@@ -1608,7 +1608,9 @@ func init() {
 	proto.RegisterType((*DataRecordMetadata)(nil), "com.netflix.titus.DataRecordMetadata")
 }
 
-func init() { proto.RegisterFile("netflix/titus/titus_base.proto", fileDescriptor_3a2977ef6488463b) }
+func init() {
+	proto.RegisterFile("netflix/titus/titus_base.proto", fileDescriptor_3a2977ef6488463b)
+}
 
 var fileDescriptor_3a2977ef6488463b = []byte{
 	// 1586 bytes of a gzipped FileDescriptorProto

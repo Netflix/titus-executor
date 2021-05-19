@@ -1902,7 +1902,9 @@ func init() {
 	proto.RegisterMapType((map[string]string)(nil), "com.netflix.titus.GetBranchToTrunkENIMappingResponse.BranchENIMappingEntry")
 }
 
-func init() { proto.RegisterFile("netflix/titus/titus_vpc_api.proto", fileDescriptor_fee69f8d9b907b12) }
+func init() {
+	proto.RegisterFile("netflix/titus/titus_vpc_api.proto", fileDescriptor_fee69f8d9b907b12)
+}
 
 var fileDescriptor_fee69f8d9b907b12 = []byte{
 	// 1555 bytes of a gzipped FileDescriptorProto

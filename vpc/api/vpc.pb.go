@@ -3291,7 +3291,9 @@ func init() {
 	proto.RegisterType((*PrivateKey_Ed25519Key)(nil), "com.netflix.titus.executor.vpc.PrivateKey.Ed25519Key")
 }
 
-func init() { proto.RegisterFile("vpc.proto", fileDescriptor_95d23e4d548ba1d7) }
+func init() {
+	proto.RegisterFile("vpc.proto", fileDescriptor_95d23e4d548ba1d7)
+}
 
 var fileDescriptor_95d23e4d548ba1d7 = []byte{
 	// 2762 bytes of a gzipped FileDescriptorProto

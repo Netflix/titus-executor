@@ -3957,7 +3957,9 @@ func init() {
 	proto.RegisterType((*TaskMoveRequest)(nil), "com.netflix.titus.TaskMoveRequest")
 }
 
-func init() { proto.RegisterFile("netflix/titus/titus_job_api.proto", fileDescriptor_1c07f2bd2273ea55) }
+func init() {
+	proto.RegisterFile("netflix/titus/titus_job_api.proto", fileDescriptor_1c07f2bd2273ea55)
+}
 
 var fileDescriptor_1c07f2bd2273ea55 = []byte{
 	// 3454 bytes of a gzipped FileDescriptorProto

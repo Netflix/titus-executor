@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"os"
 
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/gogo/protobuf/jsonpb"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/types"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/pkg/errors"
 )
 
