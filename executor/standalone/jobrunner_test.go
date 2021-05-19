@@ -419,6 +419,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	}
 
 	fc := &pod.Spec.Containers[0]
+	pod.Annotations[podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex] = strconv.Itoa(len(fc.Env))
 
 	if p := jobInput.Process; p != nil {
 		fc.Command = p.Entrypoint
@@ -486,27 +487,12 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 		pod.Annotations[podCommon.AnnotationKeyPodCPUBurstingEnabled] = True
 	}
 
-	titusInfo := &titus.ContainerInfo{
-		IamProfile: proto.String(defaultIamRole),
-		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
-			EniLabel:  proto.String("1"),
-			EniLablel: proto.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
-		},
-		PassthroughAttributes: map[string]string{},
-	}
-
 	if jobInput.MetatronEnabled {
-		titusInfo.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: proto.String("fake-metatron-app"),
-			MetadataSig: proto.String("fake-metatron-sig"),
-		}
+		pod.Annotations[podCommon.AnnotationKeySecurityAppMetadata] = "fake-metatron-app"
+		pod.Annotations[podCommon.AnnotationKeySecurityAppMetadataSig] = "fake-metatron-sig"
 	}
 
-	if err := runtimeTypes.AddContainerInfoToPod(pod, titusInfo); err != nil {
-		return err
-	}
 	task.Pod = pod
-	task.TitusInfo = titusInfo
 
 	return nil
 }
