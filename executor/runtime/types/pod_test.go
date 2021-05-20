@@ -15,8 +15,7 @@ import (
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	vpcTypes "github.com/Netflix/titus-executor/vpc/types" // nolint: staticcheck
-	podCommon "github.com/Netflix/titus-kube-common/pod"   // nolint: staticcheck
+	podCommon "github.com/Netflix/titus-kube-common/pod" // nolint: staticcheck
 	"github.com/docker/go-units"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -127,18 +126,24 @@ func TestNewPodContainer(t *testing.T) {
 	expShmSize := uint32(256)
 	expSubnets := []string{"subnet-1", "subnet-2"}
 	expSvcMeshImage := "docker.io/titusoss/servicemesh:latest"
-	expVPCalloc := &vpcTypes.HybridAllocation{
-		IPV4Address: &vpcapi.UsableAddress{
-			PrefixLength: 32,
-			Address: &vpcapi.Address{
-				Address: ipAddr,
+	expVPCalloc := &vpcapi.Assignment{
+		Assignment: &vpcapi.Assignment_AssignIPResponseV3{
+			AssignIPResponseV3: &vpcapi.AssignIPResponseV3{
+				Ipv4Address: &vpcapi.UsableAddress{
+					PrefixLength: 32,
+					Address: &vpcapi.Address{
+						Address: ipAddr,
+					},
+				},
+				BranchNetworkInterface: &vpcapi.NetworkInterface{
+					NetworkInterfaceId: "eni-abcde",
+					SubnetId:           "subnet-abcde",
+					VpcId:              "vpc-abcde",
+				},
+				ElasticAddress: &vpcapi.ElasticAddress{
+					Ip: "1.2.3.5",
+				},
 			},
-		},
-		BranchENIID:     "eni-abcde",
-		BranchENISubnet: "subnet-abcde",
-		BranchENIVPC:    "vpc-abcde",
-		ElasticAddress: &vpcapi.ElasticAddress{
-			Ip: "1.2.3.5",
 		},
 	}
 
@@ -1157,11 +1162,16 @@ func TestPodContainerEC2HostnameStyle(t *testing.T) {
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 
-	c.SetVPCAllocation(&vpcTypes.HybridAllocation{
-		IPV4Address: &vpcapi.UsableAddress{
-			PrefixLength: 32,
-			Address: &vpcapi.Address{
-				Address: "1.2.3.4"},
+	c.SetVPCAllocation(&vpcapi.Assignment{
+		Assignment: &vpcapi.Assignment_AssignIPResponseV3{
+			AssignIPResponseV3: &vpcapi.AssignIPResponseV3{
+				Ipv4Address: &vpcapi.UsableAddress{
+					Address: &vpcapi.Address{
+						Address: "1.2.3.4",
+					},
+					PrefixLength: 32,
+				},
+			},
 		},
 	})
 

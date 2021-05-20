@@ -14,7 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/Netflix/titus-executor/uploader"
-	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	"github.com/docker/distribution/reference"
@@ -67,7 +67,7 @@ type PodContainer struct {
 	ttyEnabled         bool
 	// userEnv is the environment passed in by the user in the pod spec
 	userEnv       map[string]string
-	vpcAllocation vpcTypes.HybridAllocation
+	vpcAllocation *vpcapi.Assignment
 }
 
 func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) {
@@ -303,11 +303,16 @@ func (c *PodContainer) ImageTagForMetrics() map[string]string {
 }
 
 func (c *PodContainer) IPv4Address() *string {
-	if c.vpcAllocation.IPV4Address == nil {
+	if c.vpcAllocation == nil {
 		return nil
 	}
-
-	return &c.vpcAllocation.IPV4Address.Address.Address
+	switch t := c.vpcAllocation.Assignment.(type) {
+	case *vpcapi.Assignment_AssignIPResponseV3:
+		if t.AssignIPResponseV3.Ipv4Address != nil {
+			return &t.AssignIPResponseV3.Ipv4Address.Address.Address
+		}
+	}
+	panic("Unxpected state")
 }
 
 func (c *PodContainer) IsSystemD() bool {
@@ -494,8 +499,8 @@ func (c *PodContainer) SetSystemD(isSystemD bool) {
 	c.isSystemD = isSystemD
 }
 
-func (c *PodContainer) SetVPCAllocation(allocation *vpcTypes.HybridAllocation) {
-	c.vpcAllocation = *allocation
+func (c *PodContainer) SetVPCAllocation(allocation *vpcapi.Assignment) {
+	c.vpcAllocation = allocation
 }
 
 func (c *PodContainer) ShmSizeMiB() *uint32 {
@@ -564,8 +569,8 @@ func (c *PodContainer) UseJumboFrames() bool {
 	return false
 }
 
-func (c *PodContainer) VPCAllocation() *vpcTypes.HybridAllocation {
-	return &c.vpcAllocation
+func (c *PodContainer) VPCAllocation() *vpcapi.Assignment {
+	return c.vpcAllocation
 }
 
 func (c *PodContainer) VPCAccountID() *string {

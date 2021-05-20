@@ -6,9 +6,6 @@ import (
 	"strings"
 
 	"github.com/Netflix/titus-executor/vpc/tool/assign3"
-
-	"github.com/Netflix/titus-executor/vpc/tool/allocate"
-
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 )
@@ -18,22 +15,12 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 		Use:   "assign",
 		Short: "assign an IP (or set of IPs) to this interface",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			locker, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
 			if err != nil {
 				return err
 			}
 
 			switch strings.ToLower(v.GetString(generationFlagName)) {
-			case "v1":
-				return allocate.Allocate(ctx,
-					iipGetter(),
-					locker,
-					conn,
-					v.GetStringSlice("security-groups"),
-					v.GetInt("device-idx"),
-					v.GetBool("assign-ipv6-address"),
-					v.GetString("ipv4-allocation-uuid"),
-				)
 			case "v3":
 				return assign3.Assign(ctx,
 					iipGetter(),
@@ -49,6 +36,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						ElasticIPs:         v.GetStringSlice("elastic-ips"),
 						Idempotent:         v.GetBool("idempotent"),
 						Jumbo:              v.GetBool("jumbo"),
+						Bandwidth:          v.GetUint64("bandwidth"),
 					},
 				)
 			default:
@@ -68,6 +56,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().String("elastic-ip-pool", "", "The elastic IP pool to allocate from")
 	cmd.Flags().Bool("idempotent", false, "Try to allocate the assignment idempotently")
 	cmd.Flags().Bool("jumbo", false, "Container needs jumbo frames")
+	cmd.Flags().Uint64("bandwidth", 0, "Bandwidth in bps")
 
 	addSharedFlags(cmd.Flags())
 

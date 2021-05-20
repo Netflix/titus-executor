@@ -1843,7 +1843,9 @@ func init() {
 	proto.RegisterType((*TaskIdentityStringDocument)(nil), "messages.TaskIdentityStringDocument")
 }
 
-func init() { proto.RegisterFile("netflix/titus/agent.proto", fileDescriptor_6e78c6f814d9f876) }
+func init() {
+	proto.RegisterFile("netflix/titus/agent.proto", fileDescriptor_6e78c6f814d9f876)
+}
 
 var fileDescriptor_6e78c6f814d9f876 = []byte{
 	// 2372 bytes of a gzipped FileDescriptorProto

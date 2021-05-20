@@ -14,7 +14,6 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-	"github.com/Netflix/titus-executor/vpc/types"
 
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -83,8 +82,7 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 			result = multierror.Append(result, errors.Wrapf(err, "Unable to get assignment %s", taskID))
 			continue
 		}
-		allocation := types.AssignmentToAllocation(assignment.Assignment)
-		err = container2.TeardownNetwork(ctx, allocation)
+		err = container2.TeardownNetwork(ctx, assignment.Assignment)
 		if err != nil {
 			result = multierror.Append(result, errors.Wrapf(err, "Unable to tear down network %s", taskID))
 			continue

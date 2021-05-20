@@ -67,7 +67,7 @@ func getSecurityConfiguration(ctx context.Context, v *pkgviper.Viper) (grpc.Dial
 	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
 }
 
-func getSharedValues(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker, *grpc.ClientConn, error) {
+func getConnection(ctx context.Context, v *pkgviper.Viper) (*grpc.ClientConn, error) {
 	serviceAddr := v.GetString(serviceAddrFlagName)
 
 	keepaliveParams := keepalive.ClientParameters{
@@ -81,7 +81,7 @@ func getSharedValues(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker
 	grpc_logrus.ReplaceGrpcLogger(entry)
 	securityDialOption, err := getSecurityConfiguration(ctx, v)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "Cannot configure ")
+		return nil, errors.Wrap(err, "Cannot configure ")
 	}
 	conn, err := grpc.DialContext(ctx, serviceAddr,
 		grpc.WithStatsHandler(&ocgrpc.ClientHandler{}),
@@ -96,18 +96,22 @@ func getSharedValues(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker
 				grpc_logrus.StreamClientInterceptor(entry),
 			)))
 	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("Unable to create grpc conneciton: %w", err)
 	}
 
+	return conn, nil
+}
+
+func getLocker(ctx context.Context, v *pkgviper.Viper) (*fslocker.FSLocker, error) {
 	stateDir := v.GetString(stateDirFlagName)
 	fslockerDir := filepath.Join(stateDir, "fslocker")
 	if err := os.MkdirAll(fslockerDir, 0700); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	locker, err := fslocker.NewFSLocker(fslockerDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return locker, conn, nil
+	return locker, nil
 }

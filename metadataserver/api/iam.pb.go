@@ -271,7 +271,9 @@ func init() {
 	proto.RegisterType((*AssumeRoleResponse_Credentials)(nil), "com.netflix.titus.executor.metadataserver.AssumeRoleResponse.Credentials")
 }
 
-func init() { proto.RegisterFile("iam.proto", fileDescriptor_0a2c201915207782) }
+func init() {
+	proto.RegisterFile("iam.proto", fileDescriptor_0a2c201915207782)
+}
 
 var fileDescriptor_0a2c201915207782 = []byte{
 	// 437 bytes of a gzipped FileDescriptorProto

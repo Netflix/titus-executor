@@ -6,7 +6,7 @@ import (
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
-	"github.com/gogo/protobuf/jsonpb"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 )

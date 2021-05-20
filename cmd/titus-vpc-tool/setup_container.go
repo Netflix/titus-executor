@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Netflix/titus-executor/vpc/tool/container"
-
 	"github.com/Netflix/titus-executor/vpc/tool/container2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
@@ -20,10 +18,7 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 			netns := v.GetInt("netns")
 			bandwidth := v.GetInt64("bandwidth")
 			burst := v.GetBool("burst")
-			jumbo := v.GetBool("jumbo")
 			switch strings.ToLower(v.GetString(generationFlagName)) {
-			case "v1":
-				return container.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst, jumbo)
 			case "v2", "v3":
 				return container2.SetupContainer(ctx, iipGetter(), netns, uint64(bandwidth), burst)
 			default:

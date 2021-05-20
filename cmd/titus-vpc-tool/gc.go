@@ -19,7 +19,7 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 		Use:   "gc",
 		Short: "Garbage collect unused IP addresses",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, conn, err := getSharedValues(ctx, v)
+			conn, err := getConnection(ctx, v)
 			if err != nil {
 				return err
 			}
