@@ -11,10 +11,9 @@ RUN emerge --sync
 RUN echo 'MAKEOPTS="-j32"' >> /etc/portage/make.conf
 RUN echo 'USE="-pam -gdbm -berkdb -bindist"' >> /etc/portage/make.conf
 # This is because Docker builds don't have CAP_SYS_PTRACE and cannot unshare
-RUN echo 'FEATURES="-sandbox -usersandbox -ipc-sandbox -network-sandbox -pid-sandbox"' >> /etc/portage/make.conf
-#TEMP
-ENV FEATURES="nostrip"
-RUN emerge -C openssh
+# Note: For some reason we cannot strip our binaries. Not sure why...
+RUN echo 'FEATURES="-sandbox -usersandbox -ipc-sandbox -network-sandbox -pid-sandbox nostrip"' >> /etc/portage/make.conf
+RUN emerge --unmerge openssh
 # We want to re-emerge openssl with the new USE flags, because the old USE flags can confuse portage
 RUN emerge --oneshot openssl
 # you need nss on the host to build nss in the prefix
