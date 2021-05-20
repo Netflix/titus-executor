@@ -1872,7 +1872,6 @@ func teardownCommand(netnsFile *os.File, allocation vpcapi.Assignment) error {
 	if err != nil {
 		return errors.Wrap(err, "Cannot get teardown stdin")
 	}
-	encoder := json.NewEncoder(stdin)
 
 	teardownCommand.Stdout = os.Stdout
 	teardownCommand.Stderr = os.Stderr
@@ -1883,7 +1882,10 @@ func teardownCommand(netnsFile *os.File, allocation vpcapi.Assignment) error {
 		return errors.Wrap(err, "Could not start teardown command")
 	}
 
-	err = encoder.Encode(allocation)
+	marshaler := jsonpb.Marshaler{
+		Indent: "\t",
+	}
+	err = marshaler.Marshal(stdin, &allocation)
 	if err != nil {
 		return errors.Wrap(err, "Unable to encode allocation for teardown command")
 	}
