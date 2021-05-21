@@ -2,6 +2,7 @@
 Description=Metrics Pod for %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 ConditionPathExists=!/etc/disable-atlas-titus-agent
+ConditionFileIsExecutable=/usr/local/bin/atlas-titus-agent
 
 StartLimitIntervalSec=30
 StartLimitBurst=5

@@ -173,8 +173,10 @@ int get_apparmor_profile(int titus_pid_1_fd, char apparmor_profile[8192],
 	memset(lsm_buf, 0, sizeof(lsm_buf));
 	fd = open("/sys/kernel/security/lsm", O_RDONLY | O_CLOEXEC);
 	if (fd == -1) {
-		perror("Could not open LSM config file");
-		return 1;
+		// Sometimes LSM is not available, especially if running *in* a docker container
+		fprintf(stderr,
+			"Could not open LSM config file, not setting up Apparmor");
+		return 0;
 	}
 
 	if (read(fd, lsm_buf, sizeof(lsm_buf) - 1) == -1) {
