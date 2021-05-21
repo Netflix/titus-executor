@@ -88,11 +88,11 @@ log "Running tests with CInfo"
 docker exec $TTYFLAG --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
-    -coverpkg=github.com/Netflix/... ./executor/standalone/... -standalone=true 2>&1 | tee test-standalone.log
+    -coverpkg=github.com/Netflix/... ./executor/standalone/... -short=false -shouldUsePodspecInTest=false 2>&1 | tee test-standalone.log
 log "Running tests with Pod Spec v1"
 docker exec $TTYFLAG --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
-    -coverpkg=github.com/Netflix/... ./executor/standalone/... -standalone=true -shouldUsePodspecInTest=true 2>&1 | tee test-standalone-podspec.log
+    -coverpkg=github.com/Netflix/... ./executor/standalone/... -short=false -shouldUsePodspecInTest=true 2>&1 | tee test-standalone-podspec.log
 
 log "Integration tests complete (rc: $?)"

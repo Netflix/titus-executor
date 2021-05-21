@@ -4,23 +4,18 @@ package docker
 
 import (
 	"context"
-	"errors"
 	"net"
 
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 )
 
-var (
-	errUnsupported = errors.New("Unsupported on current platform")
-)
-
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
-	return ucred{0, 0, 0}, errUnsupported
+	return ucred{0, 0, 0}, nil
 }
 
 func setupScheduler(cred ucred) error {
-	return errUnsupported
+	return nil
 }
 
 func hasProjectQuotasEnabled(rootDir string) bool {
@@ -36,20 +31,20 @@ func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Con
 }
 
 func getOwnCgroup(subsystem string) (string, error) {
-	return "", errUnsupported
+	return "", nil
 }
 func cleanupCgroups(cgroupPath string) error {
-	return errUnsupported
+	return nil
 }
 
 func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
-	return errUnsupported
+	return nil
 }
 
 func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
-	return errUnsupported
+	return nil
 }
 
 func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
-	return errUnsupported
+	return nil
 }

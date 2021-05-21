@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1631,6 +1632,12 @@ func (r *DockerRuntime) setupPreStartTini(ctx context.Context, c runtimeTypes.Co
 }
 
 func (r *DockerRuntime) setupPostStartLogDirTini(ctx context.Context, l *net.UnixListener, c runtimeTypes.Container) (string, *ucred, *os.File, *net.UnixConn, error) {
+	// On darwin, we can't expect to be able to cross-mount unix socket directories for this to work,
+	// so we just return right away
+	if runtime.GOOS == "darwin" {
+		return "", nil, nil, nil, nil
+	}
+
 	genericConn, err := l.Accept()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -1898,6 +1905,9 @@ func teardownCommand(netnsFile *os.File, allocation vpcapi.Assignment) error {
 }
 
 func tellTiniToLaunch(conn *net.UnixConn) error {
+	if conn == nil {
+		return nil
+	}
 	// This should be non-blocking
 	_, err := conn.Write([]byte{'L'}) // L is for Launch
 	return err

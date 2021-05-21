@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,16 +28,14 @@ const (
 	TASK_FAILED = "TASK_FAILED" // nolint:golint
 )
 
-var standalone bool
 var shouldUsePodspecInTest bool
 
 func TestMain(m *testing.M) {
-	if debug, err := strconv.ParseBool(os.Getenv("DEBUG")); err == nil && debug {
+	flag.BoolVar(&shouldUsePodspecInTest, "shouldUsePodspecInTest", true, "Use pod schema v1 instead of cinfo in tests")
+	flag.Parse()
+	if testing.Verbose() {
 		log.SetLevel(log.DebugLevel)
 	}
-	flag.BoolVar(&standalone, "standalone", false, "Enable standalone tests")
-	flag.BoolVar(&shouldUsePodspecInTest, "shouldUsePodspecInTest", false, "Use pod schema v1 instead of cinfo in tests")
-	flag.Parse()
 	os.Exit(m.Run())
 }
 
@@ -101,10 +99,16 @@ var (
 const defaultFailureTimeout = time.Minute
 
 func wrapTestStandalone(t *testing.T) {
-	if !standalone {
-		t.Skip("Standalone tests are not enabled! Activate with the -standalone cmdline flag")
+	if testing.Short() {
+		t.Skip("Standalone tests are not enabled! Activate with the -short=false cmdline flag")
 	}
 	t.Parallel()
+}
+
+func skipOnDarwin(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("This test is not compatible with darwin or docker-for-mac")
+	}
 }
 
 func generateJobID(testName string) string {
@@ -663,6 +667,8 @@ func TestShutdown(t *testing.T) {
 
 func TestMetadataProxyInjection(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -677,6 +683,8 @@ func TestMetadataProxyInjection(t *testing.T) {
 
 func TestMetadataProxyFromLocalhost(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -691,6 +699,8 @@ func TestMetadataProxyFromLocalhost(t *testing.T) {
 
 func TestMetadataProxyOnIPv6(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -705,6 +715,8 @@ func TestMetadataProxyOnIPv6(t *testing.T) {
 
 func TestMetadataProxyPublicIP(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -791,6 +803,8 @@ func TestTerminateTimeoutNotTooSlow(t *testing.T) {
 
 func TestOOMAdj(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because it assumes you can see /proc from the container
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -923,7 +937,6 @@ func TestOldEnvironmentLocationPositive(t *testing.T) {
 }
 func TestOldEnvironmentLocationNegative(t *testing.T) {
 	wrapTestStandalone(t)
-
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -938,6 +951,8 @@ func TestOldEnvironmentLocationNegative(t *testing.T) {
 
 func TestNoCPUBursting(t *testing.T) {
 	wrapTestStandalone(t)
+	// Not sure exactly why this doesn't work on darwin, cfs_quota_us isn't in there
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
@@ -953,6 +968,8 @@ func TestNoCPUBursting(t *testing.T) {
 
 func TestCPUBursting(t *testing.T) {
 	wrapTestStandalone(t)
+	// Not sure exactly why this doesn't work on darwin, cfs_quota_us isn't in there
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
@@ -969,6 +986,8 @@ func TestCPUBursting(t *testing.T) {
 
 func TestTwoCPUs(t *testing.T) {
 	wrapTestStandalone(t)
+	// Not sure exactly why this doesn't work on darwin, cpus.shares isn't there
+	skipOnDarwin(t)
 	var cpuCount int64 = 2
 	ji := &JobInput{
 		ImageName: ubuntu.name,
@@ -1028,12 +1047,19 @@ func TestCachedDockerPull(t *testing.T) {
 	require.NoError(t, err, "No error from second docker pull")
 
 	assert.NotNil(t, res, "image should now be cached")
-	assert.Len(t, res.RepoDigests, 1, "digest should be present")
-	assert.EqualValues(t, noEntrypoint.name+"@"+noEntrypoint.digest, res.RepoDigests[0], "Correct digest should be returned")
+	// Should be at least one digest.
+	assert.GreaterOrEqual(t, len(res.RepoDigests), 1, "digest should be present")
+	expectedUnqualifiedImage := noEntrypoint.name + "@" + noEntrypoint.digest
+	actualFulllyQualifiedImage := res.RepoDigests[0]
+	// We don't care about the registry part at the beginning, but we care that the
+	// image with digest is in the full image name
+	assert.Contains(t, actualFulllyQualifiedImage, expectedUnqualifiedImage, "Correct digest should be returned")
 }
 
 func TestMetatron(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because it need system stuff
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName:       userSet.name,
 		Version:         userSet.tag,
@@ -1051,6 +1077,8 @@ func TestMetatron(t *testing.T) {
 // Test that we return failure messages from services
 func TestMetatronFailure(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because it need systemd stuff
+	skipOnDarwin(t)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
@@ -1150,6 +1178,8 @@ func TestShm(t *testing.T) {
 
 func TestContainerLogViewer(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin because it need systemd stuff
+	skipOnDarwin(t)
 	ji := &JobInput{
 		ImageName:        ubuntu.name,
 		Version:          ubuntu.tag,
@@ -1191,6 +1221,8 @@ func TestNegativeSeccomp(t *testing.T) {
 
 func TestGPUManager1GPU(t *testing.T) {
 	wrapTestStandalone(t)
+	// Doesn't work on darwin docker-for-mac won't accept alt docker runtimes
+	skipOnDarwin(t)
 	g := &gpuManager{}
 	var gpu int64 = 1
 

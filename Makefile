@@ -51,7 +51,7 @@ TEST_DIRS = $(shell go list -f 'TEST-{{.ImportPath}}' ./...)
 .PHONY: $(TEST_DIRS)
 $(TEST_DIRS): | $(clean)
 	$(eval import_path := $(subst TEST-,,$@))
-	CGO_ENABLED=0 go test -o test-darwin/$(import_path).test -c $(import_path)
+	CGO_ENABLED=0 go test -short -o test-darwin/$(import_path).test -c $(import_path)
 	$(RM) test-darwin/$(import_path).test
 
 .PHONY: build-tests-darwin
@@ -63,7 +63,7 @@ cross-linux:
 
 .PHONY: test-local
 test-local: | $(clean)
-	CGO_ENABLED=0 go test $(TEST_FLAGS) -covermode=count -coverprofile=coverage-local.out -coverpkg=github.com/Netflix/... ./... \
+	CGO_ENABLED=0 go test -short $(TEST_FLAGS) -covermode=count -coverprofile=coverage-local.out -coverpkg=github.com/Netflix/... ./... \
 	| tee /dev/stderr > test-local.log
 
 # run standalone tests against the docker container runtime
