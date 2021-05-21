@@ -1,7 +1,7 @@
 build:
-	docker build .
+	docker build -t titusoss/titus-sshd .
 
-dev:
+dev: build
 	docker run -it $(shell docker build -q .) /titus/sshd/bin/busybox sh
 
 itest: build
@@ -10,6 +10,7 @@ itest: build
 	docker run -it -v sshd_config.itest:/titus/etc/ssh/sshd_config:ro $(shell docker build -q .) \
 	  /titus/sshd/run-titus-sshd -T && echo "PASS: titus-sshd environment validated"
 
-push:
-	docker build -t titusoss/titus-sshd .
+push: build
 	docker push titusoss/titus-sshd
+	# For netflix engineers to publish locally
+	newt --app-type=docker-image publish --image-name=titusoss/titus-sshd
