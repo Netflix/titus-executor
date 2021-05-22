@@ -327,7 +327,7 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 	if r.wasKilled() {
 		logger.G(ctx).Info("Killing and Shutting down main conatiner because of KillInitiated")
 	} else {
-		logger.G(ctx).Info("Shutting down main container because it finished")
+		logger.G(ctx).Info("Shutting down main container because it finished or died")
 	}
 	if err := r.runtime.Kill(ctx); err != nil {
 		// TODO(Andrew L): There may be leaked resources that are not being
