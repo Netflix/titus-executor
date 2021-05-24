@@ -434,7 +434,7 @@ func (vpcService *vpcService) getTaskLoops() []taskLoop {
 		},
 		{
 			taskName:   "availability_zone",
-			itemLister: vpcService.getRegionAccounts,
+			itemLister: vpcService.getAllRegionAccounts,
 			workFunc:   vpcService.reconcileAvailabilityZonesRegionAccount,
 		},
 		{

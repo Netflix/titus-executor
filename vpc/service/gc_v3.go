@@ -39,6 +39,51 @@ const (
 	associated = "associated"
 )
 
+// getAllRegionAccounts gets regions accounts of the trunk ENI ("accounts"), as well as the
+// branch ENI accounts
+func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]keyedItem, error) {
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not start database transaction")
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	rows, err := tx.QueryContext(ctx, "SELECT region, account_id FROM accounts")
+	if err != nil {
+		return nil, fmt.Errorf("Could not query accounts table: %w", err)
+	}
+
+	ret := []keyedItem{}
+	for rows.Next() {
+		var ra regionAccount
+		err = rows.Scan(&ra.region, &ra.accountID)
+		if err != nil {
+			return nil, fmt.Errorf("Could not 'scan' data from accounts query: %w", err)
+		}
+		ret = append(ret, &ra)
+	}
+
+	rows, err = tx.QueryContext(ctx, "SELECT DISTINCT region, account_id FROM trunk_enis")
+	if err != nil {
+		return nil, fmt.Errorf("Could not query trunk_enis table: %w", err)
+	}
+	for rows.Next() {
+		var ra regionAccount
+		err = rows.Scan(&ra.region, &ra.accountID)
+		if err != nil {
+			return nil, fmt.Errorf("Could not 'scan' data from trunk_enis query: %w", err)
+		}
+		ret = append(ret, &ra)
+	}
+
+	_ = tx.Commit()
+	return ret, nil
+}
+
 func (vpcService *vpcService) tryReallocateStaticAssignment(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) (bool, error) {
 	ctx, span := trace.StartSpan(ctx, "tryReallocateStaticAssignment")
 	defer span.End()
