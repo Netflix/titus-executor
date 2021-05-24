@@ -256,6 +256,8 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 		JobGroupDetail: &detail,
 		IamProfile:     c.IamRole(),
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			// This isn't used, but is marked as required in the protobuf
+			EniLablel:      ptr.StringPtr("0"),
 			SecurityGroups: sgIDs,
 		},
 		JobGroupSequence: &seq,
@@ -473,7 +475,14 @@ func (c *PodContainer) LogUploadThresholdTime() *time.Duration {
 }
 
 func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
-	return c.titusInfo.GetMetatronCreds()
+	if c.podConfig.AppMetadata == nil || c.podConfig.AppMetadataSig == nil {
+		return nil
+	}
+
+	return &titus.ContainerInfo_MetatronCreds{
+		AppMetadata: c.podConfig.AppMetadata,
+		MetadataSig: c.podConfig.AppMetadataSig,
+	}
 }
 
 func (c *PodContainer) NFSMounts() []NFSMount {

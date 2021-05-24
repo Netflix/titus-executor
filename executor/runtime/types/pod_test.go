@@ -1357,6 +1357,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 		JobGroupDetail:   ptr.StringPtr(""),
 		MetatronCreds:    &titus.ContainerInfo_MetatronCreds{},
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			EniLablel:      ptr.StringPtr("0"),
 			SecurityGroups: []string{},
 		},
 		Process: &titus.ContainerInfo_Process{},
@@ -1370,6 +1371,9 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 		},
 		Version: ptr.StringPtr(testImageTag),
 	})
+
+	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
+	assert.DeepEqual(t, c.MetatronCreds(), metatronCredsNil)
 }
 
 func TestContainerInfoGenerationAllFields(t *testing.T) {
@@ -1423,6 +1427,10 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 
 	cInfo, err := c.ContainerInfo()
 	assert.NilError(t, err)
+	expMetatronCreds := &titus.ContainerInfo_MetatronCreds{
+		AppMetadata: ptr.StringPtr("app-meta"),
+		MetadataSig: ptr.StringPtr("meta-sig"),
+	}
 	assert.DeepEqual(t, cInfo, &titus.ContainerInfo{
 		AppName:                ptr.StringPtr(testAppName),
 		IamProfile:             ptr.StringPtr(testIamRole),
@@ -1432,11 +1440,9 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 		JobGroupStack:          ptr.StringPtr(testAppStack),
 		JobGroupDetail:         ptr.StringPtr(testAppDetail),
 		JobId:                  ptr.StringPtr(testJobID),
-		MetatronCreds: &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: ptr.StringPtr("app-meta"),
-			MetadataSig: ptr.StringPtr("meta-sig"),
-		},
+		MetatronCreds:          expMetatronCreds,
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
+			EniLablel:      ptr.StringPtr("0"),
 			SecurityGroups: []string{"sg-1", "sg-2"},
 		},
 		Process: &titus.ContainerInfo_Process{
@@ -1453,6 +1459,8 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 		},
 		Version: ptr.StringPtr(testImageTag),
 	})
+
+	assert.DeepEqual(t, c.MetatronCreds(), expMetatronCreds)
 }
 
 func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
