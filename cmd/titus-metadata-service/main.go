@@ -363,10 +363,13 @@ func main() {
 			return cli.NewExitError(err.Error(), 1)
 		}
 		log.Info("Done serving?")
-		time.Sleep(1 * time.Second)
 		return nil
 	}
+
 	if err := app.Run(os.Args); err != nil {
+		time.Sleep(1 * time.Second)
 		log.WithError(err).Fatal()
 	}
+	// Sleep for 1 second (both here and above) to give logs a chance to flush
+	time.Sleep(1 * time.Second)
 }
