@@ -52,6 +52,9 @@ const notFoundBody = `<?xml version="1.0" encoding="iso-8859-1"?>
  </body>
 </html>`
 
+// A sentinel role used under test
+const FakeARNRole = "arn:aws:iam::0:role/RealRole"
+
 var whitelist = set.NewSetFromSlice([]interface{}{
 	"/latest/meta-data",
 	"/latest/meta-data/network/interfaces/macs/null/vpc-id",
@@ -212,7 +215,9 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 	ms.tokenKey = []byte(config.TokenKey)
 
 	// Create the IAM proxy - we'll attach routes to it for the different versions when we install handlers below
-	ms.iamProxy = newIamProxy(ctx, config, conn)
+	if config.IAMARN != FakeARNRole {
+		ms.iamProxy = newIamProxy(ctx, config, conn)
+	}
 
 	/* IMDS routes */
 	ms.internalMux.Use(ms.serverHeader)
