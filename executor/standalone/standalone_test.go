@@ -89,7 +89,7 @@ var (
 	}
 	userSet = testImage{
 		name: "titusoss/user-set",
-		tag:  "20190209-1549676483",
+		tag:  "20210524-1621898423",
 	}
 	systemdImage = testImage{
 		name: "titusoss/ubuntu-systemd-bionic",
@@ -1072,9 +1072,18 @@ func TestMetatron(t *testing.T) {
 		Version:         userSet.tag,
 		MetatronEnabled: true,
 		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
-		EntrypointOld: fmt.Sprintf("/bin/bash -c \"cat /task-identity; grep %s /task-identity && grep jobAcceptedTimestampMs /task-identity | grep -E '[\\d+]'\"", t.Name()),
-		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		EntrypointOld: strings.Join([]string{
+			"/bin/bash -c \"",
+			"echo '-- task identity: begin --' ;",
+			"curl -isSH Accept:application/json http://169.254.169.254/nflx/v1/task-identity ;",
+			"echo '-- task identity: end --' ;",
+			"cat /task-identity ;",
+			"grep " + t.Name() + " /task-identity &&",
+			"grep jobAcceptedTimestampMs /task-identity | grep -E '[\\d+]'",
+			"\"",
+		}, " "),
+		JobID:      generateJobID(t.Name()),
+		UsePodSpec: shouldUsePodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
