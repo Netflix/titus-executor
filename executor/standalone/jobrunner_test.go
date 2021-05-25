@@ -95,6 +95,8 @@ type JobInput struct {
 	UsePodSpec bool
 
 	GPUManager runtimeTypes.GPUManager
+	// Raw k8s containers, expected to come from the control plane
+	ExtraContainers []corev1.Container
 }
 
 // JobRunResponse returned from RunJob
@@ -273,7 +275,7 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	cfg.MetatronServiceImage = metatronTestImage
 	cfg.SSHDServiceImage = sshdTestImage
 
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "darwin" { //nolint:goconst
 		// On darwin these don't work yet
 		cfg.LogsTmpDir = "/tmp/titus-container-logs"
 		// Assuming if you are on darwin, then pulling from a local netflix mirror
@@ -299,7 +301,7 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	return cfg, dockerCfg
 }
 
-var r = rand.New(rand.NewSource(999)) // nolint: gosec
+var r = rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
 
 // StopExecutor stops a currently running executor
 func (jobRunResponse *JobRunResponse) StopExecutor() {
@@ -417,23 +419,24 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 			},
 		},
 	}
+	pod.Spec.Containers = append(pod.Spec.Containers, jobInput.ExtraContainers...)
 
-	fc := &pod.Spec.Containers[0]
-	pod.Annotations[podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex] = strconv.Itoa(len(fc.Env))
+	mainContainer := &pod.Spec.Containers[0]
+	pod.Annotations[podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex] = strconv.Itoa(len(mainContainer.Env))
 
 	if p := jobInput.Process; p != nil {
-		fc.Command = p.Entrypoint
-		fc.Args = p.Cmd
+		mainContainer.Command = p.Entrypoint
+		mainContainer.Args = p.Cmd
 	} else {
 		entrypoint, err := dockershellparser.ProcessWords(jobInput.EntrypointOld, []string{})
 		if err != nil {
 			return err
 		}
-		fc.Command = entrypoint
+		mainContainer.Command = entrypoint
 	}
 
 	for k, v := range jobInput.Environment {
-		fc.Env = append(fc.Env, corev1.EnvVar{Name: k, Value: v})
+		mainContainer.Env = append(mainContainer.Env, corev1.EnvVar{Name: k, Value: v})
 	}
 
 	// capabilities
@@ -447,7 +450,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 		}
 
 		if len(cp.Add) > 0 || len(cp.Drop) > 0 {
-			fc.SecurityContext = &corev1.SecurityContext{
+			mainContainer.SecurityContext = &corev1.SecurityContext{
 				Capabilities: &cp,
 			}
 		}

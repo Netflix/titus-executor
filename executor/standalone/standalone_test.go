@@ -22,6 +22,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -106,8 +107,14 @@ func wrapTestStandalone(t *testing.T) {
 }
 
 func skipOnDarwin(t *testing.T) {
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "darwin" { //nolint:goconst
 		t.Skip("This test is not compatible with darwin or docker-for-mac")
+	}
+}
+
+func skipIfNotPod(t *testing.T) {
+	if !shouldUsePodspecInTest {
+		t.Skip("Skipping this test as it requires the pod spec")
 	}
 }
 
@@ -1252,4 +1259,37 @@ func TestGPUManager1GPU(t *testing.T) {
 
 	assert.Equal(t, 1, g.devicesAllocated)
 	assert.Equal(t, 1, g.devicesDeallocated)
+}
+
+func TestBasicMultiContainer(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+
+	// And for the main container, we use pgrep to ensure that our sentinel container
+	// is in fact running along side us.
+	testEntrypointOld := "/usr/bin/pgrep -f 'sleep 42'"
+	if runtime.GOOS == "darwin" { //nolint:goconst
+		// To make this test compatible with darwin, which can't use tini callbacks
+		// for strict ordering. So we add a short sleep in front.
+		testEntrypointOld = `/bin/sh -c "/bin/sleep 3; ` + testEntrypointOld + `"`
+	}
+
+	ji := &JobInput{
+		ImageName:  alpine.name,
+		Version:    alpine.tag,
+		UsePodSpec: shouldUsePodspecInTest,
+		// This sentinel container is a second process we can look out
+		// for, in order to detect if multi-container workloads are setup
+		ExtraContainers: []corev1.Container{
+			{
+				Name:  "sleep-sentinel",
+				Image: alpine.name,
+				Args:  []string{"/bin/sleep", "42"},
+			},
+		},
+		EntrypointOld: testEntrypointOld,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
 }

@@ -142,7 +142,7 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	// TODO: Can we somehow make sure titus-container always starts first?
 	for _, svc := range sidecars {
 		if svc.EnabledCheck != nil && !svc.EnabledCheck(&cfg, c) {
-			logrus.Debugf("skipping sidecar %s, not enabled", svc.UnitName)
+			logrus.Debugf("skipping sidecar %s, not enabled", svc.ServiceName)
 			continue
 		}
 		if svc.UnitName == "" {

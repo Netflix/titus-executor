@@ -241,7 +241,14 @@ func (r *DockerRuntime) registerRuntimeCleanup(callback cleanupFunc) {
 
 func setupLoggingInfra(dockerRuntime *DockerRuntime) error {
 	var err error
-	dockerRuntime.tiniSocketDir, err = ioutil.TempDir("/var/tmp", "titus-executor-sockets")
+	var tmpDir = "/var/tmp"
+	if runtime.GOOS == "darwin" { //nolint:goconst
+		// Darwin (docker for Mac) is a special case, because the default allowed
+		// bind mounts only include /tmp/, and not /var/tmp.
+		// We set this, even though at this exact moment, unix sockets don't work on docker-for-mac
+		tmpDir = "/tmp/"
+	}
+	dockerRuntime.tiniSocketDir, err = ioutil.TempDir(tmpDir, "titus-executor-sockets")
 	if err != nil {
 		return err
 	}
@@ -484,10 +491,17 @@ func (r *DockerRuntime) setupLogs(c runtimeTypes.Container, hostCfg *container.H
 	c.SetEnvs(map[string]string{
 		"TITUS_REDIRECT_STDERR": "/logs/stderr",
 		"TITUS_REDIRECT_STDOUT": "/logs/stdout",
-		"TITUS_UNIX_CB_PATH":    filepath.Join("/titus-executor-sockets/", socketFileName),
-		/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
-		"TITUS_CONFIRM": trueString,
 	})
+	if runtime.GOOS == "linux" {
+		// Only in non-darwin (linux) can bind-mounted unix socket directories work
+		// Otherwise these will *not* be set, and tini won't bother to call back
+		// on these sockets.
+		c.SetEnvs(map[string]string{
+			"TITUS_UNIX_CB_PATH": filepath.Join("/titus-executor-sockets/", socketFileName),
+			/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
+			"TITUS_CONFIRM": trueString,
+		})
+	}
 
 	if r.dockerCfg.tiniVerbosity > 0 {
 		c.SetEnv("TINI_VERBOSITY", strconv.Itoa(r.dockerCfg.tiniVerbosity))
@@ -1289,7 +1303,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		err = fmt.Errorf("container prestart error inspecting main container: %w", err)
 		return "", nil, statusMessageChan, err
 	}
-	mainContainerRoot := inspectOutput.GraphDriver.Data["MergedDir"]
+	mainContainerRoot := getMainContainerRoot(inspectOutput)
 	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
 	if err != nil {
 		eventCancel()
@@ -1297,6 +1311,19 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	return logDir, details, statusMessageChan, err
+}
+
+// getMainContainerRoot returns the absolute path of the root of the filesystem of the
+// main container (or any container really). Only works on overlay2 storage drivers, returns ""
+// otherwise.
+func getMainContainerRoot(inspectOutput types.ContainerJSON) string {
+	driver := inspectOutput.GraphDriver.Name
+	if driver != "overlay2" {
+		// Only overlay2 can do mounted volumes like this, other storage drivers
+		// don't allow you to "just" get another container's root and mount it somewhere else
+		return ""
+	}
+	return inspectOutput.GraphDriver.Data["MergedDir"]
 }
 
 func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.Container, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
@@ -1467,6 +1494,7 @@ func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Containe
 }
 
 func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
+	l := log.WithField("taskID", r.c.TaskID())
 	// These labels are needed for titus-node-problem-detector
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
@@ -1476,17 +1504,25 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 	mounts := []mount.Mount{
 		{
 			Type:     "bind",
-			Source:   mainContainerRoot + "/logs",
-			Target:   "/logs",
-			ReadOnly: false,
-		},
-		{
-			Type:     "bind",
 			Source:   r.dockerCfg.tiniPath,
 			ReadOnly: true,
 			Target:   "/sbin/docker-init",
 		},
 	}
+	if mainContainerRoot != "" {
+		stockSharedVolumes := []mount.Mount{
+			{
+				Type:     "bind",
+				Source:   mainContainerRoot + "/logs",
+				Target:   "/logs",
+				ReadOnly: false,
+			},
+		}
+		mounts = append(mounts, stockSharedVolumes...)
+	} else {
+		l.Info("no mainContainerRoot available, volumes will not be sharable between containers")
+	}
+
 	// TODO: Use the same env logic as the main container
 	baseEnv := []string{
 		"TITUS_REDIRECT_STDERR=/logs/stderr-" + v1Container.Name,
@@ -1661,6 +1697,13 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes
 
 // Setup listener
 func (r *DockerRuntime) setupPreStartTini(ctx context.Context, c runtimeTypes.Container) (*net.UnixListener, error) {
+	if runtime.GOOS == "darwin" { //nolint:goconst
+		// On darwin (docker-for-mac), it is not possible to share
+		// darwin unix sockets with a linux guest container: https://github.com/docker/for-mac/issues/483
+		// Instead we gracefully degrade with a nil listener and move on
+		return nil, nil
+	}
+
 	fullSocketFileName := r.hostOSPathToTiniSocket(c)
 
 	l, err := net.Listen("unix", fullSocketFileName)
@@ -1686,9 +1729,9 @@ func (r *DockerRuntime) setupPreStartTini(ctx context.Context, c runtimeTypes.Co
 }
 
 func (r *DockerRuntime) setupPostStartLogDirTini(ctx context.Context, l *net.UnixListener, c runtimeTypes.Container) (string, *ucred, *os.File, *net.UnixConn, error) {
-	// On darwin, we can't expect to be able to cross-mount unix socket directories for this to work,
-	// so we just return right away
-	if runtime.GOOS == "darwin" {
+	if l == nil {
+		// In situations where we don't have a listener to use (docker-for-mac)
+		// we can gracefully degrade and not do additional log or system service setup
 		return "", nil, nil, nil, nil
 	}
 
