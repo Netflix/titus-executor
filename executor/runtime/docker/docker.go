@@ -1844,27 +1844,6 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	return nil
 }
 
-func setupNetworkingArgs(burst bool, c runtimeTypes.Container) []string {
-	bw := int64(defaultNetworkBandwidth)
-	if bwLim := c.BandwidthLimitMbps(); bwLim != nil && *bwLim != 0 {
-		bw = *bwLim * 1000 * 1000
-	}
-
-	args := []string{
-		"setup-container",
-		"--bandwidth", strconv.FormatInt(bw, 10),
-		"--netns", "3",
-	}
-	if burst || c.AllowNetworkBursting() {
-		args = append(args, "--burst=true")
-	}
-	if c.UseJumboFrames() {
-		args = append(args, "--jumbo=true")
-	}
-
-	return args
-}
-
 func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, cred ucred) (cleanupFunc, error) { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
@@ -1878,7 +1857,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	}
 	defer shouldClose(netnsFile)
 
-	setupCommand := exec.CommandContext(ctx, vpcToolPath(), setupNetworkingArgs(burst, c)...) // nolint: gosec
+	setupCommand := exec.CommandContext(ctx, vpcToolPath(), "setup-container", "--netns", "3") // nolint: gosec
 	stdin, err := setupCommand.StdinPipe()
 	if err != nil {
 		return nil, err // nolint: vet

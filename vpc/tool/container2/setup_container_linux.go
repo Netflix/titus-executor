@@ -80,6 +80,7 @@ func getBranchLink(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) (
 }
 
 func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, assignment *vpcapi.AssignIPResponseV3) error {
+	logger.G(ctx).WithField("assignment", assignment.String()).Info("Configuring networking with assignment")
 	branchLink, err := getBranchLink(ctx, assignment)
 	if err != nil {
 		return err
