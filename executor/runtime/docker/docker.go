@@ -619,11 +619,17 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		return nil, errors.New("container is missing security groups")
 	}
 
+	bw := int64(defaultNetworkBandwidth)
+	if bwLim := c.BandwidthLimitMbps(); bwLim != nil && *bwLim != 0 {
+		bw = *bwLim * 1000 * 1000
+	}
+
 	args := []string{
 		"assign",
 		"--device-idx", strconv.Itoa(*eniIdx),
 		"--security-groups", strings.Join(*sgIDs, ","),
 		"--task-id", c.TaskID(),
+		"--bandwidth", strconv.FormatInt(bw, 10),
 	}
 
 	if c.SignedAddressAllocationUUID() != nil {
@@ -652,6 +658,10 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 
 	if c.UseJumboFrames() {
 		args = append(args, "--jumbo=true")
+	}
+
+	if c.AllowNetworkBursting() {
+		args = append(args, "--burst=true")
 	}
 
 	// There's a narrow chance that there's a race here that the context expires, but the assignment has

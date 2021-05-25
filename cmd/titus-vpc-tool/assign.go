@@ -37,6 +37,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						Idempotent:         v.GetBool("idempotent"),
 						Jumbo:              v.GetBool("jumbo"),
 						Bandwidth:          v.GetUint64("bandwidth"),
+						Burst:              v.GetBool("burst"),
 					},
 				)
 			default:
@@ -57,6 +58,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	cmd.Flags().Bool("idempotent", false, "Try to allocate the assignment idempotently")
 	cmd.Flags().Bool("jumbo", false, "Container needs jumbo frames")
 	cmd.Flags().Uint64("bandwidth", 0, "Bandwidth in bps")
+	cmd.Flags().Bool("burst", false, "Allow for bursting")
 
 	addSharedFlags(cmd.Flags())
 

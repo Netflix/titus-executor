@@ -31,6 +31,7 @@ type Arguments struct {
 	Idempotent         bool
 	Jumbo              bool
 	Bandwidth          uint64
+	Burst              bool
 }
 
 func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, args Arguments) error {
@@ -133,6 +134,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		Idempotent:       args.Idempotent,
 		Jumbo:            args.Jumbo,
 		Bandwidth:        args.Bandwidth,
+		Burst:            args.Burst,
 	}
 
 	if args.ElasticIPPool != "" {
