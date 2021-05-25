@@ -609,10 +609,13 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
-	maxBandwidth, err := vpc.GetMaxNetworkbps(aws.StringValue(instance.InstanceType))
-	if err != nil {
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+	maxBandwidth := req.Bandwidth
+	if req.Burst {
+		maxBandwidth, err = vpc.GetMaxNetworkbps(aws.StringValue(instance.InstanceType))
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
 	}
 
 	ass, err := vpcService.generateAssignmentID(ctx, getENIRequest{
