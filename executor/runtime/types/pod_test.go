@@ -152,11 +152,11 @@ func TestNewPodContainer(t *testing.T) {
 	}
 
 	addPodAnnotations(pod, map[string]string{
-		podCommon.AnnotationKeyAppName:                  testAppName,
-		podCommon.AnnotationKeyAppDetail:                testAppDetail,
-		podCommon.AnnotationKeyAppOwnerEmail:            testAppOwner,
-		podCommon.AnnotationKeyAppStack:                 testAppStack,
-		podCommon.AnnotationKeyAppSequence:              testAppSeq,
+		podCommon.AnnotationKeyWorkloadName:             testAppName,
+		podCommon.AnnotationKeyWorkloadDetail:           testAppDetail,
+		podCommon.AnnotationKeyWorkloadOwnerEmail:       testAppOwner,
+		podCommon.AnnotationKeyWorkloadStack:            testAppStack,
+		podCommon.AnnotationKeyWorkloadSequence:         testAppSeq,
 		podCommon.AnnotationKeyIAMRole:                  testIamRole,
 		podCommon.AnnotationKeyJobID:                    testJobID,
 		podCommon.AnnotationKeyJobType:                  "service",
@@ -600,13 +600,13 @@ func TestPodContainerClusterName(t *testing.T) {
 		assert.NilError(t, err)
 
 		if f.appName != "" {
-			pod.Annotations[podCommon.AnnotationKeyAppName] = f.appName
+			pod.Annotations[podCommon.AnnotationKeyWorkloadName] = f.appName
 		}
 		if f.jobGroupDetail != "" {
-			pod.Annotations[podCommon.AnnotationKeyAppDetail] = f.jobGroupDetail
+			pod.Annotations[podCommon.AnnotationKeyWorkloadDetail] = f.jobGroupDetail
 		}
 		if f.jobGroupStack != "" {
-			pod.Annotations[podCommon.AnnotationKeyAppStack] = f.jobGroupStack
+			pod.Annotations[podCommon.AnnotationKeyWorkloadStack] = f.jobGroupStack
 		}
 
 		c, err := NewPodContainer(pod, *conf)
@@ -714,10 +714,10 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "Full",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName:     "app1",
-					podCommon.AnnotationKeyAppStack:    "stack1",
-					podCommon.AnnotationKeyAppDetail:   "detail1",
-					podCommon.AnnotationKeyAppSequence: "v001",
+					podCommon.AnnotationKeyWorkloadName:     "app1",
+					podCommon.AnnotationKeyWorkloadStack:    "stack1",
+					podCommon.AnnotationKeyWorkloadDetail:   "detail1",
+					podCommon.AnnotationKeyWorkloadSequence: "v001",
 				},
 				image:            "titusops/image1@" + testDigest,
 				cpu:              "1",
@@ -743,10 +743,10 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "NoName",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName:     "image1",
-					podCommon.AnnotationKeyAppStack:    "stack1",
-					podCommon.AnnotationKeyAppDetail:   "detail1",
-					podCommon.AnnotationKeyAppSequence: "v001",
+					podCommon.AnnotationKeyWorkloadName:     "image1",
+					podCommon.AnnotationKeyWorkloadStack:    "stack1",
+					podCommon.AnnotationKeyWorkloadDetail:   "detail1",
+					podCommon.AnnotationKeyWorkloadSequence: "v001",
 				},
 				image:            "titusops/image1:latest",
 				cpu:              "2",
@@ -772,9 +772,9 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "NoStack",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName:     "app1",
-					podCommon.AnnotationKeyAppDetail:   "detail1",
-					podCommon.AnnotationKeyAppSequence: "v001",
+					podCommon.AnnotationKeyWorkloadName:     "app1",
+					podCommon.AnnotationKeyWorkloadDetail:   "detail1",
+					podCommon.AnnotationKeyWorkloadSequence: "v001",
 				},
 				image:            "titusops/image1:latest",
 				cpu:              "3",
@@ -800,9 +800,9 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "NoDetail",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName:     "app1",
-					podCommon.AnnotationKeyAppStack:    "stack1",
-					podCommon.AnnotationKeyAppSequence: "v001",
+					podCommon.AnnotationKeyWorkloadName:     "app1",
+					podCommon.AnnotationKeyWorkloadStack:    "stack1",
+					podCommon.AnnotationKeyWorkloadSequence: "v001",
 				},
 				image:            "titusops/image1:latest",
 				cpu:              "4",
@@ -828,9 +828,9 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "NoSequence",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName:   "app1",
-					podCommon.AnnotationKeyAppStack:  "stack1",
-					podCommon.AnnotationKeyAppDetail: "detail1",
+					podCommon.AnnotationKeyWorkloadName:   "app1",
+					podCommon.AnnotationKeyWorkloadStack:  "stack1",
+					podCommon.AnnotationKeyWorkloadDetail: "detail1",
 				},
 				image:            "titusops/image1:latest",
 				cpu:              "5",
@@ -856,8 +856,8 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "NoStackNoDetail",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName:     "app1",
-					podCommon.AnnotationKeyAppSequence: "v001",
+					podCommon.AnnotationKeyWorkloadName:     "app1",
+					podCommon.AnnotationKeyWorkloadSequence: "v001",
 				},
 				image:            "titusops/image1:latest",
 				cpu:              "6",
@@ -883,7 +883,7 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "NoStackNoDetailNoSequence",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName: "app1",
+					podCommon.AnnotationKeyWorkloadName: "app1",
 				},
 				image:            "titusops/image1:latest",
 				cpu:              "7",
@@ -909,7 +909,7 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			name: "NoNameNoStackNoDetailNoSequence",
 			input: input{
 				annotations: map[string]string{
-					podCommon.AnnotationKeyAppName: "image1",
+					podCommon.AnnotationKeyWorkloadName: "image1",
 				},
 				image:            "titusops/image1:latest",
 				cpu:              "8",
@@ -1402,16 +1402,16 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
-		podCommon.AnnotationKeyAppName:                       testAppName,
-		podCommon.AnnotationKeyAppDetail:                     testAppDetail,
-		podCommon.AnnotationKeyAppOwnerEmail:                 testAppOwner,
-		podCommon.AnnotationKeyAppStack:                      testAppStack,
-		podCommon.AnnotationKeyAppSequence:                   testAppSeq,
+		podCommon.AnnotationKeyWorkloadName:                  testAppName,
+		podCommon.AnnotationKeyWorkloadDetail:                testAppDetail,
+		podCommon.AnnotationKeyWorkloadOwnerEmail:            testAppOwner,
+		podCommon.AnnotationKeyWorkloadStack:                 testAppStack,
+		podCommon.AnnotationKeyWorkloadSequence:              testAppSeq,
 		podCommon.AnnotationKeyIAMRole:                       testIamRole,
 		podCommon.AnnotationKeyJobAcceptedTimestampMs:        "44",
 		podCommon.AnnotationKeyJobID:                         testJobID,
-		podCommon.AnnotationKeySecurityAppMetadata:           "app-meta",
-		podCommon.AnnotationKeySecurityAppMetadataSig:        "meta-sig",
+		podCommon.AnnotationKeySecurityWorkloadMetadata:      "app-meta",
+		podCommon.AnnotationKeySecurityWorkloadMetadataSig:   "meta-sig",
 		podCommon.AnnotationKeyNetworkSecurityGroups:         "sg-1,sg-2",
 		// enable shell splitting to confirm that ContainerInfo returns the non-split version
 		podCommon.AnnotationKeyPodTitusEntrypointShellSplitting: "true",
