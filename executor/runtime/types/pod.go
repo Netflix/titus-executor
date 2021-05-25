@@ -176,8 +176,8 @@ func (c *PodContainer) AppArmorProfile() *string {
 }
 
 func (c *PodContainer) AppName() string {
-	if c.podConfig.AppName != nil {
-		return *c.podConfig.AppName
+	if c.podConfig.WorkloadName != nil {
+		return *c.podConfig.WorkloadName
 	}
 	return ""
 }
@@ -262,8 +262,8 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 		},
 		JobGroupSequence: &seq,
 		MetatronCreds: &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: c.podConfig.AppMetadata,
-			MetadataSig: c.podConfig.AppMetadataSig,
+			AppMetadata: c.podConfig.WorkloadMetadata,
+			MetadataSig: c.podConfig.WorkloadMetadataSig,
 		},
 		UserProvidedEnv:  userProvidedEnv,
 		TitusProvidedEnv: titusProvidedEnv,
@@ -389,22 +389,22 @@ func (c *PodContainer) IsSystemD() bool {
 }
 
 func (c *PodContainer) JobGroupDetail() string {
-	if c.podConfig.AppDetail != nil {
-		return *c.podConfig.AppDetail
+	if c.podConfig.WorkloadDetail != nil {
+		return *c.podConfig.WorkloadDetail
 	}
 	return ""
 }
 
 func (c *PodContainer) JobGroupStack() string {
-	if c.podConfig.AppStack != nil {
-		return *c.podConfig.AppStack
+	if c.podConfig.WorkloadStack != nil {
+		return *c.podConfig.WorkloadStack
 	}
 	return ""
 }
 
 func (c *PodContainer) JobGroupSequence() string {
-	if c.podConfig.AppSequence != nil {
-		return *c.podConfig.AppSequence
+	if c.podConfig.WorkloadSequence != nil {
+		return *c.podConfig.WorkloadSequence
 	}
 	return ""
 }
@@ -475,13 +475,13 @@ func (c *PodContainer) LogUploadThresholdTime() *time.Duration {
 }
 
 func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
-	if c.podConfig.AppMetadata == nil || c.podConfig.AppMetadataSig == nil {
+	if c.podConfig.WorkloadMetadata == nil || c.podConfig.WorkloadMetadataSig == nil {
 		return nil
 	}
 
 	return &titus.ContainerInfo_MetatronCreds{
-		AppMetadata: c.podConfig.AppMetadata,
-		MetadataSig: c.podConfig.AppMetadataSig,
+		AppMetadata: c.podConfig.WorkloadMetadata,
+		MetadataSig: c.podConfig.WorkloadMetadataSig,
 	}
 }
 
@@ -500,7 +500,7 @@ func (c *PodContainer) OomScoreAdj() *int32 {
 }
 
 func (c *PodContainer) OwnerEmail() *string {
-	return c.podConfig.AppOwnerEmail
+	return c.podConfig.WorkloadOwnerEmail
 }
 
 func (c *PodContainer) Process() ([]string, []string) {

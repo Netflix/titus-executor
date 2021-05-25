@@ -390,7 +390,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 				podCommon.AnnotationKeyEgressBandwidth:  bandwidth.String(),
 				podCommon.AnnotationKeyIngressBandwidth: bandwidth.String(),
 				podCommon.AnnotationKeyLogKeepLocalFile: True,
-				podCommon.AnnotationKeyAppName:          defaultAppName,
+				podCommon.AnnotationKeyWorkloadName:     defaultAppName,
 				podCommon.AnnotationKeyJobID:            jobID,
 			},
 			Labels: map[string]string{},
@@ -488,8 +488,8 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	}
 
 	if jobInput.MetatronEnabled {
-		pod.Annotations[podCommon.AnnotationKeySecurityAppMetadata] = "fake-metatron-app"
-		pod.Annotations[podCommon.AnnotationKeySecurityAppMetadataSig] = "fake-metatron-sig"
+		pod.Annotations[podCommon.AnnotationKeySecurityWorkloadMetadata] = "fake-metatron-app"
+		pod.Annotations[podCommon.AnnotationKeySecurityWorkloadMetadataSig] = "fake-metatron-sig"
 	}
 
 	task.Pod = pod
