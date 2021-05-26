@@ -475,6 +475,11 @@ func (c *PodContainer) LogUploadThresholdTime() *time.Duration {
 }
 
 func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
+	if c.titusInfo != nil {
+		// ContainerInfo was passed in the attribute: return its copy of the creds
+		return c.titusInfo.MetatronCreds
+	}
+
 	if c.podConfig.WorkloadMetadata == nil || c.podConfig.WorkloadMetadataSig == nil {
 		return nil
 	}
