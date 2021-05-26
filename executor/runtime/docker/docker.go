@@ -1480,12 +1480,13 @@ func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context, name
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
 	for _, name := range names {
+		cName := name
 		group.Go(func(ctx context.Context) error {
-			cid := cidMapping[name]
-			l.Debugf("Starting up platform-defined container %s, container id %s", name, cid)
+			cid := cidMapping[cName]
+			l.Debugf("Starting up platform-defined container %s, container id %s", cName, cid)
 			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
 			if err != nil {
-				return fmt.Errorf("Failed to start %s platform container: %w", name, err)
+				return fmt.Errorf("Failed to start %s platform container: %w", cName, err)
 			}
 			return nil
 		})
@@ -1497,17 +1498,18 @@ func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, names []
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
 	for _, name := range names {
-		if name == r.c.TaskID() {
+		cName := name
+		if cName == r.c.TaskID() {
 			// Special case, the main container here is already running, it just needs
 			// to be told to run its own process via tini, we'll handle that in a different case
 			continue
 		}
 		group.Go(func(ctx context.Context) error {
-			cid := cidMapping[name]
-			l.Debugf("Starting up user-defined container %s, container id %s", name, cid)
+			cid := cidMapping[cName]
+			l.Debugf("Starting up user-defined container %s, container id %s", cName, cid)
 			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
 			if err != nil {
-				return fmt.Errorf("Failed to start %s user container: %w", name, err)
+				return fmt.Errorf("Failed to start %s user container: %w", cName, err)
 			}
 			return nil
 		})
