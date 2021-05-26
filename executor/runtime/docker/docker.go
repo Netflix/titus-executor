@@ -1539,7 +1539,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 	// Because as is, we are *setting* the entrypoint all the time here, which means docker is going
 	// to ignore whatever entrypoing is on the *image*. We want the normal docker behavior here,
 	// but we *also* want tini.
-	dockerEntrypoint := append([]string{"/sbin/docker-init", "--"}, v1Container.Command...)
+	dockerEntrypoint := append([]string{"/sbin/docker-init", "-s", "--"}, v1Container.Command...)
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
