@@ -1642,6 +1642,9 @@ func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
 
 func getUserContainerNames(pod *v1.Pod) []string {
 	userContainerNames := []string{}
+	if pod == nil || pod.Spec.Containers == nil {
+		return userContainerNames
+	}
 	for _, c := range pod.Spec.Containers {
 		// Currently anything *not* a sidecar needs to fall
 		// into the "user" bucket. No container can be left behind
@@ -1654,6 +1657,9 @@ func getUserContainerNames(pod *v1.Pod) []string {
 
 func getPlaformContainerNames(pod *v1.Pod) []string {
 	platformContainerNames := []string{}
+	if pod == nil || pod.Spec.Containers == nil {
+		return platformContainerNames
+	}
 	for _, c := range pod.Spec.Containers {
 		if isPlatformSidecarContainer(c.Name, pod) {
 			platformContainerNames = append(platformContainerNames, c.Name)

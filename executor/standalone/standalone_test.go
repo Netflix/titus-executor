@@ -516,7 +516,7 @@ func TestImagePullError(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
 		ImageName:     busybox.name,
-		Version:       "latest1",
+		Version:       "purposelyDoesntExist",
 		EntrypointOld: "/usr/bin/true",
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
