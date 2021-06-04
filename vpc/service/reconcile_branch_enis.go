@@ -351,43 +351,6 @@ retry:
 
 	span.AddAttributes(trace.StringAttribute("networkInterfaceSecurityGroups", fmt.Sprintf("%+v", networkInterfaceSecurityGroups)))
 
-	_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET mac = $1 WHERE branch_eni = $2 AND mac IS NULL",
-		aws.StringValue(networkInterface.MacAddress), branch)
-	if isSerializationFailure(err) {
-		serializationErrors++
-		goto retry
-	}
-	if err != nil {
-		err = errors.Wrap(err, "Cannot update branch ENI MAC address")
-		tracehelpers.SetStatus(err, span)
-		return false, err
-	}
-
-	// We need to update the security groups in the database
-	if len(dbSecurityGroups) == 0 {
-		logger.G(ctx).Info("Security groups empty in database, updating from AWS")
-		_, err = fastTx.ExecContext(ctx,
-			"UPDATE branch_enis SET security_groups = $1, dirty_security_groups = true WHERE branch_eni = $2",
-			pq.Array(networkInterfaceSecurityGroups), branch)
-		if err != nil {
-			err = errors.Wrap(err, "Could not update security groups in database")
-			tracehelpers.SetStatus(err, span)
-			return false, err
-		}
-		err = fastTx.Commit()
-		if isSerializationFailure(err) {
-			serializationErrors++
-			goto retry
-		}
-		if err != nil {
-			err = errors.Wrap(err, "Cannot commit transaction")
-			tracehelpers.SetStatus(err, span)
-			return false, err
-		}
-
-		return false, nil
-	}
-
 	// Should we try to update the security groups from the database to the network interface in AWS. NO.
 	securityGroupsMatch := sets.NewString(dbSecurityGroups...).Equal(sets.NewString(networkInterfaceSecurityGroups...))
 	if securityGroupsMatch {

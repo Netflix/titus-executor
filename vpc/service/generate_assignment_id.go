@@ -6,11 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
-	"strings"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -28,12 +24,8 @@ import (
 
 const (
 	generateAssignmentIDTimeout = time.Second * 30
-	securityGroupBlockTimeout   = 15 * time.Minute
+	securityGroupBlockTimeout   = 1 * time.Minute
 )
-
-type invalidSecurityGroupsError struct {
-	message string
-}
 
 type eniLockWrapper struct {
 	sem      *semaphore.Weighted
@@ -73,16 +65,14 @@ type getENIRequest struct {
 	ceil      uint64
 }
 
-type getENIResponse struct {
-	assignmentID        int
-	dirtySecurityGroups bool
-	eni                 *branchENI
-}
-
 type assignment struct {
 	assignmentName string
 	assignmentID   int
-	branch         *branchENI
+
+	assignmentChangedSecurityGroups bool
+
+	trunk          string
+	branch         branchENI
 	securityGroups []string
 	subnet         *subnet
 	bandwidth      uint64
@@ -114,7 +104,6 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 
 	span.AddAttributes(trace.StringAttribute("assignmentID", req.assignmentID))
 	var err error
-	var response *getENIResponse
 	// fastTx = isolation level serial -- work must be done quickly (side effects not appreciated)
 	// slowTx = isolation level read repeatable -- work
 
@@ -141,31 +130,19 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 
 	sort.Strings(req.securityGroups)
 
-	securityGroupsKey := fmt.Sprintf("%s-%s", req.subnet.vpcID, strings.Join(req.securityGroups, ","))
-	if cachedVal := vpcService.invalidSecurityGroupCache.Get(securityGroupsKey); cachedVal != nil && !cachedVal.Expired() {
-		val := cachedVal.Value().(*invalidSecurityGroupsError)
-		invalidFor := time.Until(cachedVal.Expires())
-		err = status.Errorf(codes.NotFound, "Security groups not found: %s, try again in %s", val.message, invalidFor)
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	response, err = vpcService.generateAssignmentID2(ctx, &req)
+	// Let's validate the security groups
+	err = vpcService.validateSecurityGroups(ctx, req.branchENISession, req.subnet, req.securityGroups, &regionAccount{
+		accountID: req.branchENIAccount,
+		region:    req.region,
+	})
 	if err != nil {
-		err = errors.Wrap(err, "Could not generate assignment ID with already attached ENI")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	span.AddAttributes(
-		trace.StringAttribute("branch", response.eni.id),
-		trace.StringAttribute("securityGroups", fmt.Sprint(req.securityGroups)),
-	)
-
-	assignment := &assignment{
+	ass := &assignment{
+		trunk:            req.trunkENI,
 		assignmentName:   req.assignmentID,
-		assignmentID:     response.assignmentID,
-		branch:           response.eni,
 		securityGroups:   req.securityGroups,
 		subnet:           req.subnet,
 		trunkENISession:  req.trunkENISession,
@@ -174,23 +151,177 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 		bandwidth:        req.bandwidth,
 		ceil:             req.ceil,
 	}
-	if !response.dirtySecurityGroups {
-		return assignment, nil
-	}
 
-	slowTx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	err = vpcService.populateAssignment(ctx, req, ass)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot begin Tx")
+		err = errors.Wrap(err, "Could not generate assignment ID with already attached ENI")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+
+	span.AddAttributes(
+		trace.StringAttribute("branch", ass.branch.id),
+		trace.StringAttribute("securityGroups", fmt.Sprint(req.securityGroups)),
+	)
+	if ass.assignmentChangedSecurityGroups {
+		logger.G(ctx).Debug("Changing security groups")
+		err = vpcService.updateBranchENISecurityGroups(ctx, ass)
+		if err != nil {
+			vpcService.deleteAssignment(ctx, ass)
+
+			err = errors.Wrap(err, "Could not update branch ENI security groups")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+	}
+
+	return ass, nil
+}
+
+// THIS IS ONLY TO BE USED TO DELETE AN ASSIGNMENT THAT FAILED IN A PARTIAL STATE
+func (vpcService *vpcService) deleteAssignment(ctx context.Context, ass *assignment) {
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not start transaction")
+		return
+	}
 	defer func() {
-		_ = slowTx.Rollback()
+		_ = tx.Rollback()
 	}()
 
-	row := slowTx.QueryRowContext(ctx, `
+	_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", ass.assignmentID)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("could not delete assignment")
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("could not commit transaction")
+	}
+}
+
+func (vpcService *vpcService) validateSecurityGroups(ctx context.Context, session *ec2wrapper.EC2Session, s *subnet, securityGroups []string, account *regionAccount) error {
+	ctx, span := trace.StartSpan(ctx, "validateSecurityGroups")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot begin read-only transaction")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback()
+	}(tx)
+
+	missingSecurityGroups := []string{}
+
+	// This is just easier than trying to do fancy SQL.
+	for idx := range securityGroups {
+		sg := securityGroups[idx]
+		item := vpcService.invalidSecurityGroupCache.Get(sg)
+		if item != nil && !item.Expired() {
+			err = fmt.Errorf("Could not find security group %s; next lookup will be attempted in %s", sg, item.TTL().String())
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+
+		var securityGroupsFound int
+		row := tx.QueryRowContext(ctx, "SELECT count(*) FROM security_groups WHERE vpc_id = $1 AND group_id = $2", s.vpcID, securityGroups[idx])
+		err = row.Scan(&securityGroupsFound)
+		if err != nil {
+			err = fmt.Errorf("Could not scan row: %w", err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		if securityGroupsFound == 0 {
+			missingSecurityGroups = append(missingSecurityGroups, sg)
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Cannot commit read-only transaction")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	if len(missingSecurityGroups) == 0 {
+		return nil
+	}
+
+	foundSecurityGroups := []*ec2.SecurityGroup{}
+	for idx := range missingSecurityGroups {
+		sg := securityGroups[idx]
+		values, err := session.DescribeSecurityGroups(ctx, ec2.DescribeSecurityGroupsInput{
+			GroupIds: aws.StringSlice([]string{sg}),
+		})
+		if err != nil {
+			awsErr := ec2wrapper.RetrieveEC2Error(err)
+			if awsErr != nil {
+				if awsErr.Code() == ec2wrapper.InvalidGroupNotFound || awsErr.Code() == ec2wrapper.InvalidGroupIDMalformed {
+					vpcService.invalidSecurityGroupCache.Set(sg, struct{}{}, securityGroupBlockTimeout)
+					err = fmt.Errorf("Could not find security group %s", sg)
+					tracehelpers.SetStatus(err, span)
+					return err
+				}
+			}
+
+			err = fmt.Errorf("Could not describe security group %s: %w", sg, err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		foundSecurityGroups = append(foundSecurityGroups, values.SecurityGroups...)
+	}
+
+	tx, err = vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot begin transaction")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback()
+	}(tx)
+
+	for _, sg := range foundSecurityGroups {
+		err = insertSecurityGroup(ctx, tx, sg, account)
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = fmt.Errorf("Could not commit transaction to update security groups: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) updateBranchENISecurityGroups(ctx context.Context, ass *assignment) error {
+	ctx, span := trace.StartSpan(ctx, "updateBranchENISecurityGroups")
+	defer span.End()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot begin Tx")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	row := tx.QueryRowContext(ctx, `
 SELECT security_groups, dirty_security_groups FROM branch_enis WHERE branch_enis.branch_eni = $1
-FOR NO KEY UPDATE OF branch_enis`, response.eni.id)
+FOR NO KEY UPDATE OF branch_enis`, ass.branch.id)
 
 	// Someone could have undirtied the security groups while we were away
 	var securityGroups []string
@@ -199,106 +330,59 @@ FOR NO KEY UPDATE OF branch_enis`, response.eni.id)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to scan branch_enis for dirty_security_groups")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	if dbSGs := sets.NewString(securityGroups...); !dbSGs.Equal(sets.NewString(req.securityGroups...)) {
-		result := multierror.Append(fmt.Errorf("Security groups changed while running. DB SGs: %s, Req SGs: %s", securityGroups, req.securityGroups))
-		row = slowTx.QueryRowContext(ctx, "SELECT count(*) FROM assignments WHERE assignment_id = $1", req.assignmentID)
-		var count int
-		err = row.Scan(&count)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot query database for assignment")
-			result = multierror.Append(result, err)
-		} else if count == 0 {
-			result = multierror.Append(result, errors.New("Assignment ID not found in database"))
-		} else {
-			_, err := slowTx.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", response.assignmentID)
-			if err != nil {
-				err = errors.Wrap(err, "Unable to delete assignment")
-				result = multierror.Append(result, err)
-			}
-		}
-		err = result.ErrorOrNil()
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 
 	if !dirtySecurityGroups {
-		err = slowTx.Commit()
+		err = tx.Commit()
 		if err != nil {
 			err = errors.Wrap(err, "Cannot commit transaction")
 			tracehelpers.SetStatus(err, span)
-			return nil, err
+			return err
 		}
-		return assignment, nil
+		return nil
 	}
 
-	_, err = req.branchENISession.ModifyNetworkInterfaceAttribute(ctx, ec2.ModifyNetworkInterfaceAttributeInput{
-		NetworkInterfaceId: aws.String(response.eni.id),
-		Groups:             aws.StringSlice(req.securityGroups),
+	_, err = ass.branchENISession.ModifyNetworkInterfaceAttribute(ctx, ec2.ModifyNetworkInterfaceAttributeInput{
+		NetworkInterfaceId: aws.String(ass.branch.id),
+		Groups:             aws.StringSlice(ass.securityGroups),
 	})
 	if err != nil {
-		awsErr := ec2wrapper.RetrieveEC2Error(err)
-		if awsErr.Code() == ec2wrapper.InvalidGroupNotFound {
-			val := &invalidSecurityGroupsError{
-				message: awsErr.Message(),
-			}
-			logger.G(ctx).WithField("key", securityGroupsKey).Debug("Storing invalid security groups")
-			vpcService.invalidSecurityGroupCache.Set(securityGroupsKey, val, securityGroupBlockTimeout)
-		}
-
-		err = errors.Wrap(err, "Unable to modify security groups")
-		result := multierror.Append(err)
-		_, err2 := slowTx.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", response.assignmentID)
-		if err2 != nil {
-			err2 = errors.Wrapf(err2, "Unable to delete assignment, as modify security groups failed with: %s", err.Error())
-			tracehelpers.SetStatus(err2, span)
-			result = multierror.Append(result, err2)
-			return nil, result.ErrorOrNil()
-		}
-		err2 = slowTx.Commit()
-		if err2 != nil {
-			err2 = errors.Wrapf(err2, "Unable to perform commit, as modify security groups failed with: %s", err.Error())
-			result = multierror.Append(result, err2)
-			return nil, result.ErrorOrNil()
-		}
-
-		return nil, ec2wrapper.HandleEC2Error(err, span)
+		_ = tx.Rollback()
+		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	_, err = slowTx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false WHERE branch_eni = $1", response.eni.id)
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false WHERE branch_eni = $1", ass.branch.id)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to update database to set security groups to non-dirty")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 
-	err = slowTx.Commit()
+	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrapf(err, "Unable to commit transaction")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 
-	return assignment, nil
+	return nil
 }
 
-func (vpcService *vpcService) generateAssignmentID2(ctx context.Context, req *getENIRequest) (*getENIResponse, error) {
-	ctx, span := trace.StartSpan(ctx, "generateAssignmentID2")
+func (vpcService *vpcService) populateAssignment(ctx context.Context, req getENIRequest, ass *assignment) error {
+	ctx, span := trace.StartSpan(ctx, "populateAssignment")
 	defer span.End()
 
 	var slowTx, fastTx *sql.Tx
 	var err error
-	var resp *getENIResponse
 	var trunkLock *eniLockWrapper
 
-	span.AddAttributes(trace.StringAttribute("trunk", req.trunkENI))
+	span.AddAttributes(trace.StringAttribute("trunk", ass.trunk))
 	// Don't include getting the trunk tracker lock as part of our internal generate assignment ID timeout
-	unlock, err := vpcService.trunkTracker.acquire(ctx, req.trunkENI)
+	unlock, err := vpcService.trunkTracker.acquire(ctx, ass.trunk)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 	defer unlock()
 
@@ -316,7 +400,7 @@ retry:
 	if err != nil {
 		err = errors.Wrap(err, "Unable to start traditional transaction")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 	defer func(tx *sql.Tx) {
 		_ = tx.Rollback()
@@ -326,28 +410,28 @@ retry:
 	if err != nil {
 		err = errors.Wrap(err, "Unable to begin serializable transaction")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 	defer func(tx *sql.Tx) {
 		_ = tx.Rollback()
 	}(fastTx)
 
-	resp, err = getAlreadyAttachedENI(ctx, req, fastTx)
+	err = populateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
 	if isSerializationFailure(err) || vpcerrors.IsRetryable(err) || isConcurrencyError(err) {
 		_ = fastTx.Rollback()
 		err2 := backOff(ctx, err)
 		if err2 != nil {
 			err = multierror.Append(err, err2).ErrorOrNil()
 			tracehelpers.SetStatus(err, span)
-			return nil, err
+			return err
 		}
 		goto retry
 	}
 
 	if errors.Is(err, &methodNotPossible{}) {
-		logger.G(ctx).WithError(err).Warning("Got method not possible error from getAlreadyAttachedENI, trying to get ENI and attach")
+		logger.G(ctx).WithError(err).Warning("Got method not possible error from populateAssignmentUsingAlreadyAttachedENI, trying to get ENI and attach")
 		// getENIAndAttach consumes fastTx
-		err2 := vpcService.getENIAndAttach(ctx, req, fastTx, slowTx, trunkLock)
+		err2 := vpcService.getENIAndAttach(ctx, req, ass, fastTx, slowTx, trunkLock)
 		if err2 == nil {
 			goto retry
 		}
@@ -358,19 +442,19 @@ retry:
 			if err3 != nil {
 				err = multierror.Append(err, err2, err3).ErrorOrNil()
 				tracehelpers.SetStatus(err, span)
-				return nil, err
+				return err
 			}
 			goto retry
 		}
 		err2 = errors.Wrap(err2, "Could not get ENI and attach")
 		tracehelpers.SetStatus(err2, span)
-		return nil, err2
+		return err2
 	}
 
 	if err != nil {
 		err = errors.Wrap(err, "Could not get assignment using already attached ENI")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 
 	err = fastTx.Commit()
@@ -380,10 +464,10 @@ retry:
 	if err != nil {
 		err = errors.Wrap(err, "Could not commit fastTx")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 
-	return resp, nil
+	return nil
 }
 
 func backOff(ctx context.Context, err error) error {
@@ -407,11 +491,9 @@ func backOff(ctx context.Context, err error) error {
 	return nil
 }
 
-func getAlreadyAttachedENI(ctx context.Context, req *getENIRequest, fastTx *sql.Tx) (*getENIResponse, error) {
-	ctx, span := trace.StartSpan(ctx, "getAlreadyAttachedENI")
+func populateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRequest, ass *assignment, fastTx *sql.Tx) error {
+	ctx, span := trace.StartSpan(ctx, "populateAssignmentUsingAlreadyAttachedENI")
 	defer span.End()
-
-	var eni branchENI
 
 	row := fastTx.QueryRowContext(ctx, `
 SELECT valid_branch_enis.branch_eni,
@@ -439,30 +521,23 @@ FROM
      AND state = 'attached') valid_branch_enis
 WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
-LIMIT 1`, req.subnet.subnetID, req.trunkENI, pq.Array(req.securityGroups), req.maxIPAddresses)
+LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxIPAddresses)
 
-	var dirtySecurityGroups bool
-	err := row.Scan(&eni.id, &eni.associationID, &eni.az, &eni.accountID, &eni.idx, &dirtySecurityGroups)
+	err := row.Scan(&ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx, &ass.assignmentChangedSecurityGroups)
 	if err == nil {
-		ret := &getENIResponse{
-			dirtySecurityGroups: dirtySecurityGroups,
-			eni:                 &eni,
-		}
-		ret.assignmentID, err = insertAssignment(ctx, req, fastTx, eni)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot insert assignment ID")
-			tracehelpers.SetStatus(err, span)
-			return nil, err
-		}
-		span.SetStatus(trace.Status{
-			Message: fmt.Sprintf("created assignment id %d using shared ENI %s", ret.assignmentID, eni.id),
-		})
-		return ret, nil
-	} else if err != sql.ErrNoRows {
-		err = errors.Wrap(err, "Cannot scan branch ENIs")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+		logger.WithLogger(ctx, logger.G(ctx).WithFields(map[string]interface{}{
+			"eni": ass.branch.id,
+		}))
+		logger.G(ctx).Info("Found shared ENI for assignment")
+		return finishPopulateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
 	}
+
+	if !errors.Is(err, sql.ErrNoRows) {
+		err = fmt.Errorf("Cannot scan branch ENIs: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	logger.G(ctx).Debug("Falling back to trying to find ENI with any security groups")
 
 	row = fastTx.QueryRowContext(ctx, `
 SELECT valid_branch_enis.branch_eni,
@@ -488,70 +563,62 @@ FROM
 WHERE c = 0
 ORDER BY c DESC, branch_eni_attached_at ASC
 LIMIT 1`, req.subnet.subnetID, req.trunkENI)
-	err = row.Scan(&eni.id, &eni.associationID, &eni.az, &eni.accountID, &eni.idx)
+	err = row.Scan(&ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx)
 	if err == sql.ErrNoRows {
-		err = newMethodNotPossibleError("getAlreadyAttachedENI")
+		err = newMethodNotPossibleError("populateAssignmentUsingAlreadyAttachedENI")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
+
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan branch ENIs")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 
-	_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1, dirty_security_groups = true WHERE branch_eni = $2", pq.Array(req.securityGroups), eni.id)
+	logger.WithLogger(ctx, logger.G(ctx).WithFields(map[string]interface{}{
+		"eni": ass.branch.id,
+	}))
+	logger.G(ctx).Info("Found associated ENI for assignment, with different security groups")
+	ass.assignmentChangedSecurityGroups = true
+	_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1, dirty_security_groups = true WHERE branch_eni = $2", pq.Array(req.securityGroups), ass.branch.id)
 	if err != nil {
 		err = errors.Wrap(err, "Could not update branch ENI security groups / dirty security groups")
 		tracehelpers.SetStatus(err, span)
-		return nil, err
+		return err
 	}
 
-	span.AddAttributes(trace.BoolAttribute("dirtySecurityGroups", true))
-
-	ret := &getENIResponse{
-		dirtySecurityGroups: true,
-		eni:                 &eni,
-	}
-	ret.assignmentID, err = insertAssignment(ctx, req, fastTx, eni)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot insert assignment ID")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-	span.SetStatus(trace.Status{
-		Message: fmt.Sprintf("created assignment id %d using dedicated ENI %s", ret.assignmentID, eni.id),
-	})
-
-	return ret, nil
+	return finishPopulateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
 }
 
-func insertAssignment(ctx context.Context, req *getENIRequest, fastTx *sql.Tx, eni branchENI) (int, error) {
-	ctx, span := trace.StartSpan(ctx, "insertAssignment")
+func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRequest, ass *assignment, fastTx *sql.Tx) error {
+	ctx, span := trace.StartSpan(ctx, "finishPopulateAssignmentUsingAlreadyAttachedENI")
 	defer span.End()
+	span.AddAttributes()
 
 	span.AddAttributes(
-		trace.StringAttribute("eni", eni.id),
-		trace.StringAttribute("associationID", eni.associationID),
+		trace.StringAttribute("eni", ass.branch.id),
+		trace.StringAttribute("associationID", ass.branch.associationID),
 		trace.StringAttribute("assignmentID", req.assignmentID),
+		trace.BoolAttribute("dirtySecurityGroups", ass.assignmentChangedSecurityGroups),
 	)
 
 	// We do this "trick", where we return the values in order to allow a trigger to change the values on write time
 	// for A/B tests.
-	row := fastTx.QueryRowContext(ctx, "INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil) VALUES ($1, $2, $3, $4, $5) RETURNING id, jumbo, bandwidth, ceil",
-		eni.associationID, req.assignmentID, req.jumbo, req.bandwidth, req.ceil)
-	var id int
-	err := row.Scan(&id, &req.jumbo, &req.bandwidth, &req.ceil)
+	row := fastTx.QueryRowContext(ctx,
+		"INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil) VALUES ($1, $2, $3, $4, $5) RETURNING id, jumbo, bandwidth, ceil",
+		ass.branch.associationID, req.assignmentID, req.jumbo, req.bandwidth, req.ceil)
+	err := row.Scan(&ass.assignmentID, &req.jumbo, &req.bandwidth, &req.ceil)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan row / insert into assignments")
 		tracehelpers.SetStatus(err, span)
-		return 0, err
+		return err
 	}
 
-	return id, nil
+	return nil
 }
 
-func (vpcService *vpcService) getENIAndAttach(ctx context.Context, req *getENIRequest, fastTx, slowTx *sql.Tx, trunkLock *eniLockWrapper) error {
+func (vpcService *vpcService) getENIAndAttach(ctx context.Context, req getENIRequest, ass *assignment, fastTx, slowTx *sql.Tx, trunkLock *eniLockWrapper) error {
 	// At this point we need to attach a new ENI. This is going to be a slow procedure.
 	// 0. Stop the optimistic transaction
 	// 1a. Create new pessimistic txn
@@ -617,7 +684,7 @@ func (vpcService *vpcService) getENIAndAttach(ctx context.Context, req *getENIRe
 	return nil
 }
 
-func (vpcService *vpcService) attachENI(ctx context.Context, req *getENIRequest, eni *branchENI, fastTx, slowTx *sql.Tx) (int, error) {
+func (vpcService *vpcService) attachENI(ctx context.Context, req getENIRequest, eni *branchENI, fastTx, slowTx *sql.Tx) (int, error) {
 	ctx, span := trace.StartSpan(ctx, "attachENI")
 	defer span.End()
 
@@ -673,7 +740,7 @@ func (vpcService *vpcService) attachENI(ctx context.Context, req *getENIRequest,
 
 	idx, ok = availableIndexes.PopAny()
 	if !ok {
-		err = errors.New("Solution not yet implemented to detach existing ENIs (required when switching subnets)")
+		err = fmt.Errorf("Solution not yet implemented to detach existing ENIs (required when switching subnets) -- (Indexes in use: %v), max index possible: %d", usedIndexes.UnsortedList(), req.maxBranchENIs)
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -696,7 +763,7 @@ func (vpcService *vpcService) attachENI(ctx context.Context, req *getENIRequest,
 
 // This function may consume fastTx, and slowTx. Specifically, if it cannot find an ENI in the "warm pool", it will
 // create an ENI, which involves discarding the fastTx, and committing the slowTx
-func (vpcService *vpcService) getUnattachedBranchENIV3(ctx context.Context, fastTx, slowTx *sql.Tx, req *getENIRequest, trunkLock *eniLockWrapper) (*branchENI, error) {
+func (vpcService *vpcService) getUnattachedBranchENIV3(ctx context.Context, fastTx, slowTx *sql.Tx, req getENIRequest, trunkLock *eniLockWrapper) (*branchENI, error) {
 	ctx, span := trace.StartSpan(ctx, "getUnattachedBranchENIV3")
 	defer span.End()
 
