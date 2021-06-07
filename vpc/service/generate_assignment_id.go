@@ -205,6 +205,7 @@ func (vpcService *vpcService) validateSecurityGroups(ctx context.Context, sessio
 	ctx, span := trace.StartSpan(ctx, "validateSecurityGroups")
 	defer span.End()
 
+	span.AddAttributes(trace.StringAttribute("securityGroups", fmt.Sprintf("%v", securityGroups)))
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
@@ -259,22 +260,35 @@ func (vpcService *vpcService) validateSecurityGroups(ctx context.Context, sessio
 		values, err := session.DescribeSecurityGroups(ctx, ec2.DescribeSecurityGroupsInput{
 			GroupIds: aws.StringSlice([]string{sg}),
 		})
-		if err != nil {
-			awsErr := ec2wrapper.RetrieveEC2Error(err)
-			if awsErr != nil {
-				if awsErr.Code() == ec2wrapper.InvalidGroupNotFound || awsErr.Code() == ec2wrapper.InvalidGroupIDMalformed {
-					vpcService.invalidSecurityGroupCache.Set(sg, struct{}{}, securityGroupBlockTimeout)
-					err = fmt.Errorf("Could not find security group %s", sg)
-					tracehelpers.SetStatus(err, span)
-					return err
-				}
+		if err == nil {
+			if l := len(values.SecurityGroups); l != 1 {
+				err = fmt.Errorf("Unexpected number of security groups returned: %d", l)
+				tracehelpers.SetStatus(err, span)
+				return err
 			}
+			foundSecurityGroups = append(foundSecurityGroups, values.SecurityGroups...)
+			continue
+		}
 
-			err = fmt.Errorf("Could not describe security group %s: %w", sg, err)
+		awsErr := ec2wrapper.RetrieveEC2Error(err)
+		if awsErr != nil {
+			if awsErr.Code() != ec2wrapper.InvalidGroupNotFound && awsErr.Code() != ec2wrapper.InvalidGroupIDMalformed {
+				// Something weird happened with the AWS call. Maybe rate limiting?
+				err = fmt.Errorf("Could not describe security group %s: %w", sg, awsErr)
+				tracehelpers.SetStatus(err, span)
+				return err
+			}
+		} else {
+			// This shouldn't happen, but let's be defensive against AWS API weirdness.
+			err = fmt.Errorf("AWS Describe API call failed: %w", err)
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
-		foundSecurityGroups = append(foundSecurityGroups, values.SecurityGroups...)
+
+		vpcService.invalidSecurityGroupCache.Set(sg, struct{}{}, securityGroupBlockTimeout)
+		err = fmt.Errorf("Could not find security group %s", sg)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 
 	tx, err = vpcService.db.BeginTx(ctx, &sql.TxOptions{})
