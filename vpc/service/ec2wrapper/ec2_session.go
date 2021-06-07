@@ -585,6 +585,11 @@ func (s *EC2Session) DescribeSecurityGroups(ctx context.Context, input ec2.Descr
 		span.AddAttributes(trace.StringAttribute("filters", fmt.Sprintf("%v", input.Filters)))
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("securityGroupsIds", fmt.Sprint(input.GroupIds)),
+		trace.StringAttribute("securityGroupsNames", fmt.Sprint(input.GroupNames)),
+	)
+
 	ec2client := ec2.New(s.Session)
 	output, err := ec2client.DescribeSecurityGroupsWithContext(ctx, &input)
 	if err != nil {

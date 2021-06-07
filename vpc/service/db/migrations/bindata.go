@@ -605,69 +605,70 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() ([]byte, error){
-	"10_eni_allocation_management.down.sql": _10_eni_allocation_management_down_sql,
-	"10_eni_allocation_management.up.sql": _10_eni_allocation_management_up_sql,
-	"11_accounts.down.sql": _11_accounts_down_sql,
-	"11_accounts.up.sql": _11_accounts_up_sql,
-	"12_drop_state.down.sql": _12_drop_state_down_sql,
-	"12_drop_state.up.sql": _12_drop_state_up_sql,
-	"13_assignments.down.sql": _13_assignments_down_sql,
-	"13_assignments.up.sql": _13_assignments_up_sql,
-	"14_new_static.down.sql": _14_new_static_down_sql,
-	"14_new_static.up.sql": _14_new_static_up_sql,
-	"15_eips.up.sql": _15_eips_up_sql,
-	"15_eis.down.sql": _15_eis_down_sql,
-	"16_states.down.sql": _16_states_down_sql,
-	"16_states.up.sql": _16_states_up_sql,
-	"17_eni_attachments_log.down.sql": _17_eni_attachments_log_down_sql,
-	"17_eni_attachments_log.up.sql": _17_eni_attachments_log_up_sql,
-	"18_optimize.down.sql": _18_optimize_down_sql,
-	"18_optimize.up.sql": _18_optimize_up_sql,
-	"19_serial.down.sql": _19_serial_down_sql,
-	"19_serial.up.sql": _19_serial_up_sql,
-	"1_init.down.sql": _1_init_down_sql,
-	"1_init.up.sql": _1_init_up_sql,
-	"20_testing.down.sql": _20_testing_down_sql,
-	"20_testing.up.sql": _20_testing_up_sql,
-	"21_idempotent.down.sql": _21_idempotent_down_sql,
-	"21_idempotent.up.sql": _21_idempotent_up_sql,
-	"22_backfill.down.sql": _22_backfill_down_sql,
-	"22_backfill.up.sql": _22_backfill_up_sql,
-	"23_deprecate_v2.down.sql": _23_deprecate_v2_down_sql,
-	"23_deprecate_v2.up.sql": _23_deprecate_v2_up_sql,
-	"24_remove_v2.down.sql": _24_remove_v2_down_sql,
-	"24_remove_v2.up.sql": _24_remove_v2_up_sql,
-	"25_optimize_query.down.sql": _25_optimize_query_down_sql,
-	"25_optimize_query.up.sql": _25_optimize_query_up_sql,
-	"26_add_warm_pool_override.down.sql": _26_add_warm_pool_override_down_sql,
-	"26_add_warm_pool_override.up.sql": _26_add_warm_pool_override_up_sql,
-	"27_security_groups.down.sql": _27_security_groups_down_sql,
-	"27_security_groups.up.sql": _27_security_groups_up_sql,
+	"10_eni_allocation_management.down.sql":      _10_eni_allocation_management_down_sql,
+	"10_eni_allocation_management.up.sql":        _10_eni_allocation_management_up_sql,
+	"11_accounts.down.sql":                       _11_accounts_down_sql,
+	"11_accounts.up.sql":                         _11_accounts_up_sql,
+	"12_drop_state.down.sql":                     _12_drop_state_down_sql,
+	"12_drop_state.up.sql":                       _12_drop_state_up_sql,
+	"13_assignments.down.sql":                    _13_assignments_down_sql,
+	"13_assignments.up.sql":                      _13_assignments_up_sql,
+	"14_new_static.down.sql":                     _14_new_static_down_sql,
+	"14_new_static.up.sql":                       _14_new_static_up_sql,
+	"15_eips.up.sql":                             _15_eips_up_sql,
+	"15_eis.down.sql":                            _15_eis_down_sql,
+	"16_states.down.sql":                         _16_states_down_sql,
+	"16_states.up.sql":                           _16_states_up_sql,
+	"17_eni_attachments_log.down.sql":            _17_eni_attachments_log_down_sql,
+	"17_eni_attachments_log.up.sql":              _17_eni_attachments_log_up_sql,
+	"18_optimize.down.sql":                       _18_optimize_down_sql,
+	"18_optimize.up.sql":                         _18_optimize_up_sql,
+	"19_serial.down.sql":                         _19_serial_down_sql,
+	"19_serial.up.sql":                           _19_serial_up_sql,
+	"1_init.down.sql":                            _1_init_down_sql,
+	"1_init.up.sql":                              _1_init_up_sql,
+	"20_testing.down.sql":                        _20_testing_down_sql,
+	"20_testing.up.sql":                          _20_testing_up_sql,
+	"21_idempotent.down.sql":                     _21_idempotent_down_sql,
+	"21_idempotent.up.sql":                       _21_idempotent_up_sql,
+	"22_backfill.down.sql":                       _22_backfill_down_sql,
+	"22_backfill.up.sql":                         _22_backfill_up_sql,
+	"23_deprecate_v2.down.sql":                   _23_deprecate_v2_down_sql,
+	"23_deprecate_v2.up.sql":                     _23_deprecate_v2_up_sql,
+	"24_remove_v2.down.sql":                      _24_remove_v2_down_sql,
+	"24_remove_v2.up.sql":                        _24_remove_v2_up_sql,
+	"25_optimize_query.down.sql":                 _25_optimize_query_down_sql,
+	"25_optimize_query.up.sql":                   _25_optimize_query_up_sql,
+	"26_add_warm_pool_override.down.sql":         _26_add_warm_pool_override_down_sql,
+	"26_add_warm_pool_override.up.sql":           _26_add_warm_pool_override_up_sql,
+	"27_security_groups.down.sql":                _27_security_groups_down_sql,
+	"27_security_groups.up.sql":                  _27_security_groups_up_sql,
 	"28_add_jumbo_burst_to_assignments.down.sql": _28_add_jumbo_burst_to_assignments_down_sql,
-	"28_add_jumbo_burst_to_assignments.up.sql": _28_add_jumbo_burst_to_assignments_up_sql,
-	"29_branch_eni_table_cleanup.down.sql": _29_branch_eni_table_cleanup_down_sql,
-	"29_branch_eni_table_cleanup.up.sql": _29_branch_eni_table_cleanup_up_sql,
-	"2_branch_enis.down.sql": _2_branch_enis_down_sql,
-	"2_branch_enis.up.sql": _2_branch_enis_up_sql,
-	"30_branch_eni_sg_check.down.sql": _30_branch_eni_sg_check_down_sql,
-	"30_branch_eni_sg_check.up.sql": _30_branch_eni_sg_check_up_sql,
-	"3_branch_enis2.down.sql": _3_branch_enis2_down_sql,
-	"3_branch_enis2.up.sql": _3_branch_enis2_up_sql,
-	"4_branch_eni_last_used.down.sql": _4_branch_eni_last_used_down_sql,
-	"4_branch_eni_last_used.up.sql": _4_branch_eni_last_used_up_sql,
-	"5_branch_eni_attachments_index.down.sql": _5_branch_eni_attachments_index_down_sql,
-	"5_branch_eni_attachments_index.up.sql": _5_branch_eni_attachments_index_up_sql,
-	"6_set_unlogged.down.sql": _6_set_unlogged_down_sql,
-	"6_set_unlogged.up.sql": _6_set_unlogged_up_sql,
-	"7_add_association_info.down.sql": _7_add_association_info_down_sql,
-	"7_add_association_info.up.sql": _7_add_association_info_up_sql,
-	"8_add_multiaccount.down.sql": _8_add_multiaccount_down_sql,
-	"8_add_multiaccount.up.sql": _8_add_multiaccount_up_sql,
-	"9_last_run_by_who.down.sql": _9_last_run_by_who_down_sql,
-	"9_last_run_by_who.up.sql": _9_last_run_by_who_up_sql,
-	"bindata.go": bindata_go,
-	"generate.go": generate_go,
+	"28_add_jumbo_burst_to_assignments.up.sql":   _28_add_jumbo_burst_to_assignments_up_sql,
+	"29_branch_eni_table_cleanup.down.sql":       _29_branch_eni_table_cleanup_down_sql,
+	"29_branch_eni_table_cleanup.up.sql":         _29_branch_eni_table_cleanup_up_sql,
+	"2_branch_enis.down.sql":                     _2_branch_enis_down_sql,
+	"2_branch_enis.up.sql":                       _2_branch_enis_up_sql,
+	"30_branch_eni_sg_check.down.sql":            _30_branch_eni_sg_check_down_sql,
+	"30_branch_eni_sg_check.up.sql":              _30_branch_eni_sg_check_up_sql,
+	"3_branch_enis2.down.sql":                    _3_branch_enis2_down_sql,
+	"3_branch_enis2.up.sql":                      _3_branch_enis2_up_sql,
+	"4_branch_eni_last_used.down.sql":            _4_branch_eni_last_used_down_sql,
+	"4_branch_eni_last_used.up.sql":              _4_branch_eni_last_used_up_sql,
+	"5_branch_eni_attachments_index.down.sql":    _5_branch_eni_attachments_index_down_sql,
+	"5_branch_eni_attachments_index.up.sql":      _5_branch_eni_attachments_index_up_sql,
+	"6_set_unlogged.down.sql":                    _6_set_unlogged_down_sql,
+	"6_set_unlogged.up.sql":                      _6_set_unlogged_up_sql,
+	"7_add_association_info.down.sql":            _7_add_association_info_down_sql,
+	"7_add_association_info.up.sql":              _7_add_association_info_up_sql,
+	"8_add_multiaccount.down.sql":                _8_add_multiaccount_down_sql,
+	"8_add_multiaccount.up.sql":                  _8_add_multiaccount_up_sql,
+	"9_last_run_by_who.down.sql":                 _9_last_run_by_who_down_sql,
+	"9_last_run_by_who.up.sql":                   _9_last_run_by_who_up_sql,
+	"bindata.go":                                 bindata_go,
+	"generate.go":                                generate_go,
 }
+
 // AssetDir returns the file names below a certain
 // directory embedded in the file by go-bindata.
 // For example if you run go-bindata on data/... and data contains the
@@ -704,132 +705,71 @@ func AssetDir(name string) ([]string, error) {
 }
 
 type _bintree_t struct {
-	Func func() ([]byte, error)
+	Func     func() ([]byte, error)
 	Children map[string]*_bintree_t
 }
+
 var _bintree = &_bintree_t{nil, map[string]*_bintree_t{
-	"10_eni_allocation_management.down.sql": &_bintree_t{_10_eni_allocation_management_down_sql, map[string]*_bintree_t{
-	}},
-	"10_eni_allocation_management.up.sql": &_bintree_t{_10_eni_allocation_management_up_sql, map[string]*_bintree_t{
-	}},
-	"11_accounts.down.sql": &_bintree_t{_11_accounts_down_sql, map[string]*_bintree_t{
-	}},
-	"11_accounts.up.sql": &_bintree_t{_11_accounts_up_sql, map[string]*_bintree_t{
-	}},
-	"12_drop_state.down.sql": &_bintree_t{_12_drop_state_down_sql, map[string]*_bintree_t{
-	}},
-	"12_drop_state.up.sql": &_bintree_t{_12_drop_state_up_sql, map[string]*_bintree_t{
-	}},
-	"13_assignments.down.sql": &_bintree_t{_13_assignments_down_sql, map[string]*_bintree_t{
-	}},
-	"13_assignments.up.sql": &_bintree_t{_13_assignments_up_sql, map[string]*_bintree_t{
-	}},
-	"14_new_static.down.sql": &_bintree_t{_14_new_static_down_sql, map[string]*_bintree_t{
-	}},
-	"14_new_static.up.sql": &_bintree_t{_14_new_static_up_sql, map[string]*_bintree_t{
-	}},
-	"15_eips.up.sql": &_bintree_t{_15_eips_up_sql, map[string]*_bintree_t{
-	}},
-	"15_eis.down.sql": &_bintree_t{_15_eis_down_sql, map[string]*_bintree_t{
-	}},
-	"16_states.down.sql": &_bintree_t{_16_states_down_sql, map[string]*_bintree_t{
-	}},
-	"16_states.up.sql": &_bintree_t{_16_states_up_sql, map[string]*_bintree_t{
-	}},
-	"17_eni_attachments_log.down.sql": &_bintree_t{_17_eni_attachments_log_down_sql, map[string]*_bintree_t{
-	}},
-	"17_eni_attachments_log.up.sql": &_bintree_t{_17_eni_attachments_log_up_sql, map[string]*_bintree_t{
-	}},
-	"18_optimize.down.sql": &_bintree_t{_18_optimize_down_sql, map[string]*_bintree_t{
-	}},
-	"18_optimize.up.sql": &_bintree_t{_18_optimize_up_sql, map[string]*_bintree_t{
-	}},
-	"19_serial.down.sql": &_bintree_t{_19_serial_down_sql, map[string]*_bintree_t{
-	}},
-	"19_serial.up.sql": &_bintree_t{_19_serial_up_sql, map[string]*_bintree_t{
-	}},
-	"1_init.down.sql": &_bintree_t{_1_init_down_sql, map[string]*_bintree_t{
-	}},
-	"1_init.up.sql": &_bintree_t{_1_init_up_sql, map[string]*_bintree_t{
-	}},
-	"20_testing.down.sql": &_bintree_t{_20_testing_down_sql, map[string]*_bintree_t{
-	}},
-	"20_testing.up.sql": &_bintree_t{_20_testing_up_sql, map[string]*_bintree_t{
-	}},
-	"21_idempotent.down.sql": &_bintree_t{_21_idempotent_down_sql, map[string]*_bintree_t{
-	}},
-	"21_idempotent.up.sql": &_bintree_t{_21_idempotent_up_sql, map[string]*_bintree_t{
-	}},
-	"22_backfill.down.sql": &_bintree_t{_22_backfill_down_sql, map[string]*_bintree_t{
-	}},
-	"22_backfill.up.sql": &_bintree_t{_22_backfill_up_sql, map[string]*_bintree_t{
-	}},
-	"23_deprecate_v2.down.sql": &_bintree_t{_23_deprecate_v2_down_sql, map[string]*_bintree_t{
-	}},
-	"23_deprecate_v2.up.sql": &_bintree_t{_23_deprecate_v2_up_sql, map[string]*_bintree_t{
-	}},
-	"24_remove_v2.down.sql": &_bintree_t{_24_remove_v2_down_sql, map[string]*_bintree_t{
-	}},
-	"24_remove_v2.up.sql": &_bintree_t{_24_remove_v2_up_sql, map[string]*_bintree_t{
-	}},
-	"25_optimize_query.down.sql": &_bintree_t{_25_optimize_query_down_sql, map[string]*_bintree_t{
-	}},
-	"25_optimize_query.up.sql": &_bintree_t{_25_optimize_query_up_sql, map[string]*_bintree_t{
-	}},
-	"26_add_warm_pool_override.down.sql": &_bintree_t{_26_add_warm_pool_override_down_sql, map[string]*_bintree_t{
-	}},
-	"26_add_warm_pool_override.up.sql": &_bintree_t{_26_add_warm_pool_override_up_sql, map[string]*_bintree_t{
-	}},
-	"27_security_groups.down.sql": &_bintree_t{_27_security_groups_down_sql, map[string]*_bintree_t{
-	}},
-	"27_security_groups.up.sql": &_bintree_t{_27_security_groups_up_sql, map[string]*_bintree_t{
-	}},
-	"28_add_jumbo_burst_to_assignments.down.sql": &_bintree_t{_28_add_jumbo_burst_to_assignments_down_sql, map[string]*_bintree_t{
-	}},
-	"28_add_jumbo_burst_to_assignments.up.sql": &_bintree_t{_28_add_jumbo_burst_to_assignments_up_sql, map[string]*_bintree_t{
-	}},
-	"29_branch_eni_table_cleanup.down.sql": &_bintree_t{_29_branch_eni_table_cleanup_down_sql, map[string]*_bintree_t{
-	}},
-	"29_branch_eni_table_cleanup.up.sql": &_bintree_t{_29_branch_eni_table_cleanup_up_sql, map[string]*_bintree_t{
-	}},
-	"2_branch_enis.down.sql": &_bintree_t{_2_branch_enis_down_sql, map[string]*_bintree_t{
-	}},
-	"2_branch_enis.up.sql": &_bintree_t{_2_branch_enis_up_sql, map[string]*_bintree_t{
-	}},
-	"30_branch_eni_sg_check.down.sql": &_bintree_t{_30_branch_eni_sg_check_down_sql, map[string]*_bintree_t{
-	}},
-	"30_branch_eni_sg_check.up.sql": &_bintree_t{_30_branch_eni_sg_check_up_sql, map[string]*_bintree_t{
-	}},
-	"3_branch_enis2.down.sql": &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{
-	}},
-	"3_branch_enis2.up.sql": &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{
-	}},
-	"4_branch_eni_last_used.down.sql": &_bintree_t{_4_branch_eni_last_used_down_sql, map[string]*_bintree_t{
-	}},
-	"4_branch_eni_last_used.up.sql": &_bintree_t{_4_branch_eni_last_used_up_sql, map[string]*_bintree_t{
-	}},
-	"5_branch_eni_attachments_index.down.sql": &_bintree_t{_5_branch_eni_attachments_index_down_sql, map[string]*_bintree_t{
-	}},
-	"5_branch_eni_attachments_index.up.sql": &_bintree_t{_5_branch_eni_attachments_index_up_sql, map[string]*_bintree_t{
-	}},
-	"6_set_unlogged.down.sql": &_bintree_t{_6_set_unlogged_down_sql, map[string]*_bintree_t{
-	}},
-	"6_set_unlogged.up.sql": &_bintree_t{_6_set_unlogged_up_sql, map[string]*_bintree_t{
-	}},
-	"7_add_association_info.down.sql": &_bintree_t{_7_add_association_info_down_sql, map[string]*_bintree_t{
-	}},
-	"7_add_association_info.up.sql": &_bintree_t{_7_add_association_info_up_sql, map[string]*_bintree_t{
-	}},
-	"8_add_multiaccount.down.sql": &_bintree_t{_8_add_multiaccount_down_sql, map[string]*_bintree_t{
-	}},
-	"8_add_multiaccount.up.sql": &_bintree_t{_8_add_multiaccount_up_sql, map[string]*_bintree_t{
-	}},
-	"9_last_run_by_who.down.sql": &_bintree_t{_9_last_run_by_who_down_sql, map[string]*_bintree_t{
-	}},
-	"9_last_run_by_who.up.sql": &_bintree_t{_9_last_run_by_who_up_sql, map[string]*_bintree_t{
-	}},
-	"bindata.go": &_bintree_t{bindata_go, map[string]*_bintree_t{
-	}},
-	"generate.go": &_bintree_t{generate_go, map[string]*_bintree_t{
-	}},
+	"10_eni_allocation_management.down.sql":      &_bintree_t{_10_eni_allocation_management_down_sql, map[string]*_bintree_t{}},
+	"10_eni_allocation_management.up.sql":        &_bintree_t{_10_eni_allocation_management_up_sql, map[string]*_bintree_t{}},
+	"11_accounts.down.sql":                       &_bintree_t{_11_accounts_down_sql, map[string]*_bintree_t{}},
+	"11_accounts.up.sql":                         &_bintree_t{_11_accounts_up_sql, map[string]*_bintree_t{}},
+	"12_drop_state.down.sql":                     &_bintree_t{_12_drop_state_down_sql, map[string]*_bintree_t{}},
+	"12_drop_state.up.sql":                       &_bintree_t{_12_drop_state_up_sql, map[string]*_bintree_t{}},
+	"13_assignments.down.sql":                    &_bintree_t{_13_assignments_down_sql, map[string]*_bintree_t{}},
+	"13_assignments.up.sql":                      &_bintree_t{_13_assignments_up_sql, map[string]*_bintree_t{}},
+	"14_new_static.down.sql":                     &_bintree_t{_14_new_static_down_sql, map[string]*_bintree_t{}},
+	"14_new_static.up.sql":                       &_bintree_t{_14_new_static_up_sql, map[string]*_bintree_t{}},
+	"15_eips.up.sql":                             &_bintree_t{_15_eips_up_sql, map[string]*_bintree_t{}},
+	"15_eis.down.sql":                            &_bintree_t{_15_eis_down_sql, map[string]*_bintree_t{}},
+	"16_states.down.sql":                         &_bintree_t{_16_states_down_sql, map[string]*_bintree_t{}},
+	"16_states.up.sql":                           &_bintree_t{_16_states_up_sql, map[string]*_bintree_t{}},
+	"17_eni_attachments_log.down.sql":            &_bintree_t{_17_eni_attachments_log_down_sql, map[string]*_bintree_t{}},
+	"17_eni_attachments_log.up.sql":              &_bintree_t{_17_eni_attachments_log_up_sql, map[string]*_bintree_t{}},
+	"18_optimize.down.sql":                       &_bintree_t{_18_optimize_down_sql, map[string]*_bintree_t{}},
+	"18_optimize.up.sql":                         &_bintree_t{_18_optimize_up_sql, map[string]*_bintree_t{}},
+	"19_serial.down.sql":                         &_bintree_t{_19_serial_down_sql, map[string]*_bintree_t{}},
+	"19_serial.up.sql":                           &_bintree_t{_19_serial_up_sql, map[string]*_bintree_t{}},
+	"1_init.down.sql":                            &_bintree_t{_1_init_down_sql, map[string]*_bintree_t{}},
+	"1_init.up.sql":                              &_bintree_t{_1_init_up_sql, map[string]*_bintree_t{}},
+	"20_testing.down.sql":                        &_bintree_t{_20_testing_down_sql, map[string]*_bintree_t{}},
+	"20_testing.up.sql":                          &_bintree_t{_20_testing_up_sql, map[string]*_bintree_t{}},
+	"21_idempotent.down.sql":                     &_bintree_t{_21_idempotent_down_sql, map[string]*_bintree_t{}},
+	"21_idempotent.up.sql":                       &_bintree_t{_21_idempotent_up_sql, map[string]*_bintree_t{}},
+	"22_backfill.down.sql":                       &_bintree_t{_22_backfill_down_sql, map[string]*_bintree_t{}},
+	"22_backfill.up.sql":                         &_bintree_t{_22_backfill_up_sql, map[string]*_bintree_t{}},
+	"23_deprecate_v2.down.sql":                   &_bintree_t{_23_deprecate_v2_down_sql, map[string]*_bintree_t{}},
+	"23_deprecate_v2.up.sql":                     &_bintree_t{_23_deprecate_v2_up_sql, map[string]*_bintree_t{}},
+	"24_remove_v2.down.sql":                      &_bintree_t{_24_remove_v2_down_sql, map[string]*_bintree_t{}},
+	"24_remove_v2.up.sql":                        &_bintree_t{_24_remove_v2_up_sql, map[string]*_bintree_t{}},
+	"25_optimize_query.down.sql":                 &_bintree_t{_25_optimize_query_down_sql, map[string]*_bintree_t{}},
+	"25_optimize_query.up.sql":                   &_bintree_t{_25_optimize_query_up_sql, map[string]*_bintree_t{}},
+	"26_add_warm_pool_override.down.sql":         &_bintree_t{_26_add_warm_pool_override_down_sql, map[string]*_bintree_t{}},
+	"26_add_warm_pool_override.up.sql":           &_bintree_t{_26_add_warm_pool_override_up_sql, map[string]*_bintree_t{}},
+	"27_security_groups.down.sql":                &_bintree_t{_27_security_groups_down_sql, map[string]*_bintree_t{}},
+	"27_security_groups.up.sql":                  &_bintree_t{_27_security_groups_up_sql, map[string]*_bintree_t{}},
+	"28_add_jumbo_burst_to_assignments.down.sql": &_bintree_t{_28_add_jumbo_burst_to_assignments_down_sql, map[string]*_bintree_t{}},
+	"28_add_jumbo_burst_to_assignments.up.sql":   &_bintree_t{_28_add_jumbo_burst_to_assignments_up_sql, map[string]*_bintree_t{}},
+	"29_branch_eni_table_cleanup.down.sql":       &_bintree_t{_29_branch_eni_table_cleanup_down_sql, map[string]*_bintree_t{}},
+	"29_branch_eni_table_cleanup.up.sql":         &_bintree_t{_29_branch_eni_table_cleanup_up_sql, map[string]*_bintree_t{}},
+	"2_branch_enis.down.sql":                     &_bintree_t{_2_branch_enis_down_sql, map[string]*_bintree_t{}},
+	"2_branch_enis.up.sql":                       &_bintree_t{_2_branch_enis_up_sql, map[string]*_bintree_t{}},
+	"30_branch_eni_sg_check.down.sql":            &_bintree_t{_30_branch_eni_sg_check_down_sql, map[string]*_bintree_t{}},
+	"30_branch_eni_sg_check.up.sql":              &_bintree_t{_30_branch_eni_sg_check_up_sql, map[string]*_bintree_t{}},
+	"3_branch_enis2.down.sql":                    &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{}},
+	"3_branch_enis2.up.sql":                      &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{}},
+	"4_branch_eni_last_used.down.sql":            &_bintree_t{_4_branch_eni_last_used_down_sql, map[string]*_bintree_t{}},
+	"4_branch_eni_last_used.up.sql":              &_bintree_t{_4_branch_eni_last_used_up_sql, map[string]*_bintree_t{}},
+	"5_branch_eni_attachments_index.down.sql":    &_bintree_t{_5_branch_eni_attachments_index_down_sql, map[string]*_bintree_t{}},
+	"5_branch_eni_attachments_index.up.sql":      &_bintree_t{_5_branch_eni_attachments_index_up_sql, map[string]*_bintree_t{}},
+	"6_set_unlogged.down.sql":                    &_bintree_t{_6_set_unlogged_down_sql, map[string]*_bintree_t{}},
+	"6_set_unlogged.up.sql":                      &_bintree_t{_6_set_unlogged_up_sql, map[string]*_bintree_t{}},
+	"7_add_association_info.down.sql":            &_bintree_t{_7_add_association_info_down_sql, map[string]*_bintree_t{}},
+	"7_add_association_info.up.sql":              &_bintree_t{_7_add_association_info_up_sql, map[string]*_bintree_t{}},
+	"8_add_multiaccount.down.sql":                &_bintree_t{_8_add_multiaccount_down_sql, map[string]*_bintree_t{}},
+	"8_add_multiaccount.up.sql":                  &_bintree_t{_8_add_multiaccount_up_sql, map[string]*_bintree_t{}},
+	"9_last_run_by_who.down.sql":                 &_bintree_t{_9_last_run_by_who_down_sql, map[string]*_bintree_t{}},
+	"9_last_run_by_who.up.sql":                   &_bintree_t{_9_last_run_by_who_up_sql, map[string]*_bintree_t{}},
+	"bindata.go":                                 &_bintree_t{bindata_go, map[string]*_bintree_t{}},
+	"generate.go":                                &_bintree_t{generate_go, map[string]*_bintree_t{}},
 }}
