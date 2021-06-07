@@ -123,10 +123,8 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccount(ctx contex
 
 	securityGroupToDelete := inDatabaseSecurityGroupIDs.Difference(inAWSSecurityGroupIDs)
 	for _, sg := range securityGroups {
-		_, err = tx.ExecContext(ctx, "INSERT INTO security_groups(group_id, group_name, owner_id, vpc_id, region, account) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (group_id) DO UPDATE SET group_name = $2",
-			aws.StringValue(sg.GroupId), aws.StringValue(sg.GroupName), aws.StringValue(sg.OwnerId), aws.StringValue(sg.VpcId), account.region, account.accountID)
+		err = insertSecurityGroup(ctx, tx, sg, account)
 		if err != nil {
-			err = fmt.Errorf("Unable to update security group %s: %w", aws.StringValue(sg.GroupId), err)
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
@@ -148,6 +146,16 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccount(ctx contex
 		err = fmt.Errorf("Unable to commit transaction: %w", err)
 		tracehelpers.SetStatus(err, span)
 		return err
+	}
+
+	return nil
+}
+
+func insertSecurityGroup(ctx context.Context, tx *sql.Tx, sg *ec2.SecurityGroup, account *regionAccount) error {
+	_, err := tx.ExecContext(ctx, "INSERT INTO security_groups(group_id, group_name, owner_id, vpc_id, region, account) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (group_id) DO UPDATE SET group_name = $2",
+		aws.StringValue(sg.GroupId), aws.StringValue(sg.GroupName), aws.StringValue(sg.OwnerId), aws.StringValue(sg.VpcId), account.region, account.accountID)
+	if err != nil {
+		return fmt.Errorf("Unable to update security group %s: %w", aws.StringValue(sg.GroupId), err)
 	}
 
 	return nil

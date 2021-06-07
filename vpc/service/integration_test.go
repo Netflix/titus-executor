@@ -114,13 +114,12 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "trunkENITests", trunkENITests)
 	runIntegrationTest(t, "branchENITests", branchENITests)
 	runIntegrationTest(t, "testAssociate", testAssociate)
-	runIntegrationTest(t, "testReconcileBranchENIAttachments", testReconcileBranchENIAttachments)
 	runIntegrationTest(t, "testGenerateAssignmentID", testGenerateAssignmentID)
 	runIntegrationTest(t, "testGenerateAssignmentIDWithFault", testGenerateAssignmentIDWithFault)
 	runIntegrationTest(t, "testGenerateAssignmentIDStressTest", testGenerateAssignmentIDStressTest)
 	runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
 	runIntegrationTest(t, "testActionWorker", testActionWorker)
-
+	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
 }
 
 type zipkinReporter struct {
@@ -300,7 +299,7 @@ func branchENITests(ctx context.Context, t *testing.T, md integrationTestMetadat
 	assert.NilError(t, err)
 	logger.G(ctx).WithField("eni", aws.StringValue(dangling.NetworkInterface.NetworkInterfaceId)).Debug("Created test dangling branch ENI")
 
-	var nullSGinDB, differentSGInDB, nonExistentSGs *ec2.NetworkInterface
+	var differentSGInDB, nonExistentSGs *ec2.NetworkInterface
 
 	var id int
 	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
@@ -311,12 +310,6 @@ INSERT INTO branch_enis(branch_eni, account_id, subnet_id, az, vpc_id) VALUES ('
 RETURNING id
 `, md.account, md.subnetID, md.az, md.vpc)
 		assert.NilError(t, row.Scan(&id))
-
-		nullSGinDB, err = service.createBranchENI(ctx, tx, session, md.subnetID, []string{md.defaultSecurityGroupID})
-		assert.NilError(t, err)
-		logger.G(ctx).WithField("eni", aws.StringValue(nullSGinDB.NetworkInterfaceId)).Debug("Created test ENI with null SGs in DB")
-		_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = NULL WHERE branch_eni = $1", aws.StringValue(nullSGinDB.NetworkInterfaceId))
-		assert.NilError(t, err)
 
 		differentSGInDB, err = service.createBranchENI(ctx, tx, session, md.subnetID, []string{md.defaultSecurityGroupID})
 		assert.NilError(t, err)
@@ -341,32 +334,28 @@ RETURNING id
 	assert.NilError(t, service.reconcileBranchENIsForRegionAccount(ctx, item))
 
 	var count int
+
+	// Make sure dangling ENIs are deleted.
 	row := service.db.QueryRowContext(ctx, "SELECT count(*) FROM branch_enis WHERE branch_eni = $1", aws.StringValue(dangling.NetworkInterface.NetworkInterfaceId))
 	assert.NilError(t, row.Scan(&count))
-	assert.Assert(t, is.Equal(count, 1))
+	assert.Assert(t, is.Equal(count, 0))
+	_, err = session.DescribeNetworkInterfaces(ctx, ec2.DescribeNetworkInterfacesInput{
+		NetworkInterfaceIds: []*string{dangling.NetworkInterface.NetworkInterfaceId},
+	})
+	assert.ErrorContains(t, err, "InvalidNetworkInterfaceID.NotFound")
 
 	row = service.db.QueryRowContext(ctx, "SELECT count(*) FROM branch_enis WHERE id = $1", id)
 	assert.NilError(t, row.Scan(&count))
 	assert.Assert(t, is.Equal(count, 0))
 
-	var securityGroups []string
-	row = service.db.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1", aws.StringValue(nullSGinDB.NetworkInterfaceId))
-	assert.NilError(t, row.Scan(pq.Array(&securityGroups)))
-	// This only works because there is one, otherwise if they are in different orders it will break
-	// So, if you want to do this with multiple SGs, either sort them, or turn them into a string set
-	assert.DeepEqual(t, []string{md.defaultSecurityGroupID}, securityGroups)
+	var dirtySecurityGroups bool
+	row = service.db.QueryRowContext(ctx, "SELECT dirty_security_groups FROM branch_enis WHERE branch_eni = $1", aws.StringValue(nonExistentSGs.NetworkInterfaceId))
+	assert.NilError(t, row.Scan(&dirtySecurityGroups))
+	assert.Assert(t, dirtySecurityGroups)
 
-	row = service.db.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1", aws.StringValue(nonExistentSGs.NetworkInterfaceId))
-	assert.NilError(t, row.Scan(pq.Array(&securityGroups)))
-	assert.DeepEqual(t, []string{md.defaultSecurityGroupID}, securityGroups)
-
-	output, err := session.DescribeNetworkInterfaces(ctx, ec2.DescribeNetworkInterfacesInput{
-		NetworkInterfaceIds: []*string{differentSGInDB.NetworkInterfaceId},
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, is.Len(output.NetworkInterfaces, 1))
-	assert.Assert(t, is.Len(output.NetworkInterfaces[0].Groups, 1))
-	assert.Assert(t, is.Equal(aws.StringValue(output.NetworkInterfaces[0].Groups[0].GroupId), md.testSecurityGroupID))
+	row = service.db.QueryRowContext(ctx, "SELECT dirty_security_groups FROM branch_enis WHERE branch_eni = $1", aws.StringValue(differentSGInDB.NetworkInterfaceId))
+	assert.NilError(t, row.Scan(&dirtySecurityGroups))
+	assert.Assert(t, dirtySecurityGroups)
 }
 
 // The first group is for the preemption, the second group is for the workers
@@ -443,42 +432,6 @@ func testAssociate(ctx context.Context, t *testing.T, md integrationTestMetadata
 	row := service.db.QueryRowContext(ctx, "SELECT state FROM branch_eni_attachments WHERE association_id = $1", assoc.AssociationId)
 	assert.NilError(t, row.Scan(&state))
 	assert.Assert(t, is.Equal(state, "unattached"))
-}
-
-func testReconcileBranchENIAttachments(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
-	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
-	assert.NilError(t, err)
-	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
-
-	item := &regionAccount{
-		region:    md.region,
-		accountID: md.account,
-	}
-
-	assert.NilError(t, service.preemptLock(ctx, item, service.reconcileBranchENIAttachmentsLongLivedTask()))
-
-	var branchENI *ec2.NetworkInterface
-	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
-		var err error
-		branchENI, err = service.createBranchENI(ctx, tx, session, md.subnetID, []string{md.defaultSecurityGroupID})
-		return err
-	}))
-
-	association, err := session.AssociateTrunkInterface(ctx, ec2.AssociateTrunkInterfaceInput{
-		BranchInterfaceId: branchENI.NetworkInterfaceId,
-		TrunkInterfaceId:  trunkENI.NetworkInterfaceId,
-		VlanId:            aws.Int64(5),
-	})
-	assert.NilError(t, err)
-
-	assert.NilError(t, service.reconcileBranchAttachmentsENIsForRegionAccount(ctx, item))
-
-	_, err = session.DescribeTrunkInterfaceAssociations(ctx, ec2.DescribeTrunkInterfaceAssociationsInput{
-		AssociationIds: []*string{association.InterfaceAssociation.AssociationId},
-	})
-	awsErr := ec2wrapper.RetrieveEC2Error(err)
-	assert.Assert(t, awsErr != nil)
-	assert.Assert(t, is.Equal(awsErr.Code(), ec2wrapper.InvalidAssociationIDNotFound))
 }
 
 func withTransaction(ctx context.Context, db *sql.DB, txFN func(context.Context, *sql.Tx) error) error {
@@ -784,6 +737,61 @@ out:
 	assert.Error(t, g2.Wait(), context.Canceled.Error())
 }
 
+func testGenerateAssignmentIDNewSG(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	item := &regionAccount{
+		region:    md.region,
+		accountID: md.account,
+	}
+
+	reconcileTrunkENILongLivedTask := service.reconcileTrunkENIsLongLivedTask()
+	assert.NilError(t, service.preemptLock(ctx, item, reconcileTrunkENILongLivedTask))
+
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
+	}()
+
+	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
+
+	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	assert.NilError(t, err)
+
+	var securityGroupID string
+	var id int
+	row := service.db.QueryRowContext(ctx, "SELECT id, group_id FROM security_groups WHERE group_name = 'titusvpcservice--unittest'")
+	assert.NilError(t, row.Scan(&id, &securityGroupID))
+
+	req := getENIRequest{
+		region:           md.region,
+		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
+		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
+		branchENIAccount: md.account,
+		subnet:           subnet,
+		securityGroups:   []string{"sg-f00"},
+		maxIPAddresses:   50,
+		maxBranchENIs:    2,
+		assignmentID:     fmt.Sprintf("testGenerateAssignmentID-%s-%s", t.Name(), uuid.New().String()),
+	}
+	_, err = service.generateAssignmentID(ctx, req)
+	assert.Error(t, err, "Could not find security group sg-f00")
+
+	_, err = service.generateAssignmentID(ctx, req)
+	assert.ErrorContains(t, err, "Could not find security group sg-f00; next lookup will be attempted")
+	service.invalidSecurityGroupCache.Delete("sg-f00")
+
+	_, err = service.generateAssignmentID(ctx, req)
+	assert.Error(t, err, "Could not find security group sg-f00")
+
+	// Let's make sure security groups can be populated at runtime correctly.
+	_, err = service.db.ExecContext(ctx, "DELETE FROM security_groups WHERE id = $1", id)
+	assert.NilError(t, err)
+
+	req.securityGroups = []string{securityGroupID}
+	_, err = service.generateAssignmentID(ctx, req)
+	assert.NilError(t, err)
+}
+
 func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
 	item := &regionAccount{
 		region:    md.region,
@@ -855,6 +863,9 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	row = service.db.QueryRowContext(ctx, "SELECT count(*) FROM branch_eni_attachments WHERE trunk_eni = $1", aws.StringValue(trunkENI.NetworkInterfaceId))
 	assert.NilError(t, row.Scan(&count))
 	assert.Assert(t, is.Equal(count, 2))
+
+	t.Logf("assignmentIDs: %s", assignmentIDs)
+	t.Logf("oneExtraAssignmentResponse: %s", oneExtraAssignmentResponse)
 
 	assert.Assert(t, oneExtraAssignmentResponse.branch.id != assignmentIDs[0].branch.id)
 

@@ -3,11 +3,12 @@ package ec2wrapper
 import (
 	"fmt"
 
+	"errors"
+
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -17,29 +18,18 @@ const (
 	InvalidNetworkInterfaceIDNotFound = "InvalidNetworkInterfaceID.NotFound"
 	InvalidAssociationIDNotFound      = "InvalidAssociationID.NotFound"
 	InvalidGroupNotFound              = "InvalidGroup.NotFound"
+	InvalidGroupIDMalformed           = "InvalidGroupId.Malformed"
 	InvalidSubnetIDNotFound           = "InvalidSubnetID.NotFound"
 	InvalidInstanceIDNotFound         = "InvalidInstanceID.NotFound"
 	ClientRequestLimitExceeded        = "Client.RequestLimitExceeded"
 )
 
 func RetrieveEC2Error(err error) awserr.Error {
-	type causer interface {
-		Cause() error
-	}
-
 	for err != nil {
-		// Check if the cause is an aws error
 		awsErr, ok := err.(awserr.Error)
 		if ok {
 			return awsErr
 		}
-
-		if cause, ok := err.(causer); ok {
-			err = cause.Cause()
-			continue
-		}
-
-		// Otherwise try to unwrap the error
 		err = errors.Unwrap(err)
 	}
 	return nil
