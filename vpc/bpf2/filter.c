@@ -79,6 +79,24 @@ static inline int classifier_egress_filter_v6(struct __sk_buff *skb) {
 	if ((void*)iph + sizeof(struct ipv6hdr) > data_end)
 		return TC_ACT_SHOT;
 
+	if (iph->daddr.in6_u.u6_addr8[0] == 0xfd &&
+	    iph->daddr.in6_u.u6_addr8[1] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[2] == 0x0e &&
+	    iph->daddr.in6_u.u6_addr8[3] == 0xc2 &&
+	    iph->daddr.in6_u.u6_addr8[4] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[5] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[6] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[7] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[8] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[9] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[10] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[11] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[12] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[13] == 0x00 &&
+	    iph->daddr.in6_u.u6_addr8[14] == 0x02 &&
+	    iph->daddr.in6_u.u6_addr8[15] == 0x54)
+		return TC_ACT_SHOT;
+
 	key.vlan_tci = skb->vlan_tci;
 	memcpy(&key.addr, &iph->saddr, sizeof(struct in6_addr));
 
