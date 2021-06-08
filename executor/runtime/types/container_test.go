@@ -670,6 +670,30 @@ func TestServiceMeshEnabled(t *testing.T) {
 	assert.Equal(t, svcMeshConf.Image, imgName)
 }
 
+func TestServiceMeshEnabledUsesImageOverride(t *testing.T) {
+	imgName := "titusoss/test-svcmesh:stock"
+	overrideImage := "foo/mycustomImage:experimental"
+	config := config.Config{
+		ContainerServiceMeshEnabled: true,
+	}
+
+	taskID, titusInfo, resources, _, _, err := ContainerTestArgs()
+	require.Nil(t, err)
+	titusInfo.PassthroughAttributes = map[string]string{
+		serviceMeshContainerParam:                        imgName,
+		serviceMeshEnabledParam:                          "true",
+		"titusParameter.agent.service.servicemesh.image": overrideImage,
+	}
+
+	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	require.Nil(t, err)
+	assert.True(t, c.ServiceMeshEnabled())
+	scConfs, err := c.SidecarConfigs()
+	require.Nil(t, err)
+	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
+	assert.NotNil(t, svcMeshConf)
+	assert.Equal(t, overrideImage, svcMeshConf.Image)
+}
 func TestServiceMeshEnabledWithConfig(t *testing.T) {
 	// If service mesh is set to enabled, but neither the `ProxydServiceImage` config value
 	// or the passhtrough property are set, service mesh should end up disabled

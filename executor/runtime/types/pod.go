@@ -608,6 +608,7 @@ func (c *PodContainer) ShmSizeMiB() *uint32 {
 
 func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 	svcMeshImage := ""
+	sideCarPtrs := []*ServiceOpts{}
 	if c.ServiceMeshEnabled() {
 		svcMeshImage = c.serviceMeshImage
 	}
@@ -623,7 +624,8 @@ func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 		SidecarContainerTools:     c.config.ContainerToolsImage,
 	}
 
-	sideCarPtrs := []*ServiceOpts{}
+	updateImageMapWithAttributeOverrides(sideCars, imageMap, c.pod.Annotations)
+
 	for _, scOrig := range sideCars {
 		// Make a copy to avoid mutating the original
 		sc := scOrig
@@ -635,6 +637,21 @@ func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 	}
 
 	return sideCarPtrs, nil
+}
+
+// updateImageMapWithAttributeOverrides mutates the imageMap to use user-provided pod annotations
+// to set sidecar container images.
+// An example of this in action is if a user set a container parameter:
+//   titusParameter.agent.service.sshd.image: "foo:bar"
+// then titus would try to use this image *as* the sshd sidecar
+func updateImageMapWithAttributeOverrides(sideCars []ServiceOpts, imageMap map[string]string, annotations map[string]string) {
+	for _, sidecar := range sideCars {
+		attribute := "titusParameter.agent.service." + sidecar.ServiceName + ".image"
+		override, ok := annotations[attribute]
+		if ok {
+			imageMap[sidecar.ServiceName] = override
+		}
+	}
 }
 
 func (c *PodContainer) SignedAddressAllocationUUID() *string {

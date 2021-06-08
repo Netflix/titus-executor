@@ -991,6 +991,10 @@ func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 		SidecarContainerTools:     c.config.ContainerToolsImage,
 	}
 
+	if c.pod != nil {
+		updateImageMapWithAttributeOverrides(sideCars, imageMap, c.pod.Annotations)
+	}
+
 	for _, scOrig := range sideCars {
 		// Make a copy to avoid mutating the original
 		sc := scOrig

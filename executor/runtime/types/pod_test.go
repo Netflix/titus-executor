@@ -16,6 +16,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod" // nolint: staticcheck
 	"github.com/docker/go-units"
+	"github.com/stretchr/testify/require"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1090,6 +1091,28 @@ func TestPodContainerServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 	}
 	assert.Assert(t, svcMeshConf != nil)   // nolint:staticcheck
 	assert.Equal(t, svcMeshConf.Image, "") // nolint:staticcheck
+}
+
+func TestSSHDSidecarUsesImageOverride(t *testing.T) {
+	imgName := "titusoss/sshd:latest"
+	overrideImage := "foo/mycustomImage:experimental"
+	config := config.Config{
+		ContainerSSHD:    true,
+		SSHDServiceImage: imgName,
+	}
+
+	pod, _, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+
+	pod.Annotations["titusParameter.agent.service.sshd.image"] = overrideImage
+
+	c, err := NewPodContainer(pod, config)
+	assert.NilError(t, err)
+
+	scConfs, err := c.SidecarConfigs()
+	require.Nil(t, err)
+	sshdConfig := GetSidecarConfig(scConfs, SidecarServiceSshd)
+	assert.Equal(t, overrideImage, sshdConfig.Image)
 }
 
 func TestPodContainerSubnetIDHasSpaces(t *testing.T) {
