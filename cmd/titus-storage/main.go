@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"time"
 
+	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/utils/log"
+	"github.com/Netflix/titus-executor/vpc/utilities"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -50,6 +54,11 @@ func main() {
 			l := logger.GetLogger(ctx)
 			command := args[0]
 			l.Infof("Running titus-storage with %s", command)
+			exclusiveLock, err := getExclusiveLock(ctx)
+			if err != nil {
+				return err
+			}
+			defer exclusiveLock.Unlock()
 			if mountConfig.ebsVolumeID != "" {
 				err := ebsRunner(ctx, command, mountConfig)
 				if err != nil {
@@ -117,4 +126,22 @@ func newMountConfigFromViper(v *viper.Viper) MountConfig {
 		ebsFStype:     v.GetString(ebsFSTypeFlagName),
 		pid1Dir:       v.GetString(titusPid1DirFlagName),
 	}
+}
+
+func getExclusiveLock(ctx context.Context) (*fslocker.ExclusiveLock, error) {
+	stateDir := "/run/titus-storage"
+	fslockerDir := filepath.Join(stateDir, "fslocker")
+	if err := os.MkdirAll(fslockerDir, 0700); err != nil {
+		return nil, err
+	}
+	locker, err := fslocker.NewFSLocker(fslockerDir)
+	if err != nil {
+		return nil, err
+	}
+	fiveMin := 300 * time.Second
+	exclusiveLock, err := locker.ExclusiveLock(ctx, utilities.GetGlobalConfigurationLock(), &fiveMin)
+	if err != nil {
+		return nil, err
+	}
+	return exclusiveLock, nil
 }
