@@ -9,6 +9,9 @@ linters:
     - goimports
     - scopelint
     - gofmt
+    - unused
+    - varcheck
+    - typecheck
 run:
   skip-dirs:
     - vpc/service/db/migrations

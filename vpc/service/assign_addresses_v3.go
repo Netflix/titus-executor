@@ -28,7 +28,6 @@ import (
 )
 
 const (
-	invalidParameterValue        = "InvalidParameterValue"
 	invalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
 	assignTimeout                = 5 * time.Minute
 

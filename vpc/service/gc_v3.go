@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -13,7 +12,6 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
 	"github.com/hashicorp/go-multierror"
@@ -84,115 +82,6 @@ func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]keyed
 	return ret, nil
 }
 
-func (vpcService *vpcService) tryReallocateStaticAssignment(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) (bool, error) {
-	ctx, span := trace.StartSpan(ctx, "tryReallocateStaticAssignment")
-	defer span.End()
-
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return false, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	// This only works on IPv4 addresses at the moment. But we only statically allocate IPv4 addresses. So
-	// it's okay!
-	row := tx.QueryRowContext(ctx, `
-SELECT ip_addresses.ip_address,
-       ip_addresses.home_eni,
-       branch_enis.branch_eni,
-       branch_enis.account_id,
-       branch_enis.az,
-       assignments.assignment_id
-FROM assignments
-JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
-JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
-JOIN ip_addresses ON assignments.ipv4addr = ip_addresses.ip_address AND branch_enis.subnet_id = ip_addresses.subnet_id
-WHERE trunk_eni = $1
-AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
-  FOR
-  UPDATE OF branch_enis, ip_addresses
-  LIMIT 1
-`, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
-	var ipAddress, homeENI, branchENI, accountID, az, assignmentID string
-	err = row.Scan(&ipAddress, &homeENI, &branchENI, &accountID, &az, &assignmentID)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		err = errors.Wrap(err, "Cannot scan static IP adddresses")
-		span.SetStatus(traceStatusFromError(err))
-		return false, err
-	}
-
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: azToRegionRegexp.FindString(az)})
-	if err != nil {
-		err = errors.Wrap(err, "Cannot get AWS session")
-		span.SetStatus(traceStatusFromError(err))
-		return false, err
-	}
-
-	_, err = session.UnassignPrivateIPAddresses(ctx, ec2.UnassignPrivateIpAddressesInput{
-		NetworkInterfaceId: aws.String(branchENI),
-		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
-	})
-	// TODO: If the IP address has already been assigned, it's actually "okay"
-	if awsErr, ok := err.(awserr.Error); ok {
-		if awsErr.Code() != invalidParameterValue && strings.HasSuffix(awsErr.Message(), "Some of the specified addresses are not assigned to interface") {
-			return false, ec2wrapper.HandleEC2Error(err, span)
-		}
-	} else if err != nil {
-		return false, ec2wrapper.HandleEC2Error(err, span)
-	}
-
-	_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1", assignmentID)
-	if err != nil {
-		err = errors.Wrap(err, "Could not delete assignment")
-		span.SetStatus(traceStatusFromError(err))
-		return false, err
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		err = errors.Wrap(err, "Could not commit transaction")
-		span.SetStatus(traceStatusFromError(err))
-		return false, err
-	}
-
-	_, err = session.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
-		NetworkInterfaceId: aws.String(homeENI),
-		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
-	})
-	if awsErr, ok := err.(awserr.Error); ok {
-		if awsErr.Code() != invalidParameterValue {
-			return false, ec2wrapper.HandleEC2Error(err, span)
-		}
-	} else if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to relocate IP address back to home ENI")
-	}
-
-	return true, nil
-}
-
-func (vpcService *vpcService) reallocateStaticAssignments(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) error {
-	ctx, span := trace.StartSpan(ctx, "reallocateStaticAssignments")
-	defer span.End()
-
-	for {
-		reassigned, err := vpcService.tryReallocateStaticAssignment(ctx, req, trunkENI)
-		if err != nil {
-			span.SetStatus(traceStatusFromError(err))
-			return err
-		}
-		if !reassigned {
-			return nil
-		}
-	}
-}
-
 func (vpcService *vpcService) softGC(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) ([]string, error) {
 	ctx, span := trace.StartSpan(ctx, "softGC")
 	defer span.End()
@@ -236,114 +125,6 @@ AND assignments.created_at < now() - INTERVAL '5 minutes'
 			return nil, err
 		}
 		removedAssignments = append(removedAssignments, assignmentID)
-	}
-
-	return removedAssignments, nil
-}
-
-func (vpcService *vpcService) hardGC(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) ([]string, error) {
-	ctx, span := trace.StartSpan(ctx, "hardGC")
-	defer span.End()
-
-	err := vpcService.reallocateStaticAssignments(ctx, req, trunkENI)
-	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	_, err = tx.ExecContext(ctx, `
-INSERT INTO branch_eni_last_used (branch_eni, last_used)
-SELECT branch_eni,
-       now()
-FROM branch_eni_attachments
-JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
-WHERE trunk_eni = $1
-  AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
-GROUP BY branch_eni ON CONFLICT (branch_eni) DO
-UPDATE
-SET last_used = now()
-`, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
-	if err != nil {
-		err = errors.Wrap(err, "Could update branch eni last used times")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	_, err = tx.ExecContext(ctx, `
-WITH unused_ips AS
-  (SELECT branch_eni,
-          unnest(ARRAY[ipv4addr, ipv6addr]) AS ip_address
-   FROM branch_eni_attachments
-   JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
-   WHERE trunk_eni = $1
-     AND assignments.assignment_id NOT IN (SELECT unnest($2::text[])))
-INSERT INTO ip_last_used_v3(vpc_id, ip_address, last_seen)
-SELECT vpc_id,
-       ip_address,
-       now()
-FROM unused_ips
-JOIN branch_enis ON unused_ips.branch_eni = branch_enis.branch_eni
-WHERE ip_address IS NOT NULL ON CONFLICT (ip_address, vpc_id) DO
-  UPDATE
-  SET last_seen = now()
-`, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
-	if err != nil {
-		err = errors.Wrap(err, "Could update ip last used times")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	rows, err := tx.QueryContext(ctx, `
-DELETE
-FROM assignments
-WHERE assignment_id IN
-    (SELECT assignment_id
-     FROM branch_eni_attachments
-     JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
-     WHERE trunk_eni = $1
-     AND assignments.assignment_id NOT IN (SELECT unnest($2::text[])))
-	 AND assignments.created_at < now() - INTERVAL '5 minutes'
-RETURNING assignments.assignment_id
-`, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
-	if err != nil {
-		err = errors.Wrap(err, "Could not delete assignments")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	removedAssignments := []string{}
-	for rows.Next() {
-		var assignmentID string
-		err = rows.Scan(&assignmentID)
-		if err != nil {
-			err = errors.Wrap(err, "Could not scan deleted assignment ID")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		removedAssignments = append(removedAssignments, assignmentID)
-	}
-
-	span.AddAttributes(trace.StringAttribute("removedAssignments", fmt.Sprint(removedAssignments)))
-	logger.G(ctx).WithField("removedAssignments", removedAssignments).Debug("Removed assignments")
-
-	err = tx.Commit()
-	if err != nil {
-		err = errors.Wrap(err, "Unable to commit transaction")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
 	}
 
 	return removedAssignments, nil
@@ -402,7 +183,7 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 	if req.Soft {
 		resp.RemovedAssignments, err = vpcService.softGC(ctx, req, trunkENI)
 	} else {
-		resp.RemovedAssignments, err = vpcService.hardGC(ctx, req, trunkENI)
+		err = status.Error(codes.Unimplemented, "Hard GC is not implemented")
 	}
 	if err == nil {
 		span.AddAttributes(trace.StringAttribute("removedAssignments", fmt.Sprint(resp.RemovedAssignments)))

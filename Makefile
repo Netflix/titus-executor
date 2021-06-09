@@ -90,7 +90,7 @@ fmt: $(GOBIN_TOOL)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOBIN_TOOL)
-	GOOS=linux $(GOBIN_TOOL) -run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.30.0 run --timeout $(GOLANGCI_LINT_TIMEOUT) $(GOLANGCI_LINT_ARGS)
+	GOOS=linux $(GOBIN_TOOL) -run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.40.1 run --timeout $(GOLANGCI_LINT_TIMEOUT) $(GOLANGCI_LINT_ARGS)
 
 .PHONY: lint
 lint: golangci-lint
