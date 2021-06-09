@@ -51,16 +51,3 @@ func (vpcService *vpcService) getTrunkENI(instance *ec2.Instance) *ec2.InstanceN
 	}
 	return nil
 }
-
-func (vpcService *vpcService) RefreshIP(ctx context.Context, request *vpcapi.RefreshIPRequest) (*vpcapi.RefreshIPResponse, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "RefreshIP")
-	_ = ctx
-
-	defer span.End()
-
-	err := status.Error(codes.Unimplemented, "RefreshIP Call is deprecated")
-	tracehelpers.SetStatus(err, span)
-	return nil, err
-}

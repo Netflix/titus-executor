@@ -372,11 +372,6 @@ service TitusAgentVPCService {
     rpc AssignIPV3 (AssignIPRequestV3) returns (AssignIPResponseV3);
     rpc UnassignIPV3 (UnassignIPRequestV3) returns (UnassignIPResponseV3);
     rpc GetAssignment (GetAssignmentRequest) returns (GetAssignmentResponse);
-    rpc RefreshIP (RefreshIPRequest) returns (RefreshIPResponse);
-    // GC extra IPs
-    rpc GCSetupLegacy (GCLegacySetupRequest) returns (GCLegacySetupResponse);
-    rpc GC (GCRequest) returns (GCResponse);
-    rpc GCSetup (GCSetupRequest) returns (GCSetupResponse);
     rpc GCV3 (GCRequestV3) returns (GCResponseV3);
 
     // Lock Management

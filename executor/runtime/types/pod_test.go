@@ -1027,7 +1027,7 @@ func TestPodContainerServiceMeshEnabled(t *testing.T) {
 			break
 		}
 	}
-	assert.Assert(t, svcMeshConf != nil)
+	assert.Assert(t, svcMeshConf != nil)        // nolint:staticcheck
 	assert.Equal(t, svcMeshConf.Image, imgName) // nolint:staticcheck
 }
 
@@ -1053,7 +1053,7 @@ func TestPodContainerServiceMeshEnabledWithConfig(t *testing.T) {
 			break
 		}
 	}
-	assert.Assert(t, svcMeshConf != nil)
+	assert.Assert(t, svcMeshConf != nil)   // nolint:staticcheck
 	assert.Equal(t, svcMeshConf.Image, "") // nolint:staticcheck
 }
 
@@ -1079,7 +1079,7 @@ func TestPodContainerServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 			break
 		}
 	}
-	assert.Assert(t, svcMeshConf != nil)
+	assert.Assert(t, svcMeshConf != nil)   // nolint:staticcheck
 	assert.Equal(t, svcMeshConf.Image, "") // nolint:staticcheck
 }
 
