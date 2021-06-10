@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
-
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
@@ -203,7 +202,19 @@ func setupNamespaces(ctx context.Context, pid1dir string) (*int, error) { // nol
 		return nil, fmt.Errorf("Could not set %q link up: %w", tocontainerInterfaceName, err)
 	}
 
-	// Make sure LO is up. This should be a noop:
+	// We need to do this because even though we set the links in the Linux kernel to up, the process of
+	// "the other side" recognizing that the other side is up is handled through an asynchronous process
+	// called link_watch.
+
+	// For example, let's say we have veth0 <-> veth1
+	// And I set veth0 up. Veth1 still thinks the layer 1 interface is down, until link watch fires
+	// at which point it marks layer 1 as up, and subsequently this triggers a bunch of setup.
+	err = waitForInterfacesUp(ctx, containerNSHandle, intermediateNSHandle)
+	if err != nil {
+		return nil, fmt.Errorf("Could not wait for netns to come up: %w", err)
+	}
+
+	// Make sure LO is up in the container. This should be a noop:
 	lo, err := containerNSHandle.LinkByName("lo")
 	if err != nil {
 		return nil, fmt.Errorf("Could not get container lo: %w", err)
@@ -228,29 +239,20 @@ func setupNamespaces(ctx context.Context, pid1dir string) (*int, error) { // nol
 		return nil, fmt.Errorf("Could not add %s to interface %q: %w", v6ipnet.String(), tocontainer.Attrs().Name, err)
 	}
 
-	var linkLocalAddr netlink.Addr
-	for ; err == nil; err = ctx.Err() {
-		addrs, err := intermediateNSHandle.AddrList(tocontainer, netlink.FAMILY_V6)
-		if err != nil {
-			return nil, fmt.Errorf("Could not list V6 addrs on %q: %w", tocontainer.Attrs().Name, err)
-		}
-
-		for _, addr := range addrs {
-			logger.G(ctx).Debugf("Checking addr %v, with flags %d", addr.IP, addr.Flags)
-			if addr.Scope == int(netlink.SCOPE_LINK) {
-				linkLocalAddr = addr
-				goto done
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
+	metadataserviceLinkLocal, err := getLinkLocalIPv6Addr(ctx, containerNSHandle, metadataservice)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("Could not get link local address on interface %q: %w", tocontainer.Attrs().Name, ctx.Err())
-done:
+
+	tocontainerLinkLocal, err := getLinkLocalIPv6Addr(ctx, intermediateNSHandle, tocontainer)
+	if err != nil {
+		return nil, err
+	}
 
 	err = containerNSHandle.RouteAdd(&netlink.Route{
 		Via: &netlink.Via{
 			AddrFamily: netlink.FAMILY_V6,
-			Addr:       linkLocalAddr.IP,
+			Addr:       tocontainerLinkLocal.IP,
 		},
 		Dst:       v4ipnet,
 		LinkIndex: metadataservice.Attrs().Index,
@@ -261,7 +263,7 @@ done:
 	}
 
 	err = containerNSHandle.RouteAdd(&netlink.Route{
-		Gw:        linkLocalAddr.IP,
+		Gw:        tocontainerLinkLocal.IP,
 		Dst:       v6ipnet,
 		LinkIndex: metadataservice.Attrs().Index,
 	})
@@ -326,6 +328,30 @@ done:
 		return nil, fmt.Errorf("Could not bind listener socket: %w", err)
 	}
 
+	err = containerNSHandle.NeighSet(&netlink.Neigh{
+		LinkIndex:    metadataservice.Attrs().Index,
+		Family:       netlink.FAMILY_V6,
+		State:        netlink.NUD_PERMANENT,
+		Type:         unix.RTN_UNICAST,
+		IP:           tocontainerLinkLocal.IP,
+		HardwareAddr: tocontainer.Attrs().HardwareAddr,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Cannot insert neighbor entry %w from container NS to imds NS", err)
+	}
+
+	err = intermediateNSHandle.NeighSet(&netlink.Neigh{
+		LinkIndex:    tocontainer.Attrs().Index,
+		Family:       netlink.FAMILY_V6,
+		State:        netlink.NUD_PERMANENT,
+		Type:         unix.RTN_UNICAST,
+		IP:           metadataserviceLinkLocal.IP,
+		HardwareAddr: metadataservice.Attrs().HardwareAddr,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Cannot insert neighbor entry %w from imds NS to container NS", err)
+	}
+
 	err = unix.Listen(socket, 128)
 	if err != nil {
 		return nil, fmt.Errorf("Could not set listen queue on listener socket: %w", err)
@@ -337,4 +363,62 @@ done:
 	}
 
 	return &socket, nil
+}
+
+// getLinkLocalIPv6Addr gets the SCOPE_LINK / Link-local address for a given link. It does this by polling
+// the addresses on the link.
+func getLinkLocalIPv6Addr(ctx context.Context, handle *netlink.Handle, link netlink.Link) (*netlink.Addr, error) {
+	t := time.NewTimer(1)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("Context complete before able to get LL addrs: %w", ctx.Err())
+		case <-t.C:
+			addrs, err := handle.AddrList(link, netlink.FAMILY_V6)
+			if err != nil {
+				return nil, fmt.Errorf("Could not list V6 addrs on %q: %w", link.Attrs().Name, err)
+			}
+			for idx := range addrs {
+				addr := addrs[idx]
+				logger.G(ctx).Debugf("Checking addr %v, with flags %d", addr.IP, addr.Flags)
+				if addr.Scope == int(netlink.SCOPE_LINK) {
+					return &addr, nil
+				}
+			}
+		}
+		t.Reset(10 * time.Millisecond)
+	}
+}
+
+func waitForInterfacesUp(ctx context.Context, containerNSHandle, intermediateNSHandle *netlink.Handle) error {
+	t := time.NewTimer(1)
+	defer t.Stop()
+	var err error
+	var toIMDSLink, toContainerLink netlink.Link
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("Context complete before expected: %w, last states; toIMDSLink: %v, toContainerLink:%v", ctx.Err(), toIMDSLink, toContainerLink)
+		case <-t.C:
+			toIMDSLink, err = containerNSHandle.LinkByName(toimdsInterfaceName)
+			if err != nil {
+				return fmt.Errorf("Could not get %s: %w", toimdsInterfaceName, err)
+			}
+
+			toContainerLink, err = intermediateNSHandle.LinkByName(tocontainerInterfaceName)
+			if err != nil {
+				return fmt.Errorf("Could not get %s: %w", tocontainerInterfaceName, err)
+			}
+
+			if toIMDSLink.Attrs().OperState == netlink.OperUp &&
+				toContainerLink.Attrs().OperState == netlink.OperUp &&
+				toIMDSLink.Attrs().Flags&net.FlagUp == net.FlagUp &&
+				toContainerLink.Attrs().Flags&net.FlagUp == net.FlagUp {
+				return nil
+			}
+			// I think that the upper bound for processing in link_watch should be around 1 second.
+			t.Reset(10 * time.Millisecond)
+		}
+	}
 }
