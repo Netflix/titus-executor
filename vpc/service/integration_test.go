@@ -120,6 +120,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
 	runIntegrationTest(t, "testActionWorker", testActionWorker)
 	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
+	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
 }
 
 type zipkinReporter struct {
@@ -1018,4 +1019,42 @@ WHERE client_addr =
 
 	cancel()
 	assert.Error(t, group.Wait(), context.Canceled.Error())
+}
+
+
+func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	item := &regionAccount{
+		region:    md.region,
+		accountID: md.account,
+	}
+	reconcileTrunkENILongLivedTask := service.reconcileTrunkENIsLongLivedTask()
+	assert.NilError(t, service.preemptLock(ctx, item, reconcileTrunkENILongLivedTask))
+
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
+	}()
+
+	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
+
+	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	assert.NilError(t, err)
+
+	req := getENIRequest{
+		region:           md.region,
+		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
+		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
+		branchENIAccount: md.account,
+		subnet:           subnet,
+		securityGroups:   []string{md.defaultSecurityGroupID},
+		maxIPAddresses:   50,
+		maxBranchENIs:    2,
+		assignmentID: fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS--%s", uuid.New().String()),
+		transitionAssignmentRequested: true,
+	}
+
+	response, err := service.generateAssignmentID(ctx, req)
+	assert.NilError(t, err)
+	t.Log(response)
 }
