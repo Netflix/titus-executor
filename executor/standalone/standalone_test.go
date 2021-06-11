@@ -47,9 +47,8 @@ type testImage struct {
 }
 
 var (
-	// TODO: Determine how this got built, and add it to the auto image builders?
 	busybox = testImage{
-		name: "busybox",
+		name: "titusoss/busybox",
 		tag:  "1.33.1",
 	}
 	ubuntu = testImage{
@@ -1294,7 +1293,7 @@ func TestBasicMultiContainer(t *testing.T) {
 		ExtraContainers: []corev1.Container{
 			{
 				Name:    "sleep-sentinel",
-				Image:   busybox.name,
+				Image:   busybox.name + `:` + busybox.tag,
 				Command: []string{"/bin/sh", "-c"},
 				Args:    []string{"/bin/sleep 420"},
 			},
