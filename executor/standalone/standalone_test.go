@@ -47,10 +47,9 @@ type testImage struct {
 }
 
 var (
-	// TODO: Determine how this got built, and add it to the auto image builders?
-	alpine = testImage{
-		name: "titusoss/alpine",
-		tag:  "3.5",
+	busybox = testImage{
+		name: "titusoss/busybox",
+		tag:  "1.33.1",
 	}
 	ubuntu = testImage{
 		name: "titusoss/ubuntu",
@@ -177,8 +176,8 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 func TestSimpleJob(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
-		ImageName:     alpine.name,
-		Version:       alpine.tag,
+		ImageName:     busybox.name,
+		Version:       busybox.tag,
 		EntrypointOld: "echo Hello Titus",
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
@@ -191,8 +190,8 @@ func TestSimpleJob(t *testing.T) {
 func TestSimpleJobWithBadEnvironment(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
-		ImageName:     alpine.name,
-		Version:       alpine.tag,
+		ImageName:     busybox.name,
+		Version:       busybox.tag,
 		EntrypointOld: "echo Hello Titus",
 		Environment: map[string]string{
 			"ksrouter.filter.xpath.expression": `(XXXXX("XXXXXX") = "XXXXXXX" XXX XXX XXXXX("XXXX") XX ("XXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX")) XX (XXXXX("XXXXXX") = "XXXXXXXX" XXX XXX XXXXX("XXXX") XX ("XXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXX", "XXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXXXXXX", "XXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXX", "XXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXXX", "XXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXX", "XXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXX")) XX (XXXXX("XXXXXX") = "XXX" XXX XXX XXXXX("XXXX") XX ("XXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXX", "XXX", "XXXXXXXXXXXXXXXXXXXXXXXXXX")) XX (XXXXX("XXXXXX") = "XXX" XXX XXXXX("XXXX") XX ("XXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXXX")) XX (XXXXX("XXXXXX") = "XXXX" XXX XXXXX("XXXX") XX ("XXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXX", "XXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXX", "XXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXX", "XXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXXXXXXXXXXXX"))`,
@@ -210,8 +209,8 @@ func TestSimpleJobWithBadEnvironment(t *testing.T) {
 func TestCustomCmd(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
-		ImageName: alpine.name,
-		Version:   alpine.tag,
+		ImageName: busybox.name,
+		Version:   busybox.tag,
 		Process: &Process{
 			Cmd: []string{"echo", "Hello Titus"},
 		},
@@ -226,8 +225,8 @@ func TestCustomCmd(t *testing.T) {
 func TestInvalidFlatStringAsCmd(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
-		ImageName: alpine.name,
-		Version:   alpine.tag,
+		ImageName: busybox.name,
+		Version:   busybox.tag,
 		Process: &Process{
 			Cmd: []string{"echo Hello Titus"}, // this will exit with status 127 since there is no such binary
 		},
@@ -246,8 +245,8 @@ func TestInvalidFlatStringAsCmd(t *testing.T) {
 func TestEntrypointAndCmd(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
-		ImageName: alpine.name,
-		Version:   alpine.tag,
+		ImageName: busybox.name,
+		Version:   busybox.tag,
 		Process: &Process{
 			Entrypoint: []string{"/bin/sh", "-c"},
 			Cmd:        []string{"echo Hello Titus"},
@@ -407,8 +406,8 @@ func TestStdoutGoesToLogFile(t *testing.T) {
 	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" && sleep 1 && grep "%[1]s" /logs/stdout'`, message)
 	ji := &JobInput{
-		ImageName:     alpine.name,
-		Version:       alpine.tag,
+		ImageName:     busybox.name,
+		Version:       busybox.tag,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
@@ -423,8 +422,8 @@ func TestStderrGoesToLogFile(t *testing.T) {
 	message := fmt.Sprintf("Some message with ID=%s, and a suffix.", uuid.New().String())
 	cmd := fmt.Sprintf(`sh -c 'echo "%[1]s" >&2 && sleep 1 && grep "%[1]s" /logs/stderr'`, message)
 	ji := &JobInput{
-		ImageName:     alpine.name,
-		Version:       alpine.tag,
+		ImageName:     busybox.name,
+		Version:       busybox.tag,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
@@ -516,7 +515,7 @@ func TestImageNonExistingDigestFails(t *testing.T) {
 func TestImagePullError(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
-		ImageName:     alpine.name,
+		ImageName:     busybox.name,
 		Version:       "latest1",
 		EntrypointOld: "/usr/bin/true",
 		JobID:         generateJobID(t.Name()),
@@ -581,8 +580,8 @@ big_task_killed:
 func TestBadEntrypoint(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
-		ImageName:     alpine.name,
-		Version:       alpine.tag,
+		ImageName:     busybox.name,
+		Version:       busybox.tag,
 		EntrypointOld: "bad",
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
@@ -611,8 +610,8 @@ func TestCanWriteInLogsAndSubDirs(t *testing.T) {
 	cmd := `sh -c "mkdir -p /logs/prana && echo begining > /logs/prana/prana.log && ` +
 		`mv /logs/prana/prana.log /logs/prana/prana-2016.log && echo ending >> /logs/out"`
 	ji := &JobInput{
-		ImageName:     alpine.name,
-		Version:       alpine.tag,
+		ImageName:     busybox.name,
+		Version:       busybox.tag,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
@@ -632,8 +631,8 @@ func TestShutdown(t *testing.T) {
 	defer cancel()
 
 	ji := &JobInput{
-		ImageName:     alpine.name,
-		Version:       alpine.tag,
+		ImageName:     busybox.name,
+		Version:       busybox.tag,
 		EntrypointOld: "sleep 6000",
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
@@ -1276,24 +1275,27 @@ func TestBasicMultiContainer(t *testing.T) {
 
 	// And for the main container, we use pgrep to ensure that our sentinel container
 	// is in fact running along side us.
-	testEntrypointOld := "/usr/bin/pgrep -f 'sleep 42'"
+	testEntrypointOld := "pgrep -fx '/bin/sleep 420'"
 	if runtime.GOOS == "darwin" { //nolint:goconst
 		// To make this test compatible with darwin, which can't use tini callbacks
 		// for strict ordering. So we add a short sleep in front.
 		testEntrypointOld = `/bin/sh -c "/bin/sleep 3; ` + testEntrypointOld + `"`
+	} else {
+		testEntrypointOld = `/bin/sh -c "` + testEntrypointOld + `"`
 	}
 
 	ji := &JobInput{
-		ImageName:  alpine.name,
-		Version:    alpine.tag,
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
 		UsePodSpec: shouldUsePodspecInTest,
 		// This sentinel container is a second process we can look out
 		// for, in order to detect if multi-container workloads are setup
 		ExtraContainers: []corev1.Container{
 			{
-				Name:  "sleep-sentinel",
-				Image: alpine.name,
-				Args:  []string{"/bin/sleep", "42"},
+				Name:    "sleep-sentinel",
+				Image:   busybox.name + `:` + busybox.tag,
+				Command: []string{"/bin/sh", "-c"},
+				Args:    []string{"/bin/sleep 420"},
 			},
 		},
 		EntrypointOld: testEntrypointOld,

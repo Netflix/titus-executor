@@ -1523,10 +1523,15 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		l.Info("no mainContainerRoot available, volumes will not be sharable between containers")
 	}
 
-	// TODO: Use the same env logic as the main container
-	baseEnv := []string{
-		"TITUS_REDIRECT_STDERR=/logs/stderr-" + v1Container.Name,
-		"TITUS_REDIRECT_STDOUT=/logs/stdout-" + v1Container.Name,
+	// TODO: Use the same env logic as the main container and populate all the same vars
+	baseEnv := []string{}
+
+	// Only redirect stdout/err if we have shared logs
+	if mainContainerRoot != "" {
+		baseEnv = append(baseEnv, []string{
+			"TITUS_REDIRECT_STDERR=/logs/stderr-" + v1Container.Name,
+			"TITUS_REDIRECT_STDOUT=/logs/stdout-" + v1Container.Name,
+		}...)
 	}
 	b := true
 	// What docker calls "command", is what k8s calls "Args"
@@ -1539,7 +1544,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 	// Because as is, we are *setting* the entrypoint all the time here, which means docker is going
 	// to ignore whatever entrypoing is on the *image*. We want the normal docker behavior here,
 	// but we *also* want tini.
-	dockerEntrypoint := append([]string{"/sbin/docker-init", "--"}, v1Container.Command...)
+	dockerEntrypoint := append([]string{"/sbin/docker-init", "-s", "--"}, v1Container.Command...)
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
