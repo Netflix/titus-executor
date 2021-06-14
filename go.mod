@@ -11,7 +11,7 @@ require (
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 	github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
 	github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20210426164010-ef784d356ff6
-	github.com/Netflix/titus-kube-common v0.15.0
+	github.com/Netflix/titus-kube-common v0.16.0
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
 	github.com/apex/log v1.9.0
@@ -77,8 +77,8 @@ require (
 	gopkg.in/ini.v1 v1.52.0 // indirect
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gotest.tools v2.2.0+incompatible
-	k8s.io/api v0.18.4
-	k8s.io/apimachinery v0.18.4
+	k8s.io/api v0.19.10
+	k8s.io/apimachinery v0.19.10
 	k8s.io/client-go v10.0.0+incompatible
 	k8s.io/kubernetes v1.18.4
 	k8s.io/utils v0.0.0-20201104234853-8146046b121e

@@ -1276,13 +1276,9 @@ func TestBasicMultiContainer(t *testing.T) {
 	// And for the main container, we use pgrep to ensure that our sentinel container
 	// is in fact running along side us.
 	testEntrypointOld := "pgrep -fx '/bin/sleep 420'"
-	if runtime.GOOS == "darwin" { //nolint:goconst
-		// To make this test compatible with darwin, which can't use tini callbacks
-		// for strict ordering. So we add a short sleep in front.
-		testEntrypointOld = `/bin/sh -c "/bin/sleep 3; ` + testEntrypointOld + `"`
-	} else {
-		testEntrypointOld = `/bin/sh -c "` + testEntrypointOld + `"`
-	}
+	// The main container and the user-sentinel are both 'user' containers,
+	// So we want the main container to waid just a little bit for the user-sentinel
+	testEntrypointOld = `/bin/sh -c "sleep 3;` + testEntrypointOld + `"`
 
 	ji := &JobInput{
 		ImageName:  busybox.name,

@@ -30,6 +30,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
@@ -1648,7 +1649,7 @@ func getUserContainerNames(pod *v1.Pod) []string {
 	for _, c := range pod.Spec.Containers {
 		// Currently anything *not* a sidecar needs to fall
 		// into the "user" bucket. No container can be left behind
-		if !isPlatformSidecarContainer(c.Name, pod) {
+		if !podCommon.IsPlatformSidecarContainer(c.Name, pod) {
 			userContainerNames = append(userContainerNames, c.Name)
 		}
 	}
@@ -1661,18 +1662,11 @@ func getPlaformContainerNames(pod *v1.Pod) []string {
 		return platformContainerNames
 	}
 	for _, c := range pod.Spec.Containers {
-		if isPlatformSidecarContainer(c.Name, pod) {
+		if podCommon.IsPlatformSidecarContainer(c.Name, pod) {
 			platformContainerNames = append(platformContainerNames, c.Name)
 		}
 	}
 	return platformContainerNames
-}
-
-func isPlatformSidecarContainer(name string, pod *v1.Pod) bool {
-	// TODO: put this in podcommon
-	containerTypeAnnotation := fmt.Sprintf("type.pod.netflix.com/%s", name)
-	value := pod.Annotations[containerTypeAnnotation]
-	return value == "sidecar"
 }
 
 // return true to exit
