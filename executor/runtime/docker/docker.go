@@ -1517,6 +1517,12 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 				Target:   "/logs",
 				ReadOnly: false,
 			},
+			{
+				Type:     "bind",
+				Source:   mainContainerRoot + "/run",
+				Target:   "/run",
+				ReadOnly: false,
+			},
 		}
 		mounts = append(mounts, stockSharedVolumes...)
 	} else {
