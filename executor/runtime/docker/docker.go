@@ -1231,24 +1231,13 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	dockerStartStartTime := time.Now()
-	eventCtx, eventCancel := context.WithCancel(context.Background())
-	filters := filters.NewArgs()
-	filters.Add("container", r.c.ID())
-	filters.Add("type", "container")
 
-	eventOptions := types.EventsOptions{
-		Filters: filters,
-	}
-
-	// 1. We need to establish a event channel
-	eventChan, eventErrChan := r.client.Events(eventCtx, eventOptions)
-
+	go r.watchDockerEventsForContainer(r.c.ID(), r.c.TaskID(), statusMessageChan)
 	err = r.client.ContainerStart(ctx, r.c.ID(), types.ContainerStartOptions{})
 	if err != nil {
 		entry.WithError(err).Error("error starting")
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
 		// Check if bad entry point and return specific error
-		eventCancel()
 		return "", nil, statusMessageChan, maybeConvertIntoBadEntryPointError(err)
 	}
 
@@ -1258,7 +1247,6 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	ipv4addr := allocation.IPV4Address()
 	eni := allocation.ContainerENI()
 	if allocation == nil || ipv4addr == nil || eni == nil {
-		eventCancel()
 		if allocation == nil {
 			return "", nil, statusMessageChan, errors.New("allocation unset")
 		}
@@ -1293,22 +1281,18 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 
 	logDir, tiniConn, err := r.setupTini(ctx, listener, r.c)
 	if err != nil {
-		eventCancel()
 		err = fmt.Errorf("container prestart error: %w", err)
 		return "", nil, statusMessageChan, err
 	}
-	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 
 	inspectOutput, err := r.client.ContainerInspect(ctx, r.c.ID())
 	if err != nil {
-		eventCancel()
 		err = fmt.Errorf("container prestart error inspecting main container: %w", err)
 		return "", nil, statusMessageChan, err
 	}
 	mainContainerRoot := getMainContainerRoot(inspectOutput)
-	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
+	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot, statusMessageChan)
 	if err != nil {
-		eventCancel()
 		return "", nil, statusMessageChan, err
 	}
 
@@ -1328,23 +1312,34 @@ func getMainContainerRoot(inspectOutput types.ContainerJSON) string {
 	return inspectOutput.GraphDriver.Data["MergedDir"]
 }
 
-func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.Container, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
+func (r *DockerRuntime) watchDockerEventsForContainer(cid string, containerName string, statusMessageChan chan runtimeTypes.StatusMessage) {
+	eventCtx, eventCancel := context.WithCancel(context.Background())
+	defer eventCancel()
+	filters := filters.NewArgs()
+	filters.Add("container", cid)
+	filters.Add("type", "container")
+
+	eventOptions := types.EventsOptions{
+		Filters: filters,
+	}
+
+	// 1. We need to establish a event channel
+	eventChan, eventErrChan := r.client.Events(eventCtx, eventOptions)
+	r.statusMonitor(eventCancel, containerName, eventChan, eventErrChan, statusMessageChan)
+}
+
+func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerName string, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
 	defer close(statusMessageChan)
 	defer cancel()
 
-	// This context should be tied to the lifetime of the container -- it will get significantly less broken
-	// when we tear out the launchguard code
-
 	for {
-		// 3. If the current state of the container is terminal, send it, and bail
-		// 4. Else, keep sending messages until we bail
 		select {
 		case err := <-errChan:
-			log.Fatal("Got error while listening for docker events, bailing: ", err)
+			log.Fatalf("Got error while listening for docker events on %s container, bailing: %s", containerName, err)
 		case event := <-eventChan:
 			log.Info("Got docker event: ", event)
-			if handleDockerEvent(c, event, statusMessageChan) {
-				log.Info("Terminating docker status monitor because terminal docker event received")
+			if handleDockerEvent(r.c.TaskID(), containerName, event, statusMessageChan) {
+				log.Info(fmt.Sprintf("Terminating docker status monitor for %s container because terminal docker event received", containerName))
 				return
 			}
 		}
@@ -1355,7 +1350,7 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.
 // any container objects in the pod *after* the first one, converting the
 // v1.Container spec into something docker can understand, and then
 // running that container.
-func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
+func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string, statusMessageChan chan runtimeTypes.StatusMessage) error {
 
 	otherUserContainers := []v1.Container{}
 	if pod != nil && pod.Spec.Containers != nil {
@@ -1382,7 +1377,7 @@ func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, ma
 
 	// Starting, however, has its own logic
 	l.Infof("Starting %d user containers", len(cidMapping))
-	err := r.startAllUserContainers(ctx, pod, cidMapping, r.c.TaskID(), tiniConn)
+	err := r.startAllUserContainers(ctx, pod, cidMapping, r.c.TaskID(), tiniConn, statusMessageChan)
 	if err != nil {
 		return fmt.Errorf("Failed to start a user container: %s", err)
 	}
@@ -1461,7 +1456,7 @@ func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod
 // ordering in 2 phases:
 // Phase 1: Launch all platform containers (service mesh, gandalf, etc)
 // Phase 2: Launch all user-defined conatiners (main, nginx, etc)
-func (r *DockerRuntime) startAllUserContainers(ctx context.Context, pod *v1.Pod, cidMapping map[string]string, mainContainerID string, tiniConn *net.UnixConn) error {
+func (r *DockerRuntime) startAllUserContainers(ctx context.Context, pod *v1.Pod, cidMapping map[string]string, mainContainerID string, tiniConn *net.UnixConn, statusMessageChan chan runtimeTypes.StatusMessage) error {
 	l := log.WithField("taskID", r.c.TaskID())
 
 	platformContainerNames := getPlaformContainerNames(pod)
@@ -1677,8 +1672,7 @@ func getPlaformContainerNames(pod *v1.Pod) []string {
 }
 
 // return true to exit
-func handleDockerEvent(c runtimeTypes.Container, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
-	validateMessage(c, message)
+func handleDockerEvent(taskID string, containerName string, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
 	action := strings.Split(message.Action, " ")[0]
 	action = strings.TrimRight(action, ":")
 	l := log.WithFields(
@@ -1699,56 +1693,46 @@ func handleDockerEvent(c runtimeTypes.Container, message events.Message, statusM
 	case "start":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusRunning,
-			Msg:    "main container is now running",
+			Msg:    fmt.Sprintf("%s container is now running", containerName),
 		}
 		return false
 	case "die":
 		if exitCode := message.Actor.Attributes["exitCode"]; exitCode == "0" {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFinished,
-				Msg:    "main container successfully exited with 0",
+				Msg:    fmt.Sprintf("%s container successfully exited with 0", containerName),
 			}
 		} else {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFailed,
-				Msg:    fmt.Sprintf("main container exited with code %s", exitCode),
+				Msg:    fmt.Sprintf("%s container exited with code %s", containerName, exitCode),
 			}
 		}
 	case "health_status":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusRunning,
-			Msg:    fmt.Sprintf("Docker health status: %s", message.Status),
+			Msg:    fmt.Sprintf("Docker health status for %s container: %s", containerName, message.Status),
 		}
 		return false
 	case "kill":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("main container killed with signal %s", message.Actor.Attributes["signal"]),
+			Msg:    fmt.Sprintf("%s container killed with signal %s", containerName, message.Actor.Attributes["signal"]),
 		}
 	case "oom":
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("main container %s exited due to OOMKilled", c.TaskID()),
+			Msg:    fmt.Sprintf("%s container for task %s exited due to OOMKilled", containerName, taskID),
 		}
 	// Ignore exec events entirely
 	case "exec_create", "exec_start", "exec_die":
 		return false
 	default:
-		log.WithField("taskID", c.ID()).Info("Received unexpected docker event: ", message)
+		log.WithField("taskID", taskID).Info("Received unexpected docker event: ", message)
 		return false
 	}
 
 	return true
-}
-
-// The only purpose of this is to test the sanity of our filters, and Docker
-func validateMessage(c runtimeTypes.Container, message events.Message) {
-	if c.ID() != message.ID {
-		panic(fmt.Sprint("c.ID() != message.ID: ", message))
-	}
-	if message.Type != "container" {
-		panic(fmt.Sprint("message.Type != container: ", message))
-	}
 }
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {

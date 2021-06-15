@@ -238,7 +238,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
 
-	r.monitorMainContainer(ctx, startTime, statusChan, updateChan, details)
+	r.monitorContainersAndStatusUpdates(ctx, startTime, statusChan, updateChan, details)
 }
 
 func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
@@ -254,7 +254,7 @@ func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
 	}
 }
 
-func (r *Runner) monitorMainContainer(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
+func (r *Runner) monitorContainersAndStatusUpdates(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
 	lastMessage := ""
 	runningSent := false
 
@@ -266,7 +266,7 @@ func (r *Runner) monitorMainContainer(ctx context.Context, startTime time.Time, 
 				return
 			}
 			msg := statusMessage.Msg
-			logger.G(ctx).WithField("statusMessage", statusMessage).Infof("Processing msg from main conatiner: %q - %s", statusMessage.Status, statusMessage.Msg)
+			logger.G(ctx).WithField("statusMessage", statusMessage).Infof("Processing msg from container: %q - %s", statusMessage.Status, statusMessage.Msg)
 
 			switch statusMessage.Status {
 			case runtimeTypes.StatusRunning:
@@ -325,9 +325,9 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 	// Are we in a situation where the container exited gracefully, or less than gracefully?
 	// We need to stop the container
 	if r.wasKilled() {
-		logger.G(ctx).Info("Killing and Shutting down main conatiner because of KillInitiated")
+		logger.G(ctx).Info("Killing and Shutting down containers because of KillInitiated")
 	} else {
-		logger.G(ctx).Info("Shutting down main container because it finished or died")
+		logger.G(ctx).Info("Shutting down containers because it finished or died")
 	}
 	if err := r.runtime.Kill(ctx); err != nil {
 		// TODO(Andrew L): There may be leaked resources that are not being

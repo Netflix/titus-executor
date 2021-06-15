@@ -97,7 +97,7 @@ var (
 	}
 )
 
-const defaultFailureTimeout = time.Minute
+const defaultFailureTimeout = 10 * time.Second
 
 func wrapTestStandalone(t *testing.T) {
 	if testing.Short() {
