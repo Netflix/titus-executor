@@ -16,6 +16,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	dockerTypes "github.com/docker/docker/api/types"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/google/uuid"
@@ -1339,7 +1340,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 			},
 		},
 		ExtraAnnotations: map[string]string{
-			"type.pod.netflix.com/platform-sentinel": "sidecar",
+			podCommon.AnnotationKeyPrefixContainerTypePlatformSidecar + `platform-sentinel`: podCommon.AnnotationValueContainerTypePlatformSidecar,
 		},
 		EntrypointOld: testEntrypointOld,
 	}
