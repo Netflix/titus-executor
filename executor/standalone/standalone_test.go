@@ -781,7 +781,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 		}
 	}
 
-	t.Fail()
+	t.Fatal("Got through the updates, but never got a Terminal Status?")
 	return nil, 0
 }
 
