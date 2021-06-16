@@ -16,6 +16,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	dockerTypes "github.com/docker/docker/api/types"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/google/uuid"
@@ -516,7 +517,7 @@ func TestImagePullError(t *testing.T) {
 	wrapTestStandalone(t)
 	ji := &JobInput{
 		ImageName:     busybox.name,
-		Version:       "latest1",
+		Version:       "purposelyDoesntExist",
 		EntrypointOld: "/usr/bin/true",
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
@@ -1276,13 +1277,9 @@ func TestBasicMultiContainer(t *testing.T) {
 	// And for the main container, we use pgrep to ensure that our sentinel container
 	// is in fact running along side us.
 	testEntrypointOld := "pgrep -fx '/bin/sleep 420'"
-	if runtime.GOOS == "darwin" { //nolint:goconst
-		// To make this test compatible with darwin, which can't use tini callbacks
-		// for strict ordering. So we add a short sleep in front.
-		testEntrypointOld = `/bin/sh -c "/bin/sleep 3; ` + testEntrypointOld + `"`
-	} else {
-		testEntrypointOld = `/bin/sh -c "` + testEntrypointOld + `"`
-	}
+	// The main container and the user-sentinel are both 'user' containers,
+	// So we want the main container to waid just a little bit for the user-sentinel
+	testEntrypointOld = `/bin/sh -c "sleep 3;` + testEntrypointOld + `"`
 
 	ji := &JobInput{
 		ImageName:  busybox.name,
@@ -1297,6 +1294,53 @@ func TestBasicMultiContainer(t *testing.T) {
 				Command: []string{"/bin/sh", "-c"},
 				Args:    []string{"/bin/sleep 420"},
 			},
+		},
+		EntrypointOld: testEntrypointOld,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}
+
+func TestMultiContainerDoesPlatformFirst(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+
+	// And for the main container, we use pgrep to ensure that our *user* sentinel container
+	// is in fact running along side us.
+	// It will only work if the user sentinel sidecar is seen running by the time we start.
+	testEntrypointOld := "pgrep -fx '/bin/sleep 430'"
+	// The main container and the user-sentinel are both 'user' containers,
+	// So we want the main container to waid just a little bit for the user-sentinel
+	// to come up, report back if the platform-sentinel is running or not, and then continue
+	testEntrypointOld = `/bin/sh -c "sleep 3;` + testEntrypointOld + `"`
+
+	ji := &JobInput{
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
+		UsePodSpec: shouldUsePodspecInTest,
+		// This sentinel container is a second process we can look out
+		// for, in order to detect if multi-container workloads are setup
+		ExtraContainers: []corev1.Container{
+			// This first one is a platform sidecar with a special sleep, this
+			// *should* run first if the code is correct.
+			{
+				Name:    "platform-sentinel",
+				Image:   busybox.name + `:` + busybox.tag,
+				Command: []string{"/bin/sh", "-c"},
+				Args:    []string{"/bin/sleep 420"},
+			},
+			// Second is a user sidecar, it *should* run second. If it sees the platform-sentinel
+			// running, only then will it keep running with its own sleep
+			{
+				Name:    "user-sentinel",
+				Image:   busybox.name + `:` + busybox.tag,
+				Command: []string{"/bin/sh", "-c"},
+				Args:    []string{"pgrep -fx '/bin/sleep 420' && /bin/sleep 430"},
+			},
+		},
+		ExtraAnnotations: map[string]string{
+			podCommon.AnnotationKeyPrefixContainerTypePlatformSidecar + `platform-sentinel`: podCommon.AnnotationValueContainerTypePlatformSidecar,
 		},
 		EntrypointOld: testEntrypointOld,
 	}
