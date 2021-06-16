@@ -214,27 +214,22 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 	return notify
 }
 
-// logContainerStdErrOut logs the contents of the container's stderr / stdout
+// logContainerStdErrOut logs the contents of the tasks' log files
 func (jobRunResponse *JobRunResponse) logContainerStdErrOut() {
-	logNames := []string{
-		"stderr",
-		"stdout",
+	lp := fmt.Sprintf("%s/titan/mainvpc/logs/%s", logUploadDir, jobRunResponse.TaskID)
+	_, err := os.Stat(lp)
+	if os.IsNotExist(err) {
+		log.Infof("logContainerStdErrOut: log directory does not exist: %s", lp)
+		return
 	}
+	files, _ := ioutil.ReadDir(lp)
 
-	for _, l := range logNames {
-		lp := fmt.Sprintf("%s/titan/mainvpc/logs/%s/%s", logUploadDir, jobRunResponse.TaskID, l)
-		_, err := os.Stat(lp)
-		if os.IsNotExist(err) {
-			log.Infof("logContainerStdErrOut: file does not exist: %s", lp)
-			continue
-		}
-
+	for _, l := range files {
 		contents, err := ioutil.ReadFile(lp)
 		if err != nil {
 			log.WithError(err).Errorf("Error reading file '%s': %+v", lp, err)
 			continue
 		}
-
 		log.Infof("logContainerStdErrOut: %s: '%s'", l, contents)
 	}
 

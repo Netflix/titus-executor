@@ -338,7 +338,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
-func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
+func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint and command from the pod. If either is empty,
 	// pass them along and let Docker extract them from the image instead.
 	entrypoint, cmd := c.Process()
@@ -470,8 +470,9 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
-	// This must got after all setup
+	// This must go after all setup
 	containerCfg.Env = c.SortedEnvArray()
+	containerCfg.Env = append(containerCfg.Env, "TITUS_CONTAINER_NAME="+c.TaskID())
 
 	return containerCfg, hostCfg, nil
 }
@@ -987,7 +988,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)
 
-	dockerCfg, hostCfg, err = r.dockerConfig(r.c, bindMounts, size, volumeContainers)
+	dockerCfg, hostCfg, err = r.mainContainerDockerConfig(r.c, bindMounts, size, volumeContainers)
 	if err != nil {
 		goto error
 	}
@@ -1581,8 +1582,8 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		l.Info("no mainContainerRoot available, volumes will not be sharable between containers")
 	}
 
-	// TODO: Use the same env logic as the main container and populate all the same vars
-	baseEnv := []string{}
+	baseEnv := r.c.SortedEnvArray()
+	baseEnv = append(baseEnv, "TITUS_CONTAINER_NAME="+v1Container.Name)
 
 	// Only redirect stdout/err if we have shared logs
 	if mainContainerRoot != "" {
