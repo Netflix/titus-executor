@@ -615,9 +615,9 @@ func (c *TitusInfoContainer) Env() map[string]string {
 		if c.pod == nil {
 			return containerInfoEnv
 		}
-		// This is a "dumb" check -- that just makes sure 1 container exists so we don't null pointer exception
+		// This is a "dumb" check -- that just makes sure at least 1 container exists so we don't null pointer exception
 		// We probably don't want to blindly source env
-		if len(c.pod.Spec.Containers) != 1 {
+		if len(c.pod.Spec.Containers) == 0 {
 			return containerInfoEnv
 		}
 		if len(c.pod.Spec.Containers[0].Env) == 0 {
