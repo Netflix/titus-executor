@@ -36,6 +36,7 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Derived from big data portal reports
@@ -88,6 +89,7 @@ type MetadataServer struct {
 	ipv6Address         *net.IP
 	accountID           string
 	launched            time.Time
+	pod                 *corev1.Pod
 	container           *titus.ContainerInfo
 	signer              *identity.Signer
 	// Need to hold `signLock` while accessing `signer`
@@ -139,6 +141,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		accountID:                 config.NetflixAccountID,
 		launched:                  time.Now(),
 		ec2metadatasvc:            svc,
+		pod:                       config.Pod,
 		container:                 config.Container,
 		signer:                    config.Signer,
 		tokenRequired:             config.RequireToken,
@@ -255,6 +258,7 @@ func (ms *MetadataServer) installTitusHandlers(router *mux.Router, config types.
 	if config.Signer != nil {
 		router.Headers("Accept", "application/json").Path("/task-identity").HandlerFunc(ms.taskIdentityJSON)
 		router.HandleFunc("/task-identity", ms.taskIdentity)
+		router.HandleFunc("/task-pod-identity", ms.taskPodIdentity)
 	}
 }
 

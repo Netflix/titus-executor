@@ -7,6 +7,7 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -32,6 +33,7 @@ type MetadataServerConfiguration struct {
 	PublicIpv4Address          net.IP
 	Ipv6Address                *net.IP
 	Region                     string
+	Pod                        *corev1.Pod
 	Container                  *titus.ContainerInfo
 	Signer                     *identity.Signer
 	RequireToken               bool
