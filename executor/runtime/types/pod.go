@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
@@ -31,6 +33,19 @@ const (
 	serviceMeshServiceVersion = 1
 	ShmMountPath              = "/dev/shm"
 )
+
+// VK adds env vars to each container's env in order to maintain compatibility with Kubelet. We need this list
+// to remove them from the user environment provided as part of the Metatron signature
+var virtualKubeletHardcodedEnvVars = []string{
+	"KUBERNETES_PORT_443_TCP_PORT",
+	"KUBERNETES_SERVICE_PORT_HTTPS",
+	"KUBERNETES_PORT_443_TCP_PROTO",
+	"KUBERNETES_PORT_443_TCP",
+	"KUBERNETES_SERVICE_HOST",
+	"KUBERNETES_SERVICE_PORT",
+	"KUBERNETES_PORT",
+	"KUBERNETES_PORT_443_TCP_ADDR",
+}
 
 // Compile-time check that PodContainer implements the Container interface:
 var _ Container = (*PodContainer)(nil)
@@ -63,7 +78,6 @@ type PodContainer struct {
 	serviceMeshEnabled bool
 	serviceMeshImage   string
 	shmSizeMiB         *uint32
-	titusInfo          *titus.ContainerInfo
 	ttyEnabled         bool
 	// userEnv is the environment passed in by the user in the pod spec
 	userEnv       map[string]string
@@ -114,18 +128,9 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		userEnv:           userEnv,
 	}
 
-	// If the containerInfo annotation was set, use it
-	if pConf.ContainerInfo != nil {
-		cInfo, err := extractContainerInfo(pConf)
-		if err != nil {
-			return nil, err
-		}
-		c.titusInfo = cInfo
-	} else {
-		// No containerInfo: we need to know which env vars are user vs Titus so Metatron works
-		if pConf.UserEnvVarsStartIndex == nil {
-			return nil, fmt.Errorf("user environment variable index annotation is required: %s", podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex)
-		}
+	// We need to know which env vars are user vs Titus so Metatron works
+	if _, ok := pod.Annotations[podCommon.AnnotationKeyPodTitusSystemEnvVarNames]; !ok {
+		return nil, fmt.Errorf("system environment variable names annotation is required: %s", podCommon.AnnotationKeyPodTitusSystemEnvVarNames)
 	}
 
 	err = c.parsePodVolumes()
@@ -216,12 +221,6 @@ func (c *PodContainer) CombinedAppStackDetails() string {
 
 func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	// TODO: this needs to be removed once Metatron supports pods
-
-	if c.titusInfo != nil {
-		// ContainerInfo was passed in the attribute: return it
-		return c.titusInfo, nil
-	}
-
 	userContainer := podCommon.GetUserContainer(c.pod)
 	appName := c.AppName()
 	stack := c.JobGroupStack()
@@ -235,14 +234,24 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 		sgIDs = *c.SecurityGroupIDs()
 	}
 
-	userEnvStartIdx := *c.podConfig.UserEnvVarsStartIndex
-	for i, env := range userContainer.Env {
-		if uint32(i) < userEnvStartIdx {
+	systemEnvVarNames := map[string]bool{}
+	for _, n := range c.podConfig.SystemEnvVarNames {
+		systemEnvVarNames[n] = true
+	}
+	for _, n := range virtualKubeletHardcodedEnvVars {
+		systemEnvVarNames[n] = true
+	}
+
+	for _, env := range userContainer.Env {
+		if _, ok := systemEnvVarNames[env.Name]; ok {
 			titusProvidedEnv[env.Name] = env.Value
 		} else {
 			userProvidedEnv[env.Name] = env.Value
 		}
 	}
+
+	e, _ := json.Marshal(userContainer.Env)
+	logrus.StandardLogger().Debugf("container config env = %s", e)
 
 	// Only populate ContainerInfo with the fields necessary for a valid task identity document
 	cInfo := &titus.ContainerInfo{
@@ -348,7 +357,7 @@ func (c *PodContainer) ImageName() *string {
 		return nil
 	}
 
-	nameStr := reference.FamiliarName(name)
+	nameStr := reference.Path(name)
 	return &nameStr
 }
 
@@ -475,11 +484,6 @@ func (c *PodContainer) LogUploadThresholdTime() *time.Duration {
 }
 
 func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
-	if c.titusInfo != nil {
-		// ContainerInfo was passed in the attribute: return its copy of the creds
-		return c.titusInfo.MetatronCreds
-	}
-
 	if c.podConfig.WorkloadMetadata == nil || c.podConfig.WorkloadMetadataSig == nil {
 		return nil
 	}
@@ -872,24 +876,4 @@ func (c *PodContainer) parsePodCommandAndArgs() error {
 	c.command = nil
 
 	return nil
-}
-
-func extractContainerInfo(pConf *podCommon.Config) (*titus.ContainerInfo, error) {
-	cInfoStr := pConf.ContainerInfo
-	if cInfoStr == nil {
-		return nil, fmt.Errorf("unable to find containerInfo annotation: %s", podCommon.AnnotationKeyPodTitusContainerInfo)
-	}
-
-	data, err := base64.StdEncoding.DecodeString(*cInfoStr)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to base64 decode containerInfo annotation")
-	}
-
-	var cInfo titus.ContainerInfo
-	err = proto.Unmarshal(data, &cInfo)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to decode containerInfo protobuf")
-	}
-
-	return &cInfo, nil
 }

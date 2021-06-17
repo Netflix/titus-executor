@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"gopkg.in/urfave/cli.v1"
+	"github.com/urfave/cli"
 )
 
 // Config represents the configuration for the Docker titus runtime

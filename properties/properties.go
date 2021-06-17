@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"gopkg.in/urfave/cli.v1"
-	"gopkg.in/urfave/cli.v1/altsrc"
+	"github.com/urfave/cli"
+	"github.com/urfave/cli/altsrc"
 )
 
 var (

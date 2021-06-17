@@ -275,20 +275,22 @@ func ContainerConfig(c Container, startTime time.Time) (*titus.ContainerInfo, er
 	var cmd []string
 	var entrypoint []string
 
-	// The identity server looks at the Process object for the entrypoint. For legacy apps
-	// that pass entrypoint as a string, use the whole string as the entrypoint rather than
-	// parsing it: this matches how the entrypoint is signed in the first place.
-	//
-	// See Container's Process() method for more details.
-	if ti.EntrypointStr != nil {
-		entrypoint = append(entrypoint, *ti.EntrypointStr)
-	} else {
-		entrypoint, cmd = c.Process()
-	}
+	if ti.Process == nil {
+		// The identity server looks at the Process object for the entrypoint. For legacy apps
+		// that pass entrypoint as a string, use the whole string as the entrypoint rather than
+		// parsing it: this matches how the entrypoint is signed in the first place.
+		//
+		// See Container's Process() method for more details.
+		if ti.EntrypointStr != nil {
+			entrypoint = append(entrypoint, *ti.EntrypointStr)
+		} else {
+			entrypoint, cmd = c.Process()
+		}
 
-	ti.Process = &titus.ContainerInfo_Process{
-		Entrypoint: entrypoint,
-		Command:    cmd,
+		ti.Process = &titus.ContainerInfo_Process{
+			Entrypoint: entrypoint,
+			Command:    cmd,
+		}
 	}
 
 	return ti, nil
@@ -329,10 +331,11 @@ func GenerateTestPod(taskID string, resources *Resources, cfg *config.Config) *c
 			Name:      taskID,
 			Namespace: "default",
 			Annotations: map[string]string{
-				podCommon.AnnotationKeyPodSchemaVersion: "1",
-				podCommon.AnnotationKeyIAMRole:          testIamRole,
-				podCommon.AnnotationKeyEgressBandwidth:  bandwidth.String(),
-				podCommon.AnnotationKeyIngressBandwidth: bandwidth.String(),
+				podCommon.AnnotationKeyPodSchemaVersion:          "1",
+				podCommon.AnnotationKeyIAMRole:                   testIamRole,
+				podCommon.AnnotationKeyEgressBandwidth:           bandwidth.String(),
+				podCommon.AnnotationKeyIngressBandwidth:          bandwidth.String(),
+				podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "",
 			},
 			Labels: map[string]string{},
 		},
@@ -448,7 +451,7 @@ type Runtime interface {
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
 	Start(containerCtx context.Context, pod *corev1.Pod) (string, *Details, <-chan StatusMessage, error)
 	// Kill a container. MUST be idempotent.
-	Kill(ctx context.Context) error
+	Kill(ctx context.Context, wasKilled bool) error
 	// Cleanup can be called to tear down resources after a container has been Killed or has naturally
 	// stopped. Must always be called.
 	Cleanup(ctx context.Context) error

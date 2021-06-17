@@ -1086,7 +1086,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 	}
 	logger.G(ctx).Info("Titus environment pushed")
 
-	err = r.createTitusContainerConfigFile(r.c, r.startTime)
+	err = r.createTitusContainerConfigFile(ctx, r.c, r.startTime)
 	if err != nil {
 		goto error
 	}
@@ -1109,7 +1109,7 @@ error:
 
 // Creates the file $titusEnvironments/ContainerID.json as a serialized version of the ContainerInfo protobuf struct
 // so other systems can load it
-func (r *DockerRuntime) createTitusContainerConfigFile(c runtimeTypes.Container, startTime time.Time) error {
+func (r *DockerRuntime) createTitusContainerConfigFile(ctx context.Context, c runtimeTypes.Container, startTime time.Time) error {
 	containerConfigFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", c.TaskID()))
 
 	cfg, err := runtimeTypes.ContainerConfig(c, startTime)
@@ -1117,6 +1117,7 @@ func (r *DockerRuntime) createTitusContainerConfigFile(c runtimeTypes.Container,
 		return err
 	}
 
+	logger.G(ctx).WithField("containerCfg", logger.ShouldJSON(ctx, cfg)).Debug("writing container config")
 	f, err := os.OpenFile(containerConfigFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0644) // nolint: gosec
 	if err != nil {
 		return err
@@ -2187,7 +2188,7 @@ func (r *DockerRuntime) setupGPU(ctx context.Context) error {
 }
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
-func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
+func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nolint: gocyclo
 	logger.G(ctx).Debug("Shutting down main container")
 	ctx, span := trace.StartSpan(ctx, "Kill")
 	defer span.End()
@@ -2198,7 +2199,18 @@ func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
 	if killWait := r.c.KillWaitSeconds(); killWait != nil && *killWait != 0 {
 		containerStopTimeout = time.Second * time.Duration(*killWait)
 	}
+	cStopPtr := &containerStopTimeout
 
+	if !wasKilled {
+		// The container either finished or died, so the user's workload isn't running. There's no point in delaying the stop.
+		cStopPtr = nil
+		logger.G(ctx).Debug("setting container stop timeout to nil because the container finished or died")
+	} else {
+		// We're being told by the API to stop, so use the configured stop timeout
+		logger.G(ctx).Debugf("setting container stop timeout to %s", containerStopTimeout.String())
+	}
+
+	logger.G(ctx).Debug("Inspecting main container")
 	if containerJSON, err := r.client.ContainerInspect(context.TODO(), r.c.ID()); docker.IsErrNotFound(err) {
 		goto stopped
 	} else if err != nil {
@@ -2209,7 +2221,7 @@ func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
 		goto stopped
 	}
 
-	if err := r.client.ContainerStop(context.TODO(), r.c.ID(), &containerStopTimeout); err != nil {
+	if err := r.client.ContainerStop(context.TODO(), r.c.ID(), cStopPtr); err != nil {
 		r.metrics.Counter("titus.executor.dockerStopContainerError", 1, nil)
 		log.Errorf("container %s : stop %v", r.c.TaskID(), err)
 		errs = multierror.Append(errs, err)
@@ -2217,6 +2229,7 @@ func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
 		goto stopped
 	}
 
+	logger.G(ctx).Debug("Killing main container")
 	if err := r.client.ContainerKill(context.TODO(), r.c.ID(), "SIGKILL"); err != nil {
 		r.metrics.Counter("titus.executor.dockerKillContainerError", 1, nil)
 		log.Errorf("container %s : kill %v", r.c.TaskID(), err)
@@ -2225,6 +2238,7 @@ func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
 
 stopped:
 
+	logger.G(ctx).Debug("Main container stop completed")
 	if gpuInfo := r.c.GPUInfo(); gpuInfo != nil {
 		numDealloc := gpuInfo.Deallocate()
 		logger.G(ctx).WithField("numDealloc", numDealloc).Info("Deallocated GPU devices for task")

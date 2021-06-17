@@ -18,6 +18,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/uploader"
 	multierror "github.com/hashicorp/go-multierror"
+	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 )
@@ -67,6 +68,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 	}
 
 	startTime := time.Now()
+
 	container, err := runtimeTypes.NewContainerWithPod(task.TaskID, task.TitusInfo, resources, cfg, task.Pod)
 	if err != nil {
 		return nil, err
@@ -336,7 +338,7 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 	} else {
 		logger.G(ctx).Info("Shutting down main container because it finished or died")
 	}
-	if err := r.runtime.Kill(ctx); err != nil {
+	if err := r.runtime.Kill(ctx, r.wasKilled()); err != nil {
 		// TODO(Andrew L): There may be leaked resources that are not being
 		// accounted for. Consider forceful cleanup or tracking leaked resources.
 		logger.G(ctx).Error("Failed to fully complete primary kill actions: ", err)
@@ -401,7 +403,6 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 		logger.G(ctx).Info("Not starting external logger")
 		return nil
 	}
-	logger.G(ctx).Info("Starting external logger")
 
 	wConf := filesystems.NewWatchConfig(logDir,
 		r.container.UploadDir("logs"),
@@ -410,6 +411,15 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 		*r.container.LogUploadThresholdTime(),
 		*r.container.LogStdioCheckInterval(),
 		r.container.LogKeepLocalFileAfterUpload())
+
+	logger.G(ctx).WithFields(logrus.Fields{
+		"watchConfig:":   wConf,
+		"uploaderConfig": r.container.LogUploaderConfig(),
+		"iamRole":        *r.container.IamRole(),
+		"s3Uploaders":    r.config.S3Uploaders,
+		"copyUploaders":  r.config.CopyUploaders,
+	}).Info("Starting external logger")
+
 	uploader, err := uploader.NewUploader(&r.config, r.container.LogUploaderConfig(), *r.container.IamRole(), r.container.TaskID(), r.metrics)
 	if err != nil {
 		return err

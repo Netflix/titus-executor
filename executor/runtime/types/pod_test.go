@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"sort"
@@ -55,6 +54,24 @@ func TestPodImageNameWithTag(t *testing.T) {
 	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
 	assert.DeepEqual(t, c.ImageVersion(), ptr.StringPtr("latest"))
 	assert.DeepEqual(t, c.ImageDigest(), stringNil)
+}
+
+func TestPodImageNameComplex(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+
+	reg := "registry.us-east-1.example.com:7002"
+	img := "titusoss/titus-test"
+	digest := testDigest
+	fullImg := fmt.Sprintf("%s/%s@%s", reg, img, digest)
+	uc := podCommon.GetUserContainer(pod)
+	uc.Image = fullImg
+
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	assert.Equal(t, c.QualifiedImageName(), fullImg)
+	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/titus-test"))
+	assert.DeepEqual(t, c.ImageDigest(), ptr.StringPtr(digest))
 }
 
 func TestPodImageTagOmitLatest(t *testing.T) {
@@ -475,20 +492,11 @@ func TestNewPodContainerErrors(t *testing.T) {
 
 	pod.Spec.Containers[0].Resources = goodPod.Spec.Containers[0].Resources
 	_, err = NewPodContainer(pod, *conf)
-	assert.ErrorContains(t, err, "user environment variable index annotation is required")
+	assert.ErrorContains(t, err, "system environment variable names annotation is required")
 
 	pod.Annotations = map[string]string{
-		podCommon.AnnotationKeyPodTitusContainerInfo: "0",
+		podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "",
 	}
-	_, err = NewPodContainer(pod, *conf)
-	assert.ErrorContains(t, err, "unable to base64 decode containerInfo annotation: illegal base64 data")
-
-	pod.Annotations[podCommon.AnnotationKeyPodTitusContainerInfo] = base64.StdEncoding.EncodeToString([]byte("blah"))
-	_, err = NewPodContainer(pod, *conf)
-	assert.Error(t, err, "unable to decode containerInfo protobuf: unexpected EOF")
-
-	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
-	assert.NilError(t, err)
 
 	pod.Spec.Containers[0].Image = ""
 	_, err = NewPodContainer(pod, *conf)
@@ -659,7 +667,7 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			}
 
 			if input.image != "" {
-				pod.Spec.Containers[0].Image = input.image
+				pod.Spec.Containers[0].Image = "docker.io/" + input.image
 			}
 
 			resources.Mem, err = strconv.ParseInt(input.mem, 10, 64)
@@ -1323,14 +1331,6 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 	uc := podCommon.GetUserContainer(pod)
 	uc.Env = []corev1.EnvVar{
 		{
-			Name:  "FROM_TITUS_1",
-			Value: "T1",
-		},
-		{
-			Name:  "FROM_TITUS_2",
-			Value: "T2",
-		},
-		{
 			Name:  "FROM_USER_1",
 			Value: "U1",
 		},
@@ -1338,10 +1338,18 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 			Name:  "FROM_USER_2",
 			Value: "U2",
 		},
+		{
+			Name:  "FROM_TITUS_1",
+			Value: "T1",
+		},
+		{
+			Name:  "FROM_TITUS_2",
+			Value: "T2",
+		},
 	}
 
 	addPodAnnotations(pod, map[string]string{
-		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
+		podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "FROM_TITUS_1, FROM_TITUS_2",
 	})
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
@@ -1383,14 +1391,6 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 	uc := podCommon.GetUserContainer(pod)
 	uc.Env = []corev1.EnvVar{
 		{
-			Name:  "FROM_TITUS_1",
-			Value: "T1",
-		},
-		{
-			Name:  "FROM_TITUS_2",
-			Value: "T2",
-		},
-		{
 			Name:  "FROM_USER_1",
 			Value: "U1",
 		},
@@ -1398,21 +1398,29 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 			Name:  "FROM_USER_2",
 			Value: "U2",
 		},
+		{
+			Name:  "FROM_TITUS_1",
+			Value: "T1",
+		},
+		{
+			Name:  "FROM_TITUS_2",
+			Value: "T2",
+		},
 	}
 
 	addPodAnnotations(pod, map[string]string{
-		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
-		podCommon.AnnotationKeyWorkloadName:                  testAppName,
-		podCommon.AnnotationKeyWorkloadDetail:                testAppDetail,
-		podCommon.AnnotationKeyWorkloadOwnerEmail:            testAppOwner,
-		podCommon.AnnotationKeyWorkloadStack:                 testAppStack,
-		podCommon.AnnotationKeyWorkloadSequence:              testAppSeq,
-		podCommon.AnnotationKeyIAMRole:                       testIamRole,
-		podCommon.AnnotationKeyJobAcceptedTimestampMs:        "44",
-		podCommon.AnnotationKeyJobID:                         testJobID,
-		podCommon.AnnotationKeySecurityWorkloadMetadata:      "app-meta",
-		podCommon.AnnotationKeySecurityWorkloadMetadataSig:   "meta-sig",
-		podCommon.AnnotationKeyNetworkSecurityGroups:         "sg-1,sg-2",
+		podCommon.AnnotationKeyPodTitusSystemEnvVarNames:   "FROM_TITUS_1, FROM_TITUS_2",
+		podCommon.AnnotationKeyWorkloadName:                testAppName,
+		podCommon.AnnotationKeyWorkloadDetail:              testAppDetail,
+		podCommon.AnnotationKeyWorkloadOwnerEmail:          testAppOwner,
+		podCommon.AnnotationKeyWorkloadStack:               testAppStack,
+		podCommon.AnnotationKeyWorkloadSequence:            testAppSeq,
+		podCommon.AnnotationKeyIAMRole:                     testIamRole,
+		podCommon.AnnotationKeyJobAcceptedTimestampMs:      "44",
+		podCommon.AnnotationKeyJobID:                       testJobID,
+		podCommon.AnnotationKeySecurityWorkloadMetadata:    "app-meta",
+		podCommon.AnnotationKeySecurityWorkloadMetadataSig: "meta-sig",
+		podCommon.AnnotationKeyNetworkSecurityGroups:       "sg-1,sg-2",
 		// enable shell splitting to confirm that ContainerInfo returns the non-split version
 		podCommon.AnnotationKeyPodTitusEntrypointShellSplitting: "true",
 	})
@@ -1479,9 +1487,9 @@ func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
 		},
 	}
 
-	// If there are no user env vars, the TJC will set the index to where they would have started
+	// If there are no user env vars, the TJC will set the annotation
 	addPodAnnotations(pod, map[string]string{
-		podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex: "2",
+		podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "FROM_TITUS_1, FROM_TITUS_2",
 	})
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
