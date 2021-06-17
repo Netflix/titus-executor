@@ -87,7 +87,7 @@ func (r *runtimeMock) Start(ctx context.Context, pod *v1.Pod) (string, *runtimeT
 	return "", details, r.statusChan, nil
 }
 
-func (r *runtimeMock) Kill(ctx context.Context) error {
+func (r *runtimeMock) Kill(ctx context.Context, wasKilled bool) error {
 	logrus.Infof("runtimeMock.Kill (%v): %s", r.ctx, r.c.TaskID())
 	if r.killCallback != nil {
 		return r.killCallback(r.c)

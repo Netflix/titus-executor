@@ -22,8 +22,8 @@ import (
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli"
 	"go.opencensus.io/trace"
-	"gopkg.in/urfave/cli.v1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -88,6 +88,11 @@ func main() {
 	defer m.Flush()
 
 	app.Action = func(c *cli.Context) error {
+		if mainCfg.debug {
+			logrus.SetLevel(logrus.DebugLevel)
+			logrusLogger.Debug("enabled debug logging")
+		}
+
 		if err := mainWithError(ctx, dockerCfg, cfg, &mainCfg, m); err != nil {
 			return cli.NewExitError(err, 1)
 		}
@@ -128,6 +133,8 @@ func mainWithError(ctx context.Context, dockerCfg *docker.Config, cfg *config.Co
 		}()
 	}
 
+	logger.G(ctx).WithField("cfg", logger.ShouldJSON(ctx, *cfg)).WithField("dockerCfg", logger.ShouldJSON(ctx, *dockerCfg)).Debug("Loaded config and docker config")
+
 	var pod v1.Pod
 	podFileName := filepath.Join(mainCfg.runtimeDir, "pod.json")
 	data, err := ioutil.ReadFile(podFileName)
@@ -147,8 +154,6 @@ func mainWithError(ctx context.Context, dockerCfg *docker.Config, cfg *config.Co
 	}
 
 	logger.G(ctx).WithField("pod", pod).Debug("Got pod")
-
-	logger.G(ctx).WithField("pod", pod.Name).Debugf("Getting uploaders from %+v", cfg.S3Uploaders)
 
 	rp, err := docker.NewDockerRuntime(ctx, m, *dockerCfg, *cfg)
 	if err != nil {

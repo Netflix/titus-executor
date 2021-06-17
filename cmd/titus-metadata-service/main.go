@@ -27,9 +27,9 @@ import (
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	log "github.com/sirupsen/logrus"
+	"github.com/urfave/cli"
 	"go.opencensus.io/trace"
 	"golang.org/x/sys/unix"
-	"gopkg.in/urfave/cli.v1"
 )
 
 const (

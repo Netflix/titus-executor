@@ -396,18 +396,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Env: []corev1.EnvVar{
-						{
-							// This needs to be set for the IMDS to start up
-							Name:  runtimeTypes.TitusTaskInstanceIDKey,
-							Value: task.TaskID,
-						},
-						{
-							// This needs to be set for the logviewer to work properly
-							Name:  "TITUS_TASK_ID",
-							Value: task.TaskID,
-						},
-					},
+					Env:       []corev1.EnvVar{},
 					Name:      task.TaskID,
 					Image:     image,
 					Resources: resourceReqs,
@@ -421,7 +410,6 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	}
 
 	mainContainer := &pod.Spec.Containers[0]
-	pod.Annotations[podCommon.AnnotationKeyPodTitusUserEnvVarsStartIndex] = strconv.Itoa(len(mainContainer.Env))
 
 	if p := jobInput.Process; p != nil {
 		mainContainer.Command = p.Entrypoint
@@ -437,6 +425,26 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	for k, v := range jobInput.Environment {
 		mainContainer.Env = append(mainContainer.Env, corev1.EnvVar{Name: k, Value: v})
 	}
+
+	// Now that the user env vars are added, the system ones come after
+	systemEnvVars := []corev1.EnvVar{
+		{
+			// This needs to be set for the IMDS to start up
+			Name:  runtimeTypes.TitusTaskInstanceIDKey,
+			Value: task.TaskID,
+		},
+		{
+			// This needs to be set for the logviewer to work properly
+			Name:  "TITUS_TASK_ID",
+			Value: task.TaskID,
+		},
+	}
+	mainContainer.Env = append(mainContainer.Env, systemEnvVars...)
+	envVarNames := []string{}
+	for _, e := range systemEnvVars {
+		envVarNames = append(envVarNames, e.Name)
+	}
+	pod.Annotations[podCommon.AnnotationKeyPodTitusSystemEnvVarNames] = strings.Join(envVarNames, ",")
 
 	// capabilities
 	if jobInput.Capabilities != nil {

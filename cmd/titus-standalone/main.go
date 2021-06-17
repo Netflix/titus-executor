@@ -17,7 +17,7 @@ import (
 	"github.com/Netflix/titus-executor/tag"
 	"github.com/google/go-jsonnet"
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/urfave/cli.v1"
+	"github.com/urfave/cli"
 )
 
 type cliOptions struct {
