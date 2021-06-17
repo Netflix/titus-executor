@@ -148,6 +148,10 @@ type TitusInfoContainer struct {
 	logUploaderConfig           uploader.Config
 
 	pod *corev1.Pod
+	// extraUserContainers stores and array of metadata about all the non-main user containers
+	extraUserContainers []*ExtraContainer
+	// extraUserContainers stores and array of metadata about all the platform-defined containers
+	extraPlatformContainers []*ExtraContainer
 
 	// GPU devices
 	gpuInfo GPUContainer
@@ -209,6 +213,10 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 
 	if pod != nil {
 		c.pod = pod.DeepCopy()
+	}
+
+	if c.pod != nil {
+		c.extraUserContainers, c.extraPlatformContainers = NewExtraContainersFromPod(*c.pod)
 	}
 
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
@@ -544,7 +552,6 @@ func (c *TitusInfoContainer) BatchPriority() *string {
 
 func (c *TitusInfoContainer) CombinedAppStackDetails() string {
 	return combinedAppStackDetails(c)
-
 }
 
 // Config returns the container config with all necessary fields for validating its identity with Metatron
@@ -644,6 +651,14 @@ func (c *TitusInfoContainer) EnvOverrides() map[string]string {
 	envOverrides := maps.CopySS(c.envOverrides)
 	c.envLock.Unlock()
 	return envOverrides
+}
+
+func (c *TitusInfoContainer) ExtraUserContainers() []*ExtraContainer {
+	return c.extraUserContainers
+}
+
+func (c *TitusInfoContainer) ExtraPlatformContainers() []*ExtraContainer {
+	return c.extraPlatformContainers
 }
 
 func (c *TitusInfoContainer) FuseEnabled() bool {
