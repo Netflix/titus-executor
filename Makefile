@@ -132,34 +132,52 @@ push-titus-agent: titus-agent
 
 ## Protobuf and source code generation
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
+PROTO_DIR2    = vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
 PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
-PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
-PROTO_MAP     := Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
-protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
-protogen-clean:
-	rm $(PROTOS_OUT)
+protogen: vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
+	mkdir -p api/netflix/titus
+	protoc --proto_path=$(PROTO_DIR) \
+		--go_opt=module=netflix/titus \
+		--go_opt=Mnetflix/titus/titus_base.proto=netflix/titus \
+		--go_opt=Mnetflix/titus/agent.proto=netflix/titus  \
+		--go_opt=Mnetflix/titus/agent_api.proto=netflix/titus  \
+		--go_opt=Mnetflix/titus/titus_agent_api.proto=netflix/titus  \
+		--go_opt=Mnetflix/titus/titus_vpc_api.proto=netflix/titus  \
+		--go_opt=Mnetflix/titus/titus_job_api.proto=netflix/titus  \
+		--go_out=api/netflix/titus $(PROTOS)
+	protoc --proto_path=$(PROTO_DIR) \
+		--go-grpc_opt=module=netflix/titus \
+		--go-grpc_opt=Mnetflix/titus/titus_base.proto=netflix/titus \
+		--go-grpc_opt=Mnetflix/titus/agent.proto=netflix/titus  \
+		--go-grpc_opt=Mnetflix/titus/agent_api.proto=netflix/titus  \
+		--go-grpc_opt=Mnetflix/titus/titus_agent_api.proto=netflix/titus  \
+		--go-grpc_opt=Mnetflix/titus/titus_vpc_api.proto=netflix/titus  \
+		--go-grpc_opt=Mnetflix/titus/titus_job_api.proto=netflix/titus  \
+		--go-grpc_out=require_unimplemented_servers=false:api/netflix/titus $(PROTOS)
+
+
+	#
+
+vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+	mkdir -p vpc/api
+	protoc --proto_path=$(PROTO_DIR) --proto_path=vpc/proto \
+		--go_out=vpc/api vpc/proto/vpc.proto
+# 	protoc -I$(PROTO_DIR)/ -Ivpc/proto \
+# 		--go-grpc_opt=Mnetflix/titus/vpc.proto=github.com/Netflix/titus-executor/api/netflix/titus \
+# 		--go-grpc_out=vpc/api/ vpc/proto/vpc.proto
+# 	$(GOIMPORT_TOOL) $@
+
+# metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+# 	mkdir -p metadataserver/api
+# 	protoc -I$(PROTO_DIR)/ -Imetadataserver/proto --go-grpc_out=metadataserver/api/ metadataserver/proto/iam.proto
+# 	$(GOIMPORT_TOOL) $@
 
 vendor: vendor/modules.txt
 vendor/modules.txt: go.mod
 	go mod vendor
 
-$(PROTOS): vendor
-$(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
-	mkdir -p api/netflix/titus
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc:api/ $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
-	$(GOIMPORT_TOOL) $@
 
-## TODO: Use git wildcard functionality to "automatically"
-vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
-	mkdir -p vpc/api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):vpc/api/ vpc/proto/vpc.proto
-	$(GOIMPORT_TOOL) $@
-
-metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
-	mkdir -p metadataserver/api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Imetadataserver/proto --titusgo_out=plugins=grpc,source_relative:metadataserver/api/ metadataserver/proto/iam.proto
-	$(GOIMPORT_TOOL) $@
 
 .PHONY: clean-proto-defs
 clean-proto-defs: | $(clean)
