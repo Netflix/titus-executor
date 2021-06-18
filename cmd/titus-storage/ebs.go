@@ -130,8 +130,8 @@ func ebsStop(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2Instance
 	// *Sometimes* ebsStop gets called *defore* a container dies, but *after* a *different* container
 	// comes up, see it is attached, and mounts. In this case we need to still panic here, but it is "ok"
 	// In that situation we should not continue to detach a volume out from underneath it
-	l.Printf("Waiting up to %d seconds for %s to be not in use...", 30, actualDeviceName)
-	err = waitForDeviceToBeNotInUse(actualDeviceName, 30)
+	l.Printf("Waiting up to %d seconds for %s to be not in use...", 60, actualDeviceName)
+	err = waitForDeviceToBeNotInUse(actualDeviceName, 60)
 	if err != nil {
 		return fmt.Errorf("Not detaching volume: %s", err)
 	}
@@ -249,7 +249,7 @@ func waitForDeviceToDisappear(ctx context.Context, driveName string, maxAttempts
 func waitForDriveToExistWithTimeout(driveName string, maxAttempts int) error {
 	var attempts int
 	for !doesDriveExist(driveName) {
-		time.Sleep(2 * time.Second)
+		time.Sleep(6 * time.Second)
 		attempts++
 		if attempts >= maxAttempts {
 			return fmt.Errorf("drive %s still does't exist after waiting %d seconds", driveName, attempts*2)
@@ -319,7 +319,7 @@ func attachEBS(ctx context.Context, ebsVolumeID string, ec2Client *ec2.EC2, inst
 		return "", err
 	}
 	l.Printf("volAttachments status after AttachVolume: %+v", volAttachments)
-	l.Printf("Now waiting for device to exist as ec2Device name %s", ec2DeviceName)
+	l.Printf("Now waiting up to 60 seconds for device to exist as ec2Device name %s", ec2DeviceName)
 	err = waitForDriveToExistWithTimeout(ec2DeviceName, 10)
 	if err != nil {
 		return "", err
