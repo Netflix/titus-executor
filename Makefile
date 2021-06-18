@@ -166,7 +166,7 @@ vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-p
 		--go-grpc_opt=module=vpc/api/vpcapi \
 		--go-grpc_opt=Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus \
 		--go-grpc_opt=Mvpc.proto=vpc/api/vpcapi  \
-		--go-grpc_out=require_unimplemented_servers=false:vpc/api vpc/proto/vpc.proto
+		--go-grpc_out=vpc/api vpc/proto/vpc.proto
 
 metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p metadataserver/api

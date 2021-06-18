@@ -183,7 +183,7 @@ func (c *titusAgentVPCServiceClient) DetachBranchNetworkInterface(ctx context.Co
 }
 
 // TitusAgentVPCServiceServer is the server API for TitusAgentVPCService service.
-// All implementations should embed UnimplementedTitusAgentVPCServiceServer
+// All implementations must embed UnimplementedTitusAgentVPCServiceServer
 // for forward compatibility
 type TitusAgentVPCServiceServer interface {
 	// This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
@@ -204,9 +204,10 @@ type TitusAgentVPCServiceServer interface {
 	DisassociateTrunkNetworkInterface(context.Context, *DisassociateTrunkNetworkInterfaceRequest) (*DisassociateTrunkNetworkInterfaceResponse, error)
 	DescribeTrunkNetworkInterface(context.Context, *DescribeTrunkNetworkInterfaceRequest) (*DescribeTrunkNetworkInterfaceResponse, error)
 	DetachBranchNetworkInterface(context.Context, *DetachBranchNetworkInterfaceRequest) (*DetachBranchNetworkInterfaceResponse, error)
+	mustEmbedUnimplementedTitusAgentVPCServiceServer()
 }
 
-// UnimplementedTitusAgentVPCServiceServer should be embedded to have forward compatible implementations.
+// UnimplementedTitusAgentVPCServiceServer must be embedded to have forward compatible implementations.
 type UnimplementedTitusAgentVPCServiceServer struct {
 }
 
@@ -255,6 +256,7 @@ func (UnimplementedTitusAgentVPCServiceServer) DescribeTrunkNetworkInterface(con
 func (UnimplementedTitusAgentVPCServiceServer) DetachBranchNetworkInterface(context.Context, *DetachBranchNetworkInterfaceRequest) (*DetachBranchNetworkInterfaceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DetachBranchNetworkInterface not implemented")
 }
+func (UnimplementedTitusAgentVPCServiceServer) mustEmbedUnimplementedTitusAgentVPCServiceServer() {}
 
 // UnsafeTitusAgentVPCServiceServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to TitusAgentVPCServiceServer will
