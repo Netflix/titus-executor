@@ -132,7 +132,6 @@ push-titus-agent: titus-agent
 
 ## Protobuf and source code generation
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
-PROTO_DIR2    = vendor/github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus
 PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
 .PHONY: protogen
 protogen: vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
@@ -156,22 +155,31 @@ protogen: vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-prot
 		--go-grpc_opt=Mnetflix/titus/titus_job_api.proto=netflix/titus  \
 		--go-grpc_out=require_unimplemented_servers=false:api/netflix/titus $(PROTOS)
 
-
-	#
-
 vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p vpc/api
 	protoc --proto_path=$(PROTO_DIR) --proto_path=vpc/proto \
+		--go_opt=module=vpc/api/vpcapi \
+		--go_opt=Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus \
+		--go_opt=Mvpc.proto=vpc/api/vpcapi  \
 		--go_out=vpc/api vpc/proto/vpc.proto
-# 	protoc -I$(PROTO_DIR)/ -Ivpc/proto \
-# 		--go-grpc_opt=Mnetflix/titus/vpc.proto=github.com/Netflix/titus-executor/api/netflix/titus \
-# 		--go-grpc_out=vpc/api/ vpc/proto/vpc.proto
-# 	$(GOIMPORT_TOOL) $@
+	protoc --proto_path=$(PROTO_DIR) --proto_path=vpc/proto \
+		--go-grpc_opt=module=vpc/api/vpcapi \
+		--go-grpc_opt=Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus \
+		--go-grpc_opt=Mvpc.proto=vpc/api/vpcapi  \
+		--go-grpc_out=require_unimplemented_servers=false:vpc/api vpc/proto/vpc.proto
 
-# metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
-# 	mkdir -p metadataserver/api
-# 	protoc -I$(PROTO_DIR)/ -Imetadataserver/proto --go-grpc_out=metadataserver/api/ metadataserver/proto/iam.proto
-# 	$(GOIMPORT_TOOL) $@
+metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+	mkdir -p metadataserver/api
+	protoc --proto_path=$(PROTO_DIR) --proto_path=metadataserver/proto \
+		--go_opt=module=metadataserver/api/iamapi \
+		--go_opt=Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus \
+		--go_opt=Miam.proto=metadataserver/api/iamapi \
+		--go_out=metadataserver/api/ metadataserver/proto/iam.proto
+	protoc --proto_path=$(PROTO_DIR) --proto_path=metadataserver/proto \
+		--go-grpc_opt=module=metadataserver/api/iamapi \
+		--go-grpc_opt=Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus \
+		--go-grpc_opt=Miam.proto=metadataserver/api/iamapi  \
+		--go-grpc_out=require_unimplemented_servers=false:metadataserver/api/ metadataserver/proto/iam.proto
 
 vendor: vendor/modules.txt
 vendor/modules.txt: go.mod
