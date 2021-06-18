@@ -56,6 +56,8 @@ func mountBlockDeviceInContainer(ctx context.Context, mc MountCommand) error {
 	return cmd.Run()
 }
 
+// waitForDeviceToBeNotInUse polls once a second to see if a unix device
+// file to see if it is "in use" aka mounted.
 func waitForDeviceToBeNotInUse(device string, timeout int) error {
 	for attempts := 0; attempts < timeout; attempts++ {
 		inUse, err := deviceIsInUse(device)
