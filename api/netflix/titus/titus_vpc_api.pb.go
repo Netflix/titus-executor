@@ -8,11 +8,12 @@ import (
 	fmt "fmt"
 	math "math"
 
+	titus "./netflix/titus"
 	proto "github.com/golang/protobuf/proto"
-	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -56,12 +57,12 @@ func (Family) EnumDescriptor() ([]byte, []int) {
 }
 
 type AllocateAddressRequest struct {
-	AddressAllocation    *AddressAllocation `protobuf:"bytes,1,opt,name=addressAllocation,proto3" json:"addressAllocation,omitempty"`
-	Family               Family             `protobuf:"varint,2,opt,name=family,proto3,enum=com.netflix.titus.Family" json:"family,omitempty"`
-	AccountId            string             `protobuf:"bytes,3,opt,name=accountId,proto3" json:"accountId,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
-	XXX_unrecognized     []byte             `json:"-"`
-	XXX_sizecache        int32              `json:"-"`
+	AddressAllocation    *titus.AddressAllocation `protobuf:"bytes,1,opt,name=addressAllocation,proto3" json:"addressAllocation,omitempty"`
+	Family               Family                   `protobuf:"varint,2,opt,name=family,proto3,enum=com.netflix.titus.Family" json:"family,omitempty"`
+	AccountId            string                   `protobuf:"bytes,3,opt,name=accountId,proto3" json:"accountId,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
 }
 
 func (m *AllocateAddressRequest) Reset()         { *m = AllocateAddressRequest{} }
@@ -89,7 +90,7 @@ func (m *AllocateAddressRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_AllocateAddressRequest proto.InternalMessageInfo
 
-func (m *AllocateAddressRequest) GetAddressAllocation() *AddressAllocation {
+func (m *AllocateAddressRequest) GetAddressAllocation() *titus.AddressAllocation {
 	if m != nil {
 		return m.AddressAllocation
 	}
@@ -111,10 +112,10 @@ func (m *AllocateAddressRequest) GetAccountId() string {
 }
 
 type AllocateAddressResponse struct {
-	SignedAddressAllocation *SignedAddressAllocation `protobuf:"bytes,1,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
-	XXX_NoUnkeyedLiteral    struct{}                 `json:"-"`
-	XXX_unrecognized        []byte                   `json:"-"`
-	XXX_sizecache           int32                    `json:"-"`
+	SignedAddressAllocation *titus.SignedAddressAllocation `protobuf:"bytes,1,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
+	XXX_NoUnkeyedLiteral    struct{}                       `json:"-"`
+	XXX_unrecognized        []byte                         `json:"-"`
+	XXX_sizecache           int32                          `json:"-"`
 }
 
 func (m *AllocateAddressResponse) Reset()         { *m = AllocateAddressResponse{} }
@@ -142,7 +143,7 @@ func (m *AllocateAddressResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_AllocateAddressResponse proto.InternalMessageInfo
 
-func (m *AllocateAddressResponse) GetSignedAddressAllocation() *SignedAddressAllocation {
+func (m *AllocateAddressResponse) GetSignedAddressAllocation() *titus.SignedAddressAllocation {
 	if m != nil {
 		return m.SignedAddressAllocation
 	}
@@ -230,11 +231,11 @@ func (*GetAllocationRequest) XXX_OneofWrappers() []interface{} {
 }
 
 type GetAllocationResponse struct {
-	AddressAllocation       *AddressAllocation       `protobuf:"bytes,1,opt,name=addressAllocation,proto3" json:"addressAllocation,omitempty"`
-	SignedAddressAllocation *SignedAddressAllocation `protobuf:"bytes,2,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
-	XXX_NoUnkeyedLiteral    struct{}                 `json:"-"`
-	XXX_unrecognized        []byte                   `json:"-"`
-	XXX_sizecache           int32                    `json:"-"`
+	AddressAllocation       *titus.AddressAllocation       `protobuf:"bytes,1,opt,name=addressAllocation,proto3" json:"addressAllocation,omitempty"`
+	SignedAddressAllocation *titus.SignedAddressAllocation `protobuf:"bytes,2,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
+	XXX_NoUnkeyedLiteral    struct{}                       `json:"-"`
+	XXX_unrecognized        []byte                         `json:"-"`
+	XXX_sizecache           int32                          `json:"-"`
 }
 
 func (m *GetAllocationResponse) Reset()         { *m = GetAllocationResponse{} }
@@ -262,14 +263,14 @@ func (m *GetAllocationResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_GetAllocationResponse proto.InternalMessageInfo
 
-func (m *GetAllocationResponse) GetAddressAllocation() *AddressAllocation {
+func (m *GetAllocationResponse) GetAddressAllocation() *titus.AddressAllocation {
 	if m != nil {
 		return m.AddressAllocation
 	}
 	return nil
 }
 
-func (m *GetAllocationResponse) GetSignedAddressAllocation() *SignedAddressAllocation {
+func (m *GetAllocationResponse) GetSignedAddressAllocation() *titus.SignedAddressAllocation {
 	if m != nil {
 		return m.SignedAddressAllocation
 	}
@@ -277,10 +278,10 @@ func (m *GetAllocationResponse) GetSignedAddressAllocation() *SignedAddressAlloc
 }
 
 type ValidationRequest struct {
-	SignedAddressAllocation *SignedAddressAllocation `protobuf:"bytes,1,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
-	XXX_NoUnkeyedLiteral    struct{}                 `json:"-"`
-	XXX_unrecognized        []byte                   `json:"-"`
-	XXX_sizecache           int32                    `json:"-"`
+	SignedAddressAllocation *titus.SignedAddressAllocation `protobuf:"bytes,1,opt,name=signedAddressAllocation,proto3" json:"signedAddressAllocation,omitempty"`
+	XXX_NoUnkeyedLiteral    struct{}                       `json:"-"`
+	XXX_unrecognized        []byte                         `json:"-"`
+	XXX_sizecache           int32                          `json:"-"`
 }
 
 func (m *ValidationRequest) Reset()         { *m = ValidationRequest{} }
@@ -308,7 +309,7 @@ func (m *ValidationRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidationRequest proto.InternalMessageInfo
 
-func (m *ValidationRequest) GetSignedAddressAllocation() *SignedAddressAllocation {
+func (m *ValidationRequest) GetSignedAddressAllocation() *titus.SignedAddressAllocation {
 	if m != nil {
 		return m.SignedAddressAllocation
 	}
@@ -1496,7 +1497,7 @@ type isAddressSearchParameter_Location interface {
 }
 
 type AddressSearchParameter_Empty struct {
-	Empty *empty.Empty `protobuf:"bytes,2,opt,name=empty,proto3,oneof"`
+	Empty *emptypb.Empty `protobuf:"bytes,2,opt,name=empty,proto3,oneof"`
 }
 
 type AddressSearchParameter_SubnetId struct {
@@ -1520,7 +1521,7 @@ func (m *AddressSearchParameter) GetLocation() isAddressSearchParameter_Location
 	return nil
 }
 
-func (m *AddressSearchParameter) GetEmpty() *empty.Empty {
+func (m *AddressSearchParameter) GetEmpty() *emptypb.Empty {
 	if x, ok := m.GetLocation().(*AddressSearchParameter_Empty); ok {
 		return x.Empty
 	}
@@ -1715,7 +1716,7 @@ type GetStaticIPAddressesRequest_Pool struct {
 }
 
 type GetStaticIPAddressesRequest_Addresses struct {
-	Addresses *StaticIPAddressIDs `protobuf:"bytes,2,opt,name=addresses,proto3,oneof"`
+	Addresses *titus.StaticIPAddressIDs `protobuf:"bytes,2,opt,name=addresses,proto3,oneof"`
 }
 
 func (*GetStaticIPAddressesRequest_Pool) isGetStaticIPAddressesRequest_SearchParameter() {}
@@ -1736,7 +1737,7 @@ func (m *GetStaticIPAddressesRequest) GetPool() string {
 	return ""
 }
 
-func (m *GetStaticIPAddressesRequest) GetAddresses() *StaticIPAddressIDs {
+func (m *GetStaticIPAddressesRequest) GetAddresses() *titus.StaticIPAddressIDs {
 	if x, ok := m.GetSearchParameter().(*GetStaticIPAddressesRequest_Addresses); ok {
 		return x.Addresses
 	}

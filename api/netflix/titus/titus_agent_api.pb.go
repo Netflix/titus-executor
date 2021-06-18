@@ -8,11 +8,12 @@ import (
 	fmt "fmt"
 	math "math"
 
+	titus "./netflix/titus"
 	proto "github.com/golang/protobuf/proto"
-	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -424,9 +425,9 @@ type AgentInstanceGroup struct {
 	/// An id of the server type (for example AWS instance type id).
 	InstanceType string `protobuf:"bytes,2,opt,name=instanceType,proto3" json:"instanceType,omitempty"`
 	/// Instance resources (cpu, memory, etc).
-	InstanceResources *ResourceDimension `protobuf:"bytes,3,opt,name=instanceResources,proto3" json:"instanceResources,omitempty"`
+	InstanceResources *titus.ResourceDimension `protobuf:"bytes,3,opt,name=instanceResources,proto3" json:"instanceResources,omitempty"`
 	/// Tier to which the given server group is attached.
-	Tier Tier `protobuf:"varint,4,opt,name=tier,proto3,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
+	Tier titus.Tier `protobuf:"varint,4,opt,name=tier,proto3,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
 	/// Minimum number of servers in the server group.
 	Min uint32 `protobuf:"varint,5,opt,name=min,proto3" json:"min,omitempty"`
 	/// Desired number of servers in the server group.
@@ -489,18 +490,18 @@ func (m *AgentInstanceGroup) GetInstanceType() string {
 	return ""
 }
 
-func (m *AgentInstanceGroup) GetInstanceResources() *ResourceDimension {
+func (m *AgentInstanceGroup) GetInstanceResources() *titus.ResourceDimension {
 	if m != nil {
 		return m.InstanceResources
 	}
 	return nil
 }
 
-func (m *AgentInstanceGroup) GetTier() Tier {
+func (m *AgentInstanceGroup) GetTier() titus.Tier {
 	if m != nil {
 		return m.Tier
 	}
-	return Tier_Flex
+	return titus.Tier_Flex
 }
 
 func (m *AgentInstanceGroup) GetMin() uint32 {
@@ -886,7 +887,7 @@ var xxx_messageInfo_AgentChangeEvent_SnapshotEnd proto.InternalMessageInfo
 
 type AgentQuery struct {
 	/// (Required) Requested page number/size.
-	Page *Page `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
+	Page *titus.Page `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
 	/// (Optional) Collection of fields and their values for filtering.
 	// Available query criteria:
 	// instanceIds - list of agent instance ids
@@ -929,7 +930,7 @@ func (m *AgentQuery) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_AgentQuery proto.InternalMessageInfo
 
-func (m *AgentQuery) GetPage() *Page {
+func (m *AgentQuery) GetPage() *titus.Page {
 	if m != nil {
 		return m.Page
 	}
@@ -1068,11 +1069,11 @@ func (m *AgentInstances) GetAgentInstances() []*AgentInstance {
 }
 
 type TierUpdate struct {
-	InstanceGroupId      string   `protobuf:"bytes,1,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
-	Tier                 Tier     `protobuf:"varint,2,opt,name=tier,proto3,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	InstanceGroupId      string     `protobuf:"bytes,1,opt,name=instanceGroupId,proto3" json:"instanceGroupId,omitempty"`
+	Tier                 titus.Tier `protobuf:"varint,2,opt,name=tier,proto3,enum=com.netflix.titus.Tier" json:"tier,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
 }
 
 func (m *TierUpdate) Reset()         { *m = TierUpdate{} }
@@ -1107,11 +1108,11 @@ func (m *TierUpdate) GetInstanceGroupId() string {
 	return ""
 }
 
-func (m *TierUpdate) GetTier() Tier {
+func (m *TierUpdate) GetTier() titus.Tier {
 	if m != nil {
 		return m.Tier
 	}
-	return Tier_Flex
+	return titus.Tier_Flex
 }
 
 type InstanceGroupLifecycleStateUpdate struct {
@@ -1502,7 +1503,7 @@ const _ = grpc.SupportPackageIsVersion6
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type AgentManagementServiceClient interface {
 	/// Return all known Titus agent server groups.
-	GetInstanceGroups(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*AgentInstanceGroups, error)
+	GetInstanceGroups(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*AgentInstanceGroups, error)
 	/// Return an agent server group with the given id.
 	GetInstanceGroup(ctx context.Context, in *Id, opts ...grpc.CallOption) (*AgentInstanceGroup, error)
 	/// Return an agent instance with the given id.
@@ -1510,19 +1511,19 @@ type AgentManagementServiceClient interface {
 	/// Return all agents matching the provided query criteria.
 	FindAgentInstances(ctx context.Context, in *AgentQuery, opts ...grpc.CallOption) (*AgentInstances, error)
 	/// Update tier assignment of an agent instance group.
-	UpdateInstanceGroupTier(ctx context.Context, in *TierUpdate, opts ...grpc.CallOption) (*empty.Empty, error)
+	UpdateInstanceGroupTier(ctx context.Context, in *TierUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	/// Change lifecycle state of an agent instance group.
-	UpdateInstanceGroupLifecycleState(ctx context.Context, in *InstanceGroupLifecycleStateUpdate, opts ...grpc.CallOption) (*empty.Empty, error)
+	UpdateInstanceGroupLifecycleState(ctx context.Context, in *InstanceGroupLifecycleStateUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	/// Update the attributes of an instance group. This will either create new attributes or replacing existing ones with the same key.
-	UpdateInstanceGroupAttributes(ctx context.Context, in *InstanceGroupAttributesUpdate, opts ...grpc.CallOption) (*empty.Empty, error)
+	UpdateInstanceGroupAttributes(ctx context.Context, in *InstanceGroupAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	/// Delete the attributes of an instance group.
-	DeleteInstanceGroupAttributes(ctx context.Context, in *DeleteInstanceGroupAttributesRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	DeleteInstanceGroupAttributes(ctx context.Context, in *DeleteInstanceGroupAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	/// Update the attributes of an agent instance. This will either create new attributes or replacing existing ones with the same key.
-	UpdateAgentInstanceAttributes(ctx context.Context, in *AgentInstanceAttributesUpdate, opts ...grpc.CallOption) (*empty.Empty, error)
+	UpdateAgentInstanceAttributes(ctx context.Context, in *AgentInstanceAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	/// Delete the attributes of an agent instance.
-	DeleteAgentInstanceAttributes(ctx context.Context, in *DeleteAgentInstanceAttributesRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	DeleteAgentInstanceAttributes(ctx context.Context, in *DeleteAgentInstanceAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	/// Sends first current snapshot of the agent topology, and next an event for each topology change.
-	ObserveAgents(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (AgentManagementService_ObserveAgentsClient, error)
+	ObserveAgents(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (AgentManagementService_ObserveAgentsClient, error)
 }
 
 type agentManagementServiceClient struct {
@@ -1533,7 +1534,7 @@ func NewAgentManagementServiceClient(cc grpc.ClientConnInterface) AgentManagemen
 	return &agentManagementServiceClient{cc}
 }
 
-func (c *agentManagementServiceClient) GetInstanceGroups(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*AgentInstanceGroups, error) {
+func (c *agentManagementServiceClient) GetInstanceGroups(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*AgentInstanceGroups, error) {
 	out := new(AgentInstanceGroups)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.AgentManagementService/GetInstanceGroups", in, out, opts...)
 	if err != nil {
@@ -1569,8 +1570,8 @@ func (c *agentManagementServiceClient) FindAgentInstances(ctx context.Context, i
 	return out, nil
 }
 
-func (c *agentManagementServiceClient) UpdateInstanceGroupTier(ctx context.Context, in *TierUpdate, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *agentManagementServiceClient) UpdateInstanceGroupTier(ctx context.Context, in *TierUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.AgentManagementService/UpdateInstanceGroupTier", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1578,8 +1579,8 @@ func (c *agentManagementServiceClient) UpdateInstanceGroupTier(ctx context.Conte
 	return out, nil
 }
 
-func (c *agentManagementServiceClient) UpdateInstanceGroupLifecycleState(ctx context.Context, in *InstanceGroupLifecycleStateUpdate, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *agentManagementServiceClient) UpdateInstanceGroupLifecycleState(ctx context.Context, in *InstanceGroupLifecycleStateUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.AgentManagementService/UpdateInstanceGroupLifecycleState", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1587,8 +1588,8 @@ func (c *agentManagementServiceClient) UpdateInstanceGroupLifecycleState(ctx con
 	return out, nil
 }
 
-func (c *agentManagementServiceClient) UpdateInstanceGroupAttributes(ctx context.Context, in *InstanceGroupAttributesUpdate, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *agentManagementServiceClient) UpdateInstanceGroupAttributes(ctx context.Context, in *InstanceGroupAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.AgentManagementService/UpdateInstanceGroupAttributes", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1596,8 +1597,8 @@ func (c *agentManagementServiceClient) UpdateInstanceGroupAttributes(ctx context
 	return out, nil
 }
 
-func (c *agentManagementServiceClient) DeleteInstanceGroupAttributes(ctx context.Context, in *DeleteInstanceGroupAttributesRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *agentManagementServiceClient) DeleteInstanceGroupAttributes(ctx context.Context, in *DeleteInstanceGroupAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.AgentManagementService/DeleteInstanceGroupAttributes", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1605,8 +1606,8 @@ func (c *agentManagementServiceClient) DeleteInstanceGroupAttributes(ctx context
 	return out, nil
 }
 
-func (c *agentManagementServiceClient) UpdateAgentInstanceAttributes(ctx context.Context, in *AgentInstanceAttributesUpdate, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *agentManagementServiceClient) UpdateAgentInstanceAttributes(ctx context.Context, in *AgentInstanceAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.AgentManagementService/UpdateAgentInstanceAttributes", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1614,8 +1615,8 @@ func (c *agentManagementServiceClient) UpdateAgentInstanceAttributes(ctx context
 	return out, nil
 }
 
-func (c *agentManagementServiceClient) DeleteAgentInstanceAttributes(ctx context.Context, in *DeleteAgentInstanceAttributesRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *agentManagementServiceClient) DeleteAgentInstanceAttributes(ctx context.Context, in *DeleteAgentInstanceAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.AgentManagementService/DeleteAgentInstanceAttributes", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1623,7 +1624,7 @@ func (c *agentManagementServiceClient) DeleteAgentInstanceAttributes(ctx context
 	return out, nil
 }
 
-func (c *agentManagementServiceClient) ObserveAgents(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (AgentManagementService_ObserveAgentsClient, error) {
+func (c *agentManagementServiceClient) ObserveAgents(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (AgentManagementService_ObserveAgentsClient, error) {
 	stream, err := c.cc.NewStream(ctx, &_AgentManagementService_serviceDesc.Streams[0], "/com.netflix.titus.AgentManagementService/ObserveAgents", opts...)
 	if err != nil {
 		return nil, err
@@ -1658,7 +1659,7 @@ func (x *agentManagementServiceObserveAgentsClient) Recv() (*AgentChangeEvent, e
 // AgentManagementServiceServer is the server API for AgentManagementService service.
 type AgentManagementServiceServer interface {
 	/// Return all known Titus agent server groups.
-	GetInstanceGroups(context.Context, *empty.Empty) (*AgentInstanceGroups, error)
+	GetInstanceGroups(context.Context, *emptypb.Empty) (*AgentInstanceGroups, error)
 	/// Return an agent server group with the given id.
 	GetInstanceGroup(context.Context, *Id) (*AgentInstanceGroup, error)
 	/// Return an agent instance with the given id.
@@ -1666,26 +1667,26 @@ type AgentManagementServiceServer interface {
 	/// Return all agents matching the provided query criteria.
 	FindAgentInstances(context.Context, *AgentQuery) (*AgentInstances, error)
 	/// Update tier assignment of an agent instance group.
-	UpdateInstanceGroupTier(context.Context, *TierUpdate) (*empty.Empty, error)
+	UpdateInstanceGroupTier(context.Context, *TierUpdate) (*emptypb.Empty, error)
 	/// Change lifecycle state of an agent instance group.
-	UpdateInstanceGroupLifecycleState(context.Context, *InstanceGroupLifecycleStateUpdate) (*empty.Empty, error)
+	UpdateInstanceGroupLifecycleState(context.Context, *InstanceGroupLifecycleStateUpdate) (*emptypb.Empty, error)
 	/// Update the attributes of an instance group. This will either create new attributes or replacing existing ones with the same key.
-	UpdateInstanceGroupAttributes(context.Context, *InstanceGroupAttributesUpdate) (*empty.Empty, error)
+	UpdateInstanceGroupAttributes(context.Context, *InstanceGroupAttributesUpdate) (*emptypb.Empty, error)
 	/// Delete the attributes of an instance group.
-	DeleteInstanceGroupAttributes(context.Context, *DeleteInstanceGroupAttributesRequest) (*empty.Empty, error)
+	DeleteInstanceGroupAttributes(context.Context, *DeleteInstanceGroupAttributesRequest) (*emptypb.Empty, error)
 	/// Update the attributes of an agent instance. This will either create new attributes or replacing existing ones with the same key.
-	UpdateAgentInstanceAttributes(context.Context, *AgentInstanceAttributesUpdate) (*empty.Empty, error)
+	UpdateAgentInstanceAttributes(context.Context, *AgentInstanceAttributesUpdate) (*emptypb.Empty, error)
 	/// Delete the attributes of an agent instance.
-	DeleteAgentInstanceAttributes(context.Context, *DeleteAgentInstanceAttributesRequest) (*empty.Empty, error)
+	DeleteAgentInstanceAttributes(context.Context, *DeleteAgentInstanceAttributesRequest) (*emptypb.Empty, error)
 	/// Sends first current snapshot of the agent topology, and next an event for each topology change.
-	ObserveAgents(*empty.Empty, AgentManagementService_ObserveAgentsServer) error
+	ObserveAgents(*emptypb.Empty, AgentManagementService_ObserveAgentsServer) error
 }
 
 // UnimplementedAgentManagementServiceServer can be embedded to have forward compatible implementations.
 type UnimplementedAgentManagementServiceServer struct {
 }
 
-func (*UnimplementedAgentManagementServiceServer) GetInstanceGroups(ctx context.Context, req *empty.Empty) (*AgentInstanceGroups, error) {
+func (*UnimplementedAgentManagementServiceServer) GetInstanceGroups(ctx context.Context, req *emptypb.Empty) (*AgentInstanceGroups, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstanceGroups not implemented")
 }
 func (*UnimplementedAgentManagementServiceServer) GetInstanceGroup(ctx context.Context, req *Id) (*AgentInstanceGroup, error) {
@@ -1697,25 +1698,25 @@ func (*UnimplementedAgentManagementServiceServer) GetAgentInstance(ctx context.C
 func (*UnimplementedAgentManagementServiceServer) FindAgentInstances(ctx context.Context, req *AgentQuery) (*AgentInstances, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FindAgentInstances not implemented")
 }
-func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupTier(ctx context.Context, req *TierUpdate) (*empty.Empty, error) {
+func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupTier(ctx context.Context, req *TierUpdate) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateInstanceGroupTier not implemented")
 }
-func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupLifecycleState(ctx context.Context, req *InstanceGroupLifecycleStateUpdate) (*empty.Empty, error) {
+func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupLifecycleState(ctx context.Context, req *InstanceGroupLifecycleStateUpdate) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateInstanceGroupLifecycleState not implemented")
 }
-func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupAttributes(ctx context.Context, req *InstanceGroupAttributesUpdate) (*empty.Empty, error) {
+func (*UnimplementedAgentManagementServiceServer) UpdateInstanceGroupAttributes(ctx context.Context, req *InstanceGroupAttributesUpdate) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateInstanceGroupAttributes not implemented")
 }
-func (*UnimplementedAgentManagementServiceServer) DeleteInstanceGroupAttributes(ctx context.Context, req *DeleteInstanceGroupAttributesRequest) (*empty.Empty, error) {
+func (*UnimplementedAgentManagementServiceServer) DeleteInstanceGroupAttributes(ctx context.Context, req *DeleteInstanceGroupAttributesRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteInstanceGroupAttributes not implemented")
 }
-func (*UnimplementedAgentManagementServiceServer) UpdateAgentInstanceAttributes(ctx context.Context, req *AgentInstanceAttributesUpdate) (*empty.Empty, error) {
+func (*UnimplementedAgentManagementServiceServer) UpdateAgentInstanceAttributes(ctx context.Context, req *AgentInstanceAttributesUpdate) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateAgentInstanceAttributes not implemented")
 }
-func (*UnimplementedAgentManagementServiceServer) DeleteAgentInstanceAttributes(ctx context.Context, req *DeleteAgentInstanceAttributesRequest) (*empty.Empty, error) {
+func (*UnimplementedAgentManagementServiceServer) DeleteAgentInstanceAttributes(ctx context.Context, req *DeleteAgentInstanceAttributesRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteAgentInstanceAttributes not implemented")
 }
-func (*UnimplementedAgentManagementServiceServer) ObserveAgents(req *empty.Empty, srv AgentManagementService_ObserveAgentsServer) error {
+func (*UnimplementedAgentManagementServiceServer) ObserveAgents(req *emptypb.Empty, srv AgentManagementService_ObserveAgentsServer) error {
 	return status.Errorf(codes.Unimplemented, "method ObserveAgents not implemented")
 }
 
@@ -1724,7 +1725,7 @@ func RegisterAgentManagementServiceServer(s *grpc.Server, srv AgentManagementSer
 }
 
 func _AgentManagementService_GetInstanceGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(empty.Empty)
+	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1736,7 +1737,7 @@ func _AgentManagementService_GetInstanceGroups_Handler(srv interface{}, ctx cont
 		FullMethod: "/com.netflix.titus.AgentManagementService/GetInstanceGroups",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AgentManagementServiceServer).GetInstanceGroups(ctx, req.(*empty.Empty))
+		return srv.(AgentManagementServiceServer).GetInstanceGroups(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1904,7 +1905,7 @@ func _AgentManagementService_DeleteAgentInstanceAttributes_Handler(srv interface
 }
 
 func _AgentManagementService_ObserveAgents_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(empty.Empty)
+	m := new(emptypb.Empty)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}

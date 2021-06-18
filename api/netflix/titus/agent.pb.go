@@ -7,6 +7,7 @@ import (
 	fmt "fmt"
 	math "math"
 
+	titus "./netflix/titus"
 	proto "github.com/golang/protobuf/proto"
 )
 
@@ -810,7 +811,7 @@ type ContainerInfo struct {
 	/// (Optional) Amount of shared memory to allocate (must be <= memoryMB)
 	ShmSizeMB *uint32 `protobuf:"varint,40,opt,name=shmSizeMB" json:"shmSizeMB,omitempty"`
 	/// (Optional) IP address allocation for the task
-	SignedAddressAllocation *SignedAddressAllocation `protobuf:"bytes,41,opt,name=signedAddressAllocation" json:"signedAddressAllocation,omitempty"`
+	SignedAddressAllocation *titus.SignedAddressAllocation `protobuf:"bytes,41,opt,name=signedAddressAllocation" json:"signedAddressAllocation,omitempty"`
 	/// Timestamp in epoch millis of when the task's job was Accepted
 	JobAcceptedTimestampMs *uint64  `protobuf:"varint,42,opt,name=jobAcceptedTimestampMs" json:"jobAcceptedTimestampMs,omitempty"`
 	XXX_NoUnkeyedLiteral   struct{} `json:"-"`
@@ -1125,7 +1126,7 @@ func (m *ContainerInfo) GetShmSizeMB() uint32 {
 	return 0
 }
 
-func (m *ContainerInfo) GetSignedAddressAllocation() *SignedAddressAllocation {
+func (m *ContainerInfo) GetSignedAddressAllocation() *titus.SignedAddressAllocation {
 	if m != nil {
 		return m.SignedAddressAllocation
 	}

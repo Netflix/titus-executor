@@ -10,12 +10,12 @@ import (
 
 	titus "github.com/Netflix/titus-executor/api/netflix/titus"
 	proto "github.com/golang/protobuf/proto"
-	duration "github.com/golang/protobuf/ptypes/duration"
-	empty "github.com/golang/protobuf/ptypes/empty"
-	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -539,11 +539,11 @@ func (m *ProvisionInstanceResponseV3) GetTrunkNetworkInterface() *NetworkInterfa
 }
 
 type UtilizedAddress struct {
-	Address              *Address             `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	LastUsedTime         *timestamp.Timestamp `protobuf:"bytes,2,opt,name=lastUsedTime,proto3" json:"lastUsedTime,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+	Address              *Address               `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	LastUsedTime         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=lastUsedTime,proto3" json:"lastUsedTime,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
 func (m *UtilizedAddress) Reset()         { *m = UtilizedAddress{} }
@@ -578,7 +578,7 @@ func (m *UtilizedAddress) GetAddress() *Address {
 	return nil
 }
 
-func (m *UtilizedAddress) GetLastUsedTime() *timestamp.Timestamp {
+func (m *UtilizedAddress) GetLastUsedTime() *timestamppb.Timestamp {
 	if m != nil {
 		return m.LastUsedTime
 	}
@@ -942,7 +942,7 @@ type isAssignIPRequestV3_ElasticAddress interface {
 }
 
 type AssignIPRequestV3_Empty struct {
-	Empty *empty.Empty `protobuf:"bytes,10,opt,name=empty,proto3,oneof"`
+	Empty *emptypb.Empty `protobuf:"bytes,10,opt,name=empty,proto3,oneof"`
 }
 
 type AssignIPRequestV3_ElasticAdddresses struct {
@@ -966,7 +966,7 @@ func (m *AssignIPRequestV3) GetElasticAddress() isAssignIPRequestV3_ElasticAddre
 	return nil
 }
 
-func (m *AssignIPRequestV3) GetEmpty() *empty.Empty {
+func (m *AssignIPRequestV3) GetEmpty() *emptypb.Empty {
 	if x, ok := m.GetElasticAddress().(*AssignIPRequestV3_Empty); ok {
 		return x.Empty
 	}
@@ -1881,10 +1881,10 @@ func (m *RefreshIPRequest) GetBranchNetworkInterface() *NetworkInterface {
 }
 
 type RefreshIPResponse struct {
-	NextRefresh          *duration.Duration `protobuf:"bytes,1,opt,name=nextRefresh,proto3" json:"nextRefresh,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
-	XXX_unrecognized     []byte             `json:"-"`
-	XXX_sizecache        int32              `json:"-"`
+	NextRefresh          *durationpb.Duration `protobuf:"bytes,1,opt,name=nextRefresh,proto3" json:"nextRefresh,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
 }
 
 func (m *RefreshIPResponse) Reset()         { *m = RefreshIPResponse{} }
@@ -1912,7 +1912,7 @@ func (m *RefreshIPResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_RefreshIPResponse proto.InternalMessageInfo
 
-func (m *RefreshIPResponse) GetNextRefresh() *duration.Duration {
+func (m *RefreshIPResponse) GetNextRefresh() *durationpb.Duration {
 	if m != nil {
 		return m.NextRefresh
 	}
@@ -2115,13 +2115,13 @@ func (m *LockId) GetId() int64 {
 }
 
 type Lock struct {
-	Id                   int64                `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	LockName             string               `protobuf:"bytes,2,opt,name=lockName,proto3" json:"lockName,omitempty"`
-	HeldBy               string               `protobuf:"bytes,3,opt,name=heldBy,proto3" json:"heldBy,omitempty"`
-	HeldUntil            *timestamp.Timestamp `protobuf:"bytes,4,opt,name=heldUntil,proto3" json:"heldUntil,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+	Id                   int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	LockName             string                 `protobuf:"bytes,2,opt,name=lockName,proto3" json:"lockName,omitempty"`
+	HeldBy               string                 `protobuf:"bytes,3,opt,name=heldBy,proto3" json:"heldBy,omitempty"`
+	HeldUntil            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=heldUntil,proto3" json:"heldUntil,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
 func (m *Lock) Reset()         { *m = Lock{} }
@@ -2170,7 +2170,7 @@ func (m *Lock) GetHeldBy() string {
 	return ""
 }
 
-func (m *Lock) GetHeldUntil() *timestamp.Timestamp {
+func (m *Lock) GetHeldUntil() *timestamppb.Timestamp {
 	if m != nil {
 		return m.HeldUntil
 	}
@@ -2666,16 +2666,16 @@ func (m *DescribeTrunkNetworkInterfaceResponse) GetAssociations() []*DescribeTru
 }
 
 type DescribeTrunkNetworkInterfaceResponse_TrunkENI struct {
-	Id                   string               `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	AccountId            string               `protobuf:"bytes,2,opt,name=accountId,proto3" json:"accountId,omitempty"`
-	Az                   string               `protobuf:"bytes,3,opt,name=az,proto3" json:"az,omitempty"`
-	CreatedAt            *timestamp.Timestamp `protobuf:"bytes,4,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
-	SubnetId             string               `protobuf:"bytes,5,opt,name=subnetId,proto3" json:"subnetId,omitempty"`
-	VpcId                string               `protobuf:"bytes,6,opt,name=vpcId,proto3" json:"vpcId,omitempty"`
-	Region               string               `protobuf:"bytes,7,opt,name=region,proto3" json:"region,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	AccountId            string                 `protobuf:"bytes,2,opt,name=accountId,proto3" json:"accountId,omitempty"`
+	Az                   string                 `protobuf:"bytes,3,opt,name=az,proto3" json:"az,omitempty"`
+	CreatedAt            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
+	SubnetId             string                 `protobuf:"bytes,5,opt,name=subnetId,proto3" json:"subnetId,omitempty"`
+	VpcId                string                 `protobuf:"bytes,6,opt,name=vpcId,proto3" json:"vpcId,omitempty"`
+	Region               string                 `protobuf:"bytes,7,opt,name=region,proto3" json:"region,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
 func (m *DescribeTrunkNetworkInterfaceResponse_TrunkENI) Reset() {
@@ -2728,7 +2728,7 @@ func (m *DescribeTrunkNetworkInterfaceResponse_TrunkENI) GetAz() string {
 	return ""
 }
 
-func (m *DescribeTrunkNetworkInterfaceResponse_TrunkENI) GetCreatedAt() *timestamp.Timestamp {
+func (m *DescribeTrunkNetworkInterfaceResponse_TrunkENI) GetCreatedAt() *timestamppb.Timestamp {
 	if m != nil {
 		return m.CreatedAt
 	}
@@ -2757,17 +2757,17 @@ func (m *DescribeTrunkNetworkInterfaceResponse_TrunkENI) GetRegion() string {
 }
 
 type DescribeTrunkNetworkInterfaceResponse_BranchENI struct {
-	Id                   string               `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	CreatedAt            *timestamp.Timestamp `protobuf:"bytes,2,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
-	AccountId            string               `protobuf:"bytes,3,opt,name=accountId,proto3" json:"accountId,omitempty"`
-	SubnetId             string               `protobuf:"bytes,4,opt,name=subnetId,proto3" json:"subnetId,omitempty"`
-	VpcId                string               `protobuf:"bytes,5,opt,name=vpcId,proto3" json:"vpcId,omitempty"`
-	SecurityGroupIds     []string             `protobuf:"bytes,6,rep,name=securityGroupIds,proto3" json:"securityGroupIds,omitempty"`
-	ModifiedAt           *timestamp.Timestamp `protobuf:"bytes,7,opt,name=modifiedAt,proto3" json:"modifiedAt,omitempty"`
-	LastAssignedTo       *timestamp.Timestamp `protobuf:"bytes,8,opt,name=lastAssignedTo,proto3" json:"lastAssignedTo,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	CreatedAt            *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
+	AccountId            string                 `protobuf:"bytes,3,opt,name=accountId,proto3" json:"accountId,omitempty"`
+	SubnetId             string                 `protobuf:"bytes,4,opt,name=subnetId,proto3" json:"subnetId,omitempty"`
+	VpcId                string                 `protobuf:"bytes,5,opt,name=vpcId,proto3" json:"vpcId,omitempty"`
+	SecurityGroupIds     []string               `protobuf:"bytes,6,rep,name=securityGroupIds,proto3" json:"securityGroupIds,omitempty"`
+	ModifiedAt           *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=modifiedAt,proto3" json:"modifiedAt,omitempty"`
+	LastAssignedTo       *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=lastAssignedTo,proto3" json:"lastAssignedTo,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
 func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) Reset() {
@@ -2806,7 +2806,7 @@ func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetId() string {
 	return ""
 }
 
-func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetCreatedAt() *timestamp.Timestamp {
+func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetCreatedAt() *timestamppb.Timestamp {
 	if m != nil {
 		return m.CreatedAt
 	}
@@ -2841,14 +2841,14 @@ func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetSecurityGroupIds() 
 	return nil
 }
 
-func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetModifiedAt() *timestamp.Timestamp {
+func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetModifiedAt() *timestamppb.Timestamp {
 	if m != nil {
 		return m.ModifiedAt
 	}
 	return nil
 }
 
-func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetLastAssignedTo() *timestamp.Timestamp {
+func (m *DescribeTrunkNetworkInterfaceResponse_BranchENI) GetLastAssignedTo() *timestamppb.Timestamp {
 	if m != nil {
 		return m.LastAssignedTo
 	}
@@ -3114,8 +3114,8 @@ func (m *GetAssignmentResponse) GetAssignment() *AssignIPResponseV3 {
 }
 
 type PrivateKey struct {
-	Hostname  string               `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	Generated *timestamp.Timestamp `protobuf:"bytes,2,opt,name=generated,proto3" json:"generated,omitempty"`
+	Hostname  string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	Generated *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=generated,proto3" json:"generated,omitempty"`
 	// Types that are valid to be assigned to Key:
 	//	*PrivateKey_Ed25519Key_
 	Key                  isPrivateKey_Key `protobuf_oneof:"key"`
@@ -3156,7 +3156,7 @@ func (m *PrivateKey) GetHostname() string {
 	return ""
 }
 
-func (m *PrivateKey) GetGenerated() *timestamp.Timestamp {
+func (m *PrivateKey) GetGenerated() *timestamppb.Timestamp {
 	if m != nil {
 		return m.Generated
 	}
@@ -3491,8 +3491,8 @@ type TitusAgentVPCServiceClient interface {
 	// Lock Management
 	GetLocks(ctx context.Context, in *GetLocksRequest, opts ...grpc.CallOption) (*GetLocksResponse, error)
 	GetLock(ctx context.Context, in *LockId, opts ...grpc.CallOption) (*Lock, error)
-	DeleteLock(ctx context.Context, in *LockId, opts ...grpc.CallOption) (*empty.Empty, error)
-	PreemptLock(ctx context.Context, in *PreemptLockRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	DeleteLock(ctx context.Context, in *LockId, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	PreemptLock(ctx context.Context, in *PreemptLockRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// These are internal APIs that should really only be used by operators
 	AssociateTrunkNetworkInterface(ctx context.Context, in *AssociateTrunkNetworkInterfaceRequest, opts ...grpc.CallOption) (*AssociateTrunkNetworkInterfaceResponse, error)
 	DisassociateTrunkNetworkInterface(ctx context.Context, in *DisassociateTrunkNetworkInterfaceRequest, opts ...grpc.CallOption) (*DisassociateTrunkNetworkInterfaceResponse, error)
@@ -3589,8 +3589,8 @@ func (c *titusAgentVPCServiceClient) GetLock(ctx context.Context, in *LockId, op
 	return out, nil
 }
 
-func (c *titusAgentVPCServiceClient) DeleteLock(ctx context.Context, in *LockId, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *titusAgentVPCServiceClient) DeleteLock(ctx context.Context, in *LockId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/DeleteLock", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -3598,8 +3598,8 @@ func (c *titusAgentVPCServiceClient) DeleteLock(ctx context.Context, in *LockId,
 	return out, nil
 }
 
-func (c *titusAgentVPCServiceClient) PreemptLock(ctx context.Context, in *PreemptLockRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *titusAgentVPCServiceClient) PreemptLock(ctx context.Context, in *PreemptLockRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/PreemptLock", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -3656,8 +3656,8 @@ type TitusAgentVPCServiceServer interface {
 	// Lock Management
 	GetLocks(context.Context, *GetLocksRequest) (*GetLocksResponse, error)
 	GetLock(context.Context, *LockId) (*Lock, error)
-	DeleteLock(context.Context, *LockId) (*empty.Empty, error)
-	PreemptLock(context.Context, *PreemptLockRequest) (*empty.Empty, error)
+	DeleteLock(context.Context, *LockId) (*emptypb.Empty, error)
+	PreemptLock(context.Context, *PreemptLockRequest) (*emptypb.Empty, error)
 	// These are internal APIs that should really only be used by operators
 	AssociateTrunkNetworkInterface(context.Context, *AssociateTrunkNetworkInterfaceRequest) (*AssociateTrunkNetworkInterfaceResponse, error)
 	DisassociateTrunkNetworkInterface(context.Context, *DisassociateTrunkNetworkInterfaceRequest) (*DisassociateTrunkNetworkInterfaceResponse, error)
@@ -3696,10 +3696,10 @@ func (*UnimplementedTitusAgentVPCServiceServer) GetLocks(ctx context.Context, re
 func (*UnimplementedTitusAgentVPCServiceServer) GetLock(ctx context.Context, req *LockId) (*Lock, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLock not implemented")
 }
-func (*UnimplementedTitusAgentVPCServiceServer) DeleteLock(ctx context.Context, req *LockId) (*empty.Empty, error) {
+func (*UnimplementedTitusAgentVPCServiceServer) DeleteLock(ctx context.Context, req *LockId) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteLock not implemented")
 }
-func (*UnimplementedTitusAgentVPCServiceServer) PreemptLock(ctx context.Context, req *PreemptLockRequest) (*empty.Empty, error) {
+func (*UnimplementedTitusAgentVPCServiceServer) PreemptLock(ctx context.Context, req *PreemptLockRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PreemptLock not implemented")
 }
 func (*UnimplementedTitusAgentVPCServiceServer) AssociateTrunkNetworkInterface(ctx context.Context, req *AssociateTrunkNetworkInterfaceRequest) (*AssociateTrunkNetworkInterfaceResponse, error) {

@@ -9,10 +9,10 @@ import (
 	math "math"
 
 	proto "github.com/golang/protobuf/proto"
-	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -201,13 +201,13 @@ func (m *AssumeRoleResponse_AssumedRoleUser) GetArn() string {
 }
 
 type AssumeRoleResponse_Credentials struct {
-	SecretAccessKey      string               `protobuf:"bytes,1,opt,name=secretAccessKey,proto3" json:"secretAccessKey,omitempty"`
-	SessionToken         string               `protobuf:"bytes,2,opt,name=sessionToken,proto3" json:"sessionToken,omitempty"`
-	Expiration           *timestamp.Timestamp `protobuf:"bytes,3,opt,name=expiration,proto3" json:"expiration,omitempty"`
-	AccessKeyId          string               `protobuf:"bytes,4,opt,name=accessKeyId,proto3" json:"accessKeyId,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+	SecretAccessKey      string                 `protobuf:"bytes,1,opt,name=secretAccessKey,proto3" json:"secretAccessKey,omitempty"`
+	SessionToken         string                 `protobuf:"bytes,2,opt,name=sessionToken,proto3" json:"sessionToken,omitempty"`
+	Expiration           *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expiration,proto3" json:"expiration,omitempty"`
+	AccessKeyId          string                 `protobuf:"bytes,4,opt,name=accessKeyId,proto3" json:"accessKeyId,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
 func (m *AssumeRoleResponse_Credentials) Reset()         { *m = AssumeRoleResponse_Credentials{} }
@@ -249,7 +249,7 @@ func (m *AssumeRoleResponse_Credentials) GetSessionToken() string {
 	return ""
 }
 
-func (m *AssumeRoleResponse_Credentials) GetExpiration() *timestamp.Timestamp {
+func (m *AssumeRoleResponse_Credentials) GetExpiration() *timestamppb.Timestamp {
 	if m != nil {
 		return m.Expiration
 	}

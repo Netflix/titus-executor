@@ -131,13 +131,14 @@ push-titus-agent: titus-agent
 	$(DOCKER) push titusoss/titus-agent
 
 ## Protobuf and source code generation
-
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
 PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
 PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
 PROTO_MAP     := Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
 protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
+protogen-clean:
+	rm $(PROTOS_OUT)
 
 vendor: vendor/modules.txt
 vendor/modules.txt: go.mod
