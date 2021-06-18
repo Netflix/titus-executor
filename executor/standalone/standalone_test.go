@@ -1348,3 +1348,40 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 		t.Fail()
 	}
 }
+
+func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+	testEntrypointOld := `/bin/sleep 20`
+	badHealthcheckCommand := corev1.ExecAction{
+		Command: []string{"/bin/false"},
+	}
+
+	ji := &JobInput{
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
+		UsePodSpec: shouldUsePodspecInTest,
+		ExtraContainers: []corev1.Container{
+			{
+				Name:    "failing-sidecar",
+				Image:   busybox.name + `:` + busybox.tag,
+				Command: []string{"/bin/sh", "-c"},
+				Args:    []string{"/bin/sleep 600"},
+				LivenessProbe: &corev1.Probe{
+					Handler: corev1.Handler{
+						Exec: &badHealthcheckCommand,
+					},
+					TimeoutSeconds:   1,
+					PeriodSeconds:    1,
+					FailureThreshold: 1,
+				},
+			},
+		},
+		EntrypointOld: testEntrypointOld,
+	}
+	// TODO: This doesn't fail yet because we don't stream docker events from sidecars
+	// Or any way to see their health currently for that matter except via the update channel
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}

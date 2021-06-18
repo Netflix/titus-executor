@@ -1604,16 +1604,18 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 	// to ignore whatever entrypoing is on the *image*. We want the normal docker behavior here,
 	// but we *also* want tini.
 	dockerEntrypoint := append([]string{"/sbin/docker-init", "-s", "--"}, v1Container.Command...)
+	healthcheck := v1ContainerHealthcheckToDockerHealthcheck(v1Container.LivenessProbe)
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
-		Hostname:   "",
-		Cmd:        dockerCmd,
-		Image:      v1Container.Image,
-		WorkingDir: v1Container.WorkingDir,
-		Entrypoint: dockerEntrypoint,
-		Labels:     labels,
-		Env:        append(baseEnv, v1ConatinerEnvToList(v1Container.Env)...),
+		Hostname:    "",
+		Cmd:         dockerCmd,
+		Image:       v1Container.Image,
+		WorkingDir:  v1Container.WorkingDir,
+		Entrypoint:  dockerEntrypoint,
+		Labels:      labels,
+		Env:         append(baseEnv, v1ConatinerEnvToList(v1Container.Env)...),
+		Healthcheck: healthcheck,
 	}
 	dockerHostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode("container:" + mainContainerID),
@@ -1646,6 +1648,27 @@ func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
 		envList = append(envList, e.Name+"="+e.Value)
 	}
 	return envList
+}
+
+func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) *container.HealthConfig {
+	if probe == nil {
+		return nil
+	}
+	// TODO: Validate that this healthcheck probe is the only probe the user has requested,
+	// and hasn't requested other types of probes we don't support, but earlier, like at the webhook
+	// or API
+	hc := container.HealthConfig{
+		// We use CMD here for the same reasoning behind this:
+		// https://github.com/moby/moby/pull/28679
+		// We can't assume users have a shell. If the users really need a shell
+		// Then they can do their own /bin/sh -c.
+		Test:        append([]string{"CMD"}, probe.Exec.Command...),
+		Interval:    time.Duration(probe.PeriodSeconds) * time.Second,
+		Timeout:     time.Duration(probe.TimeoutSeconds) * time.Second,
+		StartPeriod: time.Duration(probe.InitialDelaySeconds) * time.Second,
+		Retries:     int(probe.FailureThreshold),
+	}
+	return &hc
 }
 
 func getUserContainerNames(pod *v1.Pod) []string {
