@@ -59,6 +59,7 @@ type service struct {
 	sslKey          string
 	sslCert         string
 	sts             *sts.STS
+	iamapi.UnimplementedIAMServer
 }
 
 func (s *service) AssumeRole(ctx context.Context, request *iamapi.AssumeRoleRequest) (*iamapi.AssumeRoleResponse, error) {

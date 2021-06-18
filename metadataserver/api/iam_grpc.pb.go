@@ -39,19 +39,21 @@ func (c *iAMClient) AssumeRole(ctx context.Context, in *AssumeRoleRequest, opts 
 }
 
 // IAMServer is the server API for IAM service.
-// All implementations should embed UnimplementedIAMServer
+// All implementations must embed UnimplementedIAMServer
 // for forward compatibility
 type IAMServer interface {
 	AssumeRole(context.Context, *AssumeRoleRequest) (*AssumeRoleResponse, error)
+	mustEmbedUnimplementedIAMServer()
 }
 
-// UnimplementedIAMServer should be embedded to have forward compatible implementations.
+// UnimplementedIAMServer must be embedded to have forward compatible implementations.
 type UnimplementedIAMServer struct {
 }
 
 func (UnimplementedIAMServer) AssumeRole(context.Context, *AssumeRoleRequest) (*AssumeRoleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssumeRole not implemented")
 }
+func (UnimplementedIAMServer) mustEmbedUnimplementedIAMServer() {}
 
 // UnsafeIAMServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to IAMServer will

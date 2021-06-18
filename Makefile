@@ -179,7 +179,7 @@ metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendo
 		--go-grpc_opt=module=metadataserver/api/iamapi \
 		--go-grpc_opt=Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus \
 		--go-grpc_opt=Miam.proto=metadataserver/api/iamapi  \
-		--go-grpc_out=require_unimplemented_servers=false:metadataserver/api/ metadataserver/proto/iam.proto
+		--go-grpc_out=metadataserver/api/ metadataserver/proto/iam.proto
 
 vendor: vendor/modules.txt
 vendor/modules.txt: go.mod
