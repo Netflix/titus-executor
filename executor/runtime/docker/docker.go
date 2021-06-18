@@ -142,16 +142,21 @@ func WithGPUManager(gpuManager runtimeTypes.GPUManager) Opt {
 
 // NewDockerRuntime provides a Runtime implementation on Docker.
 func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config, cfg config.Config, dockerOpts ...Opt) (runtimeTypes.ContainerRuntimeProvider, error) {
+	ctx, span := trace.StartSpan(ctx, "NewDockerRuntime")
+	defer span.End()
+
 	log.Info("New Docker client, to host ", cfg.DockerHost)
 	client, err := docker.NewClient(cfg.DockerHost, "1.26", nil, map[string]string{})
 
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	info, err := client.Info(ctx)
 
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -161,12 +166,16 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 
 	pidCgroupPath, err := getOwnCgroup("pids")
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	storageOptEnabled := shouldEnableStorageOpts(info)
 
 	runtimeFunc := func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+		ctx, span := trace.StartSpan(ctx, "NewDockerRuntime")
+		defer span.End()
+
 		dockerRuntime := &DockerRuntime{
 			pidCgroupPath:     pidCgroupPath,
 			metrics:           m,
@@ -184,6 +193,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 		for _, dockerOpt := range dockerOpts {
 			err := dockerOpt(ctx, dockerRuntime)
 			if err != nil {
+				tracehelpers.SetStatus(err, span)
 				return nil, err
 			}
 		}
@@ -191,13 +201,16 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 		if dockerRuntime.gpuManager == nil {
 			dockerRuntime.gpuManager, err = nvidia.NewNvidiaInfo(ctx, dockerCfg.nvidiaOciRuntime)
 			if err != nil {
-				return nil, fmt.Errorf("GPU Manager unset, failed to initialize default (nvidia) GPU manager: %w", err)
+				err = fmt.Errorf("GPU Manager unset, failed to initialize default (nvidia) GPU manager: %w", err)
+				tracehelpers.SetStatus(err, span)
+				return nil, err
 			}
 		}
 
 		// Don't reference captured error variable from above
 		err := setupLoggingInfra(dockerRuntime)
 		if err != nil {
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 		dockerRuntime.registerRuntimeCleanup(func() error {
@@ -534,14 +547,22 @@ func sleepWithCtx(parentCtx context.Context, d time.Duration) error {
 }
 
 func imageExists(ctx context.Context, client *docker.Client, ref string) (*types.ImageInspect, error) {
+	ctx, span := trace.StartSpan(ctx, "imageExists")
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute(
+		"ref", ref))
+
 	resp, _, err := client.ImageInspectWithRaw(ctx, ref)
 	if err != nil {
 		if docker.IsErrNotFound(err) {
+			span.AddAttributes(trace.BoolAttribute("found", false))
 			return nil, nil
 		}
 
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+	span.AddAttributes(trace.BoolAttribute("found", true))
 
 	log.WithField("imageName", ref).Debugf("Image exists. Response: %+v", resp)
 	return &resp, nil
@@ -559,6 +580,9 @@ func (r *DockerRuntime) DockerImageRemove(ctx context.Context, imgName string) e
 
 // DockerPull returns an ImageInspect pointer if the image was cached, and we didn't need to pull, nil otherwise
 func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container) (*types.ImageInspect, error) {
+	ctx, span := trace.StartSpan(ctx, "DockerPull")
+	defer span.End()
+
 	imgName := c.QualifiedImageName()
 	logger := log.WithField("imageName", imgName)
 
@@ -572,6 +596,7 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container
 			if isBadImageErr(err) {
 				return nil, &runtimeTypes.RegistryImageNotFoundError{Reason: err}
 			}
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 
@@ -586,6 +611,7 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container
 	logger.Infof("DockerPull: pulling image")
 	pullStartTime := time.Now()
 	if err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	r.metrics.Timer("titus.executor.imagePullTime", time.Since(pullStartTime), c.ImageTagForMetrics())
@@ -626,15 +652,22 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
+	ctx, span := trace.StartSpan(ctx, "prepareNetworkDriver")
+	defer span.End()
+
 	log.Printf("Configuring VPC network for %s", c.TaskID())
 
 	eniIdx := c.NormalizedENIIndex()
 	if eniIdx == nil {
-		return nil, errors.New("could not determine normalized ENI index for container")
+		err := errors.New("could not determine normalized ENI index for container")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 	sgIDs := c.SecurityGroupIDs()
 	if sgIDs == nil {
-		return nil, errors.New("container is missing security groups")
+		err := errors.New("container is missing security groups")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	bw := int64(defaultNetworkBandwidth)
@@ -685,21 +718,48 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 	// There's a narrow chance that there's a race here that the context expires, but the assignment has
 	// been successful, but we didn't read it. the GC should loop back around and fix it.
 	allocationCommand := exec.CommandContext(ctx, vpcToolPath(), args...) // nolint: gosec
-	allocationCommand.Stderr = os.Stderr
+	stderrPipe, err := allocationCommand.StderrPipe()
+	if err != nil {
+		err = fmt.Errorf("Could not setup stderr pipe for allocation command: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
 	stdoutPipe, err := allocationCommand.StdoutPipe()
 	if err != nil {
-		return nil, errors.Wrap(err, "Could not setup stdout pipe for allocation command")
+		err = errors.Wrap(err, "Could not setup stdout pipe for allocation command")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	err = allocationCommand.Start()
 	if err != nil {
-		return nil, errors.Wrap(err, "Could not start allocation command")
+		err = errors.Wrap(err, "Could not start allocation command")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	var result vpcapi.VPCToolResult
-	err = jsonpb.Unmarshal(stdoutPipe, &result)
+	var errs *multierror.Error
+	data, err := ioutil.ReadAll(stdoutPipe)
 	if err != nil {
-		return nil, fmt.Errorf("Could not read / deserialize JSON from assignment command: %w", err)
+		errs = multierror.Append(errs, fmt.Errorf("Could not read from stdout pipe: %w", err))
+	} else {
+		err = jsonpb.UnmarshalString(string(data), &result)
+		if err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("Could not read / deserialize JSON (%s) from assignment command: %w", string(data), err))
+		}
+	}
+	if errs != nil {
+		errs = multierror.Append(errs, allocationCommand.Process.Signal(unix.SIGQUIT))
+		data, err = ioutil.ReadAll(stderrPipe)
+		if err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("Could not read stderr: %w", err))
+		} else {
+			errs = multierror.Append(errs, fmt.Errorf("Read from stderr: %s", string(data)))
+		}
+		errs = multierror.Append(errs, allocationCommand.Wait())
+		tracehelpers.SetStatus(errs, span)
+		return nil, errs
 	}
 	switch t := result.Result.(type) {
 	case *vpcapi.VPCToolResult_Error:
@@ -712,16 +772,22 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 			invalidSg.Reason = errors.New(t.Error.Error)
 			return nil, &invalidSg
 		}
-		return nil, fmt.Errorf("vpc network configuration error: %s", t.Error.Error)
+		err = fmt.Errorf("vpc network configuration error: %s", t.Error.Error)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	case *vpcapi.VPCToolResult_Assignment:
 		c.SetVPCAllocation(t.Assignment)
 	default:
-		return nil, fmt.Errorf("Unknown type: %t", t)
+		err = fmt.Errorf("Unknown type: %t", t)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	err = allocationCommand.Wait()
 	if err != nil {
-		return nil, fmt.Errorf("Allocation command exited with unexpected error: %w", err)
+		err = fmt.Errorf("Allocation command exited with unexpected error: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	return func() error {
@@ -845,14 +911,16 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 }
 
 // Prepare host state (pull image, create fs, create container, etc...) for the main container
-func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
+func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 	var volumeContainers []string
 
-	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
-	logger.G(parentCtx).WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
-
-	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.prepareTimeout)
+	ctx, cancel := context.WithTimeout(ctx, r.dockerCfg.prepareTimeout)
 	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "Prepare")
+	defer span.End()
+
+	ctx = logger.WithField(ctx, "taskID", r.c.TaskID())
+	logger.G(ctx).WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
 
 	var (
 		containerCreateBody container.ContainerCreateCreatedBody
@@ -937,6 +1005,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 				r.metrics.Timer("titus.executor.prepareNetworkTime", time.Since(prepareNetworkStartTime), nil)
 				r.registerRuntimeCleanup(cf)
 			}
+			tracehelpers.SetStatus(netErr, span)
 			return netErr
 		})
 	} else {
@@ -1023,7 +1092,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	}
 	logger.G(ctx).Info("Titus Configuration pushed")
 
-	err = r.pushEnvironment(r.c, myImageInfo)
+	err = r.pushEnvironment(ctx, r.c, myImageInfo)
 	if err != nil {
 		goto error
 	}
@@ -1031,6 +1100,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 error:
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		log.Error("Unable to create container: ", err)
 		r.metrics.Counter("titus.executor.dockerCreateContainerError", 1, nil)
 	}
@@ -1097,7 +1167,7 @@ func (r *DockerRuntime) logDir(c runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
 
-func (r *DockerRuntime) pushEnvironment(c runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
+func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
 	var envTemplateBuf, tarBuf bytes.Buffer
 
 	//myImageInfo.Config.Env
@@ -1177,7 +1247,7 @@ func (r *DockerRuntime) pushEnvironment(c runtimeTypes.Container, imageInfo *typ
 		AllowOverwriteDirWithFile: true,
 	}
 
-	return r.client.CopyToContainer(context.TODO(), c.ID(), "/", bytes.NewReader(tarBuf.Bytes()), cco)
+	return r.client.CopyToContainer(ctx, c.ID(), "/", bytes.NewReader(tarBuf.Bytes()), cco)
 }
 
 func maybeConvertIntoBadEntryPointError(err error) error {
@@ -1213,6 +1283,9 @@ func (r *DockerRuntime) setupTini(ctx context.Context, listener *net.UnixListene
 func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)
 	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "Start")
+	defer span.End()
+
 	var err error
 	var listener *net.UnixListener
 	var details *runtimeTypes.Details
@@ -1221,17 +1294,21 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	entry := log.WithField("taskID", r.c.TaskID())
 	entry.Info("Starting")
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return "", nil, statusMessageChan, err
 	}
 
 	// This sets up the tini listener and pauses the workload
 	listener, err = r.setupPreStartTini(ctx, r.c)
 	if err != nil {
+		tracehelpers.SetStatus(err, span)
 		return "", nil, statusMessageChan, err
 	}
 
 	dockerStartStartTime := time.Now()
+
 	eventCtx, eventCancel := context.WithCancel(context.Background())
+	eventCtx = trace.NewContext(eventCtx, span)
 	filters := filters.NewArgs()
 	filters.Add("container", r.c.ID())
 	filters.Add("type", "container")
@@ -1249,7 +1326,9 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		r.metrics.Counter("titus.executor.dockerStartContainerError", 1, nil)
 		// Check if bad entry point and return specific error
 		eventCancel()
-		return "", nil, statusMessageChan, maybeConvertIntoBadEntryPointError(err)
+		err = maybeConvertIntoBadEntryPointError(err)
+		tracehelpers.SetStatus(err, span)
+		return "", nil, statusMessageChan, err
 	}
 
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), r.c.ImageTagForMetrics())
@@ -2110,6 +2189,8 @@ func (r *DockerRuntime) setupGPU(ctx context.Context) error {
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
 func (r *DockerRuntime) Kill(ctx context.Context) error { // nolint: gocyclo
 	logger.G(ctx).Debug("Shutting down main container")
+	ctx, span := trace.StartSpan(ctx, "Kill")
+	defer span.End()
 
 	var errs *multierror.Error
 
@@ -2151,11 +2232,19 @@ stopped:
 		logger.G(ctx).Debug("No GPU devices deallocated")
 	}
 
-	return errs.ErrorOrNil()
+	err := errs.ErrorOrNil()
+	tracehelpers.SetStatus(err, span)
+	return err
 }
 
 // Cleanup runs the registered callbacks for a container
-func (r *DockerRuntime) Cleanup(ctx context.Context) error {
+func (r *DockerRuntime) Cleanup(parentCtx context.Context) error {
+	_, span := trace.StartSpan(parentCtx, "Cleanup")
+	defer span.End()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = trace.NewContext(ctx, span)
+
 	var errs *multierror.Error
 
 	cro := types.ContainerRemoveOptions{
@@ -2164,7 +2253,7 @@ func (r *DockerRuntime) Cleanup(ctx context.Context) error {
 		Force:         true,
 	}
 
-	if err := r.client.ContainerRemove(context.TODO(), r.c.ID(), cro); err != nil {
+	if err := r.client.ContainerRemove(ctx, r.c.ID(), cro); err != nil {
 		r.metrics.Counter("titus.executor.dockerRemoveContainerError", 1, nil)
 		log.Errorf("Failed to remove container '%s' with ID: %s: %v", r.c.TaskID(), r.c.ID(), err)
 		errs = multierror.Append(errs, err)
@@ -2176,7 +2265,9 @@ func (r *DockerRuntime) Cleanup(ctx context.Context) error {
 		errs = multierror.Append(errs, r.cleanup[i]())
 	}
 
-	return errs.ErrorOrNil()
+	err := errs.ErrorOrNil()
+	tracehelpers.SetStatus(err, span)
+	return err
 }
 
 // reportDockerImageSizeMetric reports a metric that represents the container image's size

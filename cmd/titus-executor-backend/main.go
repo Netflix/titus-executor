@@ -110,12 +110,18 @@ func mainWithError(ctx context.Context, dockerCfg *docker.Config, cfg *config.Co
 		if err != nil {
 			return fmt.Errorf("Unable to fetch hostname: %w", err)
 		}
-		endpoint, err := openzipkin.NewEndpoint("titus-vpc-service", hostname)
+		endpoint, err := openzipkin.NewEndpoint("titus-executor", hostname)
 		if err != nil {
 			return fmt.Errorf("Failed to create the local zipkinEndpoint: %w", err)
 		}
 		logger.G(ctx).WithField("endpoint", endpoint).WithField("url", mainCfg.zipkin).Info("Setting up tracing")
 		trace.RegisterExporter(zipkin.NewExporter(reporter, endpoint))
+		defer func() {
+			reporterErr := reporter.Close()
+			if reporterErr != nil {
+				logger.G(ctx).WithError(err).Error("Unable to close reporter")
+			}
+		}()
 	}
 
 	var pod v1.Pod
