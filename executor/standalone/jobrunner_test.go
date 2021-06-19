@@ -26,7 +26,7 @@ import (
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" //nolint: staticcheck
 	log "github.com/sirupsen/logrus"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"

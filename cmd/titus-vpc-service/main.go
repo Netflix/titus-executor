@@ -250,7 +250,7 @@ func main() {
 				Listener:              listener,
 				DB:                    conn,
 				DBURL:                 dburl,
-				Key:                   signingKey, // nolint:govet
+				Key:                   signingKey, // nolint: govet
 				MaxConcurrentRefresh:  v.GetInt64(maxConcurrentRefreshFlagName),
 				MaxConcurrentRequests: v.GetInt(maxConcurrentRequestsFlagName),
 				GCTimeout:             v.GetDuration(gcTimeoutFlagName),

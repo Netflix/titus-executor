@@ -16,7 +16,7 @@ func TestFlatStringEntrypointIsParsed(t *testing.T) {
 
 	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
-	titusInfo.EntrypointStr = &input
+	titusInfo.EntrypointStr = &input //nolint: staticcheck
 	titusInfo.Process = &titus.ContainerInfo_Process{
 		Entrypoint: []string{"shouldBeIgnored"},
 		Command:    []string{"shouldBeIgnored"},
@@ -66,7 +66,7 @@ func TestFlatStringEntryPointMustBeNilForCustomCmd(t *testing.T) {
 	taskID, titusInfo, resources, _, conf, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
-	titusInfo.EntrypointStr = &empty
+	titusInfo.EntrypointStr = &empty //nolint: staticcheck
 	titusInfo.Process = &titus.ContainerInfo_Process{
 		Entrypoint: []string{"will be", "ignored"},
 		Command:    []string{"this", "one", "too"},

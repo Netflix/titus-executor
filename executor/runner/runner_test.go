@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" //nolint: staticcheck
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"

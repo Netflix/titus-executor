@@ -27,7 +27,7 @@ func generateKeyCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 				return errors.Wrap(err, "Could not generate key")
 			}
 			now := time.Now()
-			pnow, err := ptypes.TimestampProto(now)
+			pnow, err := ptypes.TimestampProto(now) // nolint: staticcheck
 			if err != nil {
 				return errors.Wrap(err, "Could not format protobuf timestamp")
 			}

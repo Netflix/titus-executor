@@ -9,7 +9,7 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes" //nolint: staticcheck
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -37,7 +37,7 @@ func (vpcService *vpcService) scanLock(rowScanner scanner) (*vpcapi.Lock, error)
 		return nil, err
 	}
 
-	lock.HeldUntil, err = ptypes.TimestampProto(heldUntil)
+	lock.HeldUntil, err = ptypes.TimestampProto(heldUntil) //nolint: staticcheck
 	if err != nil {
 		return nil, err
 	}

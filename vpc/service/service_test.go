@@ -12,7 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes" //nolint: staticcheck
 	"golang.org/x/crypto/ed25519"
 
 	"google.golang.org/grpc"
@@ -31,7 +31,7 @@ func TestService(t *testing.T) {
 
 	key := vpcapi.PrivateKey{
 		Hostname:  "",
-		Generated: ptypes.TimestampNow(),
+		Generated: ptypes.TimestampNow(), //nolint: staticcheck
 		Key: &vpcapi.PrivateKey_Ed25519Key_{
 			Ed25519Key: &vpcapi.PrivateKey_Ed25519Key{
 				Rfc8032Key: privatekey.Seed(),
@@ -43,7 +43,7 @@ func TestService(t *testing.T) {
 		serverErr := Run(ctx, &Config{
 			Listener:              listener,
 			DB:                    nil,
-			Key:                   key, // nolint: govet
+			Key:                   key, //nolint: govet
 			MaxConcurrentRefresh:  10,
 			GCTimeout:             2 * time.Minute,
 			ReconcileInterval:     5 * time.Minute,

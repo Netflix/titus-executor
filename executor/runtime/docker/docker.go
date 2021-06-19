@@ -40,7 +40,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
-	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/jsonpb" //nolint: staticcheck
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -2032,12 +2032,12 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 		return nil, errors.Wrap(err, "Unable to open container network namespace file")
 	}
 	return func() error {
-		return teardownCommand(f2, allocation)
+		return teardownCommand(f2, allocation) //nolint: govet
 	}, nil
 
 }
 
-func teardownCommand(netnsFile *os.File, allocation vpcapi.Assignment) error {
+func teardownCommand(netnsFile *os.File, allocation vpcapi.Assignment) error { //nolint: govet
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	defer shouldClose(netnsFile)

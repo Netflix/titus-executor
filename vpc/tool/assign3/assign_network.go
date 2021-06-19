@@ -11,7 +11,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/jsonpb" //nolint: staticcheck
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"

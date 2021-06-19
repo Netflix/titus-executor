@@ -27,7 +27,7 @@ var longLivedLockColumns = []string{"id", "lock_name", "held_by", "held_until"}
 
 func generateLockAndRows(t *testing.T, mock sqlmock.Sqlmock) (*vpcapi.Lock, *sqlmock.Rows) {
 	heldUntil := time.Now()
-	protoHeldUntil, err := ptypes.TimestampProto(heldUntil)
+	protoHeldUntil, err := ptypes.TimestampProto(heldUntil) //nolint: staticcheck
 	assert.NilError(t, err)
 
 	rand.Seed(time.Now().UnixNano())

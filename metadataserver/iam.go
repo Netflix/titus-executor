@@ -22,7 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes" //nolint: staticcheck
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -414,7 +414,7 @@ func (proxy *roleProxy) doAssumeRoleWithIAMService(ctx context.Context, sessionL
 		}
 	} else {
 		log.WithField("AccessKeyId", result.Credentials.AccessKeyId).Info("Assumed role")
-		expiration, err := ptypes.Timestamp(result.Credentials.Expiration)
+		expiration, err := ptypes.Timestamp(result.Credentials.Expiration) //nolint: staticcheck
 		if err != nil {
 			log.WithError(err).Errorf("Unable to decode expiration: %v", result.Credentials.Expiration)
 			state = &roleAssumptionState{
