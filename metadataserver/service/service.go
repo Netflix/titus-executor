@@ -21,7 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes" // nolint: staticcheck
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
@@ -91,7 +91,7 @@ func (s *service) AssumeRole(ctx context.Context, request *iamapi.AssumeRoleRequ
 	}
 
 	logger.G(ctx).WithField("accesskey", aws.StringValue(role.Credentials.AccessKeyId)).Info("Successfully assumed role")
-	expiration, err := ptypes.TimestampProto(aws.TimeValue(role.Credentials.Expiration))
+	expiration, err := ptypes.TimestampProto(aws.TimeValue(role.Credentials.Expiration)) // nolint: staticcheck
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not convert AWS credential expiration time into real time")
 		tracehelpers.SetStatus(err, span)

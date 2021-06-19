@@ -17,6 +17,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod" // nolint: staticcheck
 	"github.com/docker/go-units"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -267,7 +268,7 @@ func TestNewPodContainer(t *testing.T) {
 
 	entrypoint, cmd := c.Process()
 	assert.DeepEqual(t, entrypoint, expectedEntrypoint)
-	assert.DeepEqual(t, cmd, expectedCommand)
+	assert.DeepEqual(t, cmd, expectedCommand, cmpopts.IgnoreUnexported())
 
 	var gpuNil GPUContainer
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
@@ -436,7 +437,7 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.TTYEnabled(), true)
 	assert.Equal(t, c.UploadDir("foo"), "titan/mainvpc/foo/"+taskID)
 	assert.Equal(t, c.UseJumboFrames(), true)
-	assert.DeepEqual(t, c.VPCAllocation(), expVPCalloc)
+	assert.DeepEqual(t, c.VPCAllocation(), expVPCalloc, cmpopts.IgnoreUnexported(vpcapi.AssignIPResponseV3{}, vpcapi.Assignment{}, vpcapi.UsableAddress{}, vpcapi.Address{}, vpcapi.NetworkInterface{}, vpcapi.ElasticAddress{}))
 	assert.DeepEqual(t, c.VPCAccountID(), ptr.StringPtr("123456"))
 }
 
@@ -485,7 +486,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 
 	pod.Annotations[podCommon.AnnotationKeyPodTitusContainerInfo] = base64.StdEncoding.EncodeToString([]byte("blah"))
 	_, err = NewPodContainer(pod, *conf)
-	assert.Error(t, err, "unable to decode containerInfo protobuf: unexpected EOF")
+	assert.Error(t, err, "unable to decode containerInfo protobuf: proto:\u00a0cannot parse invalid wire-format data")
 
 	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
 	assert.NilError(t, err)
@@ -1370,7 +1371,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 			"FROM_USER_2": "U2",
 		},
 		Version: ptr.StringPtr(testImageTag),
-	})
+	}, cmpopts.IgnoreUnexported(titus.ContainerInfo{}, titus.ContainerInfo_NetworkConfigInfo{}, titus.ContainerInfo_MetatronCreds{}, titus.ContainerInfo_Process{}))
 
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
 	assert.DeepEqual(t, c.MetatronCreds(), metatronCredsNil)
@@ -1458,9 +1459,9 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 			"FROM_USER_2": "U2",
 		},
 		Version: ptr.StringPtr(testImageTag),
-	})
+	}, cmpopts.IgnoreUnexported(titus.ContainerInfo{}, titus.ContainerInfo_NetworkConfigInfo{}, titus.ContainerInfo_MetatronCreds{}, titus.ContainerInfo_Process{}))
 
-	assert.DeepEqual(t, c.MetatronCreds(), expMetatronCreds)
+	assert.DeepEqual(t, c.MetatronCreds(), expMetatronCreds, cmpopts.IgnoreUnexported(titus.ContainerInfo_MetatronCreds{}))
 }
 
 func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {

@@ -26,10 +26,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goassert "gotest.tools/assert"
 )
 
 const (
@@ -462,7 +464,7 @@ func validateTaskIdentityRequest(t *testing.T, keyPair testKeyPair) func(*stubSe
 		expectedTaskIdent := fakeTaskIdentity()
 		assert.NotNil(t, taskIdent.UnixTimestampSec)
 		expectedTaskIdent.UnixTimestampSec = taskIdent.UnixTimestampSec
-		assert.Equal(t, expectedTaskIdent, taskIdent)
+		goassert.DeepEqual(t, expectedTaskIdent.Container, taskIdent.Container, cmpopts.IgnoreUnexported(titus.ContainerInfo{}, titus.ContainerInfo_Process{}, titus.RunningContainerInfo{}))
 		// The identity server checks Process for entrypoint and command:
 		assert.NotNil(t, taskIdent.Container.Process)
 		assert.Equal(t, []string{*expectedTaskIdent.Container.EntrypointStr}, taskIdent.Container.Process.Entrypoint) // nolint: staticcheck
