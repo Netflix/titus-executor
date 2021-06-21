@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"go.opencensus.io/trace"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -318,6 +321,10 @@ func (r *Runner) handleTaskRunningMessage(ctx context.Context, msg string, lastM
 func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	ctx, span := trace.StartSpan(ctx, "doShutdown")
+	defer span.End()
+
 	logger.G(ctx).WithField("lastUpdate", lastUpdate).WithField("wasKilled", r.wasKilled()).Debug("Handling shutdown")
 	var errs *multierror.Error
 
@@ -377,6 +384,7 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 	}
 
 	r.metrics.Timer("titus.executor.containerCleanupTime", time.Since(killStartTime), r.container.ImageTagForMetrics())
+	tracehelpers.SetStatus(errs.ErrorOrNil(), span)
 }
 
 func (r *Runner) wasKilled() bool {

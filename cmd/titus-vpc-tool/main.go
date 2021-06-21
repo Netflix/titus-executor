@@ -137,7 +137,10 @@ func main() {
 				dd.Stop()
 			}
 			if reporter != nil {
-				_ = reporter.Close()
+				err := reporter.Close()
+				if err != nil {
+					logger.G(ctx).WithError(err).Error("Unable to close / flush reporter")
+				}
 			}
 		},
 	}
