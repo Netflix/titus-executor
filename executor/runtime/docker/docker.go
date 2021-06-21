@@ -2189,28 +2189,26 @@ func (r *DockerRuntime) setupGPU(ctx context.Context) error {
 
 // Kill uses the Docker API to terminate a container and notifies the VPC driver to tear down its networking
 func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nolint: gocyclo
-	logger.G(ctx).Debug("Shutting down main container")
 	ctx, span := trace.StartSpan(ctx, "Kill")
 	defer span.End()
 
 	var errs *multierror.Error
-
 	containerStopTimeout := defaultKillWait
+
 	if killWait := r.c.KillWaitSeconds(); killWait != nil && *killWait != 0 {
 		containerStopTimeout = time.Second * time.Duration(*killWait)
 	}
 	cStopPtr := &containerStopTimeout
 
-	if !wasKilled {
+	if wasKilled {
+		// We're being told by the API to stop, so use the configured stop timeout
+		logger.G(ctx).WithField("stopTimeout", containerStopTimeout.Seconds()).Info("Shutting down main container because we were asked to stop from the API")
+	} else {
 		// The container either finished or died, so the user's workload isn't running. There's no point in delaying the stop.
 		cStopPtr = nil
-		logger.G(ctx).Debug("setting container stop timeout to nil because the container finished or died")
-	} else {
-		// We're being told by the API to stop, so use the configured stop timeout
-		logger.G(ctx).Debugf("setting container stop timeout to %s", containerStopTimeout.String())
+		logger.G(ctx).Info("Shutting down main container because it finished or died")
 	}
 
-	logger.G(ctx).Debug("Inspecting main container")
 	if containerJSON, err := r.client.ContainerInspect(context.TODO(), r.c.ID()); docker.IsErrNotFound(err) {
 		goto stopped
 	} else if err != nil {
@@ -2221,6 +2219,7 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 		goto stopped
 	}
 
+	logger.G(ctx).Debug("Stopping main container")
 	if err := r.client.ContainerStop(context.TODO(), r.c.ID(), cStopPtr); err != nil {
 		r.metrics.Counter("titus.executor.dockerStopContainerError", 1, nil)
 		log.Errorf("container %s : stop %v", r.c.TaskID(), err)
