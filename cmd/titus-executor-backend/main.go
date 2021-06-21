@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
@@ -100,6 +101,7 @@ func main() {
 }
 
 func mainWithError(ctx context.Context, dockerCfg *docker.Config, cfg *config.Config, mainCfg *commandConfig, m metrics.Reporter) error {
+	var ew *exporterWrapper
 	if mainCfg.zipkin != "" {
 		reporter := zipkinHTTP.NewReporter(mainCfg.zipkin,
 			zipkinHTTP.BatchInterval(time.Second*5),
@@ -115,7 +117,9 @@ func mainWithError(ctx context.Context, dockerCfg *docker.Config, cfg *config.Co
 			return fmt.Errorf("Failed to create the local zipkinEndpoint: %w", err)
 		}
 		logger.G(ctx).WithField("endpoint", endpoint).WithField("url", mainCfg.zipkin).Info("Setting up tracing")
-		trace.RegisterExporter(zipkin.NewExporter(reporter, endpoint))
+		exporter := zipkin.NewExporter(reporter, endpoint)
+		ew = &exporterWrapper{exporter: exporter}
+		trace.RegisterExporter(ew)
 		defer func() {
 			reporterErr := reporter.Close()
 			if reporterErr != nil {
@@ -134,6 +138,12 @@ func mainWithError(ctx context.Context, dockerCfg *docker.Config, cfg *config.Co
 	err = json.Unmarshal(data, &pod)
 	if err != nil {
 		return fmt.Errorf("Could not deserialize pod file: %w", err)
+	}
+
+	if ew != nil {
+		ew.Lock()
+		ew.taskID = pod.Name
+		ew.Unlock()
 	}
 
 	logger.G(ctx).WithField("pod", pod).Debug("Got pod")
@@ -160,4 +170,22 @@ func mainWithError(ctx context.Context, dockerCfg *docker.Config, cfg *config.Co
 	}()
 
 	return b.RunWithOutputDir(ctx, mainCfg.runtimeDir)
+}
+
+type exporterWrapper struct {
+	sync.RWMutex
+	exporter *zipkin.Exporter
+	taskID   string
+}
+
+func (e *exporterWrapper) ExportSpan(s *trace.SpanData) {
+	e.RLock()
+	if e.taskID != "" {
+		if s.Attributes == nil {
+			s.Attributes = map[string]interface{}{}
+		}
+		s.Attributes["taskid"] = e.taskID
+	}
+	e.RUnlock()
+	e.exporter.ExportSpan(s)
 }
