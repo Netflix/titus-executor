@@ -135,7 +135,7 @@ push-titus-agent: titus-agent
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
 PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
 PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
-PROTO_MAP     := Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus
+PROTO_MAP     := Mnetflix/titus/titus_base.proto=netflix/titus,Mnetflix/titus/titus_job_api.proto=netflix/titus
 .PHONY: protogen
 protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
 
@@ -146,7 +146,7 @@ vendor/modules.txt: go.mod
 $(PROTOS): vendor
 $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p api/netflix/titus
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc:api/ $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):api/ $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
 	$(GOIMPORT_TOOL) $@
 
 ## TODO: Use git wildcard functionality to "automatically"
