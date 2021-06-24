@@ -65,6 +65,8 @@ github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20210426164010-ef784d356ff
 github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20210426164010-ef784d356ff6/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Netflix/titus-api-definitions v0.0.2-rc.3 h1:JR+++JKvJ8b9+oxGOioPgqX4qHBFhCWktuy+3aHMZSs=
 github.com/Netflix/titus-api-definitions v0.0.2-rc.3/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
+github.com/Netflix/titus-api-definitions v0.0.2-rc.4 h1:pitsthmhmZSa9QC0Pu+b3/ifmk8VAqwkGhNm00JBf8s=
+github.com/Netflix/titus-api-definitions v0.0.2-rc.4/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Netflix/titus-controllers-api v0.0.6/go.mod h1:tPzu+DV20a0usx4QPplTvSeg0ERTIyxWa1iemWsWCbI=
 github.com/Netflix/titus-kube-common v0.9.0 h1:cICC1qS+PPoXT/Ih0e2fyDdANsbgwAIegHsPm8OmiR8=
 github.com/Netflix/titus-kube-common v0.9.0/go.mod h1:fU8ZwjsXgEaZNx1H4UjLD9S2h55EKwHQQeZwGyiwsdU=

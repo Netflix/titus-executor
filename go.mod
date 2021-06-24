@@ -10,7 +10,7 @@ require (
 	github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 	github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
-	github.com/Netflix/titus-api-definitions v0.0.2-rc.3
+	github.com/Netflix/titus-api-definitions v0.0.2-rc.4
 	github.com/Netflix/titus-kube-common v0.17.0
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
@@ -77,7 +77,7 @@ require (
 	google.golang.org/protobuf v1.23.0 // indirect
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/ini.v1 v1.52.0 // indirect
-	gopkg.in/urfave/cli.v1 v1.20.0
+	gopkg.in/urfave/cli.v1 v1.20.0 // indirect
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.19.10
 	k8s.io/apimachinery v0.19.10
