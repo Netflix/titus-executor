@@ -1022,7 +1022,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 				AssignIPResponseV3: &vpcapi.AssignIPResponseV3{
 					Ipv4Address: &vpcapi.UsableAddress{
 						Address: &vpcapi.Address{
-							Address: "1.2.3.4",
+							Address: "192.0.2.1",
 						},
 						PrefixLength: 32,
 					},

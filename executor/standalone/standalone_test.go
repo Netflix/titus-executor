@@ -679,7 +679,7 @@ func TestMetadataProxyInjection(t *testing.T) {
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
-		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/local-ipv4 | grep 1.2.3.4'",
+		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/local-ipv4 | grep 192.0.2.1'",
 		JobID:         generateJobID(t.Name()),
 		UsePodSpec:    shouldUsePodspecInTest,
 	}

@@ -537,7 +537,7 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	env := map[string]string{
 		"TITUS_TASK_ID":                       taskID,
 		"TITUS_TASK_INSTANCE_ID":              taskID,
-		metadataserverTypes.EC2IPv4EnvVarName: "1.2.3.4",
+		metadataserverTypes.EC2IPv4EnvVarName: "192.0.2.1",
 	}
 
 	if jobInput.MetatronEnabled {

@@ -34,7 +34,10 @@ import (
 )
 
 const (
-	identTime = 1546292381
+	identTime    = 1546292381
+	fakeIdentIP  = "192.0.2.1"
+	fakeTaskID   = "e3c16590-0e2f-440d-9797-a68a19f6101e"
+	fakePublicIp = "203.0.113.11"
 )
 
 type testKeyPair struct {
@@ -325,8 +328,8 @@ func makeGetRequestWithHeader(ss *stubServer, path string, headerName string, he
 }
 
 func fakeTaskIdentity() *titus.TaskIdentity {
-	taskID := "e3c16590-0e2f-440d-9797-a68a19f6101e"
-	ipAddr := "1.2.3.4"
+	taskID := fakeTaskID
+	ipAddr := fakeIdentIP
 	entrypoint := "/usr/bin/sleep 10"
 	taskStatus := titus.TaskInfo_RUNNING
 	launchTime := uint64(identTime)
@@ -359,8 +362,8 @@ func fakeTaskIdentity() *titus.TaskIdentity {
 }
 
 func fakeTaskPodIdentity(pod *corev1.Pod) *titus.TaskPodIdentity {
-	taskID := "e3c16590-0e2f-440d-9797-a68a19f6101e"
-	ipAddr := "1.2.3.4"
+	taskID := fakeTaskID
+	ipAddr := fakeIdentIP
 	//entrypoint := "/usr/bin/sleep 10"
 	taskStatus := titus.TaskInfo_RUNNING
 	//launchTime := uint64(identTime)
@@ -683,7 +686,7 @@ func signerFromTestKeyPair(keyPair testKeyPair) *identity.Signer {
 func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 	// 8675309 is a fake account ID
 	fakeARN := "arn:aws:iam::8675309:role/thisIsAFakeRole"
-	fakeTitusTaskInstanceIPAddress := "1.2.3.4"
+	fakeTitusTaskInstanceIPAddress := fakeIdentIP
 	fakeTaskIdent := fakeTaskIdentity()
 	fakePod := fakePod()
 	//fakePodIdent := fakePodIdentity(fakePod)
@@ -705,7 +708,7 @@ func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 	}
 
 	if conf.publicIP {
-		mdsCfg.PublicIpv4Address = net.ParseIP("203.0.113.11")
+		mdsCfg.PublicIpv4Address = net.ParseIP(fakePublicIp)
 	}
 
 	if conf.keyPair.certType != "" {
@@ -764,12 +767,12 @@ func TestVCR(t *testing.T) {
 			{makeGetRequest(ss, "/latest//dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/dynamic/./instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/../latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
-			{makeGetRequest(ss, "/latest/meta-data/local-ipv4"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent("203.0.113.11")},
-			{makeGetRequest(ss, "/latest/meta-data/local-hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/public-hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/instance-id"), validateRequestNotProxiedAndSuccessWithContent("e3c16590-0e2f-440d-9797-a68a19f6101e")},
+			{makeGetRequest(ss, "/latest/meta-data/local-ipv4"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent(fakePublicIp)},
+			{makeGetRequest(ss, "/latest/meta-data/local-hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/public-hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/instance-id"), validateRequestNotProxiedAndSuccessWithContent(fakeTaskID)},
 			{makeGetRequest(ss, "/latest/meta-data/iam/security-credentials"), validateRequestNotProxiedAndSuccessWithContent("thisIsAFakeRole")},
 			{makeGetRequest(ss, "/1.0/meta-data/iam/security-credentials"), validateRequestNotProxiedAndSuccessWithContent("thisIsAFakeRole")},
 			{makeGetRequest(ss, "/latest/meta-data/iam/security-credentials/thisIsAFakeRole"), validateRequestNotProxiedAndSuccessWithContent("fakeAccessKey")},

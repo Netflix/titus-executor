@@ -109,7 +109,7 @@ func TestNewPodContainer(t *testing.T) {
 	assert.NilError(t, err)
 	taskID := pod.ObjectMeta.Name
 
-	ipAddr := "1.2.3.4"
+	ipAddr := "192.0.2.1"
 	expectedCommand := []string{"cmd", "arg0", "arg1"}
 	expectedEntrypoint := []string{"entrypoint", "arg0", "arg1"}
 	imgName := "titusoss/alpine"
@@ -162,7 +162,7 @@ func TestNewPodContainer(t *testing.T) {
 					VpcId:              "vpc-abcde",
 				},
 				ElasticAddress: &vpcapi.ElasticAddress{
-					Ip: "1.2.3.5",
+					Ip: "192.0.2.2",
 				},
 			},
 		},
@@ -305,9 +305,9 @@ func TestNewPodContainer(t *testing.T) {
 		"AWS_METADATA_SERVICE_TIMEOUT":      "5",
 		"EC2_DOMAIN":                        "amazonaws.com",
 		"EC2_INTERFACE_ID":                  "eni-abcde",
-		"EC2_LOCAL_IPV4":                    "1.2.3.4",
-		"EC2_PUBLIC_IPV4":                   "1.2.3.5",
-		"EC2_PUBLIC_IPV4S":                  "1.2.3.5",
+		"EC2_LOCAL_IPV4":                    "192.0.2.1",
+		"EC2_PUBLIC_IPV4":                   "192.0.2.2",
+		"EC2_PUBLIC_IPV4S":                  "192.0.2.2",
 		"EC2_OWNER_ID":                      "123456",
 		"EC2_SUBNET_ID":                     "subnet-abcde",
 		"EC2_VPC_ID":                        "vpc-abcde",
@@ -1182,7 +1182,7 @@ func TestPodContainerEC2HostnameStyle(t *testing.T) {
 			AssignIPResponseV3: &vpcapi.AssignIPResponseV3{
 				Ipv4Address: &vpcapi.UsableAddress{
 					Address: &vpcapi.Address{
-						Address: "1.2.3.4",
+						Address: "192.0.2.1",
 					},
 					PrefixLength: 32,
 				},
@@ -1192,7 +1192,7 @@ func TestPodContainerEC2HostnameStyle(t *testing.T) {
 
 	hostname, err := ComputeHostname(c)
 	assert.NilError(t, err)
-	assert.Equal(t, "ip-1-2-3-4", hostname)
+	assert.Equal(t, "ip-192-0-2-1", hostname)
 }
 
 func TestPodContainerInvalidHostnameStyle(t *testing.T) {
