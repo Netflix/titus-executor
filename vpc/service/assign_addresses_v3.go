@@ -1145,7 +1145,7 @@ func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 		Address: &vpcapi.Address{
 			Address: aws.StringValue(output.AssignedIpv6Addresses[0]),
 		},
-		PrefixLength: uint32(64),
+		PrefixLength: uint32(128),
 	}, nil
 }
 
