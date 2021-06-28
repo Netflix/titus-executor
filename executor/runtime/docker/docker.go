@@ -30,7 +30,6 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
-	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
@@ -1437,102 +1436,84 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.
 // running that container.
 func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
 
-	otherUserContainers := []v1.Container{}
-	if pod != nil && pod.Spec.Containers != nil {
-		otherUserContainers = pod.Spec.Containers[1:]
-	}
 	l := log.WithField("taskID", r.c.TaskID())
 
 	// For speed, we pull and create other containers in parallel
-	var cidMapping map[string]string
-	if len(otherUserContainers) > 0 {
-		l.Infof("Pulling %d other user containers", len(otherUserContainers))
-		err := r.pullAllUserContainers(ctx, pod)
+	totalExtraContainerCount := len(r.c.ExtraUserContainers()) + len(r.c.ExtraPlatformContainers())
+	if totalExtraContainerCount > 0 {
+		l.Infof("Pulling %d other user/platform containers", totalExtraContainerCount)
+		err := r.pullAllExtraContainers(ctx, pod)
 		if err != nil {
-			return fmt.Errorf("Failed to pull an image for user container: %s", err)
+			return fmt.Errorf("Failed to pull an image for user/platform container: %s", err)
 		}
-		l.Infof("Creating %d other user containers", len(otherUserContainers))
-		cidMapping, err = r.createAllUserContainers(ctx, pod, r.c.TaskID(), mainContainerRoot)
+		l.Infof("Creating %d other user/platform containers", totalExtraContainerCount)
+		err = r.createAllExtraContainers(ctx, pod, r.c.ID(), mainContainerRoot)
 		if err != nil {
-			return fmt.Errorf("Failed to create a user container: %s", err)
+			return fmt.Errorf("Failed to create a user/platform container: %s", err)
 		}
-	} else {
-		cidMapping = map[string]string{}
 	}
 
 	// Starting, however, has its own logic
-	l.Infof("Starting %d user containers", len(cidMapping))
-	err := r.startAllUserContainers(ctx, pod, cidMapping, r.c.TaskID(), tiniConn)
+	l.Infof("Starting %d user/platform containers", totalExtraContainerCount)
+	err := r.startAllUserContainers(ctx, pod, r.c.ID(), tiniConn)
 	if err != nil {
-		return fmt.Errorf("Failed to start a user container: %s", err)
+		return fmt.Errorf("Failed to start a user/platform container: %s", err)
 	}
 
-	l.Info("Finished launching user containers")
+	l.Info("Finished launching user/platform containers")
 	return nil
 }
 
-func (r *DockerRuntime) pullAllUserContainers(ctx context.Context, pod *v1.Pod) error {
+func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	// In this design, the first container has already been pulled and started, so we only look
 	// at the other containers here.
-	otherUserContainers := pod.Spec.Containers[1:]
+	otherUserContainers := append(r.c.ExtraUserContainers(), r.c.ExtraPlatformContainers()...)
 	group := groupWithContext(ctx)
-	images := getAllUserContainerImages(otherUserContainers)
-	for idx := range images {
-		image := images[idx]
+	for _, c := range otherUserContainers {
+		image := c.V1Container.Image
 		group.Go(func(ctx context.Context) error {
-			l.Debugf("pulling other user container %s", image)
+			l.Debugf("pulling other container image %s", image)
 			return pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
 		})
 	}
 	return group.Wait()
 }
 
-func getAllUserContainerImages(containers []v1.Container) []string {
-	images := []string{}
-	for _, c := range containers {
-		images = append(images, c.Image)
-	}
-	return images
-}
-
-// createAllUserContainers *creates* the other user containers,
+// createAllExtraContainers *creates* the other user containers,
 // except for the 'main' one, which is assumed to be already created
-// to store all the namespaces
-func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, mainContainerRoot string) (map[string]string, error) {
+// to store all the linux namespaces
+func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, mainContainerRoot string) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	// With this design, the first container is already created and ready for us
 	// to link to (mainContainerID), so we only look at 1+ containers to create
-	otherUserContainers := pod.Spec.Containers[1:]
 	group := groupWithContext(ctx)
-	// We use a sync map for safety here, we need a mapping from Name: ContainerID to return
-	// so the caller can start the containers we create in the correct order.
 	// We *creating* (not starting) the containers in parallel for speed
-	var cidSyncMapping sync.Map
-	for idx := range otherUserContainers {
-		c := otherUserContainers[idx]
+	for idx := range r.c.ExtraUserContainers() {
+		c := r.c.ExtraUserContainers()[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createOtherUserContainer(ctx, c, mainContainerID, mainContainerRoot)
+			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot)
 			if err != nil {
-				return fmt.Errorf("Failed to create %s container: %w", c.Name, err)
+				return fmt.Errorf("Failed to create %s user container: %w", c.Name, err)
 			}
-			cidSyncMapping.Store(c.Name, cid)
+			c.ID = cid
 			l.Debugf("Created %s, CID: %s", c.Name, cid)
 			return nil
 		})
 	}
-	err := group.Wait()
-	if err != nil {
-		return nil, err
+	for idx := range r.c.ExtraPlatformContainers() {
+		c := r.c.ExtraPlatformContainers()[idx]
+		group.Go(func(ctx context.Context) error {
+			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot)
+			if err != nil {
+				return fmt.Errorf("Failed to create %s platform container: %w", c.Name, err)
+			}
+			c.ID = cid
+			l.Debugf("Created %s, CID: %s", c.Name, cid)
+			return nil
+		})
 	}
-
-	// And the convert back to a normal map before returning
-	cidMapping := make(map[string]string)
-	cidSyncMapping.Range(func(k interface{}, v interface{}) bool {
-		cidMapping[k.(string)] = v.(string)
-		return true
-	})
-	return cidMapping, err
+	return group.Wait()
 }
 
 // startAllUserContainers actually launches all containers,
@@ -1541,30 +1522,30 @@ func (r *DockerRuntime) createAllUserContainers(ctx context.Context, pod *v1.Pod
 // ordering in 2 phases:
 // Phase 1: Launch all platform containers (service mesh, gandalf, etc)
 // Phase 2: Launch all user-defined conatiners (main, nginx, etc)
-func (r *DockerRuntime) startAllUserContainers(ctx context.Context, pod *v1.Pod, cidMapping map[string]string, mainContainerID string, tiniConn *net.UnixConn) error {
+func (r *DockerRuntime) startAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn) error {
 	l := log.WithField("taskID", r.c.TaskID())
 
-	platformContainerNames := getPlaformContainerNames(pod)
+	platformContainerNames := r.getPlaformContainerNames()
 	l.Debugf("Starting %d platform sidecars: %s", len(platformContainerNames), platformContainerNames)
-	err := r.startPlatformDefinedContainers(ctx, platformContainerNames, cidMapping)
+	err := r.startPlatformDefinedContainers(ctx)
 	if err != nil {
 		return err
 	}
 
-	userContainerNames := getUserContainerNames(pod)
+	userContainerNames := r.getUserContainerNames()
 	l.Debugf("Starting %d user containers: %s", len(userContainerNames), userContainerNames)
-	err = r.startUserDefinedContainers(ctx, userContainerNames, cidMapping, tiniConn)
+	err = r.startUserDefinedContainers(ctx, tiniConn)
 
 	return err
 }
 
-func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context, names []string, cidMapping map[string]string) error {
+func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
-	for _, name := range names {
-		cName := name
+	for _, c := range r.c.ExtraPlatformContainers() {
+		cName := c.Name
+		cid := c.ID
 		group.Go(func(ctx context.Context) error {
-			cid := cidMapping[cName]
 			l.Debugf("Starting up platform-defined container %s, container id %s", cName, cid)
 			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
 			if err != nil {
@@ -1576,18 +1557,21 @@ func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context, name
 	return group.Wait()
 }
 
-func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, names []string, cidMapping map[string]string, tiniConn *net.UnixConn) error {
+func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn *net.UnixConn) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
-	for _, name := range names {
-		cName := name
+	for _, c := range r.c.ExtraUserContainers() {
+		cName := c.Name
 		if cName == r.c.TaskID() {
 			// Special case, the main container here is already running, it just needs
 			// to be told to run its own process via tini, we'll handle that in a different case
 			continue
 		}
+		cid := c.ID
+		if cid == "" {
+			return fmt.Errorf("No container id availble. Did it get created in docker?")
+		}
 		group.Go(func(ctx context.Context) error {
-			cid := cidMapping[cName]
 			l.Debugf("Starting up user-defined container %s, container id %s", cName, cid)
 			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
 			if err != nil {
@@ -1610,19 +1594,19 @@ func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, names []
 	return group.Wait()
 }
 
-func (r *DockerRuntime) createOtherUserContainer(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string) (string, error) {
+func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string) (string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
 	containerName := r.c.TaskID() + "-" + v1Container.Name
 	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := r.k8sContainerToDockerConfigs(v1Container, mainContainerID, mainContainerRoot)
 	l.WithFields(map[string]interface{}{
 		"dockerCfg": logger.ShouldJSON(ctx, *dockerContainerConfig),
 		"hostCfg":   logger.ShouldJSON(ctx, *dockerHostConfig),
-	}).Infof("Creating other user container in docker: %s", v1Container.Name)
+	}).Infof("Creating other container in docker: %s", v1Container.Name)
 	containerCreateBody, err := r.client.ContainerCreate(ctx, dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, containerName)
 	if err != nil {
 		return "", err
 	}
-	l.Debugf("Finished creating usercontainer %s, CID: %s, Env: %+v", v1Container.Name, containerCreateBody.ID, dockerContainerConfig.Env)
+	l.Debugf("Finished creating container %s, CID: %s, Env: %+v", v1Container.Name, containerCreateBody.ID, dockerContainerConfig.Env)
 	return containerCreateBody.ID, nil
 }
 
@@ -1751,30 +1735,18 @@ func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) *container.Healt
 	return &hc
 }
 
-func getUserContainerNames(pod *v1.Pod) []string {
+func (r *DockerRuntime) getUserContainerNames() []string {
 	userContainerNames := []string{}
-	if pod == nil || pod.Spec.Containers == nil {
-		return userContainerNames
-	}
-	for _, c := range pod.Spec.Containers {
-		// Currently anything *not* a sidecar needs to fall
-		// into the "user" bucket. No container can be left behind
-		if !podCommon.IsPlatformSidecarContainer(c.Name, pod) {
-			userContainerNames = append(userContainerNames, c.Name)
-		}
+	for _, c := range r.c.ExtraUserContainers() {
+		userContainerNames = append(userContainerNames, c.Name)
 	}
 	return userContainerNames
 }
 
-func getPlaformContainerNames(pod *v1.Pod) []string {
+func (r *DockerRuntime) getPlaformContainerNames() []string {
 	platformContainerNames := []string{}
-	if pod == nil || pod.Spec.Containers == nil {
-		return platformContainerNames
-	}
-	for _, c := range pod.Spec.Containers {
-		if podCommon.IsPlatformSidecarContainer(c.Name, pod) {
-			platformContainerNames = append(platformContainerNames, c.Name)
-		}
+	for _, c := range r.c.ExtraPlatformContainers() {
+		platformContainerNames = append(platformContainerNames, c.Name)
 	}
 	return platformContainerNames
 }

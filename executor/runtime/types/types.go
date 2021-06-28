@@ -126,6 +126,14 @@ type SidecarContainerConfig struct {
 	Volumes     map[string]struct{}
 }
 
+// ExtraContainer stores data about the other containers running alongside the
+// main container in the C&W implementation of pods
+type ExtraContainer struct {
+	Name        string           // Name of the container from the pod spec
+	ID          string           // Docker container id
+	V1Container corev1.Container // The k8s definition of the container from the pod object
+}
+
 type NFSMount struct {
 	Server     string
 	ServerPath string
@@ -151,6 +159,8 @@ type Container interface {
 	EnvOverrides() map[string]string
 	ElasticIPPool() *string
 	ElasticIPs() *string
+	ExtraUserContainers() []*ExtraContainer
+	ExtraPlatformContainers() []*ExtraContainer
 	FuseEnabled() bool
 	GPUInfo() GPUContainer
 	HostnameStyle() *string

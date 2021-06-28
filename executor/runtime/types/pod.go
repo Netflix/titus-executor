@@ -62,6 +62,10 @@ type PodContainer struct {
 	envLock        sync.Mutex
 	// envOverrides are set by the executor for things like IPv4 / IPv6 address
 	envOverrides map[string]string
+	// extraUserContainers stores and array of metadata about all the non-main user containers
+	extraUserContainers []*ExtraContainer
+	// extraUserContainers stores and array of metadata about all the platform-defined containers
+	extraPlatformContainers []*ExtraContainer
 	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
 	id    string
 	image string
@@ -132,6 +136,8 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 	if _, ok := pod.Annotations[podCommon.AnnotationKeyPodTitusSystemEnvVarNames]; !ok {
 		return nil, fmt.Errorf("system environment variable names annotation is required: %s", podCommon.AnnotationKeyPodTitusSystemEnvVarNames)
 	}
+
+	c.extraUserContainers, c.extraPlatformContainers = NewExtraContainersFromPod(*pod)
 
 	err = c.parsePodVolumes()
 	if err != nil {
@@ -316,6 +322,14 @@ func (c *PodContainer) ElasticIPs() *string {
 		return c.podConfig.ElasticIPs
 	}
 	return nil
+}
+
+func (c *PodContainer) ExtraUserContainers() []*ExtraContainer {
+	return c.extraUserContainers
+}
+
+func (c *PodContainer) ExtraPlatformContainers() []*ExtraContainer {
+	return c.extraPlatformContainers
 }
 
 func (c *PodContainer) FuseEnabled() bool {
@@ -663,6 +677,33 @@ func (c *PodContainer) VPCAccountID() *string {
 		return c.podConfig.AccountID
 	}
 	return &c.config.SSHAccountID
+}
+
+// NewExtraContainersFromPod extracts any other containers >1 (if any) and
+// returns 2 populated arrays []ExtraContainer for the executor to use
+// without parsing the pod object later.
+// These are the extra user containers, and the extra platform containers
+func NewExtraContainersFromPod(pod corev1.Pod) ([]*ExtraContainer, []*ExtraContainer) {
+	otherContainersFromPod := []corev1.Container{}
+	extraUserContainers := []*ExtraContainer{}
+	extraPlatformContainers := []*ExtraContainer{}
+	if pod.Spec.Containers != nil && len(pod.Spec.Containers) > 1 {
+		otherContainersFromPod = pod.Spec.Containers[1:]
+	}
+	for _, c := range otherContainersFromPod {
+		if podCommon.IsPlatformSidecarContainer(c.Name, &pod) {
+			extraPlatformContainers = append(extraUserContainers, &ExtraContainer{
+				Name:        c.Name,
+				V1Container: c,
+			})
+		} else {
+			extraUserContainers = append(extraUserContainers, &ExtraContainer{
+				Name:        c.Name,
+				V1Container: c,
+			})
+		}
+	}
+	return extraUserContainers, extraPlatformContainers
 }
 
 func AddContainerInfoToPod(pod *corev1.Pod, cInfo *titus.ContainerInfo) error {
