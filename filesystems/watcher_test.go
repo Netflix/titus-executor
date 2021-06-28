@@ -100,11 +100,11 @@ func TestWatcher(t *testing.T) {
 
 	verifyTestWatcher(destLoc, t)
 
-	assert.NoError(t, w.Stop())
+	assert.NoError(t, w.Stop(context.TODO()))
 	if err != nil {
 		t.Fatal("Could not stop watcher: ", err)
 	}
-	assert.NoError(t, w.Stop(), "Stopping the watcher a second time did something odd")
+	assert.NoError(t, w.Stop(context.TODO()), "Stopping the watcher a second time did something odd")
 }
 
 func verifyTestWatcher(destLoc string, t *testing.T) {
@@ -193,7 +193,7 @@ func TestDoubleUpload(t *testing.T) { // nolint: gocyclo
 		t.Fatal(err)
 	}
 
-	err = w.Stop()
+	err = w.Stop(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func testLogRotateMain(tmpLogDir, destLogDir string, t *testing.T) {
 	w, buf := setupLogRotate(tmpLogDir, destLogDir, t)
 	checkOngoingLogRotate(tmpLogDir, destLogDir, buf, t)
 
-	err := w.Stop()
+	err := w.Stop(context.TODO())
 	if err != nil {
 		t.Fatal("Could not stop watcher: ", err)
 	}

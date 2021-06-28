@@ -326,6 +326,7 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 
 	ctx, span := trace.StartSpan(ctx, "doShutdown")
 	defer span.End()
+	span.AddAttributes(trace.BoolAttribute("wasKiled", r.wasKilled()))
 
 	logger.G(ctx).WithField("lastUpdate", lastUpdate).WithField("wasKilled", r.wasKilled()).Debug("Handling shutdown")
 	var errs *multierror.Error
@@ -351,7 +352,7 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 	}
 
 	if r.watcher != nil {
-		if err := r.watcher.Stop(); err != nil {
+		if err := r.watcher.Stop(ctx); err != nil {
 			logger.G(ctx).Error("Error while shutting down watcher for: ", err)
 			errs = multierror.Append(errs, err)
 		}
