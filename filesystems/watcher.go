@@ -3,6 +3,7 @@ package filesystems
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
@@ -18,12 +19,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Netflix/titus-executor/uploader"
-
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/filesystems/xattr"
+	"github.com/Netflix/titus-executor/uploader"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 )
 
 const (
@@ -94,6 +96,7 @@ type Watcher struct {
 	config   WatchConfig
 	uploader *uploader.Uploader
 
+	retErrorLock sync.RWMutex
 	retError     error
 	dieCh        chan struct{}
 	doneCh       chan struct{}
@@ -224,11 +227,6 @@ func (w *Watcher) watchLoop(parentCtx context.Context) {
 
 	// No matter what cancel our context, so our children shut down
 	cancel()
-
-	log.Debug("Watcher shutting down")
-
-	finalCtx, finalCancel := context.WithTimeout(parentCtx, 5*time.Minute)
-	defer finalCancel()
 	// Wait for both loops to wrap up. This runs in theoretically unbounded time.
 	// At least we will throw an error if it takes more than 2 minutes to shut down
 	t := time.AfterFunc(120*time.Second, func() {
@@ -238,19 +236,7 @@ func (w *Watcher) watchLoop(parentCtx context.Context) {
 	wg.Wait()
 	t.Stop()
 
-	uploadStartTime := time.Now()
-
-	w.stdioRotate(finalCtx, finalUpload)
-	if err := finalCtx.Err(); err != nil {
-		w.retError = err
-		return
-	}
-	// Set retError
-	w.retError = w.uploadAllLogFiles(finalCtx)
-
-	w.metrics.Timer("titus.executor.finalLogUpload.Duration", time.Since(uploadStartTime), nil)
-
-	// Cleanup is done by all of the above defers!
+	log.Debug("Watcher loop shut down")
 }
 
 // Although we could parameterize these loops, I want to keep them separate in case we need to debug from a goroutine dump
@@ -291,7 +277,7 @@ func (w *Watcher) traditionalRotate(ctx context.Context) {
 	logFileList, err := buildFileListInDir(w.config.localDir, true, w.config.uploadThresholdTime)
 	if err == nil {
 		for _, logFile := range logFileList {
-			w.uploadLogfile(ctx, logFile)
+			_ = w.uploadLogfile(ctx, logFile, false)
 		}
 	} else {
 		log.Error(err)
@@ -578,10 +564,17 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
 func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	ctx, span := trace.StartSpan(ctx, "uploadAllLogFiles")
+	defer span.End()
+
 	logFileList, err := buildFileListInDir(w.config.localDir, false, w.config.uploadThresholdTime)
 	if err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
 		log.WithField("localDir", w.config.localDir).Errorf("error uploading %s", err)
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -592,17 +585,11 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 			errs = multierror.Append(errs, ctx.Err())
 			break
 		}
-		remoteFilePath, err := filepath.Rel(w.config.localDir, logFile)
-		if err != nil {
-			log.Printf("Unable to make relative path for %s : %s", logFile, err)
-			errs = multierror.Append(errs, err)
-			continue
-		}
 		if CheckFileForStdio(logFile) {
 			continue
 		}
 
-		err = w.uploader.Upload(ctx, logFile, path.Join(w.config.uploadDir, remoteFilePath), xattr.GetMimeType)
+		err = w.uploadLogfile(ctx, logFile, true)
 		errs = multierror.Append(errs, err)
 	}
 
@@ -611,33 +598,70 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 		w.metrics.Counter("titus.executor.logsUploadError", len(errs.Errors), nil)
 	}
 
+	tracehelpers.SetStatus(err, span)
 	return err
 }
 
 // uploadLogFile is called to upload a single log file while the
 // task is running. Currently, no error is returned to the caller,
 // it is just logged.
-func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string) {
-	if w.shouldRotate(path.Base(fileToUpload)) {
-		// FIXME set content type
-		log.Info("Uploading ", fileToUpload)
-		remoteFilePath, err := filepath.Rel(w.config.localDir, fileToUpload)
-		if err != nil {
-			log.Printf("watch : error uploading %s : %s\n", fileToUpload, err)
-			return
-		}
+func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finalization bool) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-		if err := w.uploader.Upload(ctx, fileToUpload, path.Join(w.config.uploadDir, remoteFilePath), xattr.GetMimeType); err != nil {
-			w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
-			log.Printf("watch : error uploading %s : %s\n", fileToUpload, err)
-		}
-		if !w.config.keepFileAfterUpload {
-			if err := os.Remove(fileToUpload); err != nil {
-				w.metrics.Counter("titus.executor.logsWatchRemoveError", 1, nil)
-				log.Printf("watch : error removing %s : %s\n", fileToUpload, err)
-			}
+	// Always upload on finalization.
+	if !finalization && !w.shouldRotate(path.Base(fileToUpload)) {
+		return nil
+	}
+	ctx, span := trace.StartSpan(ctx, "uploadLogfile")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("fileToUpload", fileToUpload),
+		trace.BoolAttribute("finalization", finalization),
+	)
+	stat, err := os.Stat(fileToUpload)
+	if err != nil {
+		log.WithError(err).Errorf("Could not stat: %q", fileToUpload)
+	} else {
+		span.AddAttributes(
+			trace.StringAttribute("mtime", stat.ModTime().String()),
+			trace.Int64Attribute("unixmtime", stat.ModTime().Unix()),
+		)
+	}
+
+	// FIXME set content type
+	log.WithField("fileToUpload", fileToUpload).Infof("Uploading file %q", fileToUpload)
+	remoteFilePath, err := filepath.Rel(w.config.localDir, fileToUpload)
+	if err != nil {
+		err = fmt.Errorf("Could not get relative file path for %q: %w", fileToUpload, err)
+		tracehelpers.SetStatus(err, span)
+		log.WithError(err).Error("Error uploading")
+		return err
+	}
+
+	err = w.uploader.Upload(ctx, fileToUpload, path.Join(w.config.uploadDir, remoteFilePath), xattr.GetMimeType)
+	if err != nil {
+		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
+		err = fmt.Errorf("Could not upload %q: %w", fileToUpload, err)
+		tracehelpers.SetStatus(err, span)
+		log.WithError(err).Error("Error uploading")
+	}
+	if finalization {
+		return err
+	}
+
+	if !w.config.keepFileAfterUpload {
+		err = os.Remove(fileToUpload)
+		if err != nil {
+			w.metrics.Counter("titus.executor.logsWatchRemoveError", 1, nil)
+			err = fmt.Errorf("Could not remove file %q: %w", fileToUpload, err)
+			tracehelpers.SetStatus(err, span)
+			log.WithError(err).Error("Error removing file")
+			return err
 		}
 	}
+	return nil
 }
 
 func buildFileListInDir(dirName string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration) ([]string, error) {
@@ -692,7 +716,7 @@ func isFileModifiedAfterThreshold(file os.FileInfo, uploadThreshold time.Duratio
 // It can take an indefinite amount of time.
 // If it is called before starting, it will panic.
 // It can be called multiple times
-func (w *Watcher) Stop() error {
+func (w *Watcher) Stop(ctx context.Context) error {
 	if atomic.LoadInt32(&w.started) != 1 {
 		panic("Stopped before started")
 	}
@@ -702,11 +726,34 @@ func (w *Watcher) Stop() error {
 	w.shutdownOnce.Do(func() {
 		log.Debug("Watcher shutting down")
 		close(w.dieCh)
+		// We don't really want to return early, because otherwise things could get weird, since the rotation
+		// loops are still running
 		<-w.doneCh
 		log.Debug("Watcher shut down")
+
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+
+		uploadStartTime := time.Now()
+
+		w.stdioRotate(ctx, finalUpload)
+		w.retErrorLock.Lock()
+		defer w.retErrorLock.Unlock()
+
+		if err := ctx.Err(); err != nil {
+			w.retError = err
+			return
+		}
+
+		// Set retError
+		w.retError = w.uploadAllLogFiles(ctx)
+
+		w.metrics.Timer("titus.executor.finalLogUpload.Duration", time.Since(uploadStartTime), nil)
 	})
 	log.Debug("Watcher responded to ask for shutdown")
 
+	w.retErrorLock.RLock()
+	defer w.retErrorLock.RUnlock()
 	return w.retError
 }
 
