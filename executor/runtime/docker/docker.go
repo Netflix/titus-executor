@@ -391,6 +391,14 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		Runtime: c.Runtime(),
 	}
 
+	if r.c.AssignIPv6Address() {
+		if r.c.SeccompAgentEnabledForNetSyscalls() {
+			hostCfg.DNS = []string{"fd00:ec2::253"}
+		} else {
+			hostCfg.DNS = []string{"fd00:ec2::253", "169.254.169.253"}
+		}
+	}
+
 	maybeAddOptimisticDad(hostCfg.Sysctls)
 
 	// TODO(Sargun): Add IPv6 address
