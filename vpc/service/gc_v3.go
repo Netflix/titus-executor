@@ -154,31 +154,6 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 	}
 
 	logger.G(ctx).WithField("taskIds", req.RunningTaskIDs).Debug("GCing for running task IDs")
-
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		err = errors.Wrap(err, "Could not start transaction")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	_, err = tx.ExecContext(ctx, "UPDATE trunk_enis SET generation = 3 WHERE trunk_eni = $1", aws.StringValue(trunkENI.NetworkInterfaceId))
-	if err != nil {
-		err = errors.Wrap(err, "Could not update attachment generations")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		err = errors.Wrap(err, "Could not commit update to attachment generation")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
 	resp := vpcapi.GCResponseV3{}
 	if req.Soft {
 		resp.RemovedAssignments, err = vpcService.softGC(ctx, req, trunkENI)
