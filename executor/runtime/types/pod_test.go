@@ -318,6 +318,7 @@ func TestNewPodContainer(t *testing.T) {
 		"NETFLIX_DETAIL":                    "appDetail",
 		"NETFLIX_STACK":                     "appStack",
 		"TITUS_BATCH":                       "idle",
+		"TITUS_HOST_EC2_INSTANCE_ID":        "",
 		"TITUS_CONTAINER_ID":                taskID,
 		"TITUS_IAM_ROLE":                    testIamRole,
 		"TITUS_IMAGE_DIGEST":                imgDigest,
