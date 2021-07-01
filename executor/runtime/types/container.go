@@ -1144,6 +1144,12 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 		env[key] = value
 	}
 
+	// This variable comes early from the host, and later is overwritten
+	// by other env variables injected from the control plane.
+	// We save it here because it is useful to "leak" the true
+	// instance ID we are running on for other infrastructure tools
+	env["TITUS_HOST_EC2_INSTANCE_ID"] = env["EC2_INSTANCE_ID"]
+
 	resources := c.Resources()
 	// Resource environment variables
 	env["TITUS_NUM_MEM"] = itoa(resources.Mem)
