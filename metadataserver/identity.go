@@ -52,7 +52,7 @@ func (ms *MetadataServer) generateTaskPodIdentity() (*titus.TaskPodIdentity, err
 	if ms.pod == nil {
 		return nil, fmt.Errorf("No pod object available to marshal as a task identity")
 	}
-	podData, err := proto.Marshal(ms.pod)
+	podData, err := json.Marshal(ms.pod)
 	if err != nil {
 		return nil, err
 	}

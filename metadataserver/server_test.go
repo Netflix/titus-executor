@@ -37,7 +37,7 @@ const (
 	identTime    = 1546292381
 	fakeIdentIP  = "192.0.2.1"
 	fakeTaskID   = "e3c16590-0e2f-440d-9797-a68a19f6101e"
-	fakePublicIp = "203.0.113.11"
+	fakePublicIP = "203.0.113.11"
 )
 
 type testKeyPair struct {
@@ -367,7 +367,7 @@ func fakeTaskPodIdentity(pod *corev1.Pod) *titus.TaskPodIdentity {
 	//entrypoint := "/usr/bin/sleep 10"
 	taskStatus := titus.TaskInfo_RUNNING
 	//launchTime := uint64(identTime)
-	podData, _ := proto.Marshal(pod)
+	podData, _ := json.Marshal(pod)
 
 	taskInfo := &titus.TaskInfo{
 		ContainerId: &taskID,
@@ -689,7 +689,6 @@ func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 	fakeTitusTaskInstanceIPAddress := fakeIdentIP
 	fakeTaskIdent := fakeTaskIdentity()
 	fakePod := fakePod()
-	//fakePodIdent := fakePodIdentity(fakePod)
 
 	mdsCfg := types.MetadataServerConfiguration{
 		IAMARN:              fakeARN,
@@ -708,7 +707,7 @@ func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 	}
 
 	if conf.publicIP {
-		mdsCfg.PublicIpv4Address = net.ParseIP(fakePublicIp)
+		mdsCfg.PublicIpv4Address = net.ParseIP(fakePublicIP)
 	}
 
 	if conf.keyPair.certType != "" {
@@ -768,7 +767,7 @@ func TestVCR(t *testing.T) {
 			{makeGetRequest(ss, "/latest/dynamic/./instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/../latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/meta-data/local-ipv4"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
-			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent(fakePublicIp)},
+			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent(fakePublicIP)},
 			{makeGetRequest(ss, "/latest/meta-data/local-hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
 			{makeGetRequest(ss, "/latest/meta-data/public-hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
 			{makeGetRequest(ss, "/latest/meta-data/hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
