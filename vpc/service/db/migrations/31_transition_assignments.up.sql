@@ -16,4 +16,7 @@ alter table assignments
 create unique index assignments_branch_eni_association_uindex
     on assignments (branch_eni_association) WHERE is_transition_assignment;
 
+alter table assignments
+    add transition_last_used timestamp;
+
 COMMIT;

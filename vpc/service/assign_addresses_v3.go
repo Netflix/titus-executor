@@ -854,7 +854,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 				tracehelpers.SetStatus(err, span)
 				return nil, err
 			}
-			_, err = tx.ExecContext(ctx, "UPDATE assignments SET ipv4addr = $1 WHERE id = $2", resp.TransitionAssignment.Ipv4Address.Address.Address, ass.transitionAssignmentID)
+			_, err = tx.ExecContext(ctx, "UPDATE assignments SET ipv4addr = $1, completed = true WHERE id = $2", resp.TransitionAssignment.Ipv4Address.Address.Address, ass.transitionAssignmentID)
 			if err != nil {
 				err = errors.Wrap(err, "Cannot update transition assignment with v4 addr")
 				tracehelpers.SetStatus(err, span)

@@ -630,7 +630,7 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 		var ipv4addr sql.NullString
 		transitionAssignmentName := fmt.Sprintf("t-%s", uuid.New().String())
 		_, err := fastTx.ExecContext(ctx,
-			"INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",
+			"INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used) VALUES ($1, $2, true, now()) ON CONFLICT (branch_eni_association) WHERE is_transition_assignment DO UPDATE SET transition_last_used = now()",
 			ass.branch.associationID, transitionAssignmentName)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot insert transition assignment")
