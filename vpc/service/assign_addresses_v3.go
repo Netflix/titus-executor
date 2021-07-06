@@ -767,13 +767,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	// This locks the branch ENI making this whole process "exclusive"
-	now := time.Now()
 	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", ass.branch.id)
-	selectSecurityGroupsFromBranchENIs := time.Since(now)
-	span.AddAttributes(
-		trace.StringAttribute("selectSecurityGroupsFromBranchENIsTime", selectSecurityGroupsFromBranchENIs.String()),
-		trace.Int64Attribute("selectSecurityGroupsFromBranchENIsTimeNs", selectSecurityGroupsFromBranchENIs.Nanoseconds()),
-	)
 	var dbSecurityGroups []string
 	err = row.Scan(pq.Array(&dbSecurityGroups))
 	if err != nil {
