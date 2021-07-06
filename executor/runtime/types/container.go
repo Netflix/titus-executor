@@ -47,6 +47,7 @@ const (
 	titusJobIDKey            = "TITUS_JOB_ID"
 
 	// Passthrough params
+	disableUploadsParam                     = "titusParameter.agent.log.disableUploads"
 	s3WriterRoleParam                       = "titusParameter.agent.log.s3WriterRole"
 	s3BucketNameParam                       = "titusParameter.agent.log.s3BucketName"
 	s3PathPrefixParam                       = "titusParameter.agent.log.s3PathPrefix"
@@ -472,6 +473,13 @@ func (c *TitusInfoContainer) updateLogAttributes(titusInfo *titus.ContainerInfo)
 			return err
 		}
 		c.logUploadRegexp = uploadRegexp
+	}
+
+	if param, ok := titusInfo.GetPassthroughAttributes()[disableUploadsParam]; ok {
+		val, err := strconv.ParseBool(param)
+		if err != nil {
+			c.logUploaderConfig.DisableUpload = val
+		}
 	}
 
 	if param, ok := titusInfo.GetPassthroughAttributes()[s3WriterRoleParam]; ok {
