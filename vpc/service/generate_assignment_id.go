@@ -88,8 +88,7 @@ type assignment struct {
 	trunkENISession  *ec2wrapper.EC2Session
 	branchENISession *ec2wrapper.EC2Session
 
-	transitionAssignmentID         int
-	transitionAssignmentHasAddress bool
+	transitionAssignmentID int
 }
 
 func (a *assignment) String() string {
@@ -638,6 +637,8 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
+
+		// This should never error because we just did an insert above that should be a noop.
 		row := fastTx.QueryRowContext(ctx, "SELECT id, ipv4addr FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.associationID)
 		err = row.Scan(&ass.transitionAssignmentID, &ipv4addr)
 		if err != nil {
@@ -647,9 +648,6 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 		}
 		tid.Valid = true
 		tid.Int64 = int64(ass.transitionAssignmentID)
-		if ipv4addr.Valid {
-			ass.transitionAssignmentHasAddress = true
-		}
 	}
 
 	// We do this "trick", where we return the values in order to allow a trigger to change the values on write time

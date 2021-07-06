@@ -1051,22 +1051,35 @@ func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T,
 		securityGroups:                []string{md.defaultSecurityGroupID},
 		maxIPAddresses:                50,
 		maxBranchENIs:                 2,
-		assignmentID:                  fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS--%s", uuid.New().String()),
+		assignmentID:                  fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS-1-%s", uuid.New().String()),
 		transitionAssignmentRequested: true,
 	}
 
 	ass, err := service.generateAssignmentID(ctx, req)
 	assert.NilError(t, err)
-	assert.Assert(t, !ass.transitionAssignmentHasAddress)
 
-	assignIPv3Request := &vpcapi.AssignIPRequestV3{
+	resp, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
 		TaskId:           req.assignmentID,
 		SecurityGroupIds: req.securityGroups,
 		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
 		Ipv4:             &vpcapi.AssignIPRequestV3_TransitionRequested{},
-	}
-
-	resp, err := service.assignIPsToENI(ctx, assignIPv3Request, ass, 50)
+	}, ass, 50)
 	assert.NilError(t, err)
 	t.Log(resp)
+
+	// Reset the assignment ID on req.
+	req.assignmentID = fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS-2-%s", uuid.New().String())
+	ass2, err := service.generateAssignmentID(ctx, req)
+	assert.NilError(t, err)
+	assert.Assert(t, ass.transitionAssignmentID == ass2.transitionAssignmentID)
+	resp2, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
+		TaskId:           req.assignmentID,
+		SecurityGroupIds: req.securityGroups,
+		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+		Ipv4:             &vpcapi.AssignIPRequestV3_TransitionRequested{},
+	}, ass2, 50)
+	assert.NilError(t, err)
+	t.Log(resp2)
+
+	assert.Assert(t, is.DeepEqual(resp.TransitionAssignment, resp2.TransitionAssignment))
 }

@@ -757,8 +757,8 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	var transitionAss *sqlAssignment
-	if ass.transitionAssignmentID > 0 && !ass.transitionAssignmentHasAddress {
-		transitionAss, err = lockAssignment(ctx, tx, ass.assignmentID)
+	if ass.transitionAssignmentID > 0 {
+		transitionAss, err = lockAssignment(ctx, tx, ass.transitionAssignmentID)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot lock transition assignment")
 			tracehelpers.SetStatus(err, span)
@@ -938,7 +938,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	row = tx.QueryRowContext(ctx, `
 UPDATE htb_classid
 SET assignment_id = $1
-WHERE id=
+WHERE id =
     (SELECT id
      FROM htb_classid
      WHERE trunk_eni =
