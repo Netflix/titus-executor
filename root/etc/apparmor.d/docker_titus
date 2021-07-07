@@ -31,9 +31,29 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
 
   deny /titus/** wl,
 
+  # Special sub-profile just for the init script for sshd
   /titus/sshd/run-titus-sshd Cx,
+  profile run-sshd /titus/sshd/run-titus-sshd {
+    # We trust everything under /titus
+    # No writes though...
+    /titus/** rmlk,
+    /titus/sshd/usr/sbin/sshd ix,
 
-  profile sshd /titus/sshd/run-titus-sshd {
+    # You're allowed to do anything with yourself
+    @{PROC}/@{pid}/** rwmlk,
+    @{PROC}/self/** rwmlk,
+
+    /dev/{null,ptmx,tty,urandom,log} rwmlk,
+    /dev/pts/* rwmlk,
+
+    /etc/{gai.conf,group,nsswitch.conf,shadow} rmkl,
+    # The ssh startup script does edit these files if they need modification for sshd to start
+    /etc/{passwd,profile} rwmlk,
+  }
+
+  # Once we are running, this is the profile that the sshd binary itself gets
+  /titus/sshd/usr/sbin/sshd Cx,
+  profile sshd /titus/sshd/usr/sbin/sshd {
     # Allow signals from unconfined, usually systemd
     signal (receive) peer="unconfined",
     signal (send,receive) peer=@{profile_name},
@@ -61,9 +81,7 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
     /dev/{null,ptmx,tty,urandom,log} rwmlk,
     /dev/pts/* rwmlk,
 
-    /etc/{gai.conf,group,nsswitch.conf,shadow} rmkl,
-    # The ssh startup script does edit these files if they need modification for sshd to start
-    /etc/{passwd,profile} rwmlk,
+    /etc/{gai.conf,group,nsswitch.conf,passwd,shadow} rmkl,
   }
 
 }
