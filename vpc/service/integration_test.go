@@ -1067,6 +1067,11 @@ func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T,
 	assert.NilError(t, err)
 	t.Log(resp)
 
+	var lastUsed1, lastUsed2 time.Time
+	row := service.db.QueryRowContext(ctx, "SELECT transition_last_used FROM assignments WHERE id = $1", ass.transitionAssignmentID)
+	assert.NilError(t, row.Scan(&lastUsed1))
+	assert.Assert(t, !lastUsed1.IsZero())
+
 	// Reset the assignment ID on req.
 	req.assignmentID = fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS-2-%s", uuid.New().String())
 	ass2, err := service.generateAssignmentID(ctx, req)
@@ -1082,4 +1087,7 @@ func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T,
 	t.Log(resp2)
 
 	assert.Assert(t, is.DeepEqual(resp.TransitionAssignment, resp2.TransitionAssignment))
+	row = service.db.QueryRowContext(ctx, "SELECT transition_last_used FROM assignments WHERE id = $1", ass.transitionAssignmentID)
+	assert.NilError(t, row.Scan(&lastUsed2))
+	assert.Assert(t, lastUsed2.After(lastUsed1))
 }
