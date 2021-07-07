@@ -226,11 +226,12 @@ message GCRequestV3 {
     InstanceIdentity instanceIdentity = 1;
     repeated string runningTaskIDs = 2;
     // Soft indicates that do not perform the actual GC, only return the task IDs that would be GC'd
-    bool soft = 3;
+    bool soft = 3 [deprecated = true];
 }
 
 message GCResponseV3 {
-    repeated string removedAssignments = 1;
+    // assignmentsToRemove returns which assignments *should be* removed.
+    repeated string assignmentsToRemove = 1;
 }
 
 message RefreshIPRequest {

@@ -82,9 +82,29 @@ func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]keyed
 	return ret, nil
 }
 
-func (vpcService *vpcService) softGC(ctx context.Context, req *vpcapi.GCRequestV3, trunkENI *ec2.InstanceNetworkInterface) ([]string, error) {
-	ctx, span := trace.StartSpan(ctx, "softGC")
+func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3) (*vpcapi.GCResponseV3, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "GCV3")
 	defer span.End()
+
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"instance": req.InstanceIdentity.InstanceID,
+	})
+	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
+	)
+
+	_, _, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
+	if err != nil {
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	logger.G(ctx).WithField("taskIds", req.RunningTaskIDs).Debug("GCing for running task IDs")
+	resp := vpcapi.GCResponseV3{}
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
@@ -115,7 +135,6 @@ AND assignments.created_at < now() - INTERVAL '5 minutes'
 		_ = rows.Close()
 	}()
 
-	removedAssignments := []string{}
 	for rows.Next() {
 		var assignmentID string
 		err = rows.Scan(&assignmentID)
@@ -124,48 +143,18 @@ AND assignments.created_at < now() - INTERVAL '5 minutes'
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
-		removedAssignments = append(removedAssignments, assignmentID)
+		resp.AssignmentsToRemove = append(resp.AssignmentsToRemove, assignmentID)
 	}
 
-	return removedAssignments, nil
-}
-
-func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3) (*vpcapi.GCResponseV3, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "GCV3")
-	defer span.End()
-
-	log := ctxlogrus.Extract(ctx)
-	ctx = logger.WithLogger(ctx, log)
-	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"instance": req.InstanceIdentity.InstanceID,
-		"soft":     req.Soft,
-	})
-	span.AddAttributes(
-		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
-		trace.BoolAttribute("soft", req.Soft),
-	)
-
-	_, _, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
+	err = tx.Commit()
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		err = errors.Wrap(err, "Could not commit transaction")
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	logger.G(ctx).WithField("taskIds", req.RunningTaskIDs).Debug("GCing for running task IDs")
-	resp := vpcapi.GCResponseV3{}
-	if req.Soft {
-		resp.RemovedAssignments, err = vpcService.softGC(ctx, req, trunkENI)
-	} else {
-		err = status.Error(codes.Unimplemented, "Hard GC is not implemented")
-	}
-	if err == nil {
-		span.AddAttributes(trace.StringAttribute("removedAssignments", fmt.Sprint(resp.RemovedAssignments)))
-		logger.G(ctx).WithField("removedAssignments", resp.RemovedAssignments).Debug("Removed assignments")
-	} else {
-		tracehelpers.SetStatus(err, span)
-	}
+	span.AddAttributes(trace.StringAttribute("assignmentsToRemove", fmt.Sprint(resp.AssignmentsToRemove)))
+	logger.G(ctx).WithField("assignmentsToRemove", resp.AssignmentsToRemove).Debug("Fetched assignments to remove")
 
 	return &resp, err
 }

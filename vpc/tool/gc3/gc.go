@@ -43,7 +43,6 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 
 	req := vpcapi.GCRequestV3{
 		InstanceIdentity: instanceIdentity,
-		Soft:             true,
 	}
 
 	switch args.SourceOfTruth {
@@ -69,11 +68,11 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 		return err
 	}
 
-	if len(resp.RemovedAssignments) > 0 {
-		logger.G(ctx).WithField("removedAssignments", resp.RemovedAssignments).Info("Recieved assignments to remove")
+	if len(resp.AssignmentsToRemove) > 0 {
+		logger.G(ctx).WithField("removedAssignments", resp.AssignmentsToRemove).Info("Recieved assignments to remove")
 	}
 	var result *multierror.Error
-	for _, taskID := range resp.RemovedAssignments {
+	for _, taskID := range resp.AssignmentsToRemove {
 		logger.G(ctx).WithField("assignment", taskID).Info("Removing assignment")
 		assignment, err := client.GetAssignment(ctx, &vpcapi.GetAssignmentRequest{
 			TaskId: taskID,
