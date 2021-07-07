@@ -946,12 +946,26 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		hostCfg             *container.HostConfig
 		sidecarConfigs      []*runtimeTypes.ServiceOpts
 		size                int64
+		runTmpfs            string
+		err                 error
 	)
 	dockerCreateStartTime := time.Now()
 	group := groupWithContext(ctx)
 	bindMounts := r.defaultBindMounts
 
-	sidecarConfigs, err := r.c.SidecarConfigs()
+	// In the case where we have multiple containers, we must create a tmps on disk
+	// for *all* of them to share. Otherwise, in the simple case where there is only
+	// one container, the built-in tmpfs of the one container is enough.
+	if len(append(r.c.ExtraPlatformContainers(), r.c.ExtraUserContainers()...)) > 0 {
+		runTmpfs, err = r.createMetatronTmpfs()
+		r.registerRuntimeCleanup(r.cleanupMetatronTmpfs)
+		if err != nil {
+			goto error
+		}
+		bindMounts = append(bindMounts, runTmpfs)
+	}
+
+	sidecarConfigs, err = r.c.SidecarConfigs()
 	if err != nil {
 		goto error
 	}
@@ -1181,6 +1195,44 @@ func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
 	return writer.Flush()
 }
 
+// createMetatronTmpfs creates a tmpfs directory outside of the container(s) for use for '/run' and other
+// tmp directires. this is desirable so that secrets in /run are not persisted to disk.
+// We don't use the native docker tmpfs functionality, because we want to be able to
+// share this volume between containers in a pod, just like kubelet does
+func (r *DockerRuntime) createMetatronTmpfs() (string, error) {
+	podMetatronFsHostPath, err := r.getPodMetatronFsHostPath()
+	if err != nil {
+		return "", err
+	}
+	err = os.MkdirAll(podMetatronFsHostPath, os.FileMode(0755))
+	if err != nil {
+		return "", err
+	}
+	err = os.Chmod(podMetatronFsHostPath, os.FileMode(0755))
+	if err != nil {
+		return "", err
+	}
+	err = mountTmpfs(podMetatronFsHostPath, defaultRunTmpFsSize)
+	v := podMetatronFsHostPath + ":/run/metatron:rw"
+	return v, err
+}
+
+func (r *DockerRuntime) cleanupMetatronTmpfs() error {
+	podMetatronFsHostPath, err := r.getPodMetatronFsHostPath()
+	if err != nil {
+		return err
+	}
+	return unmountTmpfs(podMetatronFsHostPath)
+}
+
+func (r *DockerRuntime) getPodMetatronFsHostPath() (string, error) {
+	if r.cfg.RuntimeDir == "" {
+		return "", fmt.Errorf("RuntimeDir not set, unable to create tmpfs for /run/metatron")
+	}
+	hostPath := r.cfg.RuntimeDir + "/mounts/run/metatron"
+	return hostPath, nil
+}
+
 func (r *DockerRuntime) logDir(c runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
@@ -1219,6 +1271,18 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Typeflag: tar.TypeDir,
 	}); err != nil {
 		log.Fatal(err)
+	}
+
+	if r.cfg.MetatronEnabled {
+		// `/metatron` is a shared folder between all containers in a pod, but it must exist first
+		// so that it can be shared
+		if err := tw.WriteHeader(&tar.Header{
+			Name:     "metatron",
+			Mode:     0755,
+			Typeflag: tar.TypeDir,
+		}); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if r.cfg.ContainerSSHD {
@@ -1629,7 +1693,6 @@ func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Cont
 }
 
 func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
-	l := log.WithField("taskID", r.c.TaskID())
 	// These labels are needed for titus-node-problem-detector
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
@@ -1645,23 +1708,35 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		},
 	}
 	if mainContainerRoot != "" {
-		stockSharedVolumes := []mount.Mount{
-			{
-				Type:     "bind",
-				Source:   mainContainerRoot + "/logs",
-				Target:   "/logs",
-				ReadOnly: false,
-			},
-			{
-				Type:     "bind",
-				Source:   mainContainerRoot + "/run",
-				Target:   "/run",
-				ReadOnly: false,
-			},
+		mounts = append(mounts, mount.Mount{
+			Type:     "bind",
+			Source:   mainContainerRoot + "/logs",
+			Target:   "/logs",
+			ReadOnly: false,
+		})
+	}
+	if r.cfg.MetatronEnabled {
+		podMetaronHostPath, _ := r.getPodMetatronFsHostPath()
+		// These are the sensitive secrets that live on the tmpfs created prior
+		if podMetaronHostPath != "" {
+			mounts = append(mounts,
+				mount.Mount{
+					Type:     "bind",
+					Source:   podMetaronHostPath,
+					Target:   "/run/metatron",
+					ReadOnly: true,
+				})
+			// These are static certs that the metatron service will create, but we also share them
+			// between all containers in the pod.
+			if mainContainerRoot != "" {
+				mounts = append(mounts, mount.Mount{
+					Type:     "bind",
+					Source:   mainContainerRoot + "/metatron",
+					Target:   "/metatron",
+					ReadOnly: false,
+				})
+			}
 		}
-		mounts = append(mounts, stockSharedVolumes...)
-	} else {
-		l.Info("no mainContainerRoot available, volumes will not be sharable between containers")
 	}
 
 	baseEnv := r.c.SortedEnvArray()

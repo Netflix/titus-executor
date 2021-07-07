@@ -75,6 +75,9 @@ type Config struct {
 	CopyUploaders cli.StringSlice
 	S3Uploaders   cli.StringSlice
 	NoopUploaders cli.StringSlice
+
+	// The RuntimeDir is a tmpdir containing the pod state.json and other sensitive info
+	RuntimeDir string
 }
 
 // NewConfig generates a configuration and a set of flags to passed to urfave/cli
