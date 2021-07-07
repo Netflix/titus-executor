@@ -49,6 +49,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -1587,7 +1588,8 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 			if err != nil {
 				return fmt.Errorf("Failed to create %s user container: %w", c.Name, err)
 			}
-			c.ID = cid
+			c.Status.ContainerID = cid
+			c.Status.State = v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "User Container created. Waiting to start."}}
 			l.Debugf("Created %s, CID: %s", c.Name, cid)
 			return nil
 		})
@@ -1599,7 +1601,8 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 			if err != nil {
 				return fmt.Errorf("Failed to create %s platform container: %w", c.Name, err)
 			}
-			c.ID = cid
+			c.Status.ContainerID = cid
+			c.Status.State = v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "Platform Container created. Waiting to start."}}
 			l.Debugf("Created %s, CID: %s", c.Name, cid)
 			return nil
 		})
@@ -1634,14 +1637,18 @@ func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context) erro
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
 	for _, c := range r.c.ExtraPlatformContainers() {
-		cName := c.Name
-		cid := c.ID
+		container := c
 		group.Go(func(ctx context.Context) error {
-			l.Debugf("Starting up platform-defined container %s, container id %s", cName, cid)
-			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
+			l.Debugf("Starting up platform-defined container %s, container id %s", container.Name, container.Status.ContainerID)
+			err := r.client.ContainerStart(ctx, container.Status.ContainerID, types.ContainerStartOptions{})
 			if err != nil {
-				return fmt.Errorf("Failed to start %s platform container: %w", cName, err)
+				return fmt.Errorf("Failed to start %s platform container: %w", container.Status.ContainerID, err)
 			}
+			// TODO: Only set this as started once the healthcheck passes
+			container.Status.Started = runtimeTypes.BoolPtr(true)
+			// TODO: Only set this as started once the healthcheck passes, even though we don't have a concept of readiness probes
+			container.Status.Ready = true
+			container.Status.State = v1.ContainerState{Running: &v1.ContainerStateRunning{StartedAt: metav1.Time{Time: time.Now()}}}
 			return nil
 		})
 	}
@@ -1652,22 +1659,21 @@ func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
 	for _, c := range r.c.ExtraUserContainers() {
-		cName := c.Name
-		if cName == r.c.TaskID() {
-			// Special case, the main container here is already running, it just needs
-			// to be told to run its own process via tini, we'll handle that in a different case
-			continue
-		}
-		cid := c.ID
-		if cid == "" {
+		container := c
+		if container.Status.ContainerID == "" {
 			return fmt.Errorf("No container id availble. Did it get created in docker?")
 		}
 		group.Go(func(ctx context.Context) error {
-			l.Debugf("Starting up user-defined container %s, container id %s", cName, cid)
-			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
+			l.Debugf("Starting up user-defined container %s, container id %s", container.Name, container.Status.ContainerID)
+			err := r.client.ContainerStart(ctx, container.Status.ContainerID, types.ContainerStartOptions{})
 			if err != nil {
-				return fmt.Errorf("Failed to start %s user container: %w", cName, err)
+				return fmt.Errorf("Failed to start %s user container: %w", container.Name, err)
 			}
+			// TODO: Only set this as started once the healthcheck passes
+			container.Status.Started = runtimeTypes.BoolPtr(true)
+			// TODO: Only set this as started once the healthcheck passes, even though we don't have a concept of readiness probes
+			container.Status.Ready = true
+			container.Status.State = v1.ContainerState{Running: &v1.ContainerStateRunning{StartedAt: metav1.Time{Time: time.Now()}}}
 			return nil
 		})
 	}

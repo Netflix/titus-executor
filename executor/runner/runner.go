@@ -433,10 +433,12 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 	l := logger.G(ctx).WithField("msg", msg).WithField("taskStatus", status)
 	select {
 	case r.UpdatesChan <- Update{
-		TaskID:  r.container.TaskID(),
-		State:   status,
-		Mesg:    msg,
-		Details: details,
+		TaskID:                  r.container.TaskID(),
+		State:                   status,
+		Mesg:                    msg,
+		Details:                 details,
+		ExtraContainerStatuses:  r.getExtraContainerStatuses(),
+		PlatformSidecarStatuses: r.getPlatformSidecarStatuses(),
 	}:
 		l.Info("Updating Task status")
 	case <-ctx.Done():
@@ -446,8 +448,26 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 
 // Update encapsulates information on the updatechan about Task status updates
 type Update struct {
-	TaskID  string
-	State   titusdriver.TitusTaskState
-	Mesg    string
-	Details *runtimeTypes.Details
+	TaskID                  string
+	State                   titusdriver.TitusTaskState
+	Mesg                    string
+	Details                 *runtimeTypes.Details
+	ExtraContainerStatuses  []v1.ContainerStatus
+	PlatformSidecarStatuses []v1.ContainerStatus
+}
+
+func (r *Runner) getExtraContainerStatuses() []corev1.ContainerStatus {
+	statuses := []corev1.ContainerStatus{}
+	for _, c := range r.container.ExtraUserContainers() {
+		statuses = append(statuses, c.Status)
+	}
+	return statuses
+}
+
+func (r *Runner) getPlatformSidecarStatuses() []corev1.ContainerStatus {
+	statuses := []corev1.ContainerStatus{}
+	for _, c := range r.container.ExtraPlatformContainers() {
+		statuses = append(statuses, c.Status)
+	}
+	return statuses
 }

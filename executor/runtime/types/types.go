@@ -129,9 +129,9 @@ type SidecarContainerConfig struct {
 // ExtraContainer stores data about the other containers running alongside the
 // main container in the C&W implementation of pods
 type ExtraContainer struct {
-	Name        string           // Name of the container from the pod spec
-	ID          string           // Docker container id
-	V1Container corev1.Container // The k8s definition of the container from the pod object
+	Name        string                 // Name of the container from the pod spec
+	V1Container corev1.Container       // The k8s definition of the container from the pod object
+	Status      corev1.ContainerStatus // Status of the container, shows up in podstatus
 }
 
 type NFSMount struct {

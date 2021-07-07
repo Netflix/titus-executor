@@ -378,7 +378,9 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	}
 
 	logger.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debug("Setting ContainerStatus...")
-	b.pod.Status.ContainerStatuses = []v1.ContainerStatus{{
+	// Order is important here, we need the first (0th) container to be the main one so that
+	// other code that looks at the first container status continues to behave in a compatible way
+	mainContainerStatus := v1.ContainerStatus{
 		Name:                 b.pod.Name,
 		State:                state2containerState(prevContainerState, update.State),
 		LastTerminationState: v1.ContainerState{},
@@ -387,7 +389,11 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 		Image:                "",
 		ImageID:              "",
 		ContainerID:          "",
-	}}
+	}
+	statuses := append([]v1.ContainerStatus{mainContainerStatus}, update.ExtraContainerStatuses...)
+	statuses = append(statuses, update.PlatformSidecarStatuses...)
+
+	b.pod.Status.ContainerStatuses = statuses
 
 	if update.Details != nil && update.Details.NetworkConfiguration != nil {
 		for k, v := range update.Details.NetworkConfiguration.ToMap() {

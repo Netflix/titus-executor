@@ -707,15 +707,32 @@ func NewExtraContainersFromPod(pod corev1.Pod) ([]*ExtraContainer, []*ExtraConta
 		otherContainersFromPod = pod.Spec.Containers[1:]
 	}
 	for _, c := range otherContainersFromPod {
+		initialStatus := corev1.ContainerStatus{
+			Name: c.Name,
+			State: corev1.ContainerState{
+				Waiting: &corev1.ContainerStateWaiting{
+					Reason:  c.Name + "has yet to be initialized by the runtime",
+					Message: "Not created yet",
+				},
+			},
+			Ready:        false,
+			RestartCount: 0,
+			Image:        c.Image,
+			ImageID:      "",
+			ContainerID:  "",
+			Started:      nil,
+		}
 		if podCommon.IsPlatformSidecarContainer(c.Name, &pod) {
 			extraPlatformContainers = append(extraUserContainers, &ExtraContainer{
 				Name:        c.Name,
 				V1Container: c,
+				Status:      initialStatus,
 			})
 		} else {
 			extraUserContainers = append(extraUserContainers, &ExtraContainer{
 				Name:        c.Name,
 				V1Container: c,
+				Status:      initialStatus,
 			})
 		}
 	}
@@ -933,4 +950,8 @@ func (c *PodContainer) parsePodCommandAndArgs() error {
 	c.command = nil
 
 	return nil
+}
+
+func BoolPtr(b bool) *bool {
+	return &b
 }
