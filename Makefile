@@ -152,7 +152,7 @@ $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 ## TODO: Use git wildcard functionality to "automatically"
 vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p vpc/api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):vpc/api/ vpc/proto/vpc.proto
+	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus:vpc/api/ vpc/proto/vpc.proto
 	$(GOIMPORT_TOOL) $@
 
 metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
