@@ -3,6 +3,7 @@ package metadataserver
 import (
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -39,6 +41,43 @@ func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
 	}
 
 	return ti
+}
+
+func (ms *MetadataServer) generateTaskPodIdentity() (*titus.TaskPodIdentity, error) {
+	s := int64(time.Now().Second())     // from 'int'
+	n := int32(time.Now().Nanosecond()) // from 'int'
+	now := &timestamp.Timestamp{Seconds: s, Nanos: n}
+	taskStatus := titus.TaskInfo_RUNNING
+
+	if ms.pod == nil {
+		return nil, fmt.Errorf("No pod object available to marshal as a task identity")
+	}
+	podData, err := json.Marshal(ms.pod)
+	if err != nil {
+		return nil, err
+	}
+
+	ti := &titus.TaskPodIdentity{
+		Pod: podData,
+		TaskInfo: &titus.TaskInfo{
+			ContainerId: ms.container.RunState.TaskId,
+			TaskId:      ms.container.RunState.TaskId,
+			HostName:    ms.container.RunState.HostName,
+			Status:      &taskStatus,
+		},
+		RequestTimestamp: now,
+	}
+
+	if ms.ipv4Address != nil {
+		ipv4Address := ms.ipv4Address.String()
+		ti.Ipv4Address = &ipv4Address
+	}
+	if ms.ipv6Address != nil {
+		ipv6Address := ms.ipv6Address.String()
+		ti.Ipv6Address = &ipv6Address
+	}
+
+	return ti, nil
 }
 
 // SetSigner updates the identity server's signer
@@ -143,6 +182,51 @@ func (ms *MetadataServer) taskIdentityJSON(w http.ResponseWriter, r *http.Reques
 	jEncoder := json.NewEncoder(w)
 	if err := jEncoder.Encode(taskIdentDoc); err != nil {
 		log.WithError(err).Error("Error encoding json")
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+}
+
+func (ms *MetadataServer) taskPodIdentity(w http.ResponseWriter, r *http.Request) {
+	metrics.PublishIncrementCounter("handler.task-pod-identity.count")
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	podIdent, err := ms.generateTaskPodIdentity()
+	if err != nil {
+		log.WithError(err).Errorf("Error generating a pod identity document: %+v, pod identity: %+v", err, podIdent)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	podIdentData, err := proto.Marshal(podIdent)
+	if err != nil {
+		log.WithError(err).Errorf("Error marshaling task pod identity protobuf: %+v, pod identity: %+v", err, podIdent)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	ms.signLock.RLock()
+	sig, err := ms.signer.Sign(podIdentData)
+	ms.signLock.RUnlock()
+	if err != nil {
+		log.WithError(err).Error("Error signing pod identity data")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	taskIdentDoc := &titus.TaskPodIdentityDocument{
+		PodIdentity: podIdentData,
+		Signature:   sig,
+	}
+
+	ret, err := proto.Marshal(taskIdentDoc)
+	if err != nil {
+		log.WithError(err).Error("Unable to marshal task pod identity doc")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if _, err = w.Write(ret); err != nil {
+		log.WithError(err).Error("Error writing response")
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }

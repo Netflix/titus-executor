@@ -30,10 +30,14 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
-	identTime = 1546292381
+	identTime    = 1546292381
+	fakeIdentIP  = "192.0.2.1"
+	fakeTaskID   = "e3c16590-0e2f-440d-9797-a68a19f6101e"
+	fakePublicIP = "203.0.113.11"
 )
 
 type testKeyPair struct {
@@ -324,8 +328,8 @@ func makeGetRequestWithHeader(ss *stubServer, path string, headerName string, he
 }
 
 func fakeTaskIdentity() *titus.TaskIdentity {
-	taskID := "e3c16590-0e2f-440d-9797-a68a19f6101e"
-	ipAddr := "1.2.3.4"
+	taskID := fakeTaskID
+	ipAddr := fakeIdentIP
 	entrypoint := "/usr/bin/sleep 10"
 	taskStatus := titus.TaskInfo_RUNNING
 	launchTime := uint64(identTime)
@@ -355,6 +359,42 @@ func fakeTaskIdentity() *titus.TaskIdentity {
 	}
 
 	return taskIdent
+}
+
+func fakeTaskPodIdentity(pod *corev1.Pod) *titus.TaskPodIdentity {
+	taskID := fakeTaskID
+	ipAddr := fakeIdentIP
+	//entrypoint := "/usr/bin/sleep 10"
+	taskStatus := titus.TaskInfo_RUNNING
+	//launchTime := uint64(identTime)
+	podData, _ := json.Marshal(pod)
+
+	taskInfo := &titus.TaskInfo{
+		ContainerId: &taskID,
+		TaskId:      &taskID,
+		HostName:    &taskID,
+		Status:      &taskStatus,
+	}
+	podIdent := &titus.TaskPodIdentity{
+		Pod:         podData,
+		Ipv4Address: &ipAddr,
+		TaskInfo:    taskInfo,
+	}
+
+	return podIdent
+}
+
+func fakePod() *corev1.Pod {
+	return &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Command: []string{"/bin/true"},
+					Image:   "FakeImage",
+				},
+			},
+		},
+	}
 }
 
 func testCertificate(keyPair testKeyPair) (tls.Certificate, error) {
@@ -548,6 +588,87 @@ func validateTaskIdentityJSONRequest(t *testing.T) func(*stubServer, *http.Respo
 	}
 }
 
+func validateTaskPodIdentityRequest(t *testing.T, keyPair testKeyPair) func(*stubServer, *http.Response) error { // nolint: gocyclo
+	return func(ss *stubServer, resp *http.Response) error {
+		if err := validateRequestNotProxiedAndSuccess(ss, resp); err != nil {
+			return err
+		}
+
+		content, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		taskPodIdentDoc := new(titus.TaskPodIdentityDocument)
+		err = proto.Unmarshal(content, taskPodIdentDoc)
+		if err != nil {
+			return err
+		}
+
+		assert.NotNil(t, taskPodIdentDoc.Signature)
+		assert.NotNil(t, taskPodIdentDoc.PodIdentity)
+
+		// Identity
+		taskPodIdent := new(titus.TaskPodIdentity)
+		err = proto.Unmarshal(taskPodIdentDoc.PodIdentity, taskPodIdent)
+		if err != nil {
+			return err
+		}
+		expectedTaskPodIdent := fakeTaskPodIdentity(fakePod())
+		assert.NotNil(t, taskPodIdent.RequestTimestamp)
+		expectedTaskPodIdent.RequestTimestamp = taskPodIdent.RequestTimestamp
+		assert.Equal(t, expectedTaskPodIdent, taskPodIdent)
+		assert.NotNil(t, taskPodIdent.Pod)
+
+		// Signature
+		cert, err := testCertificate(keyPair)
+		if err != nil {
+			return err
+		}
+		signature := taskPodIdentDoc.Signature.Signature
+		assert.NotNil(t, signature)
+
+		state := crypto.SHA512.New()
+		_, err = state.Write(taskPodIdentDoc.PodIdentity)
+		if err != nil {
+			panic(err)
+		}
+		hash := state.Sum(nil)
+
+		switch k := cert.PrivateKey.(type) {
+		case *ecdsa.PrivateKey:
+			var ecdsaSignature struct {
+				R, S *big.Int
+			}
+			_, mErr := asn1.Unmarshal(signature, &ecdsaSignature)
+			if mErr != nil {
+				return mErr
+			}
+
+			isValid := ecdsa.Verify(&k.PublicKey, hash, ecdsaSignature.R, ecdsaSignature.S)
+			if !isValid {
+				return errors.New("ecdsa verify failed")
+			}
+
+			assert.Equal(t, titus.SignatureAlgorithm_SHA512withECDSA, *taskPodIdentDoc.Signature.Algorithm)
+
+		case *rsa.PrivateKey:
+			vErr := rsa.VerifyPSS(&k.PublicKey, crypto.SHA512, hash, signature, &rsa.PSSOptions{SaltLength: 20})
+			if vErr != nil {
+				return vErr
+			}
+			assert.Equal(t, titus.SignatureAlgorithm_SHA512withRSAandMGF1, *taskPodIdentDoc.Signature.Algorithm)
+
+		default:
+			return fmt.Errorf("unexpected private key type: %T", k)
+		}
+
+		assert.Equal(t, 1, len(taskPodIdentDoc.Signature.CertChain))
+		assert.Equal(t, cert.Certificate, taskPodIdentDoc.Signature.CertChain)
+
+		return nil
+	}
+}
+
 func signerFromTestKeyPair(keyPair testKeyPair) *identity.Signer {
 	cert, err := testCertificate(keyPair)
 	if err != nil {
@@ -565,8 +686,9 @@ func signerFromTestKeyPair(keyPair testKeyPair) *identity.Signer {
 func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 	// 8675309 is a fake account ID
 	fakeARN := "arn:aws:iam::8675309:role/thisIsAFakeRole"
-	fakeTitusTaskInstanceIPAddress := "1.2.3.4"
+	fakeTitusTaskInstanceIPAddress := fakeIdentIP
 	fakeTaskIdent := fakeTaskIdentity()
+	fakePod := fakePod()
 
 	mdsCfg := types.MetadataServerConfiguration{
 		IAMARN:              fakeARN,
@@ -576,6 +698,7 @@ func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 			Scheme: "http",
 			Host:   conf.ss.fakeEC2MetdataServiceListener.Addr().String(),
 		},
+		Pod:           fakePod,
 		Container:     fakeTaskIdent.Container,
 		RequireToken:  conf.requireToken,
 		Region:        "us-east-1",
@@ -584,7 +707,7 @@ func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 	}
 
 	if conf.publicIP {
-		mdsCfg.PublicIpv4Address = net.ParseIP("203.0.113.11")
+		mdsCfg.PublicIpv4Address = net.ParseIP(fakePublicIP)
 	}
 
 	if conf.keyPair.certType != "" {
@@ -643,16 +766,17 @@ func TestVCR(t *testing.T) {
 			{makeGetRequest(ss, "/latest//dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/dynamic/./instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/../latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
-			{makeGetRequest(ss, "/latest/meta-data/local-ipv4"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent("203.0.113.11")},
-			{makeGetRequest(ss, "/latest/meta-data/local-hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/public-hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/hostname"), validateRequestNotProxiedAndSuccessWithContent("1.2.3.4")},
-			{makeGetRequest(ss, "/latest/meta-data/instance-id"), validateRequestNotProxiedAndSuccessWithContent("e3c16590-0e2f-440d-9797-a68a19f6101e")},
+			{makeGetRequest(ss, "/latest/meta-data/local-ipv4"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/public-ipv4"), validateRequestNotProxiedAndSuccessWithContent(fakePublicIP)},
+			{makeGetRequest(ss, "/latest/meta-data/local-hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/public-hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/hostname"), validateRequestNotProxiedAndSuccessWithContent(fakeIdentIP)},
+			{makeGetRequest(ss, "/latest/meta-data/instance-id"), validateRequestNotProxiedAndSuccessWithContent(fakeTaskID)},
 			{makeGetRequest(ss, "/latest/meta-data/iam/security-credentials"), validateRequestNotProxiedAndSuccessWithContent("thisIsAFakeRole")},
 			{makeGetRequest(ss, "/1.0/meta-data/iam/security-credentials"), validateRequestNotProxiedAndSuccessWithContent("thisIsAFakeRole")},
 			{makeGetRequest(ss, "/latest/meta-data/iam/security-credentials/thisIsAFakeRole"), validateRequestNotProxiedAndSuccessWithContent("fakeAccessKey")},
 			{makeGetRequest(ss, "/nflx/v1/task-identity"), validateRequestNotProxiedAndNotFound},
+			{makeGetRequest(ss, "/nflx/v1/task-pod-identity"), validateRequestNotProxiedAndNotFound},
 		}
 	play(t, ss, tapes)
 }
@@ -711,6 +835,32 @@ func TestTaskIdentityWithECDSA(t *testing.T) {
 			{makeGetRequestWithHeader(ess, "/nflx/v1/task-identity", "Accept", "application/json"), validateTaskIdentityJSONRequest(t)},
 		}
 	play(t, ess, tapes)
+}
+
+func TestTaskPodIdentityWithRSA(t *testing.T) {
+	rss, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:      rss,
+		keyPair: rsaCerts[0],
+	})
+	tapes :=
+		[]vcrTape{
+			{makeGetRequest(rss, "/nflx/v1/task-pod-identity"), validateTaskPodIdentityRequest(t, rsaCerts[0])},
+		}
+	play(t, rss, tapes)
+
+	// Now set a new key and make sure requests still succeed
+	err = ms.SetSigner(signerFromTestKeyPair(rsaCerts[1]))
+	assert.Nil(t, err, "no error from SetSigner")
+	tapes =
+		[]vcrTape{
+			{makeGetRequest(rss, "/nflx/v1/task-pod-identity"), validateTaskPodIdentityRequest(t, rsaCerts[1])},
+		}
+	play(t, rss, tapes)
 }
 
 func TestNoPublicIPv4Returns404(t *testing.T) {

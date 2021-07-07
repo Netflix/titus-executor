@@ -115,7 +115,7 @@ func TestEc2HostnameStyle(t *testing.T) {
 			AssignIPResponseV3: &vpcapi.AssignIPResponseV3{
 				Ipv4Address: &vpcapi.UsableAddress{
 					Address: &vpcapi.Address{
-						Address: "1.2.3.4",
+						Address: "192.0.2.1",
 					},
 					PrefixLength: 32,
 				},
@@ -124,7 +124,7 @@ func TestEc2HostnameStyle(t *testing.T) {
 	})
 	hostname, err := ComputeHostname(c)
 	assert.Nil(t, err)
-	assert.Equal(t, "ip-1-2-3-4", hostname)
+	assert.Equal(t, "ip-192-0-2-1", hostname)
 }
 
 func TestInvalidHostnameStyle(t *testing.T) {
