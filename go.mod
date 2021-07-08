@@ -11,7 +11,7 @@ require (
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 	github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
 	github.com/Netflix/titus-api-definitions v0.0.2-rc.4
-	github.com/Netflix/titus-kube-common v0.17.0
+	github.com/Netflix/titus-kube-common v0.18.0
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
 	github.com/apex/log v1.9.0
@@ -28,17 +28,20 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0
 	github.com/ftrvxmtrx/fd v0.0.0-20150925145434-c6d800382fff
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-migrate/migrate v3.5.4+incompatible
 	github.com/golang/protobuf v1.5.0
 	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/google/go-jsonnet v0.17.0
+	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/renameio v0.1.0
 	github.com/google/uuid v1.1.2
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/gorilla/mux v1.7.4
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
-	github.com/hashicorp/go-multierror v1.0.1-0.20191120192120-72917a1559e1
-	github.com/json-iterator/go v1.1.9 // indirect
+	github.com/hashicorp/errwrap v1.1.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1
+	github.com/json-iterator/go v1.1.11 // indirect
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
@@ -68,20 +71,23 @@ require (
 	go.opencensus.io v0.22.3
 	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/net v0.0.0-20210614182718-04defd469f4e // indirect
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	golang.org/x/sys v0.0.0-20210119212857-b64e53b001e4
+	golang.org/x/sys v0.0.0-20210423082822-04245dca01da
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
 	golang.org/x/tools v0.1.0
 	google.golang.org/genproto v0.0.0-20200218151345-dad8c97a84f5 // indirect
 	google.golang.org/grpc v1.27.1
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/ini.v1 v1.52.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.19.10
 	k8s.io/apimachinery v0.19.10
 	k8s.io/client-go v10.0.0+incompatible
 	k8s.io/kubernetes v1.18.4
 	k8s.io/utils v0.0.0-20201104234853-8146046b121e
+	sigs.k8s.io/structured-merge-diff/v3 v3.0.1 // indirect
 )
 
 replace github.com/docker/docker => github.com/moby/moby v0.0.0-20190408150954-50ebe4562dfc

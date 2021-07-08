@@ -104,7 +104,7 @@ func TestPodImageByDigest(t *testing.T) {
 	assert.DeepEqual(t, c.ImageDigest(), ptr.StringPtr(testDigest))
 }
 
-func TestNewPodContainer(t *testing.T) {
+func TestNewPodContainerWithEverything(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 	taskID := pod.ObjectMeta.Name
@@ -293,6 +293,7 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.AllowNetworkBursting(), true)
 	assert.Equal(t, c.AppName(), "appName")
 	assert.Equal(t, c.AssignIPv6Address(), true)
+	assert.Equal(t, c.EffectiveNetworkMode(), titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String())
 	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimit)
 	assert.DeepEqual(t, c.BatchPriority(), ptr.StringPtr("idle"))
 	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
@@ -316,6 +317,7 @@ func TestNewPodContainer(t *testing.T) {
 		"NETFLIX_AUTO_SCALE_GROUP":          "appName-appStack-appDetail-appSeq",
 		"NETFLIX_CLUSTER":                   "appName-appStack-appDetail",
 		"NETFLIX_DETAIL":                    "appDetail",
+		"NETFLIX_NETWORK_MODE":              "IPV6_WITH_TRANSITION",
 		"NETFLIX_STACK":                     "appStack",
 		"TITUS_BATCH":                       "idle",
 		"TITUS_HOST_EC2_INSTANCE_ID":        "",

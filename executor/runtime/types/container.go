@@ -130,6 +130,8 @@ type TitusInfoContainer struct {
 	resources Resources
 
 	// VPC driver fields
+	// assignIPv6Address is only here to capture the legacy passthrough parameter
+	// TODO: Remove once all jobs are using NetworkMode
 	assignIPv6Address  bool
 	elasticIPPool      string
 	elasticIPs         string
@@ -148,7 +150,9 @@ type TitusInfoContainer struct {
 	logUploadRegexp             *regexp.Regexp
 	logUploaderConfig           uploader.Config
 
-	pod *corev1.Pod
+	pod       *corev1.Pod
+	podConfig *podCommon.Config
+
 	// extraUserContainers stores and array of metadata about all the non-main user containers
 	extraUserContainers []*ExtraContainer
 	// extraUserContainers stores and array of metadata about all the platform-defined containers
@@ -218,6 +222,15 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 
 	if c.pod != nil {
 		c.extraUserContainers, c.extraPlatformContainers = NewExtraContainersFromPod(*c.pod)
+	}
+
+	c.podConfig = &podCommon.Config{}
+	if c.pod != nil {
+		pConf, err := podCommon.PodToConfig(pod)
+		if err != nil {
+			return nil, err
+		}
+		c.podConfig = pConf
 	}
 
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
@@ -529,6 +542,8 @@ func (c *TitusInfoContainer) AppName() string {
 	return c.titusInfo.GetAppName()
 }
 
+// AssignIPv6Address only stores if the AssignIPv6Address attribute is set, and does
+// NOT represent the source of truth of whether a v6 address will be assigned.
 func (c *TitusInfoContainer) AssignIPv6Address() bool {
 	return c.assignIPv6Address
 }
@@ -816,6 +831,21 @@ func (c *TitusInfoContainer) LogUploadThresholdTime() *time.Duration {
 
 func (c *TitusInfoContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
 	return c.titusInfo.GetMetatronCreds()
+}
+
+// EffectiveNetworkMode looks at the network mode set on the job (pod)
+// If unset (very likely in these early days), we compute the "effective"
+// network mode, based on attributes and other things.
+// This allows us to still have nice things, like the NETWORK_MODE env variable
+// be set correctly, even before NetworkMode is plumbed and set on all layers of the stack
+// EffectiveNetworkMode can be removed some day when all clients of titus are setting
+// it and no longer using the legacy attributes to imply network behavior.
+func (c *TitusInfoContainer) EffectiveNetworkMode() string {
+	mode := titus.NetworkConfiguration_UnknownNetworkMode.String()
+	if c.podConfig != nil && c.podConfig.NetworkMode != nil {
+		mode = *c.podConfig.NetworkMode
+	}
+	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address(), c.SeccompAgentEnabledForNetSyscalls())
 }
 
 func (c *TitusInfoContainer) NFSMounts() []NFSMount {
@@ -1211,6 +1241,10 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 		env[metadataserverTypes.TitusMetatronVariableName] = False
 	}
 
+	netMode := GetHumanFriendlyNetworkMode(c.EffectiveNetworkMode())
+	if netMode != "" {
+		env["NETFLIX_NETWORK_MODE"] = netMode
+	}
 	vpcAllocation := c.VPCAllocation()
 	if a := vpcAllocation.IPV4Address(); a != nil {
 		env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
@@ -1346,4 +1380,26 @@ func isEFSID(FsID string) (bool, error) {
 		return false, fmt.Errorf("Something went really wrong determining if '%s' is an EFS ID: %s", FsID, err)
 	}
 	return matched, nil
+}
+
+// GetHumanFriendlyNetworkMode uses the incoming network mode string
+// and mutates it a bit to be a environment-variable safe string.
+// In the unknown mode, however, we return an empty string for
+// the caller to *not* set the variable
+func GetHumanFriendlyNetworkMode(mode string) string {
+	modeInt := titus.NetworkConfiguration_NetworkMode_value[mode]
+	switch modeInt {
+	case int32(titus.NetworkConfiguration_UnknownNetworkMode):
+		return ""
+	case int32(titus.NetworkConfiguration_Ipv4Only):
+		return "IPV4_ONLY"
+	case int32(titus.NetworkConfiguration_Ipv6AndIpv4):
+		return "IPV6_AND_IPV4"
+	case int32(titus.NetworkConfiguration_Ipv6AndIpv4Fallback):
+		return "IPV6_WITH_TRANSITION"
+	case int32(titus.NetworkConfiguration_Ipv6Only):
+		return "IPV6_ONLY"
+	default:
+		return ""
+	}
 }
