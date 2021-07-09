@@ -1394,7 +1394,7 @@ func GetHumanFriendlyNetworkMode(mode string) string {
 	case int32(titus.NetworkConfiguration_Ipv4Only):
 		return "IPV4_ONLY"
 	case int32(titus.NetworkConfiguration_Ipv6AndIpv4):
-		return "IPV6_AND_IPV4"
+		return "DUAL_STACK"
 	case int32(titus.NetworkConfiguration_Ipv6AndIpv4Fallback):
 		return "IPV6_WITH_TRANSITION"
 	case int32(titus.NetworkConfiguration_Ipv6Only):
