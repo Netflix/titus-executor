@@ -31,29 +31,33 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
 
   deny /titus/** wl,
 
+  /titus/sshd/usr/sbin/sshd Cx -> &docker_titus//exec-sshd,
+  /titus/sshd/run-titus-sshd Cx -> &docker_titus//sshd,
+
   # Special sub-profile just for the init script for sshd
-  /titus/sshd/run-titus-sshd Cx,
-  profile run-sshd /titus/sshd/run-titus-sshd {
-    # We trust everything under /titus
-    # No writes though...
-    /titus/** rmlk,
-    /titus/sshd/usr/sbin/sshd ix,
+  profile sshd /titus/sshd/run-titus-sshd {
 
-    # You're allowed to do anything with yourself
-    @{PROC}/@{pid}/** rwmlk,
-    @{PROC}/self/** rwmlk,
+    # The only two files the startup script needs to read
+    /titus/sshd/bin/busybox ixr,
+    /titus/sshd/run-titus-sshd r,
 
-    /dev/{null,ptmx,tty,urandom,log} rwmlk,
-    /dev/pts/* rwmlk,
+    # This script should only exec one thing, which should go back to the parent
+    # profile, which as its own transitions defined
+    /titus/sshd/usr/sbin/sshd Px -> docker_titus,
 
-    /etc/{gai.conf,group,nsswitch.conf,shadow} rmkl,
+    # Signals are required so that systemd can shut it down if needed
+    signal (receive) peer="unconfined",
+    signal (send,receive) peer=@{profile_name},
+
     # The ssh startup script does edit these files if they need modification for sshd to start
     /etc/{passwd,profile} rwmlk,
+    /var/ rw,
+    /var/log/ rw,
+    /var/log/lastlog rw,
   }
 
   # Once we are running, this is the profile that the sshd binary itself gets
-  /titus/sshd/usr/sbin/sshd Cx,
-  profile sshd /titus/sshd/usr/sbin/sshd {
+  profile exec-sshd /titus/sshd/usr/sbin/sshd {
     # Allow signals from unconfined, usually systemd
     signal (receive) peer="unconfined",
     signal (send,receive) peer=@{profile_name},
@@ -64,7 +68,6 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
     # We trust everything under /titus
     # No writes though...
     /titus/** rmlk,
-    /titus/sshd/usr/sbin/sshd ix,
 
     # I don't think that memory mapping, or locking can lead to any attacks
     /** mk,
@@ -83,5 +86,4 @@ profile docker_titus flags=(attach_disconnected,mediate_deleted) {
 
     /etc/{gai.conf,group,nsswitch.conf,passwd,shadow} rmkl,
   }
-
 }
