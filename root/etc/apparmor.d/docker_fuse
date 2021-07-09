@@ -43,9 +43,35 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
 
   deny /titus/** wl,
 
-/titus/sshd/usr/sbin/run-titus-sshd Cx,
+  /titus/sshd/usr/sbin/sshd Cx -> &docker_titus//exec-sshd,
+  /titus/sshd/run-titus-sshd Cx -> &docker_titus//sshd,
 
-  profile sshd /titus/sshd/usr/sbin/run-titus-sshd {
+  # Special sub-profile just for the init script for sshd
+  profile sshd /titus/sshd/run-titus-sshd {
+
+    # The only two files the startup script needs to read
+    /titus/sshd/bin/busybox ixr,
+    /titus/sshd/run-titus-sshd r,
+
+    # This script should only exec one thing, which should go back to the parent
+    # profile, which as its own transitions defined
+    /titus/sshd/usr/sbin/sshd Px -> docker_titus,
+
+    # Signals are required so that systemd can shut it down if needed
+    signal (receive) peer="unconfined",
+    signal (send,receive) peer=@{profile_name},
+
+    # The ssh startup script does edit these files if they need modification for sshd to start
+    /etc/{passwd,profile} rwmlk,
+    /var/ rw,
+    /var/log/ rw,
+    /var/log/lastlog rw,
+  }
+
+  # Once we are running, this is the profile that the sshd binary itself gets
+  profile exec-sshd /titus/sshd/usr/sbin/sshd {
+    # Signals are required so that systemd can shut it down if needed
+    signal (receive) peer="unconfined",
     signal (send,receive) peer=@{profile_name},
 
     network,
@@ -54,7 +80,6 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
     # We trust everything under /titus
     # No writes though...
     /titus/** rmlk,
-    /titus/sshd/usr/sbin/sshd ix,
 
     # I don't think that memory mapping, or locking can lead to any attacks
     /** mk,
