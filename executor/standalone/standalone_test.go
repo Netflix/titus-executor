@@ -159,13 +159,13 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 
 	drt, ok := rt.(*docker.DockerRuntime)
 	require.True(t, ok, "DockerRuntime cast should succeed")
-	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
+	taskID, titusInfo, resources, pod, conf, err := runtimeTypes.ContainerTestArgs()
 	assert.NoError(t, err)
 	titusInfo.ImageName = protobuf.String(imgName)
 	titusInfo.ImageDigest = protobuf.String(imgDigest)
 	titusInfo.IamProfile = protobuf.String("arn:aws:iam::0:role/DefaultContainerRole")
 
-	c, err := runtimeTypes.NewContainer(taskID, titusInfo, *resources, *conf)
+	c, err := runtimeTypes.NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 
 	res, err := drt.DockerPull(ctx, c)

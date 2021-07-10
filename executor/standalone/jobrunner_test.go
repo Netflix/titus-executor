@@ -364,6 +364,7 @@ func createContainerInfoTask(jobInput *JobInput, jobID string, task *runner.Task
 
 	ci.AllowCpuBursting = proto.Bool(jobInput.CPUBursting)
 	task.TitusInfo = ci
+	task.Pod = runtimeTypes.GenerateV0TestPod(task.TaskID, nil, nil)
 
 	return nil
 }

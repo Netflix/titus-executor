@@ -183,22 +183,15 @@ type TitusInfoContainer struct {
 	config config.Config
 }
 
-// NewContainer allocates and initializes a new container struct object
-func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config) (Container, error) {
-	return NewContainerWithPod(taskID, titusInfo, resources, cfg, nil)
-}
-
 // NewContainerWithPod allocates and initializes a new container struct object. Pod can be optionally passed. If nil, ignored
 func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (Container, error) {
-	if pod != nil {
-		schemaVer, err := podCommon.PodSchemaVersion(pod)
-		if err != nil {
-			return nil, err
-		}
+	schemaVer, err := podCommon.PodSchemaVersion(pod)
+	if err != nil {
+		return nil, err
+	}
 
-		if schemaVer > 0 {
-			return NewPodContainer(pod, cfg)
-		}
+	if schemaVer > 0 {
+		return NewPodContainer(pod, cfg)
 	}
 
 	return NewTitusInfoContainer(taskID, titusInfo, resources, cfg, pod)
@@ -216,22 +209,16 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 		config:       cfg,
 	}
 
-	if pod != nil {
-		c.pod = pod.DeepCopy()
-	}
+	c.pod = pod.DeepCopy()
 
-	if c.pod != nil {
-		c.extraUserContainers, c.extraPlatformContainers = NewExtraContainersFromPod(*c.pod)
-	}
+	c.extraUserContainers, c.extraPlatformContainers = NewExtraContainersFromPod(*c.pod)
 
 	c.podConfig = &podCommon.Config{}
-	if c.pod != nil {
-		pConf, err := podCommon.PodToConfig(pod)
-		if err != nil {
-			return nil, err
-		}
-		c.podConfig = pConf
+	pConf, err := podCommon.PodToConfig(pod)
+	if err != nil {
+		return nil, err
 	}
+	c.podConfig = pConf
 
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
 		titusENIIndex, err := strconv.Atoi(networkCfgParams.GetEniLabel())

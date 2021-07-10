@@ -331,7 +331,7 @@ func ResourcesToPodResourceRequirements(resources *Resources) corev1.ResourceReq
 	}
 }
 
-func GenerateTestPod(taskID string, resources *Resources, cfg *config.Config) *corev1.Pod {
+func GenerateV1TestPod(taskID string, resources *Resources, cfg *config.Config) *corev1.Pod {
 	resourceReqs := ResourcesToPodResourceRequirements(resources)
 	bandwidth := resourceReqs.Limits[resourceCommon.ResourceNameNetwork]
 	image := cfg.DockerRegistry + "/" + testImageWithTag
@@ -342,6 +342,42 @@ func GenerateTestPod(taskID string, resources *Resources, cfg *config.Config) *c
 			Namespace: "default",
 			Annotations: map[string]string{
 				podCommon.AnnotationKeyPodSchemaVersion:          "1",
+				podCommon.AnnotationKeyIAMRole:                   testIamRole,
+				podCommon.AnnotationKeyEgressBandwidth:           bandwidth.String(),
+				podCommon.AnnotationKeyIngressBandwidth:          bandwidth.String(),
+				podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "",
+			},
+			Labels: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:      taskID,
+					Image:     image,
+					Resources: resourceReqs,
+				},
+			},
+		},
+	}
+}
+
+func GenerateV0TestPod(taskID string, resources *Resources, cfg *config.Config) *corev1.Pod {
+	if resources == nil {
+		resources = &Resources{}
+	}
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	resourceReqs := ResourcesToPodResourceRequirements(resources)
+	bandwidth := resourceReqs.Limits[resourceCommon.ResourceNameNetwork]
+	image := cfg.DockerRegistry + "/" + testImageWithTag
+
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      taskID,
+			Namespace: "default",
+			Annotations: map[string]string{
+				podCommon.AnnotationKeyPodSchemaVersion:          "0",
 				podCommon.AnnotationKeyIAMRole:                   testIamRole,
 				podCommon.AnnotationKeyEgressBandwidth:           bandwidth.String(),
 				podCommon.AnnotationKeyIngressBandwidth:          bandwidth.String(),
@@ -379,7 +415,7 @@ func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address b
 	return originalNetworkMode
 }
 
-// ContainerTestArgs generates test arguments appropriate for passing to NewContainer()
+// ContainerTestArgs generates test arguments appropriate for passing to NewContainerWithPod()
 func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *corev1.Pod, *config.Config, error) {
 	cfg, err := config.GenerateConfiguration(nil)
 	if err != nil {
@@ -402,7 +438,7 @@ func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *corev1.Pod,
 		Network: 128,
 	}
 	taskID := "taskid"
-	pod := GenerateTestPod(taskID, resources, cfg)
+	pod := GenerateV1TestPod(taskID, resources, cfg)
 
 	return taskID, titusInfo, resources, pod, cfg, nil
 }
