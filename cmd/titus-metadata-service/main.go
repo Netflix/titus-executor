@@ -166,6 +166,8 @@ func main() {
 		sslCA                      string
 		iamService                 string
 		zipkinURL                  string
+		availabilityZone           string
+		availabilityZoneID         string
 	)
 
 	app.Flags = []cli.Flag{
@@ -195,7 +197,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:        "region",
-			Usage:       "The STS service region to use",
+			Usage:       "The STS service region to use (and the region to optionally return for the region endpoint)",
 			Destination: &region,
 			Value:       "",
 			EnvVar:      "EC2_REGION",
@@ -291,6 +293,18 @@ func main() {
 			EnvVar:      "ZIPKIN",
 			Destination: &zipkinURL,
 		},
+		cli.StringFlag{
+			Name:        "availability-zone",
+			Usage:       "The Availability Zone that we are in",
+			EnvVar:      "EC2_AVAILABILITY_ZONE",
+			Destination: &availabilityZone,
+		},
+		cli.StringFlag{
+			Name:        "availability-zone-id",
+			Usage:       "The Availability Zone ID that we are in",
+			EnvVar:      "EC2_AVAILABILITY_ZONE_ID",
+			Destination: &availabilityZoneID,
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -335,6 +349,8 @@ func main() {
 			Ipv4Address:                net.ParseIP(ipv4Address),
 			PublicIpv4Address:          net.ParseIP(publicIpv4Address),
 			Region:                     region,
+			AvailabilityZoneID:         availabilityZoneID,
+			AvailabilityZone:           availabilityZone,
 			RequireToken:               requireToken,
 			TokenKey:                   titusTaskInstanceID + tokenSalt,
 			XFordwardedForBlockingMode: xFordwardedForBlockingMode,

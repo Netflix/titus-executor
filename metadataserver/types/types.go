@@ -32,7 +32,6 @@ type MetadataServerConfiguration struct {
 	Ipv4Address                net.IP
 	PublicIpv4Address          net.IP
 	Ipv6Address                *net.IP
-	Region                     string
 	Pod                        *corev1.Pod
 	Container                  *titus.ContainerInfo
 	Signer                     *identity.Signer
@@ -48,4 +47,10 @@ type MetadataServerConfiguration struct {
 	SSLKey     string
 	SSLCert    string
 	IAMService string
+
+	// These are optional, and will be dynamically resolved if not specified.
+	AvailabilityZone   string
+	AvailabilityZoneID string
+	// Region is also used for configuring the STS client to use that region's STS service
+	Region string
 }

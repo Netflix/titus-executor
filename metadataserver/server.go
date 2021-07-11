@@ -144,6 +144,10 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		signer:                    config.Signer,
 		tokenRequired:             config.RequireToken,
 		xForwardedForBlockingMode: config.XFordwardedForBlockingMode,
+
+		region:             config.Region,
+		availabilityZone:   config.AvailabilityZone,
+		availabilityZoneID: config.AvailabilityZoneID,
 	}
 
 	var conn *grpc.ClientConn
