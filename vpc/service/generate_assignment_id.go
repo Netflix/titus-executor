@@ -19,6 +19,8 @@ import (
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -225,7 +227,7 @@ func (vpcService *vpcService) validateSecurityGroups(ctx context.Context, sessio
 		sg := securityGroups[idx]
 		item := vpcService.invalidSecurityGroupCache.Get(sg)
 		if item != nil && !item.Expired() {
-			err = fmt.Errorf("Could not find security group %s; next lookup will be attempted in %s", sg, item.TTL().String())
+			err = status.Errorf(codes.NotFound, "Could not find security group %s; next lookup will be attempted in %s", sg, item.TTL().String())
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
@@ -286,7 +288,7 @@ func (vpcService *vpcService) validateSecurityGroups(ctx context.Context, sessio
 		}
 
 		vpcService.invalidSecurityGroupCache.Set(sg, struct{}{}, securityGroupBlockTimeout)
-		err = fmt.Errorf("Could not find security group %s", sg)
+		err = status.Errorf(codes.NotFound, "Could not find security group %s", sg)
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
