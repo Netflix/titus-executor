@@ -34,10 +34,11 @@ import (
 )
 
 const (
-	identTime    = 1546292381
-	fakeIdentIP  = "192.0.2.1"
-	fakeTaskID   = "e3c16590-0e2f-440d-9797-a68a19f6101e"
-	fakePublicIP = "203.0.113.11"
+	identTime           = 1546292381
+	fakeIdentIP         = "192.0.2.1"
+	fakeTaskID          = "e3c16590-0e2f-440d-9797-a68a19f6101e"
+	fakePublicIP        = "203.0.113.11"
+	defaultStubResponse = "Request success!"
 )
 
 type testKeyPair struct {
@@ -240,7 +241,7 @@ func (s *stubServer) serveHTTP(w http.ResponseWriter, req *http.Request) {
 		s.t.Fatal("Received request, while reqChan blocked")
 	}
 	w.WriteHeader(200)
-	if _, err := w.Write([]byte("Request success!")); err != nil {
+	if _, err := w.Write([]byte(defaultStubResponse)); err != nil {
 		panic(err)
 	}
 }
@@ -427,6 +428,20 @@ func validateRequestProxiedAndSuccess(ss *stubServer, resp *http.Response) error
 		return fmt.Errorf("Response status code not 200, instead: %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func validateRequestProxiedAndSuccessWithContent(substr string) func(*stubServer, *http.Response) error {
+	return func(ss *stubServer, resp *http.Response) error {
+		if err := validateRequestProxiedAndSuccess(ss, resp); err != nil {
+			return err
+		}
+		if content, err := ioutil.ReadAll(resp.Body); err != nil {
+			return err
+		} else if !strings.Contains(string(content), substr) {
+			return fmt.Errorf("Content '%s' does not contain string '%s'", string(content), substr)
+		}
+		return nil
+	}
 }
 
 func validateRequestNotProxiedAndForbidden(ss *stubServer, resp *http.Response) error {
@@ -760,7 +775,7 @@ func TestVCR(t *testing.T) {
 			{makeGetRequest(ss, "/latest/user-data"), validateRequestProxiedAndSuccess},
 			{makeGetRequest(ss, "/latest/not-allowed-end-point"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest/meta-data/placement/availability-zone"), validateRequestProxiedAndSuccess},
-			{makeGetRequest(ss, "/latest/meta-data/placement/region"), validateRequestProxiedAndSuccess},
+			{makeGetRequest(ss, "/latest/meta-data/placement/region"), validateRequestNotProxiedAndSuccessWithContent("us-east-1")},
 			{makeGetRequest(ss, "/latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "//latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest//dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
@@ -1057,4 +1072,28 @@ func TestInstanceMetadataDocument(t *testing.T) {
 	doc, err := client.GetInstanceIdentityDocument()
 	require.Nil(t, err)
 	assert.Equal(t, "us-east-1", doc.Region)
+}
+
+func TestVCRNoAutoResolveSet(t *testing.T) {
+	ss, err := setupStubServer(t)
+	if err != nil {
+		t.Fatal("Could not get stub server: ", err)
+	}
+
+	ms := setupMetadataServer(t, testServerConfig{
+		ss:       ss,
+		keyPair:  testKeyPair{},
+		publicIP: true,
+	})
+	ms.region = ""
+	ms.availabilityZone = ""
+	tapes :=
+		[]vcrTape{
+			{makeGetRequest(ss, "/latest/meta-data/placement/availability-zone"), validateRequestProxiedAndSuccessWithContent(defaultStubResponse)},
+			{makeGetRequest(ss, "/latest/meta-data/placement/region"), validateRequestProxiedAndSuccessWithContent(defaultStubResponse)},
+			// Verify caching behaviour:
+			{makeGetRequest(ss, "/latest/meta-data/placement/availability-zone"), validateRequestNotProxiedAndSuccessWithContent(defaultStubResponse)},
+			{makeGetRequest(ss, "/latest/meta-data/placement/region"), validateRequestNotProxiedAndSuccessWithContent(defaultStubResponse)},
+		}
+	play(t, ss, tapes)
 }
