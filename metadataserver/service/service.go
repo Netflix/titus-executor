@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"regexp"
 	"sync"
 	"time"
 
@@ -26,6 +26,7 @@ import (
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	"github.com/pkg/errors"
 	"github.com/soheilhy/cmux"
 	"go.opencensus.io/plugin/ocgrpc"
 	"go.opencensus.io/trace"
@@ -41,7 +42,8 @@ import (
 )
 
 const (
-	sessionLifetime = 3600
+	sessionLifetime     = 3600
+	titusAgentCertRegex = `titusagent\..*`
 )
 
 type Config struct {
@@ -54,11 +56,12 @@ type Config struct {
 }
 
 type service struct {
-	certficiateLock sync.RWMutex
-	certficate      *tls.Certificate
-	sslKey          string
-	sslCert         string
-	sts             *sts.STS
+	certficiateLock      sync.RWMutex
+	certficate           *tls.Certificate
+	sslKey               string
+	sslCert              string
+	sts                  *sts.STS
+	ValidTitusAgentRegex regexp.Regexp
 }
 
 func (s *service) AssumeRole(ctx context.Context, request *iamapi.AssumeRoleRequest) (*iamapi.AssumeRoleResponse, error) {
@@ -124,15 +127,37 @@ func (s *service) authFunc(ctx context.Context) (context.Context, error) {
 	if !ok {
 		return ctx, status.Error(codes.Internal, "Could not retrieve peer from context")
 	}
-	l := logger.G(ctx)
-	if peer.AuthInfo != nil {
-		l.Debug("Authenticating peers via authFunc")
-	} else {
-		l.Debug("not authenticating peers via AuthFuncOverride")
+	if peer.AuthInfo == nil {
+		return ctx, fmt.Errorf("No AuthInfo provided by the peer, unable to authenticate")
 	}
-	// TODO: Build an authentication function!
+	err := s.validatePeerIsFromTitusAgent(ctx, peer)
+	return ctx, err
+}
 
-	return ctx, nil
+func (s *service) validatePeerIsFromTitusAgent(ctx context.Context, peer *peer.Peer) error {
+	tlsInfo, ok := peer.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return fmt.Errorf("Received unexpected authentication type: %s", peer.AuthInfo.AuthType())
+	}
+	sv := tlsInfo.GetSecurityValue().(*credentials.TLSChannelzSecurityValue)
+	cert, err := x509.ParseCertificate(sv.RemoteCertificate)
+	if err != nil {
+		return errors.Wrap(err, "Cannot parse remote certificate")
+	}
+	err = s.validateCertIsFromTitusAgent(cert)
+	return err
+}
+
+func (s *service) validateCertIsFromTitusAgent(cert *x509.Certificate) error {
+	if s.ValidTitusAgentRegex.MatchString(cert.Subject.CommonName) {
+		return nil
+	}
+	for _, san := range cert.DNSNames {
+		if s.ValidTitusAgentRegex.MatchString(san) {
+			return nil
+		}
+	}
+	return fmt.Errorf("Client certificate's CN: %q and SANS: %q failed to match our allow list: %s", cert.Subject.CommonName, cert.DNSNames, s.ValidTitusAgentRegex.String())
 }
 
 func (s *service) healthcheck(ctx context.Context, w http.ResponseWriter, r *http.Request) {
@@ -211,6 +236,11 @@ func Run(ctx context.Context, config Config) error {
 		svc.loadCertificateLoop(ctx)
 		return nil
 	})
+	r, err := regexp.Compile(titusAgentCertRegex)
+	if err != nil {
+		return fmt.Errorf("Unable to compile the allowed client cert regex '%s': '%s'", titusAgentCertRegex, err)
+	}
+	svc.ValidTitusAgentRegex = *r
 
 	creds := credentials.NewTLS(&tls.Config{
 		GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {

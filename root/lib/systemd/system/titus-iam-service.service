@@ -4,6 +4,7 @@ Conflicts=halt.target shutdown.target sigpwr.target
 
 [Service]
 ExecStart=/apps/titus-executor/bin/titus-iam-service
+EnvironmentFile=-/etc/titus-executor/iam-service.env
 Restart=always
 StartLimitInterval=0
 RestartSec=5
