@@ -8,6 +8,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
@@ -73,10 +74,11 @@ func main() {
 	rootCmd := &cobra.Command{
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			v.SetEnvPrefix("TITUS_IAM_SERVICE")
+			v.AutomaticEnv()
+			v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 			if err := v.BindPFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			v.AutomaticEnv()
 
 			if v.GetBool("debug") {
 				logrus.SetLevel(logrus.DebugLevel)
