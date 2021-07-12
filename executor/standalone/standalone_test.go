@@ -159,12 +159,14 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 
 	drt, ok := rt.(*docker.DockerRuntime)
 	require.True(t, ok, "DockerRuntime cast should succeed")
-	taskID, titusInfo, resources, pod, conf, err := runtimeTypes.ContainerTestArgs()
+	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
 	assert.NoError(t, err)
 	titusInfo.ImageName = protobuf.String(imgName)
 	titusInfo.ImageDigest = protobuf.String(imgDigest)
 	titusInfo.IamProfile = protobuf.String("arn:aws:iam::0:role/DefaultContainerRole")
 
+	// We don't currently set the image name properly in v1 pods
+	pod := runtimeTypes.GenerateV0TestPod(taskID, resources, conf)
 	c, err := runtimeTypes.NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 
@@ -1053,6 +1055,8 @@ func TestCachedDockerPull(t *testing.T) {
 	res, err = dockerPull(t, noEntrypoint.name, noEntrypoint.digest)
 	require.NoError(t, err, "No error from second docker pull")
 
+	// Note: even when wrong, the res object is not strictly nil
+	// This assertion never catches anything
 	assert.NotNil(t, res, "image should now be cached")
 	// Should be at least one digest.
 	assert.GreaterOrEqual(t, len(res.RepoDigests), 1, "digest should be present")
