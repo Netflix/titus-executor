@@ -30,10 +30,10 @@ const (
 	TASK_FAILED = "TASK_FAILED" // nolint:golint
 )
 
-var shouldUsePodspecInTest bool
+var UseV1PodspecInTest bool
 
 func TestMain(m *testing.M) {
-	flag.BoolVar(&shouldUsePodspecInTest, "shouldUsePodspecInTest", true, "Use pod schema v1 instead of cinfo in tests")
+	flag.BoolVar(&UseV1PodspecInTest, "useV1PodspecInTest", true, "Use pod schema v1 instead of cinfo in tests")
 	flag.Parse()
 	if testing.Verbose() {
 		log.SetLevel(log.DebugLevel)
@@ -113,13 +113,13 @@ func skipOnDarwin(t *testing.T) {
 }
 
 func skipIfNotPod(t *testing.T) {
-	if !shouldUsePodspecInTest {
+	if !UseV1PodspecInTest {
 		t.Skip("Skipping this test as it requires the pod spec")
 	}
 }
 
 func generateJobID(testName string) string {
-	if shouldUsePodspecInTest {
+	if UseV1PodspecInTest {
 		return testName + "WithPod"
 	}
 	return testName + "WithCinfo"
@@ -181,7 +181,7 @@ func TestSimpleJob(t *testing.T) {
 		Version:       busybox.tag,
 		EntrypointOld: "echo Hello Titus",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -200,7 +200,7 @@ func TestSimpleJobWithBadEnvironment(t *testing.T) {
 			"AlsoBAD":                          "",
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -216,7 +216,7 @@ func TestCustomCmd(t *testing.T) {
 			Cmd: []string{"echo", "Hello Titus"},
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -232,7 +232,7 @@ func TestInvalidFlatStringAsCmd(t *testing.T) {
 			Cmd: []string{"echo Hello Titus"}, // this will exit with status 127 since there is no such binary
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
@@ -253,7 +253,7 @@ func TestEntrypointAndCmd(t *testing.T) {
 			Cmd:        []string{"echo Hello Titus"},
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -269,7 +269,7 @@ func TestEntrypointAndCmdFromImage(t *testing.T) {
 			// entrypoint and cmd baked into the image will exit with status 123
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
@@ -289,7 +289,7 @@ func TestOverrideCmdFromImage(t *testing.T) {
 			Cmd: []string{"exit 5"},
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
@@ -310,7 +310,7 @@ func TestResetEntrypointFromImage(t *testing.T) {
 			Cmd:        []string{"/bin/sh", "-c", "exit 6"},
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
@@ -330,7 +330,7 @@ func TestResetCmdFromImage(t *testing.T) {
 			Cmd: []string{""},
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -344,7 +344,7 @@ func TestNoCapPtraceByDefault(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/sh -c '! (/sbin/capsh --print | tee /logs/no-ptrace.log | grep sys_ptrace')",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -363,7 +363,7 @@ func TestCanAddCapabilities(t *testing.T) {
 			},
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -381,7 +381,7 @@ func TestDefaultCapabilities(t *testing.T) {
 		// Older kernels (3.13 on jenkins) have a different bitmask, so we check both the new and old formats
 		EntrypointOld: `/bin/bash -c 'cat /proc/self/status | tee /logs/capabilities.log | egrep "CapEff:\s+(00000020a80425fb|00000000a80425fb)"'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -395,7 +395,7 @@ func TestMakesPTY(t *testing.T) {
 		Version:       pty.tag,
 		EntrypointOld: "/bin/bash -c '/usr/bin/unbuffer /usr/bin/tty | grep /dev/pts'",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -411,7 +411,7 @@ func TestStdoutGoesToLogFile(t *testing.T) {
 		Version:       busybox.tag,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -427,7 +427,7 @@ func TestStderrGoesToLogFile(t *testing.T) {
 		Version:       busybox.tag,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -442,7 +442,7 @@ func TestImageByDigest(t *testing.T) {
 		ImageDigest:   byDigest.digest,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -461,7 +461,7 @@ func TestImageByDigestIgnoresTag(t *testing.T) {
 		ImageDigest:   byDigest.digest,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -477,9 +477,9 @@ func TestImageInvalidDigestFails(t *testing.T) {
 		ImageDigest:   digest,
 		EntrypointOld: "/bin/true",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
-	if shouldUsePodspecInTest {
+	if UseV1PodspecInTest {
 		// In the pods container implementation, the docker image format is checked before starting
 		err := StartJobExpectingFailure(t, ji)
 		assert.Error(t, err, "error parsing docker image")
@@ -502,7 +502,7 @@ func TestImageNonExistingDigestFails(t *testing.T) {
 		ImageDigest:   digest,
 		EntrypointOld: "/bin/true",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	status, err := RunJob(t, ji)
 	if err != nil {
@@ -520,7 +520,7 @@ func TestImagePullError(t *testing.T) {
 		Version:       "purposelyDoesntExist",
 		EntrypointOld: "/usr/bin/true",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	status, err := RunJob(t, ji)
 	if err != nil {
@@ -540,7 +540,7 @@ func TestCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 		JobID:      generateJobID(t.Name()),
 		ImageName:  bigImage.name,
 		Version:    bigImage.tag,
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	})
 
 	require.NoError(t, err)
@@ -585,7 +585,7 @@ func TestBadEntrypoint(t *testing.T) {
 		Version:       busybox.tag,
 		EntrypointOld: "bad",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	// We expect this to fail
 	if RunJobExpectingSuccess(t, ji) {
@@ -598,7 +598,7 @@ func TestNoEntrypoint(t *testing.T) {
 	ji := &JobInput{
 		ImageName:  noEntrypoint.name,
 		Version:    noEntrypoint.tag,
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	// We expect this to fail
 	if RunJobExpectingSuccess(t, ji) {
@@ -615,7 +615,7 @@ func TestCanWriteInLogsAndSubDirs(t *testing.T) {
 		Version:       busybox.tag,
 		EntrypointOld: cmd,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -636,7 +636,7 @@ func TestShutdown(t *testing.T) {
 		Version:       busybox.tag,
 		EntrypointOld: "sleep 6000",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 
 	jobRunner, err := StartJob(t, ctx, ji)
@@ -681,7 +681,7 @@ func TestMetadataProxyInjection(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/local-ipv4 | grep 192.0.2.1'",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -697,7 +697,7 @@ func TestMetadataProxyFromLocalhost(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'curl -sf --interface 127.0.0.1 http://169.254.169.254/latest/meta-data/local-ipv4'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -713,7 +713,7 @@ func TestMetadataProxyOnIPv6(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'curl -sf http://[fd00:ec2::254]/latest/meta-data/local-ipv4'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -729,7 +729,7 @@ func TestMetadataProxyPublicIP(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: "/bin/bash -c 'curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 | grep 203.0.113.11",
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -747,7 +747,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 		Version:         ignoreSignals.tag,
 		KillWaitSeconds: killWaitSeconds,
 		JobID:           generateJobID(t.Name()),
-		UsePodSpec:      shouldUsePodspecInTest,
+		UsePodSpec:      UseV1PodspecInTest,
 	}
 	// Start the executor
 	jobResponse, err := StartJob(t, ctx, ji)
@@ -817,7 +817,7 @@ func TestOOMAdj(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'cat /proc/1/oom_score | grep 999'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -834,7 +834,7 @@ func TestOOMKill(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `stress --vm 100 --vm-keep --vm-hang 100`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 
 	// Start the executor
@@ -865,7 +865,7 @@ func TestSchedBatch(t *testing.T) {
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_BATCH | grep 19'`,
 		JobID:         generateJobID(t.Name()),
 		SchedPolicy:   "batch",
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -879,7 +879,7 @@ func TestSchedNormal(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_NORMAL'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -894,7 +894,7 @@ func TestSchedIdle(t *testing.T) {
 		EntrypointOld: `/bin/bash -c 'schedtool 0 | grep SCHED_IDLE'`,
 		JobID:         generateJobID(t.Name()),
 		SchedPolicy:   "idle",
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -908,7 +908,7 @@ func TestNewEnvironmentLocationPositive(t *testing.T) {
 		Version:       envLabel.tag,
 		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -922,7 +922,7 @@ func TestNewEnvironmentLocationNegative(t *testing.T) {
 		Version:       envLabel.tag,
 		EntrypointOld: `cat /etc/profile.d/netflix_environment.sh`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
@@ -936,7 +936,7 @@ func TestOldEnvironmentLocationPositive(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `cat /etc/profile.d/netflix_environment.sh`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -949,7 +949,7 @@ func TestOldEnvironmentLocationNegative(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `cat /etc/nflx/base-environment.d/200titus`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
@@ -966,7 +966,7 @@ func TestNoCPUBursting(t *testing.T) {
 		// Make sure quota is set
 		EntrypointOld: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.cfs_quota_us|grep -v - -1'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -984,7 +984,7 @@ func TestCPUBursting(t *testing.T) {
 		EntrypointOld: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.cfs_quota_us|grep - -1'`,
 		JobID:         generateJobID(t.Name()),
 		CPUBursting:   true,
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1003,7 +1003,7 @@ func TestTwoCPUs(t *testing.T) {
 		EntrypointOld: `/bin/bash -c 'cat /sys/fs/cgroup/cpuacct/cpu.shares|grep 200'`,
 		JobID:         generateJobID(t.Name()),
 		CPU:           &cpuCount,
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1018,7 +1018,7 @@ func TestTty(t *testing.T) {
 		EntrypointOld: `/usr/bin/tty`,
 		JobID:         generateJobID(t.Name()),
 		Tty:           true,
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1033,7 +1033,7 @@ func TestTtyNegative(t *testing.T) {
 		EntrypointOld: `/usr/bin/tty`,
 		JobID:         generateJobID(t.Name()),
 		// Tty not specified
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
@@ -1083,7 +1083,7 @@ func TestMetatron(t *testing.T) {
 			"\"",
 		}, " "),
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1109,7 +1109,7 @@ func TestMetatronFailure(t *testing.T) {
 			"TITUS_TEST_FAIL_METATRON_INIT": "true",
 		},
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 
 	jobResponse, err := StartJob(t, ctx, ji)
@@ -1134,7 +1134,7 @@ func TestRunTmpFsMount(t *testing.T) {
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run[^/]" | grep 128M'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1149,7 +1149,7 @@ func TestExecSlashRun(t *testing.T) {
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'cp /bin/ls /run/ && /run/ls'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1166,7 +1166,7 @@ func TestSystemdImageMount(t *testing.T) {
 		Mem:           &mem,
 		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run/lock[^/]" | grep 5M'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1185,7 +1185,7 @@ func TestShm(t *testing.T) {
 		ShmSize:       &shmSize,
 		EntrypointOld: `/bin/bash -c 'df | grep -e '^shm' | grep 196608'`,
 		JobID:         generateJobID(t.Name()),
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1214,7 +1214,7 @@ func TestContainerLogViewer(t *testing.T) {
 			"curl -sf $url | grep -q stdout-should-go-to-log" +
 			"'",
 		JobID:      generateJobID(t.Name()),
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1228,7 +1228,7 @@ func TestNegativeSeccomp(t *testing.T) {
 		Version:   ubuntu.tag,
 		// Make sure that the process exits due to timeout, and not due to permission denied error
 		EntrypointOld: "/usr/bin/negative-seccomp",
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
@@ -1249,7 +1249,7 @@ func TestGPUManager1GPU(t *testing.T) {
 		JobID:         generateJobID(t.Name()),
 		GPUManager:    g,
 		GPU:           &gpu,
-		UsePodSpec:    shouldUsePodspecInTest,
+		UsePodSpec:    UseV1PodspecInTest,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
@@ -1284,7 +1284,7 @@ func TestBasicMultiContainer(t *testing.T) {
 	ji := &JobInput{
 		ImageName:  busybox.name,
 		Version:    busybox.tag,
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 		// This sentinel container is a second process we can look out
 		// for, in order to detect if multi-container workloads are setup
 		ExtraContainers: []corev1.Container{
@@ -1318,7 +1318,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 	ji := &JobInput{
 		ImageName:  busybox.name,
 		Version:    busybox.tag,
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 		// This sentinel container is a second process we can look out
 		// for, in order to detect if multi-container workloads are setup
 		ExtraContainers: []corev1.Container{
@@ -1360,7 +1360,7 @@ func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
 	ji := &JobInput{
 		ImageName:  busybox.name,
 		Version:    busybox.tag,
-		UsePodSpec: shouldUsePodspecInTest,
+		UsePodSpec: UseV1PodspecInTest,
 		ExtraContainers: []corev1.Container{
 			{
 				Name:    "failing-sidecar",
