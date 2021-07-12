@@ -24,7 +24,7 @@ func (vpcService *vpcService) ValidateAllocationParameters(ctx context.Context, 
 	span.AddAttributes(
 		trace.StringAttribute("account", req.AccountId),
 		trace.StringAttribute("subnet-ids", fmt.Sprintf("%v", req.Subnets)),
-		trace.StringAttribute("security-groups", fmt.Sprintf("%v", req.Subnets)),
+		trace.StringAttribute("security-groups", fmt.Sprintf("%v", req.SecurityGroups)),
 	)
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
@@ -60,7 +60,7 @@ func (vpcService *vpcService) ValidateAllocationParameters(ctx context.Context, 
 	}
 
 	rows, err := tx.QueryContext(ctx, `
-WITH user_subnets AS (SELECT unnest($1) AS user_subnet_id)
+WITH user_subnets AS (SELECT unnest($1::text[]) AS user_subnet_id)
 SELECT user_subnet_id,  vpc_id, account_id, subnet_id FROM user_subnets
 LEFT JOIN subnets ON user_subnet_id = subnet_id
 `, pq.Array(req.Subnets))
