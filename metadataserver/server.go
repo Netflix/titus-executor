@@ -16,13 +16,6 @@ import (
 	"sync"
 	"time"
 
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
-	"go.opencensus.io/plugin/ocgrpc"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
@@ -32,11 +25,16 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
-	set "github.com/deckarep/golang-set"
 	"github.com/gorilla/mux"
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	log "github.com/sirupsen/logrus"
+	"go.opencensus.io/plugin/ocgrpc"
 	"golang.org/x/sync/singleflight"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // Derived from big data portal reports
@@ -56,7 +54,7 @@ const notFoundBody = `<?xml version="1.0" encoding="iso-8859-1"?>
 // A sentinel role used under test
 const FakeARNRole = "arn:aws:iam::0:role/RealRole"
 
-var whitelist = set.NewSetFromSlice([]interface{}{
+var whitelist = sets.NewString(
 	"/latest/meta-data",
 	"/latest/meta-data/network/interfaces/macs/null/vpc-id",
 	"/latest/meta-data/network/interfaces/macs/00:00:00:00:00:00/vpc-id",
@@ -64,7 +62,7 @@ var whitelist = set.NewSetFromSlice([]interface{}{
 	"/latest/user-data",
 	"/latest/meta-data/placement",
 	"/latest/meta-data/iam",
-})
+)
 
 /*
  * The processing pipeline should go ->
@@ -553,7 +551,7 @@ func newProxy(backingMetadataServer *url.URL) *proxy {
 }
 
 func (p *proxy) checkProxyAllowed(path string) bool {
-	return whitelist.Contains(strings.TrimSuffix(path, "/"))
+	return whitelist.Has(strings.TrimSuffix(path, "/"))
 }
 
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
