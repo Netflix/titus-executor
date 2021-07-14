@@ -535,7 +535,7 @@ func (ms *MetadataServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"referer":       r.Header.Get("Referer"),
 		"taskid":        ms.titusTaskInstanceID,
 		"source-addr":   r.RemoteAddr,
-		"assumed-arn":   ms.iamProxy.defaultRole,
+		"assumed-arn":   ms.iamProxy.roles[ms.iamProxy.defaultRole].arn,
 	})
 	ms.internalMux.ServeHTTP(w, r2)
 }
