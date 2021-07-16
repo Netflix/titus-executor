@@ -7,9 +7,10 @@ import (
 	"os"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -37,10 +38,7 @@ func (vpcService *vpcService) scanLock(rowScanner scanner) (*vpcapi.Lock, error)
 		return nil, err
 	}
 
-	lock.HeldUntil, err = ptypes.TimestampProto(heldUntil)
-	if err != nil {
-		return nil, err
-	}
+	lock.HeldUntil = timestamppb.New(heldUntil)
 
 	return &lock, nil
 }

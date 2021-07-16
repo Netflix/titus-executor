@@ -10,7 +10,9 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/types"
-	"github.com/golang/protobuf/jsonpb"
+
+	// google.golang.org/protobuf/encoding/protojson doesn't yet implement streaming deserialization
+	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
 	"github.com/pkg/errors"
 )
 

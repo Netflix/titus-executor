@@ -22,7 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -414,33 +413,26 @@ func (proxy *roleProxy) doAssumeRoleWithIAMService(ctx context.Context, sessionL
 		}
 	} else {
 		log.WithField("AccessKeyId", result.Credentials.AccessKeyId).Info("Assumed role")
-		expiration, err := ptypes.Timestamp(result.Credentials.Expiration)
-		if err != nil {
-			log.WithError(err).Errorf("Unable to decode expiration: %v", result.Credentials.Expiration)
-			state = &roleAssumptionState{
-				assumeRoleGenerated: now,
-				assumeRoleOutput:    nil,
-				assumeRoleError:     err,
-			}
-		} else {
-			// Ugh, nesting.
-			state = &roleAssumptionState{
-				assumeRoleGenerated: now,
-				assumeRoleOutput: &sts.AssumeRoleOutput{
-					AssumedRoleUser: &sts.AssumedRoleUser{
-						Arn:           aws.String(result.AssumedRoleUser.Arn),
-						AssumedRoleId: aws.String(result.AssumedRoleUser.AssumedRoleId),
-					},
-					Credentials: &sts.Credentials{
-						AccessKeyId:     aws.String(result.Credentials.AccessKeyId),
-						Expiration:      aws.Time(expiration),
-						SecretAccessKey: aws.String(result.Credentials.SecretAccessKey),
-						SessionToken:    aws.String(result.Credentials.SessionToken),
-					},
+		expiration := result.Credentials.Expiration.AsTime()
+
+		// Ugh, nesting.
+		state = &roleAssumptionState{
+			assumeRoleGenerated: now,
+			assumeRoleOutput: &sts.AssumeRoleOutput{
+				AssumedRoleUser: &sts.AssumedRoleUser{
+					Arn:           aws.String(result.AssumedRoleUser.Arn),
+					AssumedRoleId: aws.String(result.AssumedRoleUser.AssumedRoleId),
 				},
-				assumeRoleError: nil,
-			}
+				Credentials: &sts.Credentials{
+					AccessKeyId:     aws.String(result.Credentials.AccessKeyId),
+					Expiration:      aws.Time(expiration),
+					SecretAccessKey: aws.String(result.Credentials.SecretAccessKey),
+					SessionToken:    aws.String(result.Credentials.SessionToken),
+				},
+			},
+			assumeRoleError: nil,
 		}
+
 	}
 
 	proxy.roleAssumptionStateLock.Lock()

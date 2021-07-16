@@ -16,6 +16,8 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod" // nolint: staticcheck
 	"github.com/docker/go-units"
+	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -456,7 +458,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.Equal(t, c.TTYEnabled(), true)
 	assert.Equal(t, c.UploadDir("foo"), "titan/mainvpc/foo/"+taskID)
 	assert.Equal(t, c.UseJumboFrames(), true)
-	assert.DeepEqual(t, c.VPCAllocation(), expVPCalloc)
+	assert.Assert(t, cmp.Diff(c.VPCAllocation(), expVPCalloc, protocmp.Transform()) == "")
 	assert.DeepEqual(t, c.VPCAccountID(), ptr.StringPtr("123456"))
 }
 
@@ -1359,7 +1361,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 
 	cInfo, err := c.ContainerInfo()
 	assert.NilError(t, err)
-	assert.DeepEqual(t, cInfo, &titus.ContainerInfo{
+	assert.Assert(t, cmp.Diff(cInfo, &titus.ContainerInfo{
 		AppName:          ptr.StringPtr(""),
 		IamProfile:       ptr.StringPtr(testIamRole),
 		ImageName:        ptr.StringPtr(testImageName),
@@ -1381,7 +1383,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 			"FROM_USER_2": "U2",
 		},
 		Version: ptr.StringPtr(testImageTag),
-	})
+	}, protocmp.Transform()) == "")
 
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
 	assert.DeepEqual(t, c.MetatronCreds(), metatronCredsNil)
@@ -1442,7 +1444,7 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 		AppMetadata: ptr.StringPtr("app-meta"),
 		MetadataSig: ptr.StringPtr("meta-sig"),
 	}
-	assert.DeepEqual(t, cInfo, &titus.ContainerInfo{
+	assert.Assert(t, cmp.Diff(cInfo, &titus.ContainerInfo{
 		AppName:                ptr.StringPtr(testAppName),
 		IamProfile:             ptr.StringPtr(testIamRole),
 		ImageName:              ptr.StringPtr(testImageName),
@@ -1469,9 +1471,9 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 			"FROM_USER_2": "U2",
 		},
 		Version: ptr.StringPtr(testImageTag),
-	})
+	}, protocmp.Transform()) == "")
 
-	assert.DeepEqual(t, c.MetatronCreds(), expMetatronCreds)
+	assert.Assert(t, cmp.Diff(c.MetatronCreds(), expMetatronCreds, protocmp.Transform()) == "")
 }
 
 func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {

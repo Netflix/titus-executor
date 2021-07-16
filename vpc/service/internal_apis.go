@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -13,7 +15,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -278,7 +279,7 @@ func (vpcService *vpcService) doDescribeTrunkNetworkInterface(ctx context.Contex
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
-	trunkENI.CreatedAt, _ = ptypes.TimestampProto(createdAt)
+	trunkENI.CreatedAt = timestamppb.New(createdAt)
 
 	rows, err := tx.QueryContext(ctx, `
 SELECT branch_enis.branch_eni,
@@ -324,9 +325,9 @@ WHERE trunk_eni = $1
 			return nil, err
 		}
 		branchENI.SecurityGroupIds = securityGroups
-		branchENI.CreatedAt, _ = ptypes.TimestampProto(createdAt)
-		branchENI.ModifiedAt, _ = ptypes.TimestampProto(modifiedAt)
-		branchENI.LastAssignedTo, _ = ptypes.TimestampProto(lastAssignedTo)
+		branchENI.CreatedAt = timestamppb.New(createdAt)
+		branchENI.ModifiedAt = timestamppb.New(modifiedAt)
+		branchENI.LastAssignedTo = timestamppb.New(lastAssignedTo)
 		association.BranchENI = &branchENI
 		associations = append(associations, &association)
 	}

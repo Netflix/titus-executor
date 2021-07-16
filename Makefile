@@ -135,7 +135,8 @@ push-titus-agent: titus-agent
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
 PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
 PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
-PROTO_MAP     := Mnetflix/titus/titus_base.proto=netflix/titus,Mnetflix/titus/titus_job_api.proto=netflix/titus
+GRPC_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%_grpc.pb.go,$(PROTOS))
+PROTO_MAP	:= Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_job_api.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_agent_api.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/agent.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_vpc_api.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
 protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
 
@@ -144,20 +145,51 @@ vendor/modules.txt: go.mod
 	go mod vendor
 
 $(PROTOS): vendor
-$(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+$(GRPC_OUT) $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p api/netflix/titus
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,$(PROTO_MAP):api/ $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
+	$(eval PROTO := $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@))
+	protoc \
+		--plugin=protoc-gen-titusgrpc=$(shell $(GOBIN_TOOL) -p google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1) \
+		--plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p google.golang.org/protobuf/cmd/protoc-gen-go@v1.27.1) \
+		-I$(PROTO_DIR)/ \
+		--titusgo_out=api/ \
+		--titusgrpc_out=api/ \
+		--titusgo_opt=$(PROTO_MAP) \
+		--titusgrpc_opt=$(PROTO_MAP) \
+		--titusgo_opt=module=github.com/Netflix/titus-executor/api \
+		--titusgrpc_opt=module=github.com/Netflix/titus-executor/api \
+		$(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@)
 	$(GOIMPORT_TOOL) $@
 
 ## TODO: Use git wildcard functionality to "automatically"
-vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+vpc/api/vpc_grpc.pb.go vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p vpc/api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Ivpc/proto --titusgo_out=plugins=grpc,Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus:vpc/api/ vpc/proto/vpc.proto
+	protoc \
+		--plugin=protoc-gen-titusgrpc=$(shell $(GOBIN_TOOL) -p google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1) \
+		--plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p google.golang.org/protobuf/cmd/protoc-gen-go@v1.27.1) \
+		--titusgo_out=vpc/api/ \
+		--titusgrpc_out=vpc/api/ \
+		--titusgo_opt=module=github.com/Netflix/titus-executor/vpc/api \
+		--titusgrpc_opt=module=github.com/Netflix/titus-executor/vpc/api \
+		-I$(PROTO_DIR) \
+		-Ivpc/proto \
+		--titusgo_opt=$(PROTO_MAP) \
+		--titusgrpc_opt=$(PROTO_MAP) \
+		vpc/proto/vpc.proto
 	$(GOIMPORT_TOOL) $@
 
-metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+metadataserver/api/iam_grpc.pb.go metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
 	mkdir -p metadataserver/api
-	protoc --plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p github.com/golang/protobuf/protoc-gen-go@v1.3.5) -I$(PROTO_DIR)/ -Imetadataserver/proto --titusgo_out=plugins=grpc,source_relative:metadataserver/api/ metadataserver/proto/iam.proto
+	protoc \
+		--plugin=protoc-gen-titusgrpc=$(shell $(GOBIN_TOOL) -p google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1) \
+		--plugin=protoc-gen-titusgo=$(shell $(GOBIN_TOOL) -p google.golang.org/protobuf/cmd/protoc-gen-go@v1.27.1) \
+		--titusgo_out=metadataserver/api/ \
+		--titusgrpc_out=metadataserver/api/ \
+		--titusgo_opt=$(PROTO_MAP) \
+		--titusgrpc_out=$(PROTO_MAP) \
+		--titusgo_opt=module=github.com/Netflix/titus-executor/metadataserver/api \
+		--titusgrpc_opt=module=github.com/Netflix/titus-executor/metadataserver/api \
+		metadataserver/proto/iam.proto
 	$(GOIMPORT_TOOL) $@
 
 .PHONY: clean-proto-defs

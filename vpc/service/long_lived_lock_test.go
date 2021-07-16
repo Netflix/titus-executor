@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/golang/protobuf/proto"  // nolint: staticcheck
-	"github.com/golang/protobuf/ptypes" // nolint: staticcheck
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,8 +28,7 @@ var longLivedLockColumns = []string{"id", "lock_name", "held_by", "held_until"}
 
 func generateLockAndRows(t *testing.T, mock sqlmock.Sqlmock) (*vpcapi.Lock, *sqlmock.Rows) {
 	heldUntil := time.Now()
-	protoHeldUntil, err := ptypes.TimestampProto(heldUntil)
-	assert.NilError(t, err)
+	protoHeldUntil := timestamppb.New(heldUntil)
 
 	rand.Seed(time.Now().UnixNano())
 	lock := &vpcapi.Lock{

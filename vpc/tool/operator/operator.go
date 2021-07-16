@@ -4,9 +4,10 @@ import (
 	"context"
 	"os"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 )
@@ -37,11 +38,17 @@ func Describe(ctx context.Context, instanceIdentityProvider identity.InstanceIde
 		return errors.Wrap(err, "Failed to describe trunk network interfaces")
 	}
 
-	marshaler := jsonpb.Marshaler{
-		EmitDefaults: true,
-		Indent:       "\t",
+	marshaler := protojson.MarshalOptions{
+		EmitUnpopulated: true,
+		Indent:          "\t",
 	}
-	return marshaler.Marshal(os.Stdout, ret)
+	data, err := marshaler.Marshal(ret)
+	if err != nil {
+		return err
+	}
+
+	_, err = os.Stdout.Write(data)
+	return err
 }
 
 func Associate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, trunkNetworkInterface, branchNetworkInterface string, idx int) error {
@@ -71,11 +78,17 @@ func Associate(ctx context.Context, instanceIdentityProvider identity.InstanceId
 		return errors.Wrap(err, "Could not associate trunk network interface")
 	}
 
-	marshaler := jsonpb.Marshaler{
-		EmitDefaults: true,
-		Indent:       "\t",
+	marshaler := protojson.MarshalOptions{
+		EmitUnpopulated: true,
+		Indent:          "\t",
 	}
-	return marshaler.Marshal(os.Stdout, ret)
+	data, err := marshaler.Marshal(ret)
+	if err != nil {
+		return err
+	}
+
+	_, err = os.Stdout.Write(data)
+	return err
 }
 
 func Disassociate(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, associationID string, force bool) error {
@@ -92,11 +105,17 @@ func Disassociate(ctx context.Context, instanceIdentityProvider identity.Instanc
 		return errors.Wrap(err, "Could not disassociate trunk network interface from branch ENI")
 	}
 
-	marshaler := jsonpb.Marshaler{
-		EmitDefaults: true,
-		Indent:       "\t",
+	marshaler := protojson.MarshalOptions{
+		EmitUnpopulated: true,
+		Indent:          "\t",
 	}
-	return marshaler.Marshal(os.Stdout, ret)
+	data, err := marshaler.Marshal(ret)
+	if err != nil {
+		return err
+	}
+
+	_, err = os.Stdout.Write(data)
+	return err
 }
 
 func Detach(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn) error {
@@ -117,9 +136,15 @@ func Detach(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 		return errors.Wrap(err, "Failed to describe trunk network interfaces")
 	}
 
-	marshaler := jsonpb.Marshaler{
-		EmitDefaults: true,
-		Indent:       "\t",
+	marshaler := protojson.MarshalOptions{
+		EmitUnpopulated: true,
+		Indent:          "\t",
 	}
-	return marshaler.Marshal(os.Stdout, ret)
+	data, err := marshaler.Marshal(ret)
+	if err != nil {
+		return err
+	}
+
+	_, err = os.Stdout.Write(data)
+	return err
 }

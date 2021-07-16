@@ -11,12 +11,12 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type Arguments struct {
@@ -49,24 +49,31 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 		logger.G(ctx).WithField("taskId", args.TaskID).Info("Setting task ID")
 	}
 
-	m := jsonpb.Marshaler{
+	m := protojson.MarshalOptions{
 		Indent: "\t",
 	}
 
 	allocation, err := doAllocateNetwork(ctx, instanceIdentityProvider, client, args)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to perform network allocation")
-		writeError := m.Marshal(os.Stdout, &vpcapi.VPCToolResult{
+		data, serializationError := m.Marshal(&vpcapi.VPCToolResult{
 			Result: &vpcapi.VPCToolResult_Error{
 				Error: &vpcapi.Error{
 					Error: err.Error(),
 				},
 			},
 		})
+
+		if serializationError != nil {
+			err = errors.Wrap(serializationError, err.Error())
+			return err
+		}
+
+		_, writeError := os.Stdout.Write(data)
 		if writeError != nil {
 			err = errors.Wrap(writeError, err.Error())
+			return err
 		}
-		return err
 	}
 
 	switch a := allocation.Assignment.(type) {
@@ -81,11 +88,17 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 	logger.G(ctx).Info("Network setup")
 
 	// We do an initial refresh just to "lick" the IPs, in case our allocation lasts a very short period.
-	err = m.Marshal(os.Stdout, &vpcapi.VPCToolResult{
+	data, err := m.Marshal(&vpcapi.VPCToolResult{
 		Result: &vpcapi.VPCToolResult_Assignment{
 			Assignment: allocation,
 		},
 	})
+	if err != nil {
+		return errors.Wrap(err, "Unable to serialize allocation record")
+	}
+
+	_, err = os.Stdout.Write(data)
+
 	if err != nil {
 		return errors.Wrap(err, "Unable to write allocation record")
 	}
