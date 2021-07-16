@@ -16,16 +16,16 @@ import (
 	"testing"
 	"time"
 
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	ccache "github.com/karlseguin/ccache/v2"
@@ -36,6 +36,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/assert"
 	is "gotest.tools/assert/cmp"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -777,14 +778,14 @@ func testGenerateAssignmentIDNewSG(ctx context.Context, t *testing.T, md integra
 		assignmentID:     fmt.Sprintf("testGenerateAssignmentID-%s-%s", t.Name(), uuid.New().String()),
 	}
 	_, err = service.generateAssignmentID(ctx, req)
-	assert.Error(t, err, "Could not find security group sg-f00")
+	assert.ErrorContains(t, err, "Could not find security group sg-f00")
 
 	_, err = service.generateAssignmentID(ctx, req)
 	assert.ErrorContains(t, err, "Could not find security group sg-f00; next lookup will be attempted")
 	service.invalidSecurityGroupCache.Delete("sg-f00")
 
 	_, err = service.generateAssignmentID(ctx, req)
-	assert.Error(t, err, "Could not find security group sg-f00")
+	assert.ErrorContains(t, err, "Could not find security group sg-f00")
 
 	// Let's make sure security groups can be populated at runtime correctly.
 	_, err = service.db.ExecContext(ctx, "DELETE FROM security_groups WHERE id = $1", id)
@@ -1086,7 +1087,7 @@ func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T,
 	assert.NilError(t, err)
 	t.Log(resp2)
 
-	assert.Assert(t, is.DeepEqual(resp.TransitionAssignment, resp2.TransitionAssignment))
+	assert.Assert(t, cmp.Diff(resp.TransitionAssignment, resp2.TransitionAssignment, protocmp.Transform()) == "")
 	row = service.db.QueryRowContext(ctx, "SELECT transition_last_used FROM assignments WHERE id = $1", ass.transitionAssignmentID)
 	assert.NilError(t, row.Scan(&lastUsed2))
 	assert.Assert(t, lastUsed2.After(lastUsed1))
