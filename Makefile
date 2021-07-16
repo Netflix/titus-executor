@@ -186,7 +186,7 @@ metadataserver/api/iam_grpc.pb.go metadataserver/api/iam.pb.go: metadataserver/p
 		--titusgo_out=metadataserver/api/ \
 		--titusgrpc_out=metadataserver/api/ \
 		--titusgo_opt=$(PROTO_MAP) \
-		--titusgrpc_out=$(PROTO_MAP) \
+		--titusgrpc_opt=$(PROTO_MAP) \
 		--titusgo_opt=module=github.com/Netflix/titus-executor/metadataserver/api \
 		--titusgrpc_opt=module=github.com/Netflix/titus-executor/metadataserver/api \
 		metadataserver/proto/iam.proto

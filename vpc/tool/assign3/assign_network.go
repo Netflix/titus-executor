@@ -141,9 +141,6 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	assignIPRequest := &vpcapi.AssignIPRequestV3{
 		TaskId:           args.TaskID,
 		SecurityGroupIds: args.SecurityGroups,
-		Ipv6: &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{
-			Ipv6AddressRequested: shouldAssignV6,
-		},
 		Subnets:          args.SubnetIds,
 		InstanceIdentity: instanceIdentity,
 		AccountID:        args.InterfaceAccount,
@@ -151,6 +148,12 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		Jumbo:            args.Jumbo,
 		Bandwidth:        args.Bandwidth,
 		Burst:            args.Burst,
+	}
+
+	if shouldAssignV6 {
+		assignIPRequest.Ipv6 = &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{
+			Ipv6AddressRequested: true,
+		}
 	}
 
 	if args.ElasticIPPool != "" {
@@ -179,6 +182,8 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		}
 	} else if shouldAssignV4 {
 		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true}
+	} else if args.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_TransitionRequested{}
 	} else {
 		logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Experimental: Not assigning IPv4")
 	}

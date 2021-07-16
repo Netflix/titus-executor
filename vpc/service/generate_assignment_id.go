@@ -4,10 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/google/uuid"
 	"math/rand"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -87,7 +88,8 @@ type assignment struct {
 	trunkENISession  *ec2wrapper.EC2Session
 	branchENISession *ec2wrapper.EC2Session
 
-	transitionAssignmentID int
+	transitionAssignmentID         int
+	transitionAssignmentHasAddress bool
 }
 
 func (a *assignment) String() string {
@@ -516,12 +518,6 @@ func populateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRe
 	ctx, span := trace.StartSpan(ctx, "populateAssignmentUsingAlreadyAttachedENI")
 	defer span.End()
 
-	// This is a hack. Temporary. Probably.
-	maxIPsOnENI := req.maxIPAddresses
-	if req.transitionAssignmentRequested {
-		maxIPsOnENI--
-	}
-
 	row := fastTx.QueryRowContext(ctx, `
 SELECT valid_branch_enis.branch_eni,
        valid_branch_enis.association_id,
@@ -548,7 +544,7 @@ FROM
      AND state = 'attached') valid_branch_enis
 WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
-LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), maxIPsOnENI)
+LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxIPAddresses)
 
 	err := row.Scan(&ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx, &ass.assignmentChangedSecurityGroups)
 	if err == nil {
@@ -632,6 +628,7 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 
 	var tid sql.NullInt64
 	if req.transitionAssignmentRequested {
+		var ipv4addr sql.NullString
 		transitionAssignmentName := fmt.Sprintf("t-%s", uuid.New().String())
 		_, err := fastTx.ExecContext(ctx,
 			"INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",
@@ -641,8 +638,8 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
-		row := fastTx.QueryRowContext(ctx, "SELECT id FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.associationID)
-		err = row.Scan(&ass.transitionAssignmentID)
+		row := fastTx.QueryRowContext(ctx, "SELECT id, ipv4addr FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.associationID)
+		err = row.Scan(&ass.transitionAssignmentID, &ipv4addr)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot select ID from transition assignments")
 			tracehelpers.SetStatus(err, span)
@@ -650,6 +647,9 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 		}
 		tid.Valid = true
 		tid.Int64 = int64(ass.transitionAssignmentID)
+		if ipv4addr.Valid {
+			ass.transitionAssignmentHasAddress = true
+		}
 	}
 
 	// We do this "trick", where we return the values in order to allow a trigger to change the values on write time

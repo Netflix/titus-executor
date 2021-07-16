@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -1021,7 +1023,6 @@ WHERE client_addr =
 	assert.Error(t, group.Wait(), context.Canceled.Error())
 }
 
-
 func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
 	item := &regionAccount{
 		region:    md.region,
@@ -1042,19 +1043,30 @@ func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T,
 	assert.NilError(t, err)
 
 	req := getENIRequest{
-		region:           md.region,
-		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
-		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
-		branchENIAccount: md.account,
-		subnet:           subnet,
-		securityGroups:   []string{md.defaultSecurityGroupID},
-		maxIPAddresses:   50,
-		maxBranchENIs:    2,
-		assignmentID: fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS--%s", uuid.New().String()),
+		region:                        md.region,
+		trunkENI:                      aws.StringValue(trunkENI.NetworkInterfaceId),
+		trunkENIAccount:               aws.StringValue(trunkENI.OwnerId),
+		branchENIAccount:              md.account,
+		subnet:                        subnet,
+		securityGroups:                []string{md.defaultSecurityGroupID},
+		maxIPAddresses:                50,
+		maxBranchENIs:                 2,
+		assignmentID:                  fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS--%s", uuid.New().String()),
 		transitionAssignmentRequested: true,
 	}
 
-	response, err := service.generateAssignmentID(ctx, req)
+	ass, err := service.generateAssignmentID(ctx, req)
 	assert.NilError(t, err)
-	t.Log(response)
+	assert.Assert(t, !ass.transitionAssignmentHasAddress)
+
+	assignIPv3Request := &vpcapi.AssignIPRequestV3{
+		TaskId:           req.assignmentID,
+		SecurityGroupIds: req.securityGroups,
+		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+		Ipv4:             &vpcapi.AssignIPRequestV3_TransitionRequested{},
+	}
+
+	resp, err := service.assignIPsToENI(ctx, assignIPv3Request, ass, 50)
+	assert.NilError(t, err)
+	t.Log(resp)
 }

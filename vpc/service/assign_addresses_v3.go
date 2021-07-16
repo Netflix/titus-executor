@@ -617,6 +617,8 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		}
 	}
 
+	_, transitionRequested := req.Ipv4.(*vpcapi.AssignIPRequestV3_TransitionRequested)
+
 	ass, err := vpcService.generateAssignmentID(ctx, getENIRequest{
 		region:           subnet.region,
 		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
@@ -632,12 +634,21 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		bandwidth: req.Bandwidth,
 		ceil:      maxBandwidth,
 		jumbo:     req.Jumbo,
+
+		transitionAssignmentRequested: transitionRequested,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return vpcService.assignIPsToENI(ctx, req, ass, maxIPAddresses, instance, trunkENI)
+	resp, err := vpcService.assignIPsToENI(ctx, req, ass, maxIPAddresses)
+	if err != nil {
+		err = fmt.Errorf("Could not assign IPs to ENI: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	resp.TrunkNetworkInterface = instanceNetworkInterface(*instance, *trunkENI)
+	return resp, nil
 }
 
 func addDefaultRoute(ctx context.Context, jumbo bool, ass *vpcapi.AssignIPResponseV3) {
@@ -668,37 +679,56 @@ func addDefaultRoute(ctx context.Context, jumbo bool, ass *vpcapi.AssignIPRespon
 			},
 		}
 	}
+
+	if ass.TransitionAssignment != nil {
+		// Transition assignment takes a slightly conservative stance
+		ass.TransitionAssignment.Routes = []*vpcapi.AssignIPResponseV3_Route{
+			{
+				Destination: "0.0.0.0/0",
+				Mtu:         1500,
+				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
+			},
+			{
+				Destination: "::/0",
+				Mtu:         1500,
+				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
+			},
+		}
+	}
 }
 
-func lockAssignment(ctx context.Context, tx *sql.Tx, assignmentID int) error {
+type sqlAssignment struct {
+	assignmentID string
+	ipv4addr     sql.NullString
+	ipv6addr     sql.NullString
+	cidr         string
+}
+
+func lockAssignment(ctx context.Context, tx *sql.Tx, assignmentID int) (*sqlAssignment, error) {
 	ctx, span := trace.StartSpan(ctx, "lockAssignment")
 	defer span.End()
 	span.AddAttributes(trace.Int64Attribute("assignmentID", int64(assignmentID)))
 
-	result, err := tx.ExecContext(ctx, "SELECT FROM assignments WHERE id = $1 FOR NO KEY UPDATE", assignmentID)
+	var ass sqlAssignment
+	row := tx.QueryRowContext(ctx, `
+SELECT assignment_id, cidr, ipv4addr, ipv6addr
+FROM assignments 
+JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
+JOIN subnets on branch_enis.subnet_id = subnets.subnet_id
+WHERE assignments.id = $1 FOR NO KEY UPDATE
+`, assignmentID)
+	err := row.Scan(&ass.assignmentID, &ass.cidr, &ass.ipv4addr, &ass.ipv6addr)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot select assignment for no key update")
 		tracehelpers.SetStatus(err, span)
-		return err
+		return nil, err
 	}
 
-	n, err := result.RowsAffected()
-	if err != nil {
-		err = errors.Wrap(err, "Cannot get rows affected by select assignment for no key update")
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
-	if n != 1 {
-		err = fmt.Errorf("Unexpected number of rows affected by select assignment for no key update: %d", n)
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
-	return nil
+	return &ass, nil
 }
 
-func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *assignment, maxIPAddresses int, instance *ec2.Instance, trunkENI *ec2.InstanceNetworkInterface) (*vpcapi.AssignIPResponseV3, error) {
+func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *assignment, maxIPAddresses int) (*vpcapi.AssignIPResponseV3, error) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "assignIPsToENI")
@@ -706,7 +736,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	span.AddAttributes(
 		trace.StringAttribute("eni", ass.branch.id),
 		trace.Int64Attribute("idx", int64(ass.branch.idx)),
-		trace.StringAttribute("trunk", aws.StringValue(trunkENI.NetworkInterfaceId)),
+		trace.StringAttribute("trunk", ass.trunk),
 		trace.StringAttribute("branch", ass.branch.id),
 	)
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
@@ -719,11 +749,21 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		_ = tx.Rollback()
 	}()
 
-	err = lockAssignment(ctx, tx, ass.assignmentID)
+	_, err = lockAssignment(ctx, tx, ass.assignmentID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot lock assignment")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
+	}
+
+	var transitionAss *sqlAssignment
+	if ass.transitionAssignmentID > 0 && !ass.transitionAssignmentHasAddress {
+		transitionAss, err = lockAssignment(ctx, tx, ass.assignmentID)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot lock transition assignment")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
 	}
 
 	// This locks the branch ENI making this whole process "exclusive"
@@ -766,11 +806,14 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		return nil, err
 	}
 
-	if s := aws.StringValue(iface.Status); s != "in-use" {
-		err = fmt.Errorf("Branch ENI not in expected status, instead: %q", s)
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
+	/*
+		TODO: Consider adding this back
+		if s := aws.StringValue(iface.Status); s != "in-use" {
+			err = fmt.Errorf("Branch ENI not in expected status, instead: %q", s)
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+	*/
 
 	resp := vpcapi.AssignIPResponseV3{
 		Bandwidth: &vpcapi.AssignIPResponseV3_Bandwidth{
@@ -786,10 +829,41 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 			return nil, err
 		}
 	case *vpcapi.AssignIPRequestV3_Ipv4AddressRequested:
-		if ipv4req.Ipv4AddressRequested {
-			resp.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, iface, maxIPAddresses, ass)
+		resp.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, iface, maxIPAddresses, ass.subnet.cidr, ass.branch, ass.branchENISession)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+	case *vpcapi.AssignIPRequestV3_TransitionRequested:
+		resp.TransitionAssignment = &vpcapi.AssignIPResponseV3_TransitionAssignment{
+			AssignmentId: transitionAss.assignmentID,
+		}
+		if transitionAss.ipv4addr.Valid {
+			_, ipnet, err := net.ParseCIDR(transitionAss.cidr)
 			if err != nil {
-				span.SetStatus(traceStatusFromError(err))
+				err = fmt.Errorf("Cannot parse cidr %q: %w", transitionAss.cidr, err)
+				tracehelpers.SetStatus(err, span)
+				return nil, err
+			}
+			prefixlength, _ := ipnet.Mask.Size()
+
+			resp.TransitionAssignment.Ipv4Address = &vpcapi.UsableAddress{
+				Address: &vpcapi.Address{
+					Address: transitionAss.ipv4addr.String,
+				},
+				PrefixLength: uint32(prefixlength),
+			}
+		} else {
+			resp.TransitionAssignment.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, iface, maxIPAddresses, transitionAss.cidr, ass.branch, ass.branchENISession)
+			if err != nil {
+				err = fmt.Errorf("Could not assign IPv4 address for transition assignment: %w", err)
+				tracehelpers.SetStatus(err, span)
+				return nil, err
+			}
+			_, err = tx.ExecContext(ctx, "UPDATE assignments SET ipv4addr = $1 WHERE id = $2", resp.TransitionAssignment.Ipv4Address.Address.Address, ass.transitionAssignmentID)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot update transition assignment with v4 addr")
+				tracehelpers.SetStatus(err, span)
 				return nil, err
 			}
 		}
@@ -823,6 +897,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 
 	switch ipv6req := (req.Ipv6).(type) {
 	case *vpcapi.AssignIPRequestV3_Ipv6AddressRequested:
+		// TODO: Remove
 		if ipv6req.Ipv6AddressRequested {
 			resp.Ipv6Address, err = assignArbitraryIPv6AddressV3(ctx, tx, iface, maxIPAddresses, ass)
 			if err != nil {
@@ -830,6 +905,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 				return nil, err
 			}
 		}
+	case *vpcapi.AssignIPRequestV3_NoIPv6AddressRequested:
 	}
 
 	if resp.Ipv6Address != nil {
@@ -857,7 +933,6 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		OwnerAccountId:     ass.branch.accountID,
 		VpcId:              ass.subnet.vpcID,
 	}
-	resp.TrunkNetworkInterface = instanceNetworkInterface(*instance, *trunkENI)
 	resp.VlanId = uint32(ass.branch.idx)
 
 	row = tx.QueryRowContext(ctx, `
@@ -872,7 +947,7 @@ WHERE id=
           WHERE trunk_eni = $2)
        AND assignment_id IS NULL
      ORDER BY RANDOM()
-     LIMIT 1) RETURNING class_id`, ass.assignmentID, aws.StringValue(trunkENI.NetworkInterfaceId))
+     LIMIT 1) RETURNING class_id`, ass.assignmentID, ass.trunk)
 	err = row.Scan(&resp.ClassId)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to update / set class id for allocation")
@@ -1149,19 +1224,19 @@ func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	}, nil
 }
 
-func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2.NetworkInterface, maxIPAddresses int, ass *assignment) (*vpcapi.UsableAddress, error) {
+func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2.NetworkInterface, maxIPAddresses int, cidr string, branch branchENI, branchENISession *ec2wrapper.EC2Session) (*vpcapi.UsableAddress, error) {
 	ctx, span := trace.StartSpan(ctx, "assignArbitraryIPv4Address")
 	defer span.End()
-	_, ipnet, err := net.ParseCIDR(ass.subnet.cidr)
+	_, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot parse cidr %s", ass.subnet.cidr)
+		err = errors.Wrapf(err, "Cannot parse cidr %s", cidr)
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 	prefixlength, _ := ipnet.Mask.Size()
 
 	usedIPAddresses := sets.NewString()
-	rows, err := tx.QueryContext(ctx, "SELECT ipv4addr FROM assignments WHERE ipv4addr IS NOT NULL AND branch_eni_association = $1", ass.branch.associationID)
+	rows, err := tx.QueryContext(ctx, "SELECT ipv4addr FROM assignments WHERE ipv4addr IS NOT NULL AND branch_eni_association = $1", branch.associationID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot query ipv4addrs already assigned to interface")
 		span.SetStatus(traceStatusFromError(err))
@@ -1250,7 +1325,7 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 		SecondaryPrivateIpAddressCount: aws.Int64(int64(ipsToAssign)),
 	}
 
-	output, err := ass.branchENISession.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput)
+	output, err := branchENISession.AssignPrivateIPAddresses(ctx, assignPrivateIPAddressesInput)
 	if err != nil {
 		err = ec2wrapper.HandleEC2Error(err, span)
 		return nil, err

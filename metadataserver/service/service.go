@@ -12,14 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/metadataserver"
 	iamapi "github.com/Netflix/titus-executor/metadataserver/api"
 	"github.com/Netflix/titus-executor/services"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
@@ -39,6 +36,7 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -94,11 +92,6 @@ func (s *service) AssumeRole(ctx context.Context, request *iamapi.AssumeRoleRequ
 
 	logger.G(ctx).WithField("accesskey", aws.StringValue(role.Credentials.AccessKeyId)).Info("Successfully assumed role")
 	expiration := timestamppb.New(aws.TimeValue(role.Credentials.Expiration))
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could not convert AWS credential expiration time into real time")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
 
 	return &iamapi.AssumeRoleResponse{
 		AssumedRoleUser: &iamapi.AssumeRoleResponse_AssumedRoleUser{
