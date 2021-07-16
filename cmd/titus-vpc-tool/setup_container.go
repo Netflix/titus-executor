@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Netflix/titus-executor/vpc/tool/containerccas"
+
 	"github.com/Netflix/titus-executor/vpc/tool/container2"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
@@ -19,6 +21,8 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 			switch strings.ToLower(v.GetString(generationFlagName)) {
 			case "v2", "v3":
 				return container2.SetupContainer(ctx, iipGetter(), netns)
+			case "ccas":
+				return containerccas.SetupContainer(ctx, netns)
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}

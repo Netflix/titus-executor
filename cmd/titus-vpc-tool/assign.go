@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Netflix/titus-executor/vpc/tool/assignccas"
+
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/vpc/tool/assign3"
 	"github.com/spf13/cobra"
@@ -16,13 +18,13 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 		Use:   "assign",
 		Short: "assign an IP (or set of IPs) to this interface",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			conn, err := getConnection(ctx, v)
-			if err != nil {
-				return err
-			}
-
 			switch strings.ToLower(v.GetString(generationFlagName)) {
 			case "v3":
+				conn, err := getConnection(ctx, v)
+				if err != nil {
+					return err
+				}
+
 				return assign3.Assign(ctx,
 					iipGetter(),
 					conn,
@@ -41,6 +43,10 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						NetworkMode:        v.GetString("network-mode"),
 					},
 				)
+			case "ccas":
+				return assignccas.Assign(ctx, assignccas.Arguments{
+					TaskID: v.GetString("task-id"),
+				})
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}

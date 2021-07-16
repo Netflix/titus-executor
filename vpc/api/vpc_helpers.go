@@ -10,6 +10,8 @@ func (m *Assignment) IPV4Address() *UsableAddress {
 	switch t := (m.Assignment).(type) {
 	case *Assignment_AssignIPResponseV3:
 		return t.AssignIPResponseV3.Ipv4Address
+	case *Assignment_Ccas:
+		return t.Ccas.Ipv4Address
 	default:
 		panic(fmt.Sprintf("Found unexpected type: %T", t))
 	}
@@ -22,6 +24,8 @@ func (m *Assignment) IPV6Address() *UsableAddress {
 	switch t := (m.Assignment).(type) {
 	case *Assignment_AssignIPResponseV3:
 		return t.AssignIPResponseV3.Ipv6Address
+	case *Assignment_Ccas:
+		return nil
 	default:
 		panic(fmt.Sprintf("Found unexpected type: %T", t))
 	}
@@ -34,6 +38,15 @@ func (m *Assignment) ContainerENI() *NetworkInterface {
 	switch t := (m.Assignment).(type) {
 	case *Assignment_AssignIPResponseV3:
 		return t.AssignIPResponseV3.BranchNetworkInterface
+	case *Assignment_Ccas:
+		return &NetworkInterface{
+			SubnetId:           "",
+			AvailabilityZone:   "",
+			MacAddress:         "",
+			NetworkInterfaceId: "",
+			OwnerAccountId:     "",
+			VpcId:              "",
+		}
 	default:
 		panic(fmt.Sprintf("Found unexpected type: %T", t))
 	}
@@ -46,6 +59,8 @@ func (m *Assignment) DeviceIndex() int {
 	switch t := (m.Assignment).(type) {
 	case *Assignment_AssignIPResponseV3:
 		return int(t.AssignIPResponseV3.VlanId)
+	case *Assignment_Ccas:
+		return int(t.Ccas.Vlan)
 	default:
 		panic(fmt.Sprintf("Found unexpected type: %T", t))
 	}
@@ -58,6 +73,8 @@ func (m *Assignment) ElasticAddress() *ElasticAddress {
 	switch t := (m.Assignment).(type) {
 	case *Assignment_AssignIPResponseV3:
 		return t.AssignIPResponseV3.ElasticAddress
+	case *Assignment_Ccas:
+		return nil
 	default:
 		panic(fmt.Sprintf("Found unexpected type: %T", t))
 	}

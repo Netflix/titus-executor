@@ -188,7 +188,13 @@ message Error {
 message Assignment {
     oneof assignment {
         AssignIPResponseV3 assignIPResponseV3 = 1;
+        CCAS ccas = 2;
     }
+}
+
+message CCAS {
+    UsableAddress ipv4address = 1;
+    uint32 vlan = 2;
 }
 
 // This is the serialized output of the VPC Tool

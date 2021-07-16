@@ -984,6 +984,7 @@ func (c *TitusInfoContainer) SetSystemD(isSystemD bool) {
 func (c *TitusInfoContainer) SetVPCAllocation(allocation *vpcapi.Assignment) {
 	switch allocation.Assignment.(type) {
 	case *vpcapi.Assignment_AssignIPResponseV3:
+	case *vpcapi.Assignment_Ccas:
 	default:
 		panic(fmt.Errorf("Invalid assignment %v", allocation))
 	}

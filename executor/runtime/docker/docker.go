@@ -367,7 +367,7 @@ func (r *DockerRuntime) computeDNSServers() []string {
 		return []string{"fd00:ec2::253"}
 	default:
 		// Any other situation means we can return the classic v4 resolver
-		return []string{"169.254.169.253"}
+		return []string{"192.168.215.230", "192.168.212.21"}
 	}
 }
 
