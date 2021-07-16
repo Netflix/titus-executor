@@ -3,15 +3,14 @@ package main
 import (
 	"context"
 	"os"
-	"time"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
-	"github.com/golang/protobuf/ptypes" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
 	"golang.org/x/crypto/ed25519"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func generateKeyCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
@@ -26,11 +25,7 @@ func generateKeyCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 			if err != nil {
 				return errors.Wrap(err, "Could not generate key")
 			}
-			now := time.Now()
-			pnow, err := ptypes.TimestampProto(now)
-			if err != nil {
-				return errors.Wrap(err, "Could not format protobuf timestamp")
-			}
+			pnow := timestamppb.Now()
 
 			_, db, err := newConnection(ctx, v)
 			if err != nil {
@@ -39,7 +34,7 @@ func generateKeyCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 
 			_, err = db.ExecContext(ctx,
 				"INSERT INTO trusted_public_keys(key, hostname, created_at, keytype) VALUES ($1, $2, $3, 'ed25519')",
-				publickey, hostname, now)
+				publickey, hostname, pnow.AsTime())
 			if err != nil {
 				return errors.Wrap(err, "Could not store key in DB")
 			}

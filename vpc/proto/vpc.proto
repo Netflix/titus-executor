@@ -6,7 +6,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "netflix/titus/titus_base.proto";
 
-option go_package = "vpcapi";
+option go_package = "github.com/Netflix/titus-executor/vpc/api";
 
 message Address {
     string address = 1;

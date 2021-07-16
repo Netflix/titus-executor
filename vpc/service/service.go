@@ -101,6 +101,12 @@ type vpcService struct {
 
 	subnetCacheExpirationTime time.Duration
 	concurrentRequests        *semaphore.Weighted
+
+	// PB Services:
+	vpcapi.TitusAgentVPCServiceServer
+	titus.UserIPServiceServer
+	titus.ValidatorIPServiceServer
+	titus.TitusAgentVPCInformationServiceServer
 }
 
 // trunkTrackerCache keeps track of trunk ENIs, and at least locally (on-instance) tries to reduce contention for operations

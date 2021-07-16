@@ -14,14 +14,14 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -291,8 +291,8 @@ func ContainerConfig(c Container, startTime time.Time) (*titus.ContainerInfo, er
 		// parsing it: this matches how the entrypoint is signed in the first place.
 		//
 		// See Container's Process() method for more details.
-		if ti.EntrypointStr != nil {
-			entrypoint = append(entrypoint, *ti.EntrypointStr)
+		if ti.EntrypointStr != nil { // nolint:staticcheck
+			entrypoint = append(entrypoint, *ti.EntrypointStr) // nolint:staticcheck
 		} else {
 			entrypoint, cmd = c.Process()
 		}

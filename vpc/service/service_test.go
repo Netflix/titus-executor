@@ -10,13 +10,11 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc"
-
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/golang/protobuf/ptypes"
 	"golang.org/x/crypto/ed25519"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gotest.tools/assert"
 )
 
@@ -31,7 +29,7 @@ func TestService(t *testing.T) {
 
 	key := vpcapi.PrivateKey{
 		Hostname:  "",
-		Generated: ptypes.TimestampNow(),
+		Generated: timestamppb.Now(),
 		Key: &vpcapi.PrivateKey_Ed25519Key_{
 			Ed25519Key: &vpcapi.PrivateKey_Ed25519Key{
 				Rfc8032Key: privatekey.Seed(),

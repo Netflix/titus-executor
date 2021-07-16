@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -40,7 +42,6 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -760,7 +761,7 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 	if err != nil {
 		errs = multierror.Append(errs, fmt.Errorf("Could not read from stdout pipe: %w", err))
 	} else {
-		err = jsonpb.UnmarshalString(string(data), &result)
+		err = protojson.Unmarshal(data, &result)
 		if err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("Could not read / deserialize JSON (%s) from assignment command: %w", string(data), err))
 		}
@@ -2102,13 +2103,18 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 		return nil, errors.Wrap(err, "Could not start setup command")
 	}
 
-	allocation := *c.VPCAllocation()
-	marshaler := jsonpb.Marshaler{
+	allocation := c.VPCAllocation()
+	marshaler := protojson.MarshalOptions{
 		Indent: "\t",
 	}
-
-	if err := marshaler.Marshal(stdin, &allocation); err != nil {
+	data, err := marshaler.Marshal(allocation)
+	if err != nil {
 		return nil, err
+	}
+
+	_, err = stdin.Write(data)
+	if err != nil {
+		return nil, fmt.Errorf("Could not write data to stdin pipe of setup container: %w", err)
 	}
 
 	if err := json.NewDecoder(stdout).Decode(&result); err != nil {
@@ -2129,7 +2135,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 
 }
 
-func teardownCommand(netnsFile *os.File, allocation vpcapi.Assignment) error {
+func teardownCommand(netnsFile *os.File, allocation *vpcapi.Assignment) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	defer shouldClose(netnsFile)
@@ -2149,12 +2155,17 @@ func teardownCommand(netnsFile *os.File, allocation vpcapi.Assignment) error {
 		return errors.Wrap(err, "Could not start teardown command")
 	}
 
-	marshaler := jsonpb.Marshaler{
+	marshaler := protojson.MarshalOptions{
 		Indent: "\t",
 	}
-	err = marshaler.Marshal(stdin, &allocation)
+	data, err := marshaler.Marshal(allocation)
 	if err != nil {
 		return errors.Wrap(err, "Unable to encode allocation for teardown command")
+	}
+
+	_, err = stdin.Write(data)
+	if err != nil {
+		return fmt.Errorf("Unable to write allocation to stdin of teardown command: %w", err)
 	}
 
 	err = teardownCommand.Wait()

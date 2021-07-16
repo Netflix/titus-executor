@@ -1,4 +1,4 @@
-package vpcapi
+package api
 
 import "fmt"
 

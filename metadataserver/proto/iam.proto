@@ -1,7 +1,7 @@
 syntax = "proto3";
 package com.netflix.titus.executor.metadataserver;
 
-option go_package = "iamapi";
+option go_package = "github.com/Netflix/titus-executor/metadataserver/api";
 import "google/protobuf/timestamp.proto";
 
 message AssumeRoleRequest {
