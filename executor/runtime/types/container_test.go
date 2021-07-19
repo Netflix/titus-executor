@@ -198,6 +198,7 @@ func TestMetatronEnabled(t *testing.T) {
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
 			BandwidthLimitMbps: &expectedNetwork,
 		},
+		MetatronCreds:    &titus.ContainerInfo_MetatronCreds{},
 		AllowCpuBursting: &batch,
 		IamProfile:       protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
 	}

@@ -1234,7 +1234,7 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 
 	env["TITUS_IAM_ROLE"] = ptr.StringPtrDerefOr(c.IamRole(), "")
 
-	if config.MetatronEnabled {
+	if config.MetatronEnabled && c.MetatronCreds() != nil {
 		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron
 		env[metadataserverTypes.TitusMetatronVariableName] = True
 	} else {

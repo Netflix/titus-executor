@@ -328,7 +328,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		"TITUS_IMAGE_DIGEST":                imgDigest,
 		"TITUS_IMAGE_NAME":                  "titusoss/alpine",
 		"TITUS_IMDS_REQUIRE_TOKEN":          "token",
-		"TITUS_METATRON_ENABLED":            True,
+		"TITUS_METATRON_ENABLED":            False,
 		"TITUS_NUM_CPU":                     "2",
 		"TITUS_NUM_DISK":                    "10000",
 		"TITUS_NUM_GPU":                     "1",
@@ -574,6 +574,20 @@ func TestNewPodContainerMetatronDisabled(t *testing.T) {
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.Env()["TITUS_METATRON_ENABLED"], "false")
+}
+
+func TestNewPodContainerMetatronDisabledWhenNoCreds(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	cInfo, err := c.ContainerInfo()
+	assert.NilError(t, err)
+	creds := cInfo.GetMetatronCreds()
+	assert.Equal(t, creds == nil, true)
+	assert.Equal(t, c.Env()["TITUS_METATRON_ENABLED"], "false")
+	assert.Equal(t, shouldStartMetatronSync(conf, c), false)
 }
 
 func TestPodContainerClusterName(t *testing.T) {
@@ -1368,7 +1382,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 		JobGroupSequence: ptr.StringPtr(""),
 		JobGroupStack:    ptr.StringPtr(""),
 		JobGroupDetail:   ptr.StringPtr(""),
-		MetatronCreds:    &titus.ContainerInfo_MetatronCreds{},
+		MetatronCreds:    nil,
 		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
 			EniLablel:      ptr.StringPtr("0"),
 			SecurityGroups: []string{},
