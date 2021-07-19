@@ -87,6 +87,7 @@ func NewConfig() (*Config, []cli.Flag) {
 			"EC2_INSTANCE_ID",
 			"EC2_REGION",
 			"EC2_AVAILABILITY_ZONE",
+			"EC2_AVAILABILITY_ZONE_ID",
 			"EC2_OWNER_ID",
 			"EC2_RESERVATION_ID",
 		},
