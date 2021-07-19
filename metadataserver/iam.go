@@ -71,39 +71,41 @@ var (
 func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration, conn *grpc.ClientConn) *iamProxy {
 	/* This will automatically use *our* metadata proxy to setup the IAM role. */
 
-	s := session.Must(session.NewSession())
 	var stsClient *sts.STS
 	var iamServiceClient iamapi.IAMClient
 	// Prefer building a metadata service client
 	if conn != nil {
 		iamServiceClient = iamapi.NewIAMClient(conn)
-	} else if config.Region != "" {
-		endpoint := fmt.Sprintf("sts.%s.amazonaws.com", config.Region)
-		if config.STSEndpoint != "" {
-			endpoint = config.STSEndpoint
-		}
-
-		// Explicitly pass credentials indicating that we want to use the metadata service only,
-		// so that it doesn't pick up on environment variables or credential files
-		creds := ec2rolecreds.NewCredentialsWithClient(
-			ec2metadata.New(s, &aws.Config{
-				Endpoint: aws.String(config.BackingMetadataServer.String()),
-			}))
-
-		stsAwsCfg := aws.NewConfig().
-			WithRegion(config.Region).
-			WithEndpoint(endpoint).
-			WithCredentials(creds)
-
-		if config.STSHTTPClient != nil {
-			stsAwsCfg.HTTPClient = config.STSHTTPClient
-		}
-
-		c := s.ClientConfig(sts.EndpointsID, stsAwsCfg)
-		log.WithField("region", config.Region).WithField("endpoint", c.Endpoint).Info("Configure STS client with region")
-		stsClient = sts.New(s, stsAwsCfg)
 	} else {
-		stsClient = sts.New(s)
+		s := session.Must(session.NewSession())
+		if config.Region != "" {
+			endpoint := fmt.Sprintf("sts.%s.amazonaws.com", config.Region)
+			if config.STSEndpoint != "" {
+				endpoint = config.STSEndpoint
+			}
+
+			// Explicitly pass credentials indicating that we want to use the metadata service only,
+			// so that it doesn't pick up on environment variables or credential files
+			creds := ec2rolecreds.NewCredentialsWithClient(
+				ec2metadata.New(s, &aws.Config{
+					Endpoint: aws.String(config.BackingMetadataServer.String()),
+				}))
+
+			stsAwsCfg := aws.NewConfig().
+				WithRegion(config.Region).
+				WithEndpoint(endpoint).
+				WithCredentials(creds)
+
+			if config.STSHTTPClient != nil {
+				stsAwsCfg.HTTPClient = config.STSHTTPClient
+			}
+
+			c := s.ClientConfig(sts.EndpointsID, stsAwsCfg)
+			log.WithField("region", config.Region).WithField("endpoint", c.Endpoint).Info("Configure STS client with region")
+			stsClient = sts.New(s, stsAwsCfg)
+		} else {
+			stsClient = sts.New(s)
+		}
 	}
 
 	defaultRoleProxy := newRoleProxy(ctx, config.IAMARN, config.TitusTaskInstanceID, stsClient, iamServiceClient)
