@@ -13,8 +13,8 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
-	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
@@ -44,9 +44,6 @@ func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
 }
 
 func (ms *MetadataServer) generateTaskPodIdentity() (*titus.TaskPodIdentity, error) {
-	s := int64(time.Now().Second())     // from 'int'
-	n := int32(time.Now().Nanosecond()) // from 'int'
-	now := &timestamp.Timestamp{Seconds: s, Nanos: n}
 	taskStatus := titus.TaskInfo_RUNNING
 
 	if ms.pod == nil {
@@ -65,7 +62,7 @@ func (ms *MetadataServer) generateTaskPodIdentity() (*titus.TaskPodIdentity, err
 			HostName:    ms.container.RunState.HostName,
 			Status:      &taskStatus,
 		},
-		RequestTimestamp: now,
+		RequestTimestamp: timestamppb.Now(),
 	}
 
 	if ms.ipv4Address != nil {

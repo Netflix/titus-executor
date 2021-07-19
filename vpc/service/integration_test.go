@@ -19,11 +19,13 @@ import (
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	ccache "github.com/karlseguin/ccache/v2"
@@ -34,6 +36,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/assert"
 	is "gotest.tools/assert/cmp"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -120,6 +123,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
 	runIntegrationTest(t, "testActionWorker", testActionWorker)
 	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
+	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
 }
 
 type zipkinReporter struct {
@@ -774,14 +778,14 @@ func testGenerateAssignmentIDNewSG(ctx context.Context, t *testing.T, md integra
 		assignmentID:     fmt.Sprintf("testGenerateAssignmentID-%s-%s", t.Name(), uuid.New().String()),
 	}
 	_, err = service.generateAssignmentID(ctx, req)
-	assert.Error(t, err, "Could not find security group sg-f00")
+	assert.ErrorContains(t, err, "Could not find security group sg-f00")
 
 	_, err = service.generateAssignmentID(ctx, req)
 	assert.ErrorContains(t, err, "Could not find security group sg-f00; next lookup will be attempted")
 	service.invalidSecurityGroupCache.Delete("sg-f00")
 
 	_, err = service.generateAssignmentID(ctx, req)
-	assert.Error(t, err, "Could not find security group sg-f00")
+	assert.ErrorContains(t, err, "Could not find security group sg-f00")
 
 	// Let's make sure security groups can be populated at runtime correctly.
 	_, err = service.db.ExecContext(ctx, "DELETE FROM security_groups WHERE id = $1", id)
@@ -1018,4 +1022,73 @@ WHERE client_addr =
 
 	cancel()
 	assert.Error(t, group.Wait(), context.Canceled.Error())
+}
+
+func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	item := &regionAccount{
+		region:    md.region,
+		accountID: md.account,
+	}
+	reconcileTrunkENILongLivedTask := service.reconcileTrunkENIsLongLivedTask()
+	assert.NilError(t, service.preemptLock(ctx, item, reconcileTrunkENILongLivedTask))
+
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
+	}()
+
+	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
+
+	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	assert.NilError(t, err)
+
+	req := getENIRequest{
+		region:                        md.region,
+		trunkENI:                      aws.StringValue(trunkENI.NetworkInterfaceId),
+		trunkENIAccount:               aws.StringValue(trunkENI.OwnerId),
+		branchENIAccount:              md.account,
+		subnet:                        subnet,
+		securityGroups:                []string{md.defaultSecurityGroupID},
+		maxIPAddresses:                50,
+		maxBranchENIs:                 2,
+		assignmentID:                  fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS-1-%s", uuid.New().String()),
+		transitionAssignmentRequested: true,
+	}
+
+	ass, err := service.generateAssignmentID(ctx, req)
+	assert.NilError(t, err)
+
+	resp, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
+		TaskId:           req.assignmentID,
+		SecurityGroupIds: req.securityGroups,
+		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+		Ipv4:             &vpcapi.AssignIPRequestV3_TransitionRequested{},
+	}, ass, 50)
+	assert.NilError(t, err)
+	t.Log(resp)
+
+	var lastUsed1, lastUsed2 time.Time
+	row := service.db.QueryRowContext(ctx, "SELECT transition_last_used FROM assignments WHERE id = $1", ass.transitionAssignmentID)
+	assert.NilError(t, row.Scan(&lastUsed1))
+	assert.Assert(t, !lastUsed1.IsZero())
+
+	// Reset the assignment ID on req.
+	req.assignmentID = fmt.Sprintf("testGenerateAssignmentIDWithTransitionNS-2-%s", uuid.New().String())
+	ass2, err := service.generateAssignmentID(ctx, req)
+	assert.NilError(t, err)
+	assert.Assert(t, ass.transitionAssignmentID == ass2.transitionAssignmentID)
+	resp2, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
+		TaskId:           req.assignmentID,
+		SecurityGroupIds: req.securityGroups,
+		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+		Ipv4:             &vpcapi.AssignIPRequestV3_TransitionRequested{},
+	}, ass2, 50)
+	assert.NilError(t, err)
+	t.Log(resp2)
+
+	assert.Assert(t, cmp.Diff(resp.TransitionAssignment, resp2.TransitionAssignment, protocmp.Transform()) == "")
+	row = service.db.QueryRowContext(ctx, "SELECT transition_last_used FROM assignments WHERE id = $1", ass.transitionAssignmentID)
+	assert.NilError(t, row.Scan(&lastUsed2))
+	assert.Assert(t, lastUsed2.After(lastUsed1))
 }

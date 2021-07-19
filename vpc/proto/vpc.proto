@@ -106,10 +106,12 @@ message AssignIPRequestV3 {
     repeated string securityGroupIds = 2;
     oneof ipv6 {
         bool ipv6AddressRequested = 3;
+        google.protobuf.Empty noIPv6AddressRequested = 19;
     }
     oneof ipv4 {
         bool ipv4AddressRequested = 4;
         com.netflix.titus.SignedAddressAllocation ipv4SignedAddressAllocation = 5;
+        google.protobuf.Empty transitionRequested = 17;
     }
     repeated string subnets = 7;
     // This identifies the trunk ENI
@@ -157,6 +159,13 @@ message AssignIPResponseV3 {
         // burst is the HTB class's ceil in bits per second
         uint64 burst = 2;
     }
+    message TransitionAssignment {
+        string assignmentId = 1;
+        // TODO: Add mark.
+        repeated Route routes = 2;
+        UsableAddress ipv4address = 3;
+    }
+
     UsableAddress ipv4address = 1;
     UsableAddress ipv6address = 2;
     NetworkInterface branchNetworkInterface = 3;
@@ -168,6 +177,7 @@ message AssignIPResponseV3 {
     // assigned.
     repeated Route routes = 9;
     Bandwidth bandwidth = 10;
+    TransitionAssignment transitionAssignment = 11;
 };
 
 message Error {

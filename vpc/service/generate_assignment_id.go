@@ -8,6 +8,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
@@ -65,6 +67,8 @@ type getENIRequest struct {
 	jumbo     bool
 	bandwidth uint64
 	ceil      uint64
+
+	transitionAssignmentRequested bool
 }
 
 type assignment struct {
@@ -83,10 +87,12 @@ type assignment struct {
 
 	trunkENISession  *ec2wrapper.EC2Session
 	branchENISession *ec2wrapper.EC2Session
+
+	transitionAssignmentID int
 }
 
 func (a *assignment) String() string {
-	return fmt.Sprintf("Assignment{Name:%s, ID:%d, branch:%s, assoc:%s}", a.assignmentName, a.assignmentID, a.branch.id, a.branch.associationID)
+	return fmt.Sprintf("Assignment{Name:%s, ID:%d, branch:%s, assoc:%s, transitionAssignmentID: %d}", a.assignmentName, a.assignmentID, a.branch.id, a.branch.associationID, a.transitionAssignmentID)
 }
 
 // TODO: Consider breaking this into its own module
@@ -619,11 +625,36 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 		trace.BoolAttribute("dirtySecurityGroups", ass.assignmentChangedSecurityGroups),
 	)
 
+	var tid sql.NullInt64
+	if req.transitionAssignmentRequested {
+		var ipv4addr sql.NullString
+		transitionAssignmentName := fmt.Sprintf("t-%s", uuid.New().String())
+		_, err := fastTx.ExecContext(ctx,
+			"INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used) VALUES ($1, $2, true, now()) ON CONFLICT (branch_eni_association) WHERE is_transition_assignment DO UPDATE SET transition_last_used = now()",
+			ass.branch.associationID, transitionAssignmentName)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot insert transition assignment")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+
+		// This should never error because we just did an insert above that should be a noop.
+		row := fastTx.QueryRowContext(ctx, "SELECT id, ipv4addr FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.associationID)
+		err = row.Scan(&ass.transitionAssignmentID, &ipv4addr)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot select ID from transition assignments")
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		tid.Valid = true
+		tid.Int64 = int64(ass.transitionAssignmentID)
+	}
+
 	// We do this "trick", where we return the values in order to allow a trigger to change the values on write time
 	// for A/B tests.
 	row := fastTx.QueryRowContext(ctx,
-		"INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil) VALUES ($1, $2, $3, $4, $5) RETURNING id, jumbo, bandwidth, ceil",
-		ass.branch.associationID, req.assignmentID, req.jumbo, req.bandwidth, req.ceil)
+		"INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil, transition_assignment) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, jumbo, bandwidth, ceil",
+		ass.branch.associationID, req.assignmentID, req.jumbo, req.bandwidth, req.ceil, tid)
 	err := row.Scan(&ass.assignmentID, &req.jumbo, &req.bandwidth, &req.ceil)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan row / insert into assignments")

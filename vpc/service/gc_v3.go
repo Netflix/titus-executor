@@ -125,6 +125,7 @@ JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_e
 WHERE trunk_eni = $1
 AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
 AND assignments.created_at < now() - INTERVAL '5 minutes'
+AND NOT assignments.is_transition_assignment
 `, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	if err != nil {
 		err = errors.Wrap(err, "Could not fetch assignments")
