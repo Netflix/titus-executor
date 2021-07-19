@@ -41,19 +41,3 @@ func SetupContainer(ctx context.Context, instanceIdentityProvider identity.Insta
 	}
 	return nil
 }
-
-func TeardownContainer(ctx context.Context, netnsfd int) error {
-	var assignment vpcapi.Assignment
-	err := jsonpb.Unmarshal(os.Stdin, &assignment)
-	if err != nil {
-		return errors.Wrap(err, "Unable to read allocation")
-	}
-
-	switch t := assignment.Assignment.(type) {
-	case *vpcapi.Assignment_AssignIPResponseV3:
-		return DoTeardownContainer(ctx, t.AssignIPResponseV3, netnsfd)
-	default:
-		return fmt.Errorf("Unknown assignment type received: %t", t)
-	}
-
-}

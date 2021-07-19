@@ -5,17 +5,18 @@ package containerccas
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"net"
+	"time"
+
 	"github.com/Netflix/titus-executor/logger"
+	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/apparentlymart/go-cidr/cidr"
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
-	"math/rand"
-	"net"
-	"time"
-	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	"github.com/Netflix/titus-executor/vpc/types"
 )
 
 func getVLANLink(ctx context.Context, assignment *vpcapi.CCAS) (netlink.Link, error) {
@@ -98,13 +99,12 @@ func DoSetupContainer(ctx context.Context, netnsfd int, allocation *vpcapi.CCAS)
 	return configureLink(ctx, nsHandle, newLink, allocation, netnsfd)
 }
 
-
 func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, allocation *vpcapi.CCAS, netnsfd int) error {
 	// Rename link
-	err := nsHandle.LinkSetName(link, "ethX")
+	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to set link name")
-		return errors.Wrapf(err, "Unable to rename link from %s to ethX", link.Attrs().Name)
+		return errors.Wrapf(err, "Unable to rename link from %s to eth0", link.Attrs().Name)
 	}
 	err = nsHandle.LinkSetUp(link)
 	if err != nil {
@@ -135,9 +135,9 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		Gw:        gateway.To4(),
 		Src:       ip,
 		LinkIndex: link.Attrs().Index,
-		Dst:      dst,
+		Dst:       dst,
 		// TODO: Consider adding this back?
-//		MTU:       int(route.Mtu),
+		//		MTU:       int(route.Mtu),
 	}
 	err = nsHandle.RouteAdd(&newRoute)
 	if err != nil {
@@ -145,14 +145,38 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return fmt.Errorf("Unable to add route %v to link due to: %w", newRoute, err)
 	}
 
-
 	return nil
 }
 
-func DoTeardownContainer(ctx context.Context, allocation *vpcapi.CCAS, netnsfd int) error {
-	return types.ErrUnsupported
-}
+func DoTeardownContainer(ctx context.Context, assignment *vpcapi.CCAS, netnsfd int) error {
+	var result *multierror.Error
+	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
+	if err != nil {
+		err = errors.Wrap(err, "Could not open handle to netnsfd")
+		result = multierror.Append(result, err)
+	} else {
+		link, err := nsHandle.LinkByName("eth0")
+		if err != nil {
+			_, ok := err.(*netlink.LinkNotFoundError)
+			if !ok {
+				err = errors.Wrap(err, "Could not find link eth0 in container network namespace")
+				result = multierror.Append(result, err)
+			} else {
+				logger.G(ctx).WithError(err).Warning("eth0 not found in container on get link by name")
+			}
+		} else {
+			linkDelErr := nsHandle.LinkDel(link)
+			if linkDelErr != nil {
+				_, ok := linkDelErr.(*netlink.LinkNotFoundError)
+				if !ok {
+					result = multierror.Append(result, linkDelErr)
+				} else {
+					logger.G(ctx).WithError(err).Warning("eth0 not found in container on delete")
+				}
+			}
+		}
+		nsHandle.Delete()
+	}
 
-func TeardownNetwork(ctx context.Context, allocation *vpcapi.CCAS) error {
-	return types.ErrUnsupported
+	return result.ErrorOrNil()
 }

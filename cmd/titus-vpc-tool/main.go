@@ -32,6 +32,7 @@ const (
 	// which generation of titus-vpc-tool version to use, it must be set to 1 or 2
 	generationFlagName     = "generation"
 	generationDefaultValue = "v0"
+	generationCCAS         = "ccas"
 	interaceSubnet         = "interface-subnet"
 	interfaceAccount       = "interface-account"
 	sslCAFlagName          = "ssl-ca"

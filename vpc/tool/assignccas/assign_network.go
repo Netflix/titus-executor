@@ -3,6 +3,7 @@ package assignccas
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
 
@@ -82,12 +83,16 @@ func doAllocateNetwork(ctx context.Context, args Arguments) (*vpcapi.Assignment,
 	span.AddAttributes(trace.Int64Attribute("pid", int64(os.Getpid())))
 	_ = ctx
 
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
+	lastOctet := r.Intn(250) + 2
+	ip := fmt.Sprintf("10.51.40.%d", lastOctet)
+
 	return &vpcapi.Assignment{
 		Assignment: &vpcapi.Assignment_Ccas{
 			Ccas: &vpcapi.CCAS{
 				Ipv4Address: &vpcapi.UsableAddress{
 					Address: &vpcapi.Address{
-						Address: "10.51.40.25",
+						Address: ip,
 					},
 					PrefixLength: 22,
 				},
@@ -95,4 +100,8 @@ func doAllocateNetwork(ctx context.Context, args Arguments) (*vpcapi.Assignment,
 			},
 		},
 	}, nil
+}
+
+func Unassign(ctx context.Context, taskID string) error {
+	return nil
 }

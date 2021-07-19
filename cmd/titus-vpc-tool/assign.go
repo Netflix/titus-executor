@@ -43,7 +43,7 @@ func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 						NetworkMode:        v.GetString("network-mode"),
 					},
 				)
-			case "ccas":
+			case generationCCAS:
 				return assignccas.Assign(ctx, assignccas.Arguments{
 					TaskID: v.GetString("task-id"),
 				})
