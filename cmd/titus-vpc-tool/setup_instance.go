@@ -30,6 +30,8 @@ func setupInstanceCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 					locker,
 					conn,
 					3)
+			case "ccas":
+				return nil
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}
