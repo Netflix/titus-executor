@@ -1830,7 +1830,7 @@ func validateMessage(c runtimeTypes.Container, message events.Message) {
 }
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {
-	baseMountOptions := []string{"vers=4.1,rsize=1048576,wsize=1048576,timeo=600,retrans=2"}
+	baseMountOptions := []string{"vers=4,rsize=1048576,wsize=1048576,timeo=600,retrans=2"}
 	for _, nfs := range c.NFSMounts() {
 		// Todo: Make into a const
 		// Although 5 minutes is probably far too much here, this window is okay to be large
