@@ -353,22 +353,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 }
 
 func (r *DockerRuntime) computeDNSServers() []string {
-	switch r.c.EffectiveNetworkMode() {
-	case titus.NetworkConfiguration_Ipv6AndIpv4.String():
-		// True dual stack means we should provide both
-		return []string{"fd00:ec2::253", "169.254.169.253"}
-	case titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String():
-		// IPv6 with fallback means we only want v6 resolvers, which reduces
-		// the burden on TSA for ipv4 udp traffic
-		return []string{"fd00:ec2::253"}
-	case titus.NetworkConfiguration_Ipv6Only.String():
-		// True ipv6 only means we really can only have a v6
-		// resolver
-		return []string{"fd00:ec2::253"}
-	default:
-		// Any other situation means we can return the classic v4 resolver
-		return []string{"192.168.215.230", "192.168.212.21"}
-	}
+	return []string{"192.168.215.230", "192.168.212.21"}
 }
 
 func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
