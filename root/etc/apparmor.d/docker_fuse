@@ -43,8 +43,8 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
 
   deny /titus/** wl,
 
-  /titus/sshd/usr/sbin/sshd Cx -> &docker_titus//exec-sshd,
-  /titus/sshd/run-titus-sshd Cx -> &docker_titus//sshd,
+  /titus/sshd/usr/sbin/sshd Cx -> &docker_fuse//exec-sshd,
+  /titus/sshd/run-titus-sshd Cx -> &docker_fuse//sshd,
 
   # Special sub-profile just for the init script for sshd
   profile sshd /titus/sshd/run-titus-sshd {
@@ -55,7 +55,7 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
 
     # This script should only exec one thing, which should go back to the parent
     # profile, which as its own transitions defined
-    /titus/sshd/usr/sbin/sshd Px -> docker_titus,
+    /titus/sshd/usr/sbin/sshd Px -> docker_fuse,
 
     # Signals are required so that systemd can shut it down if needed
     signal (receive) peer="unconfined",
@@ -99,4 +99,3 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
     /etc/{gai.conf,group,nsswitch.conf,passwd,shadow} rmkl,
   }
 }
-
