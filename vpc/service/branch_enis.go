@@ -1124,11 +1124,14 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 	ctx, span := trace.StartSpan(ctx, "createBranchENI")
 	defer span.End()
 
+	// TODO: Use idempotency token
+	// TODO: Get rid of ENI Backfill
 	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
 		Ipv6AddressCount: aws.Int64(0),
 		SubnetId:         aws.String(subnetID),
 		Description:      aws.String(vpcService.branchNetworkInterfaceDescription),
 		Groups:           aws.StringSlice(securityGroups),
+		Ipv6PrefixCount:  aws.Int64(1),
 	}
 
 	output, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)
