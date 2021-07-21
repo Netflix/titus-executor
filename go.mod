@@ -16,7 +16,7 @@ require (
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
 	github.com/apex/log v1.9.0
 	github.com/apparentlymart/go-cidr v1.0.0
-	github.com/aws/aws-sdk-go v1.35.10
+	github.com/aws/aws-sdk-go v1.40.6
 	github.com/containernetworking/cni v0.7.1
 	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
 	github.com/coreos/go-systemd/v22 v22.3.0
@@ -134,5 +134,3 @@ replace k8s.io/client-go => k8s.io/client-go v0.18.4
 replace k8s.io/kubectl => k8s.io/kubectl v0.18.4
 
 replace k8s.io/api => k8s.io/api v0.18.4
-
-replace github.com/aws/aws-sdk-go => ./aws/aws-sdk-go
