@@ -259,6 +259,14 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	e, _ := json.Marshal(userContainer.Env)
 	logrus.StandardLogger().Debugf("container config env = %s", e)
 
+	var metatronCreds *titus.ContainerInfo_MetatronCreds
+	if c.podConfig.WorkloadMetadata != nil && c.podConfig.WorkloadMetadataSig != nil {
+		metatronCreds = &titus.ContainerInfo_MetatronCreds{
+			AppMetadata: c.podConfig.WorkloadMetadata,
+			MetadataSig: c.podConfig.WorkloadMetadataSig,
+		}
+	}
+
 	// Only populate ContainerInfo with the fields necessary for a valid task identity document
 	cInfo := &titus.ContainerInfo{
 		ImageName: c.ImageName(),
@@ -276,10 +284,7 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 			SecurityGroups: sgIDs,
 		},
 		JobGroupSequence: &seq,
-		MetatronCreds: &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: c.podConfig.WorkloadMetadata,
-			MetadataSig: c.podConfig.WorkloadMetadataSig,
-		},
+		MetatronCreds:    metatronCreds,
 		UserProvidedEnv:  userProvidedEnv,
 		TitusProvidedEnv: titusProvidedEnv,
 		ImageDigest:      c.ImageDigest(),
