@@ -518,14 +518,16 @@ func populateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRe
 	defer span.End()
 
 	row := fastTx.QueryRowContext(ctx, `
-SELECT valid_branch_enis.branch_eni,
+SELECT valid_branch_enis.id,
+       valid_branch_enis.branch_eni,
        valid_branch_enis.association_id,
        valid_branch_enis.az,
        valid_branch_enis.account_id,
        valid_branch_enis.idx,
        valid_branch_enis.dirty_security_groups
 FROM
-  (SELECT branch_enis.branch_eni,
+  (SELECT branch_enis.id,
+          branch_enis.branch_eni,
           branch_enis.dirty_security_groups,
           branch_enis.az,
           branch_enis.account_id,
@@ -540,12 +542,13 @@ FROM
    WHERE subnet_id = $1
      AND trunk_eni = $2
      AND security_groups = $3
+     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
      AND state = 'attached') valid_branch_enis
 WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
 LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxIPAddresses)
 
-	err := row.Scan(&ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx, &ass.assignmentChangedSecurityGroups)
+	err := row.Scan(&ass.branch.intid, &ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx, &ass.assignmentChangedSecurityGroups)
 	if err == nil {
 		logger.WithLogger(ctx, logger.G(ctx).WithFields(map[string]interface{}{
 			"eni": ass.branch.id,
@@ -562,13 +565,15 @@ LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxI
 	logger.G(ctx).Debug("Falling back to trying to find ENI with any security groups")
 
 	row = fastTx.QueryRowContext(ctx, `
-SELECT valid_branch_enis.branch_eni,
+SELECT valid_branch_enis.id,
+       valid_branch_enis.branch_eni,
        valid_branch_enis.association_id,
        valid_branch_enis.az,
        valid_branch_enis.account_id,
        valid_branch_enis.idx
 FROM
-  (SELECT branch_enis.branch_eni,
+  (SELECT branch_enis.id,
+          branch_enis.branch_eni,
           branch_enis.az,
           branch_enis.account_id,
           branch_eni_attachments.idx,
@@ -581,11 +586,12 @@ FROM
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
      AND trunk_eni = $2
+     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
      AND state = 'attached') valid_branch_enis
 WHERE c = 0
 ORDER BY c DESC, branch_eni_attached_at ASC
 LIMIT 1`, req.subnet.subnetID, req.trunkENI)
-	err = row.Scan(&ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx)
+	err = row.Scan(&ass.branch.intid, &ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx)
 	if err == sql.ErrNoRows {
 		err = newMethodNotPossibleError("populateAssignmentUsingAlreadyAttachedENI")
 		tracehelpers.SetStatus(err, span)
@@ -836,6 +842,7 @@ WHERE branch_enis.subnet_id = $1
        AND state IN ('attaching',
                      'attached',
                      'unattaching')) IS NULL
+  AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
 ORDER BY RANDOM()
 LIMIT 1`, req.subnet.subnetID, req.trunkENIAccount)
 	err := row.Scan(&eni.id, &eni.az, &eni.accountID)

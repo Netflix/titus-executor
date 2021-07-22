@@ -17,4 +17,5 @@ const (
 	ENICreationTimeTag                       = "eni-creation-time"
 	DefaultTrunkNetworkInterfaceDescription  = "titus-managed-trunk"
 	DefaultBranchNetworkInterfaceDescription = "titus-managed-branch"
+	DefaultSubnetCIDRReservationDescription  = "titus-reserved"
 )

@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"net"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/m7shapan/cidr"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -76,6 +79,7 @@ func (vpcService *vpcService) getSessionAndTrunkInterface(ctx context.Context, i
 }
 
 type subnet struct {
+	id        int
 	az        string
 	vpcID     string
 	accountID string
@@ -89,10 +93,11 @@ func (s *subnet) key() string {
 }
 
 func (s *subnet) String() string {
-	return fmt.Sprintf("Subnet{id=%s, az=%s, vpc=%s, account=%s}", s.vpcID, s.az, s.vpcID, s.accountID)
+	return fmt.Sprintf("Subnet{id=%d vpc=%s, az=%s, subnet=%s, account=%s}", s.id, s.vpcID, s.az, s.subnetID, s.accountID)
 }
 
 type branchENI struct {
+	intid         int64
 	id            string
 	az            string
 	associationID string
@@ -889,15 +894,13 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		}
 	}
 
-	switch ipv6req := (req.Ipv6).(type) {
+	switch (req.Ipv6).(type) {
 	case *vpcapi.AssignIPRequestV3_Ipv6AddressRequested:
 		// TODO: Remove
-		if ipv6req.Ipv6AddressRequested {
-			resp.Ipv6Address, err = assignArbitraryIPv6AddressV3(ctx, tx, iface, maxIPAddresses, ass)
-			if err != nil {
-				span.SetStatus(traceStatusFromError(err))
-				return nil, err
-			}
+		resp.Ipv6Address, err = assignArbitraryIPv6AddressV3(ctx, tx, iface, maxIPAddresses, ass)
+		if err != nil {
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
 		}
 	case *vpcapi.AssignIPRequestV3_NoIPv6AddressRequested:
 	}
@@ -1134,85 +1137,30 @@ func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	ctx, span := trace.StartSpan(ctx, "assignArbitraryIPv6AddressV3")
 	defer span.End()
 
-	usedIPAddresses := sets.NewString()
-	rows, err := tx.QueryContext(ctx, "SELECT ipv6addr FROM assignments WHERE ipv6addr IS NOT NULL AND branch_eni_association = $1", ass.branch.associationID)
+	row := tx.QueryRowContext(ctx, "UPDATE subnet_usable_prefix SET last_assigned = last_assigned + 1 WHERE branch_eni_id = $1 RETURNING last_assigned, prefix", ass.branch.intid)
+	var lastAssigned int64
+	var prefix string
+	err := row.Scan(&lastAssigned, &prefix)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot query ipv6addrs already assigned to interface")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	for rows.Next() {
-		var address string
-		err = rows.Scan(&address)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot scan rows")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		usedIPAddresses.Insert(address)
-	}
-
-	allInterfaceIPAddresses := sets.NewString()
-	for idx := range branchENI.Ipv6Addresses {
-		allInterfaceIPAddresses.Insert(aws.StringValue(branchENI.Ipv6Addresses[idx].Ipv6Address))
-	}
-
-	if l := usedIPAddresses.Len(); l >= maxIPAddresses {
-		err = status.Errorf(codes.FailedPrecondition, "%d IPv6 addresses already in-use", l)
-		span.SetStatus(traceStatusFromError(err))
+		err = fmt.Errorf("Cannot query / scan row from subnet_usable_prefix: %w", err)
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	logger.G(ctx).WithField("usedIPAddresses", usedIPAddresses.List()).WithField("allInterfaceIPAddresses", allInterfaceIPAddresses.List()).Debug("Trying to assign IPv6 Address")
-	unusedIPAddresses := allInterfaceIPAddresses.Difference(usedIPAddresses)
-
-	if l := unusedIPAddresses.Len(); l > 0 {
-		unusedIPv6AddressesList := unusedIPAddresses.List()
-
-		row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2 ORDER BY last_seen ASC LIMIT 1", pq.Array(unusedIPv6AddressesList), aws.StringValue(branchENI.VpcId))
-		var ipAddress string
-		err = row.Scan(&ipAddress)
-		if err == sql.ErrNoRows {
-			// Effectively choose a random one.
-			ipAddress = unusedIPv6AddressesList[rand.Intn(l)] // nolint: gosec
-		} else if err != nil {
-			err = errors.Wrap(err, "Could not fetch utilized IPv6 addresses from the database")
-			tracehelpers.SetStatus(err, span)
-			return nil, err
-		}
-
-		return &vpcapi.UsableAddress{
-			Address: &vpcapi.Address{
-				Address: ipAddress,
-			},
-			PrefixLength: uint32(128),
-		}, nil
-	}
-
-	ipsToAssign := maxIPAddresses - allInterfaceIPAddresses.Len()
-	if ipsToAssign <= 0 {
-		err = status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses already assigned to interface", allInterfaceIPAddresses.Len())
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-	if ipsToAssign > batchSize {
-		ipsToAssign = batchSize
-	}
-
-	assignIpv6AddressesInput := ec2.AssignIpv6AddressesInput{
-		NetworkInterfaceId: branchENI.NetworkInterfaceId,
-		Ipv6AddressCount:   aws.Int64(int64(ipsToAssign)),
-	}
-
-	output, err := ass.branchENISession.AssignIPv6Addresses(ctx, assignIpv6AddressesInput)
+	_, net, err := net.ParseCIDR(prefix)
 	if err != nil {
-		err = ec2wrapper.HandleEC2Error(err, span)
+		err = fmt.Errorf("Cannot parse prefix %q: %w", prefix, err)
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+
+	prefixInt := cidr.IPv6tod(net.IP)
+	newIPInt := prefixInt.Add(prefixInt, big.NewInt(lastAssigned))
+	newIP := cidr.DtoIPv6(newIPInt)
 
 	return &vpcapi.UsableAddress{
 		Address: &vpcapi.Address{
-			Address: aws.StringValue(output.AssignedIpv6Addresses[0]),
+			Address: newIP.String(),
 		},
 		PrefixLength: uint32(128),
 	}, nil

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -100,6 +101,7 @@ func newTestServiceInstance(t *testing.T) *vpcService {
 
 		branchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
 		trunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
+		subnetCIDRReservationDescription:  vpc.DefaultSubnetCIDRReservationDescription,
 
 		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
@@ -124,6 +126,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testActionWorker", testActionWorker)
 	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
 	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
+	runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
 }
 
 type zipkinReporter struct {
@@ -1091,4 +1094,71 @@ func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T,
 	row = service.db.QueryRowContext(ctx, "SELECT transition_last_used FROM assignments WHERE id = $1", ass.transitionAssignmentID)
 	assert.NilError(t, row.Scan(&lastUsed2))
 	assert.Assert(t, lastUsed2.After(lastUsed1))
+}
+
+func testGenerateAssignmentIDWithAddress(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	item := &regionAccount{
+		region:    md.region,
+		accountID: md.account,
+	}
+	reconcileTrunkENILongLivedTask := service.reconcileTrunkENIsLongLivedTask()
+	assert.NilError(t, service.preemptLock(ctx, item, reconcileTrunkENILongLivedTask))
+
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
+	}()
+
+	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
+
+	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	assert.NilError(t, err)
+
+	req := getENIRequest{
+		region:           md.region,
+		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
+		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
+		branchENIAccount: md.account,
+		subnet:           subnet,
+		securityGroups:   []string{md.defaultSecurityGroupID},
+		maxIPAddresses:   50,
+		maxBranchENIs:    2,
+		assignmentID:     fmt.Sprintf("testGenerateAssignmentIDWithAddress-1-%s", uuid.New().String()),
+	}
+
+	ass, err := service.generateAssignmentID(ctx, req)
+	assert.NilError(t, err)
+
+	resp, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
+		TaskId:           req.assignmentID,
+		SecurityGroupIds: req.securityGroups,
+		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{},
+	}, ass, 50)
+	assert.NilError(t, err)
+	assert.Assert(t, resp.Ipv6Address != nil)
+
+	req.assignmentID = fmt.Sprintf("testGenerateAssignmentIDWithAddress-2-%s", uuid.New().String())
+	ass2, err := service.generateAssignmentID(ctx, req)
+	assert.NilError(t, err)
+
+	resp2, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
+		TaskId:           req.assignmentID,
+		SecurityGroupIds: req.securityGroups,
+		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{},
+	}, ass2, 50)
+	assert.NilError(t, err)
+	assert.Assert(t, resp2.Ipv6Address != nil)
+
+	firstIP := net.ParseIP(resp.Ipv6Address.Address.Address)
+	secondIP := net.ParseIP(resp2.Ipv6Address.Address.Address)
+	assert.Assert(t, firstIP.String() != secondIP.String())
+	ipnet := net.IPNet{
+		IP:   firstIP,
+		Mask: net.CIDRMask(80, 128),
+	}
+	assert.Assert(t, ipnet.Contains(firstIP))
+	assert.Assert(t, ipnet.Contains(secondIP))
 }

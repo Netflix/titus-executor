@@ -42,7 +42,8 @@ func (vpcService *vpcService) getSubnets(ctx context.Context) ([]keyedItem, erro
 
 	// TODO: Fix and extract from branch_eni table
 	rows, err := tx.QueryContext(ctx, `
-SELECT subnets.az,
+SELECT subnets.id,
+       subnets.az,
        subnets.vpc_id,
        subnets.account_id,
        subnets.subnet_id,
@@ -58,7 +59,7 @@ JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets
 	ret := []keyedItem{}
 	for rows.Next() {
 		var s subnet
-		err = rows.Scan(&s.az, &s.vpcID, &s.accountID, &s.subnetID, &s.cidr, &s.region)
+		err = rows.Scan(&s.id, &s.az, &s.vpcID, &s.accountID, &s.subnetID, &s.cidr, &s.region)
 		if err != nil {
 			return nil, err
 		}

@@ -92,6 +92,7 @@ type vpcService struct {
 
 	trunkNetworkInterfaceDescription  string
 	branchNetworkInterfaceDescription string
+	subnetCIDRReservationDescription  string
 
 	trunkTracker              *trunkTrackerCache
 	invalidSecurityGroupCache *ccache.Cache
@@ -179,6 +180,7 @@ type Config struct {
 
 	TrunkNetworkInterfaceDescription  string
 	BranchNetworkInterfaceDescription string
+	SubnetCIDRReservationDescription  string
 
 	WorkerRole string
 }
@@ -230,6 +232,7 @@ func Run(ctx context.Context, config *Config) error {
 
 		trunkNetworkInterfaceDescription:  config.TrunkNetworkInterfaceDescription,
 		branchNetworkInterfaceDescription: config.BranchNetworkInterfaceDescription,
+		subnetCIDRReservationDescription:  config.SubnetCIDRReservationDescription,
 
 		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
@@ -407,6 +410,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		vpcService.disassociateActionWorker().longLivedTask(),
 		vpcService.reconcileTrunkENIsLongLivedTask(),
 		vpcService.reconcileSecurityGroupsLongLivedTask(),
+		vpcService.reconcileSubnetCIDRReservationsLongLivedTask(),
 	}
 }
 

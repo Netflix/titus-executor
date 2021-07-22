@@ -59,8 +59,9 @@ const (
 	enabledLongLivedTasksFlagName = "enabled-long-lived-tasks"
 	enabledTaskLoopsFlagName      = "enabled-task-loops"
 
-	trunkENIDescriptionFlagName  = "trunk-eni-description"
-	branchENIDescriptionFlagName = "branch-eni-description"
+	trunkENIDescriptionFlagName   = "trunk-eni-description"
+	branchENIDescriptionFlagName  = "branch-eni-description"
+	subnetCIDRReservationFlagName = "titus-reserved"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -263,6 +264,7 @@ func main() {
 
 				TrunkNetworkInterfaceDescription:  v.GetString(trunkENIDescriptionFlagName),
 				BranchNetworkInterfaceDescription: v.GetString(branchENIDescriptionFlagName),
+				SubnetCIDRReservationDescription:  v.GetString(subnetCIDRReservationFlagName),
 
 				WorkerRole: v.GetString(workerRoleFlagName),
 			})
@@ -286,6 +288,7 @@ func main() {
 	rootCmd.Flags().StringSlice(enabledLongLivedTasksFlagName, service.GetLongLivedTaskNames(), "Enabled long lived tasks")
 	rootCmd.Flags().String(trunkENIDescriptionFlagName, vpc.DefaultTrunkNetworkInterfaceDescription, "The description for trunk interfaces")
 	rootCmd.Flags().String(branchENIDescriptionFlagName, vpc.DefaultBranchNetworkInterfaceDescription, "The description for branch interfaces")
+	rootCmd.Flags().String(subnetCIDRReservationFlagName, vpc.DefaultSubnetCIDRReservationDescription, "The description of CIDRs to use for SCRs")
 	rootCmd.Flags().String(workerRoleFlagName, "", "The role which to assume into to do work")
 	rootCmd.Flags().Int(maxConcurrentRequestsFlagName, 100, "Maximum concurrent gRPC requests to allow")
 
