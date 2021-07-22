@@ -2,8 +2,11 @@ package docker
 
 import (
 	"archive/tar"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"strings"
 
 	"github.com/Netflix/titus-executor/config"
@@ -132,6 +135,11 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		log.Warn("The NETFLIX_ENVIRONMENT variable is not set. SSH access to the container may not be available!")
 	}
 
+	sshPolicyHash, err := getContainerSshPolicyHash(c)
+	if err != nil {
+		log.Warnf("Failed to get container SSH policy hash: %v", err)
+	}
+
 	users := append(cfg.ContainerSSHDUsers, c.AppName())
 	for _, username := range users {
 		lines := []string{
@@ -140,6 +148,9 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		}
 		if containerEnv != "" {
 			lines = append(lines, fmt.Sprintf("~v3:titus:%s:%s:%s:%s:%s:%s", username, c.AppName(), containerEnv, c.TaskID(), c.JobGroupStack(), c.JobGroupDetail()))
+			if sshPolicyHash != "" {
+				lines = append(lines, fmt.Sprintf("~v3:instance:%s:%s:%s", username, c.TaskID(), sshPolicyHash))
+			}
 		}
 		line := []byte(strings.Join(lines, "\n"))
 		err = tw.WriteHeader(&tar.Header{
@@ -156,4 +167,29 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		}
 	}
 	return nil
+}
+
+func getContainerSshPolicyHash(c runtimeTypes.Container) (string, error) {
+	metatronCreds := c.MetatronCreds()
+	if metatronCreds == nil {
+		return "", nil
+	}
+	appMetadata := metatronCreds.AppMetadata
+	if appMetadata == nil && *appMetadata == "" {
+		return "", nil
+	}
+	params, err := url.ParseQuery(*appMetadata)
+	if err != nil {
+		return "", fmt.Errorf("Failed to parse metatron app metadata: %v", err)
+	}
+	sshPolicy := params.Get("sshPolicy")
+	if sshPolicy == "" {
+		return "", nil
+	}
+	h := sha256.New()
+	_, err = h.Write([]byte(sshPolicy))
+	if err != nil {
+		return "", fmt.Errorf("Failed to hash ssh policy: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
