@@ -178,9 +178,6 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 }
 
 func getContainerNames(pod *v1.Pod) []string {
-	if pod == nil || pod.Spec.Containers == nil {
-		return []string{"main"}
-	}
 	names := []string{}
 	for _, c := range pod.Spec.Containers {
 		names = append(names, c.Name)

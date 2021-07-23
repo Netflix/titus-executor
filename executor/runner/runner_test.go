@@ -163,6 +163,7 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 		Gpu:       0,
 		Disk:      1,
 		Network:   1,
+		Pod:       runtimeTypes.GenerateV0TestPod(taskID, nil, nil),
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -243,6 +244,7 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 		Gpu:       0,
 		Disk:      1,
 		Network:   1,
+		Pod:       runtimeTypes.GenerateV0TestPod(taskID, nil, nil),
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -335,6 +337,7 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 		Gpu:       0,
 		Disk:      1,
 		Network:   1,
+		Pod:       runtimeTypes.GenerateV0TestPod(taskID, nil, nil),
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c

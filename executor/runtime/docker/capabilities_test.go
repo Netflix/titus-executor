@@ -14,9 +14,9 @@ const (
 )
 
 func TestDefaultProfileContainerInfo(t *testing.T) {
-	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
+	taskID, titusInfo, resources, pod, conf, err := runtimeTypes.ContainerTestArgs()
 	assert.NoError(t, err)
-	c, err := runtimeTypes.NewContainer(taskID, titusInfo, *resources, *conf)
+	c, err := runtimeTypes.NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 	hostConfig := container.HostConfig{}
 
@@ -47,7 +47,8 @@ func TestFuseProfileContainerInfo(t *testing.T) {
 	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
 	assert.NoError(t, err)
 	titusInfo.PassthroughAttributes[runtimeTypes.FuseEnabledParam] = True
-	c, err := runtimeTypes.NewContainer(taskID, titusInfo, *resources, *conf)
+	pod := runtimeTypes.GenerateV0TestPod(taskID, resources, conf)
+	c, err := runtimeTypes.NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 	hostConfig := container.HostConfig{}
 
