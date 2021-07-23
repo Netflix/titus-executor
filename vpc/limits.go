@@ -66,39 +66,6 @@ var interfaceLimits = map[string]map[string]limits{
 			branchENIs:              120,
 		},
 	},
-	"m4": {
-		"large": limits{
-			interfaces:              2,
-			ipAddressesPerInterface: 10,
-			networkThroughput:       100,
-		},
-		"xlarge": limits{
-			interfaces:              4,
-			ipAddressesPerInterface: 15,
-			networkThroughput:       1000,
-		},
-		"2xlarge": limits{
-			interfaces:              4,
-			ipAddressesPerInterface: 15,
-			networkThroughput:       1000,
-		},
-		"4xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       2000,
-		},
-		"10xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			// Is this number correct?
-			networkThroughput: 10000,
-		},
-		"16xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       23000,
-		},
-	},
 	"m5": {
 		"large": limits{
 			interfaces:              3,
@@ -141,39 +108,7 @@ var interfaceLimits = map[string]map[string]limits{
 			interfaces:              12,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       25000,
-			branchENIs:              120,
-		},
-	},
-	"r4": {
-		"large": limits{
-			interfaces:              3,
-			ipAddressesPerInterface: 10,
-			networkThroughput:       1000,
-		},
-		"xlarge": limits{
-			interfaces:              4,
-			ipAddressesPerInterface: 15,
-			networkThroughput:       1000,
-		},
-		"2xlarge": limits{
-			interfaces:              4,
-			ipAddressesPerInterface: 15,
-			networkThroughput:       2000,
-		},
-		"4xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       4000,
-		},
-		"8xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       9000,
-		},
-		"16xlarge": limits{
-			interfaces:              15,
-			ipAddressesPerInterface: 24,
-			networkThroughput:       23000,
+			branchENIs:              198,
 		},
 	},
 	"r5": {
@@ -217,45 +152,7 @@ var interfaceLimits = map[string]map[string]limits{
 			interfaces:              12,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       25000,
-			branchENIs:              120,
-		},
-	},
-	"p2": {
-		"xlarge": limits{
-			interfaces:              4,
-			ipAddressesPerInterface: 15,
-			// Maybe?
-			networkThroughput: 2000,
-		},
-		"8xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       6000,
-		},
-		"16xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       20000,
-		},
-	},
-	"p3": {
-		"2xlarge": limits{
-			interfaces:              4,
-			ipAddressesPerInterface: 15,
-			networkThroughput:       2000,
-			branchENIs:              40,
-		},
-		"8xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       10000,
-			branchENIs:              40,
-		},
-		"16xlarge": limits{
-			interfaces:              8,
-			ipAddressesPerInterface: 30,
-			networkThroughput:       25000,
-			branchENIs:              40,
+			branchENIs:              198,
 		},
 	},
 	"c5": {
