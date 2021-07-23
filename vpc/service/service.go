@@ -433,7 +433,8 @@ type taskLoop struct {
 func (vpcService *vpcService) getTaskLoops() []taskLoop {
 	return []taskLoop{
 		{
-			taskName:   "subnets",
+			// This was bumped to subnets2 because the "new" version adds prefixes.
+			taskName:   "subnets2",
 			itemLister: vpcService.getRegionAccounts,
 			workFunc:   vpcService.reconcileSubnetsForRegionAccount,
 		},
