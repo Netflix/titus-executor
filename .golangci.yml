@@ -15,7 +15,5 @@ linters:
 run:
   skip-dirs:
     - vpc/service/db/migrations
-    - aws
     - vpc/bpf/filter
     - vpc/bpf2
-    - vpc/limitsold
