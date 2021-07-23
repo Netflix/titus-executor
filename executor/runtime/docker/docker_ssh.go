@@ -135,7 +135,7 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		log.Warn("The NETFLIX_ENVIRONMENT variable is not set. SSH access to the container may not be available!")
 	}
 
-	sshPolicyHash, err := getContainerSshPolicyHash(c)
+	sshPolicyHash, err := getContainerSSHPolicyHash(c)
 	if err != nil {
 		log.Warnf("Failed to get container SSH policy hash: %v", err)
 	}
@@ -169,7 +169,7 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 	return nil
 }
 
-func getContainerSshPolicyHash(c runtimeTypes.Container) (string, error) {
+func getContainerSSHPolicyHash(c runtimeTypes.Container) (string, error) {
 	metatronCreds := c.MetatronCreds()
 	if metatronCreds == nil {
 		return "", nil
