@@ -135,7 +135,7 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		log.Warn("The NETFLIX_ENVIRONMENT variable is not set. SSH access to the container may not be available!")
 	}
 
-	sshPolicyHash, err := getContainerSSHPolicyHash(c)
+	sshPolicy, err := getContainerSSHPolicy(c)
 	if err != nil {
 		log.Warnf("Failed to get container SSH policy hash: %v", err)
 	}
@@ -148,8 +148,12 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		}
 		if containerEnv != "" {
 			lines = append(lines, fmt.Sprintf("~v3:titus:%s:%s:%s:%s:%s:%s", username, c.AppName(), containerEnv, c.TaskID(), c.JobGroupStack(), c.JobGroupDetail()))
-			if sshPolicyHash != "" {
-				lines = append(lines, fmt.Sprintf("~v3:instance:%s:%s:%s", username, c.TaskID(), sshPolicyHash))
+			if sshPolicy != "" {
+				sshPolicyHash := sha256.Sum256([]byte(sshPolicy))
+				sshPolicyHashB64 := base64.StdEncoding.EncodeToString(sshPolicyHash[:])
+				policyComment := fmt.Sprintf("# This next principal allows the following policy: %s", sshPolicy)
+				policyPrincipal := fmt.Sprintf("~v3:instance:%s:%s:%s", username, c.TaskID(), sshPolicyHashB64)
+				lines = append(lines, policyComment, policyPrincipal)
 			}
 		}
 		line := []byte(strings.Join(lines, "\n"))
@@ -169,7 +173,7 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 	return nil
 }
 
-func getContainerSSHPolicyHash(c runtimeTypes.Container) (string, error) {
+func getContainerSSHPolicy(c runtimeTypes.Container) (string, error) {
 	metatronCreds := c.MetatronCreds()
 	if metatronCreds == nil {
 		return "", nil
@@ -186,10 +190,5 @@ func getContainerSSHPolicyHash(c runtimeTypes.Container) (string, error) {
 	if sshPolicy == "" {
 		return "", nil
 	}
-	h := sha256.New()
-	_, err = h.Write([]byte(sshPolicy))
-	if err != nil {
-		return "", fmt.Errorf("Failed to hash ssh policy: %v", err)
-	}
-	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
+	return sshPolicy, nil
 }
