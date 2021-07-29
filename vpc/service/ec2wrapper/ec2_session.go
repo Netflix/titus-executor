@@ -8,9 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -598,4 +597,37 @@ func (s *EC2Session) DescribeSecurityGroups(ctx context.Context, input ec2.Descr
 		return nil, err
 	}
 	return output, nil
+}
+
+func (s *EC2Session) GetSubnetCidrReservations(ctx context.Context, subnet string) ([]*ec2.SubnetCidrReservation, error) {
+	ctx, span := trace.StartSpan(ctx, "GetSubnetCidrReservations")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("subnet", subnet))
+
+	ec2client := ec2.New(s.Session)
+	ret := []*ec2.SubnetCidrReservation{}
+
+	input := &ec2.GetSubnetCidrReservationsInput{
+		SubnetId: aws.String(subnet),
+	}
+
+	for {
+		// TODO: Consider filtering based on the reservation description to only fetch titus reserved subnets
+		output, err := ec2client.GetSubnetCidrReservationsWithContext(ctx, input)
+
+		if err != nil {
+			err = errors.Wrap(err, "Cannot get subnet cidr reservations")
+			_ = HandleEC2Error(err, span)
+			return nil, err
+		}
+
+		ret = append(ret, output.SubnetIpv6CidrReservations...)
+		ret = append(ret, output.SubnetIpv4CidrReservations...)
+		input.NextToken = output.NextToken
+		if input.NextToken == nil {
+			break
+		}
+	}
+	return ret, nil
 }

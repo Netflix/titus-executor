@@ -49,7 +49,11 @@ func insertBranchENIIntoDB(ctx context.Context, tx *sql.Tx, iface *ec2.NetworkIn
 	for idx := range iface.Groups {
 		securityGroupIds[idx] = aws.StringValue(iface.Groups[idx].GroupId)
 	}
+
 	sort.Strings(securityGroupIds)
+	if len(iface.Ipv6Prefixes) != 1 {
+		return fmt.Errorf("Found an unexpected number (%d) of IPv6 prefixes on ENI: %v", len(iface.Ipv6Prefixes), iface.Ipv6Prefixes)
+	}
 
 	_, err := tx.ExecContext(ctx, "INSERT INTO branch_enis (branch_eni, subnet_id, account_id, az, vpc_id, security_groups, mac, modified_at) VALUES ($1, $2, $3, $4, $5, $6, $7, transaction_timestamp()) ON CONFLICT (branch_eni) DO NOTHING",
 		aws.StringValue(iface.NetworkInterfaceId),
@@ -61,6 +65,14 @@ func insertBranchENIIntoDB(ctx context.Context, tx *sql.Tx, iface *ec2.NetworkIn
 		aws.StringValue(iface.MacAddress),
 	)
 
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE subnet_usable_prefix SET branch_eni_id = (SELECT id FROM branch_enis WHERE branch_enis.branch_eni = $1) WHERE prefix = $2",
+		aws.StringValue(iface.NetworkInterfaceId),
+		aws.StringValue(iface.Ipv6Prefixes[0].Ipv6Prefix),
+	)
 	return err
 }
 
@@ -1124,11 +1136,40 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 	ctx, span := trace.StartSpan(ctx, "createBranchENI")
 	defer span.End()
 
+	// TODO: Use idempotency token
+	// TODO: Get rid of ENI Backfill
+	row := tx.QueryRowContext(ctx, `
+SELECT subnet_usable_prefix.prefix
+FROM subnet_usable_prefix
+JOIN subnets ON subnet_usable_prefix.subnet_id = subnets.id
+JOIN subnet_cidr_reservations_v6 ON subnet_usable_prefix.subnet_id = subnet_cidr_reservations_v6.subnet_id
+AND subnet_usable_prefix.prefix <<= subnet_cidr_reservations_v6.prefix
+WHERE subnets.subnet_id = $1
+  AND subnet_usable_prefix.branch_eni_id IS NULL
+  AND subnet_cidr_reservations_v6.description = $2
+  AND subnet_cidr_reservations_v6.type = 'explicit'
+  FOR
+  NO KEY UPDATE OF subnet_usable_prefix SKIP LOCKED
+  LIMIT 1
+`, subnetID, vpcService.subnetCIDRReservationDescription)
+	var prefix string
+	err := row.Scan(&prefix)
+	if err != nil {
+		err = fmt.Errorf("Not able to find usable prefix in subnet to assign to interface: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
 	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
-		Ipv6AddressCount: aws.Int64(0),
-		SubnetId:         aws.String(subnetID),
-		Description:      aws.String(vpcService.branchNetworkInterfaceDescription),
-		Groups:           aws.StringSlice(securityGroups),
+		// Ipv6AddressCount: aws.Int64(0),
+		SubnetId:    aws.String(subnetID),
+		Description: aws.String(vpcService.branchNetworkInterfaceDescription),
+		Groups:      aws.StringSlice(securityGroups),
+		Ipv6Prefixes: []*ec2.Ipv6PrefixSpecificationRequest{
+			{
+				Ipv6Prefix: aws.String(prefix),
+			},
+		},
 	}
 
 	output, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)

@@ -190,8 +190,6 @@ func main() {
 	rootCmd.AddCommand(assignNetworkCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(genConfCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(setupInstanceCommand(ctx, v, ipr.getProvider))
-	rootCmd.AddCommand(backfilleniCommand(ctx, v))
-	rootCmd.AddCommand(globalGCCommand(ctx, v))
 	rootCmd.AddCommand(setupContainercommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(teardownContainercommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(gcCommand(ctx, v, ipr.getProvider))

@@ -12,9 +12,8 @@ const (
 	// EgressIFB is the intermediate functional block device used to do egress processing
 	EgressIFB = "ifb-egress"
 	// NetworkInterfaceDescription is what interfaces are named
-	NetworkInterfaceDescription = "titus-managed"
-	// ENICreationTimeTag is an EC2 tag that indicates when this network interface was created (in RFC3339 time)
-	ENICreationTimeTag                       = "eni-creation-time"
+	NetworkInterfaceDescription              = "titus-managed"
 	DefaultTrunkNetworkInterfaceDescription  = "titus-managed-trunk"
 	DefaultBranchNetworkInterfaceDescription = "titus-managed-branch"
+	DefaultSubnetCIDRReservationDescription  = "titus-reserved"
 )
