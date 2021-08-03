@@ -31,11 +31,10 @@ char nfs4[] = "nfs4";
 
 #define IP_ADDRESS_LEN 256
 
-static int add_addr_options(const char *hostname, char *final_options)
+static void add_addr_options(const char *hostname, char *final_options)
 {
 	strcat(final_options, ",addr=");
 	strcat(final_options, hostname);
-	return 0;
 }
 
 /*
@@ -46,7 +45,7 @@ static int hostname_to_ip_option(const char *hostname, char *final_options)
 {
 	struct addrinfo *result, *iter;
 	int error;
-	unsigned char buf[sizeof(struct in6_addr)];
+	unsigned char buf[INET6_ADDRSTRLEN];
 
 	error = inet_pton(AF_INET, hostname, buf);
 	if (error == 1) {
@@ -62,10 +61,9 @@ static int hostname_to_ip_option(const char *hostname, char *final_options)
 		return 0;
 	} 
 
-	fprintf(stderr, "Now trying to do getaddrinfo %s: ", gai_strerror(error));
 	error = getaddrinfo(hostname, NULL, NULL, &result);
 	if (error) {
-		fprintf(stderr, "Error trying to resolve %s: ", gai_strerror(error));
+		fprintf(stderr, "Error trying to resolve %s - %s: ", hostname, gai_strerror(error));
 		return -1;
 	} 
 
@@ -324,7 +322,7 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "titus-mount-nfs: user-inputed options: %s\n", options);
 	res = hostname_to_ip_option(nfs_mount_hostname, final_options);
 	if (res != 0) {
-		fprintf(stderr, "Error resolving hostname to IP address on mount");
+		fprintf(stderr, "Error resolving hostname to IP address on mount\n");
 		return 1;
 	}
 	fprintf(stderr, "titus-mount-nfs: computed final_options: %s\n",
