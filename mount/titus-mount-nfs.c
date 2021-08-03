@@ -29,52 +29,66 @@ char nfs4[] = "nfs4";
 		}                                                              \
 	} while (0)
 
-static int dns_lookup(const char *hostname, struct sockaddr_in *addr)
-{
-	struct hostent *hp;
-	addr->sin_family = AF_INET;
+#define IP_ADDRESS_LEN 256
 
-	if (inet_aton(hostname, &addr->sin_addr)) {
-		fprintf(stderr,
-			"titus-mount-nfs: %s is already an IP. Not doing a DNS lookup\n",
-			hostname);
-		return 0;
-	}
-	fprintf(stderr,
-		"titus-mount-nfs: Decoding and resolving dns hostname for %s\n",
-		hostname);
-	hp = gethostbyname(hostname);
-	if (hp == NULL) {
-		int err_ret = h_errno;
-		fprintf(stderr, "titus-mount-nfs: can't get address for %s: %s\n",
-			hostname, hstrerror(err_ret));
-		return -1;
-	}
-	if (hp->h_length > (int)sizeof(struct in_addr)) {
-		fprintf(stderr, "titus-mount-nfs: got bad hp->h_length");
-		return -1;
-	}
-	memcpy(&addr->sin_addr, hp->h_addr, hp->h_length);
+static int add_addr_options(const char *hostname, char *final_options)
+{
+	strcat(final_options, ",addr=");
+	strcat(final_options, hostname);
 	return 0;
 }
 
-static void compose_final_options(const char *nfs_mount_hostname,
-				  char *final_options)
+/*
+ * Perform a DNS lookup and add to the DNS options. Prefer v6 over v4 
+ * (rely on /etc/gai.conf)
+ */
+static int hostname_to_ip_option(const char *hostname, char *final_options)
 {
-	/* For NFS, we must do the dns resolution *here* while we are inside net ns */
-	struct sockaddr_in server_addr;
-	char *ip_string;
+	struct addrinfo *result, *iter;
+	int error;
+	unsigned char buf[sizeof(struct in6_addr)];
 
-	if (dns_lookup(nfs_mount_hostname, &server_addr)) {
-		fprintf(stderr, "titus-mount-nfs: DNS lookup failed for %s",
-			nfs_mount_hostname);
-		exit(1);
+	error = inet_pton(AF_INET, hostname, buf);
+	if (error == 1) {
+		fprintf(stderr, "Valid IPv4 address %s - No DNS needed", hostname);
+		add_addr_options(hostname, final_options);
+		return 0;
+	} 
+
+	error = inet_pton(AF_INET6, hostname, buf);
+	if (error == 1) {
+		fprintf(stderr, "Valid IPv6 address %s - No DNS needed", hostname);
+		add_addr_options(hostname, final_options);
+		return 0;
+	} 
+
+	fprintf(stderr, "Now trying to do getaddrinfo %s: ", gai_strerror(error));
+	error = getaddrinfo(hostname, NULL, NULL, &result);
+	if (error) {
+		fprintf(stderr, "Error trying to resolve %s: ", gai_strerror(error));
+		return -1;
+	} 
+
+	for (iter = result; iter != NULL; iter = iter->ai_next) {
+		char ipaddress[IP_ADDRESS_LEN];
+		void *ptr_to_ip;
+		inet_ntop(iter->ai_family, iter->ai_addr->sa_data, ipaddress, IP_ADDRESS_LEN);
+		switch (iter->ai_family) {
+			case AF_INET:
+				ptr_to_ip = &((struct sockaddr_in *)iter->ai_addr)->sin_addr;
+				break;
+			case AF_INET6:
+				ptr_to_ip = &((struct sockaddr_in6 *)iter->ai_addr)->sin6_addr;
+				break;
+		}
+		inet_ntop (iter->ai_family, ptr_to_ip, ipaddress, IP_ADDRESS_LEN);
+			fprintf(stderr, "titus-mount-nfs: Resolved %s to %s\n",
+				hostname, ipaddress);
+		add_addr_options(ipaddress, final_options);
+		break;
 	}
-	ip_string = inet_ntoa(server_addr.sin_addr);
-	strcat(final_options, ",addr=");
-	strcat(final_options, ip_string);
-	fprintf(stderr, "titus-mount-nfs: using these nfs mount options: %s\n",
-		final_options);
+	freeaddrinfo(result);
+	return 0;
 }
 
 static void check_messages(int fd)
@@ -259,7 +273,7 @@ static void mount_and_move(int fsfd, const char *target, int pidfd,
 
 int main(int argc, char *argv[])
 {
-	int pidfd, fsfd;
+	int pidfd, fsfd, res = -1;
 	long int container_pid;
 	unsigned long flags_ul;
 	/*
@@ -308,7 +322,11 @@ int main(int argc, char *argv[])
 	/* Now we can switch net/mount namespaces so we can lookup the ip and eventually mount */
 	switch_namespaces(pidfd);
 	fprintf(stderr, "titus-mount-nfs: user-inputed options: %s\n", options);
-	compose_final_options(nfs_mount_hostname, final_options);
+	res = hostname_to_ip_option(nfs_mount_hostname, final_options);
+	if (res != 0) {
+		fprintf(stderr, "Error resolving hostname to IP address on mount");
+		return 1;
+	}
 	fprintf(stderr, "titus-mount-nfs: computed final_options: %s\n",
 		final_options);
 
