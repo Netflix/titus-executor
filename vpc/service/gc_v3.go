@@ -829,7 +829,7 @@ func removeIPv6Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC
 SELECT count(*) FROM assignments
 JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
 JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
-WHERE ipv4addr = any($1::inet[])
+WHERE ipv6addr = any($1::inet[])
 	AND branch_enis.branch_eni = $2
 `, pq.Array(ipv6AddressesToRemove), aws.StringValue(iface.NetworkInterfaceId))
 		var ipsAssigned int
