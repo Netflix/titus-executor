@@ -583,50 +583,6 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 		}
 	}
 
-	if interfaceIPv6Addresses.Len() > 0 {
-		rows, err := tx.QueryContext(ctx, `
-WITH interface_v6_addresses AS
-  (SELECT unnest($1::text[])::INET AS ip_address,
-          $2 AS assoc_id,
-          $3 AS vpc_id),
-     unassigned_ip_addresses AS
-  (SELECT interface_v6_addresses.ip_address,
-          vpc_id
-   FROM interface_v6_addresses
-   LEFT JOIN assignments ON interface_v6_addresses.ip_address = assignments.ipv6addr AND interface_v6_addresses.assoc_id = assignments.branch_eni_association
-   WHERE assignment_id IS NULL ),
-     unassigned_ip_addresses_with_last_seen AS
-  (SELECT unassigned_ip_addresses.ip_address,
-          last_seen
-   FROM unassigned_ip_addresses
-   LEFT JOIN ip_last_used_v3 ON unassigned_ip_addresses.ip_address = ip_last_used_v3.ip_address AND unassigned_ip_addresses.vpc_id = ip_last_used_v3.vpc_id)
-SELECT ip_address
-FROM unassigned_ip_addresses_with_last_seen
-WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
-`, pq.Array(interfaceIPv6Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId))
-		if err != nil {
-			err = errors.Wrap(err, "Cannot query for unused IPv6 addresses")
-			span.SetStatus(traceStatusFromError(err))
-			return err
-		}
-
-		ipv6AddressesToRemove := []string{}
-		for rows.Next() {
-			var ipAddress string
-			err = rows.Scan(&ipAddress)
-			if err != nil {
-				err = errors.Wrap(err, "Cannot scan unused IPv6 addresses")
-				span.SetStatus(traceStatusFromError(err))
-				return err
-			}
-			ipv6AddressesToRemove = append(ipv6AddressesToRemove, ipAddress)
-		}
-
-		if len(ipv6AddressesToRemove) > 0 {
-			result = multierror.Append(err, removeIPv6Addresses(ctx, tx, session, iface, ipv6AddressesToRemove, group))
-		}
-	}
-
 	return multierror.Append(result, group.wait(ctx)).ErrorOrNil()
 }
 
