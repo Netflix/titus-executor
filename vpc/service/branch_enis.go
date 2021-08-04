@@ -1148,6 +1148,7 @@ WHERE subnets.subnet_id = $1
   AND subnet_usable_prefix.branch_eni_id IS NULL
   AND subnet_cidr_reservations_v6.description = $2
   AND subnet_cidr_reservations_v6.type = 'explicit'
+  ORDER BY random()
   FOR
   NO KEY UPDATE OF subnet_usable_prefix SKIP LOCKED
   LIMIT 1
