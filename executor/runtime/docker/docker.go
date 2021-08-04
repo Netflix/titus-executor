@@ -1273,6 +1273,14 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		log.Fatal(err)
 	}
 
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "titus/etc",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.Fatal(err)
+	}
+
 	if r.cfg.MetatronEnabled {
 		// `/metatron` is a shared folder between all containers in a pod, but it must exist first
 		// so that it can be shared
