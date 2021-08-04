@@ -103,6 +103,14 @@ func addContainerSSHDConfig(c runtimeTypes.Container, tw *tar.Writer, cfg config
 }
 
 func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config, caData []byte) error {
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "titus/etc/ssh",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.Fatal(err)
+	}
+
 	sshConfigBytes := []byte(sshdConfig)
 	err := tw.WriteHeader(&tar.Header{
 		Name: "/titus/etc/ssh/sshd_config",
