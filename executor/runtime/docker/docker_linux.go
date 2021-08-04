@@ -341,3 +341,16 @@ func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
 	}
 	return err
 }
+
+func mountTmpfs(path string, size string) error {
+	var flags uintptr
+	flags = syscall.MS_NOATIME | syscall.MS_SILENT
+	flags |= syscall.MS_NODEV | syscall.MS_NOEXEC | syscall.MS_NOSUID
+	options := "size=" + size
+	err := syscall.Mount("tmpfs", path, "tmpfs", flags, options)
+	return os.NewSyscallError("mount", err)
+}
+
+func unmountTmpfs(path string) error {
+	return unix.Unmount(path, unix.MNT_DETACH|umountNoFollow)
+}

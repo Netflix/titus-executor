@@ -48,3 +48,11 @@ func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
 func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
 	return nil
 }
+
+func mountTmpfs(path string, size string) error {
+	return nil
+}
+
+func unmountTmpfs(path string) error {
+	return nil
+}

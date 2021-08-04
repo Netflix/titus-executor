@@ -44,6 +44,7 @@ func main() {
 			Name:        "runtime-dir",
 			Destination: &mainCfg.runtimeDir,
 			Usage:       "The location of the pod spec file (json-ish)",
+			Value:       "/run/titus-executor/default__",
 		},
 		cli.BoolTFlag{
 			Name:        "journald",
@@ -92,6 +93,7 @@ func main() {
 			logrus.SetLevel(logrus.DebugLevel)
 			logrusLogger.Debug("enabled debug logging")
 		}
+		cfg.RuntimeDir = mainCfg.runtimeDir
 
 		if err := mainWithError(ctx, dockerCfg, cfg, &mainCfg, m); err != nil {
 			return cli.NewExitError(err, 1)

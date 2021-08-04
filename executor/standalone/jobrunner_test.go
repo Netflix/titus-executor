@@ -292,7 +292,7 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	if err != nil {
 		panic(err)
 	}
-
+	cfg.RuntimeDir = cwd
 	log.Infof("GenerateConfigs: configArgs=%+v, cfg=%+v, dockerCfg=%+v", configArgs, cfg, dockerCfg)
 	return cfg, dockerCfg
 }

@@ -21,8 +21,9 @@ import (
 )
 
 type cliOptions struct {
-	pod      string
-	logLevel string
+	pod        string
+	logLevel   string
+	runtimeDir string
 }
 
 func main() {
@@ -44,6 +45,11 @@ func main() {
 			Value:       "info",
 			Destination: &options.logLevel,
 		},
+		cli.StringFlag{
+			Name:        "runtime-dir",
+			Destination: &options.runtimeDir,
+			Usage:       "The location of the pod spec file (json-ish)",
+		},
 	}
 	app.Flags = append(app.Flags, cfgFlags...)
 
@@ -51,6 +57,7 @@ func main() {
 	app.Flags = append(app.Flags, dockerCfgFlags...)
 
 	app.Action = func(c *cli.Context) error {
+		cfg.RuntimeDir = options.runtimeDir
 		return cli.NewExitError(mainWithError(c, dockerCfg, cfg, &options), 1)
 	}
 
