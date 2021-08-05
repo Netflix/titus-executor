@@ -74,10 +74,10 @@ LEFT JOIN subnets ON user_subnet_id = subnet_id
 		_ = rows.Close()
 	}()
 
-	// TODO: Add diversity checking
+	firstVPC := ""
 	for rows.Next() {
-		var userSubnetID, vpcID, accountID string
-		var subnetID sql.NullString
+		var userSubnetID string
+		var subnetID, vpcID, accountID sql.NullString
 		err = rows.Scan(&userSubnetID, &vpcID, &accountID, &subnetID)
 		if err != nil {
 			err = fmt.Errorf("Cannot scan subnets: %w", err)
@@ -85,7 +85,7 @@ LEFT JOIN subnets ON user_subnet_id = subnet_id
 			return nil, err
 		}
 
-		if !subnetID.Valid {
+		if !subnetID.Valid || !vpcID.Valid || !accountID.Valid {
 			validationFailures = append(validationFailures, &titus.ParametersValidationResponse_ValidationFailure{
 				FailureOneOf: &titus.ParametersValidationResponse_ValidationFailure_SubnetNotFound{
 					SubnetNotFound: &titus.ParametersValidationResponse_SubnetNotFound{
@@ -96,10 +96,22 @@ LEFT JOIN subnets ON user_subnet_id = subnet_id
 			continue
 		}
 
-		if accountID != req.AccountId {
+		if accountID.String != req.AccountId {
 			validationFailures = append(validationFailures, &titus.ParametersValidationResponse_ValidationFailure{
 				FailureOneOf: &titus.ParametersValidationResponse_ValidationFailure_SubnetDoesNotMatchAccountId{
 					SubnetDoesNotMatchAccountId: &titus.ParametersValidationResponse_SubnetDoesNotMatchAccountId{
+						SubnetId: userSubnetID,
+					},
+				},
+			})
+		}
+
+		if firstVPC == "" {
+			firstVPC = vpcID.String
+		} else if firstVPC != vpcID.String {
+			validationFailures = append(validationFailures, &titus.ParametersValidationResponse_ValidationFailure{
+				FailureOneOf: &titus.ParametersValidationResponse_ValidationFailure_SubnetsTooDiverse{
+					SubnetsTooDiverse: &titus.ParametersValidationResponse_SubnetsTooDiverse{
 						SubnetId: userSubnetID,
 					},
 				},
