@@ -465,6 +465,9 @@ FOR NO KEY UPDATE OF branch_enis
 		result = multierror.Append(result, removeIPv4Addresses(ctx, tx, session, iface, interfaceIPv4Addresses.UnsortedList(), group))
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("interfaceIPv6Addresses", fmt.Sprintf("%v", interfaceIPv6Addresses.List())),
+	)
 	// This will remove some random IP from the list and prevent it from GC.
 	if len(iface.Ipv6Prefixes) >= 1 {
 		interfaceIPv6Addresses.PopAny()
