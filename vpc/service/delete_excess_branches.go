@@ -243,11 +243,12 @@ get_eni:
 		return false, err
 	}
 
-	if l := len(iface.Ipv6Addresses); l > 0 {
-		err = fmt.Errorf("Could not GC interface, had %d IPv6 addresses still assigned", l)
+	if l := len(iface.Ipv6Addresses); l > 1 || l == 1 && len(iface.Ipv6Prefixes) > 0 {
+		err = fmt.Errorf("Could not GC interface, had %d IPv6 addresses, %d IPv6 Prefixes still assigned", l, len(iface.Ipv6Prefixes))
 		span.SetStatus(traceStatusFromError(err))
 		return false, err
 	}
+
 	if l := len(iface.PrivateIpAddresses); l > 1 {
 		err = fmt.Errorf("Could not GC interface, had %d IPv4 addresses still assigned", l)
 		span.SetStatus(traceStatusFromError(err))

@@ -43,4 +43,6 @@ create unique index subnet_cidr_reservations_v6_subnet_id_prefix_uindex
 
 alter table subnets add column cidr6 cidr;
 
+UPDATE long_lived_locks SET held_until = now() + INTERVAL '1' DAY, held_by = 'noone' WHERE lock_name LIKE 'gc_enis_%';
+
 COMMIT;

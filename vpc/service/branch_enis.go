@@ -1148,6 +1148,7 @@ WHERE subnets.subnet_id = $1
   AND subnet_usable_prefix.branch_eni_id IS NULL
   AND subnet_cidr_reservations_v6.description = $2
   AND subnet_cidr_reservations_v6.type = 'explicit'
+  ORDER BY random()
   FOR
   NO KEY UPDATE OF subnet_usable_prefix SKIP LOCKED
   LIMIT 1
@@ -1180,6 +1181,15 @@ WHERE subnets.subnet_id = $1
 	}
 	iface := output.NetworkInterface
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
+
+	_, err = session.AssignIPv6Addresses(ctx, ec2.AssignIpv6AddressesInput{
+		Ipv6AddressCount:   aws.Int64(1),
+		NetworkInterfaceId: output.NetworkInterface.NetworkInterfaceId,
+	})
+	if err != nil {
+		err = fmt.Errorf("Could not assign (single) IPv6 address to interface: %w", err)
+		return nil, ec2wrapper.HandleEC2Error(err, span)
+	}
 
 	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
 

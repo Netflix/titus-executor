@@ -7,7 +7,7 @@ steps:
     async: false
     branches:
       - master
-      - multi-account
+      - prefix-delegation
     build:
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"

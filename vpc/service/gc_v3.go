@@ -465,6 +465,13 @@ FOR NO KEY UPDATE OF branch_enis
 		result = multierror.Append(result, removeIPv4Addresses(ctx, tx, session, iface, interfaceIPv4Addresses.UnsortedList(), group))
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("interfaceIPv6Addresses", fmt.Sprintf("%v", interfaceIPv6Addresses.List())),
+	)
+	// This will remove some random IP from the list and prevent it from GC.
+	if len(iface.Ipv6Prefixes) >= 1 {
+		interfaceIPv6Addresses.PopAny()
+	}
 	if interfaceIPv6Addresses.Len() > 0 {
 		result = multierror.Append(result, removeIPv6Addresses(ctx, tx, session, iface, interfaceIPv6Addresses.UnsortedList(), group))
 	}
@@ -620,6 +627,13 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 				return err
 			}
 			ipv6AddressesToRemove = append(ipv6AddressesToRemove, ipAddress)
+		}
+
+		if len(iface.Ipv6Prefixes) > 0 {
+			if len(interfaceIPv6Addresses) == len(ipv6AddressesToRemove) && len(ipv6AddressesToRemove) > 0 {
+				// Remove one IP from the removal list
+				ipv6AddressesToRemove = ipv6AddressesToRemove[1:]
+			}
 		}
 
 		if len(ipv6AddressesToRemove) > 0 {
@@ -829,7 +843,7 @@ func removeIPv6Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC
 SELECT count(*) FROM assignments
 JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
 JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
-WHERE ipv4addr = any($1::inet[])
+WHERE ipv6addr = any($1::inet[])
 	AND branch_enis.branch_eni = $2
 `, pq.Array(ipv6AddressesToRemove), aws.StringValue(iface.NetworkInterfaceId))
 		var ipsAssigned int
