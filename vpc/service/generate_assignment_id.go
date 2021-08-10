@@ -374,7 +374,7 @@ FOR NO KEY UPDATE OF branch_enis`, ass.branch.id)
 		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false WHERE branch_eni = $1", ass.branch.id)
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false,  aws_security_groups_updated = transaction_timestamp() WHERE branch_eni = $1", ass.branch.id)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to update database to set security groups to non-dirty")
 		tracehelpers.SetStatus(err, span)
@@ -609,7 +609,7 @@ LIMIT 1`, req.subnet.subnetID, req.trunkENI)
 	}))
 	logger.G(ctx).Info("Found associated ENI for assignment, with different security groups")
 	ass.assignmentChangedSecurityGroups = true
-	_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1, dirty_security_groups = true WHERE branch_eni = $2", pq.Array(req.securityGroups), ass.branch.id)
+	_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET security_groups = $1, dirty_security_groups = true, modified_at = transaction_timestamp() WHERE branch_eni = $2", pq.Array(req.securityGroups), ass.branch.id)
 	if err != nil {
 		err = errors.Wrap(err, "Could not update branch ENI security groups / dirty security groups")
 		tracehelpers.SetStatus(err, span)

@@ -475,6 +475,24 @@ func _32_add_ipv6_cidr_up_sql() ([]byte, error) {
 	)
 }
 
+var __33_modified_at_down_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x04\xc0\xc1\x0e\xc2\x20\x0c\x00\xd0\x3b\x5f\xd1\xff\xe0\x54\x71\x87\x25\x40\x4d\x57\xcf\x0d\x6e\x44\x77\x99\x0b\x85\x18\xff\x7e\x6f\x11\x64\x01\x61\xcc\x0b\x06\x99\x29\x7b\x87\x51\x26\x06\xc1\x5b\x9c\xe0\xd5\xca\xb1\x7e\xb4\x1e\xbb\xc1\x9d\xe9\x01\x81\xe2\x33\x65\x28\x3f\x53\xab\xeb\x68\x7b\xff\xeb\xbb\x7d\xc7\x69\x3a\xce\xad\xf4\xba\x79\x17\x28\xa5\x59\xbc\xbb\x02\x00\x00\xff\xff\xbf\x6a\x79\x80\x5c\x00\x00\x00")
+
+func _33_modified_at_down_sql() ([]byte, error) {
+	return bindata_read(
+		__33_modified_at_down_sql,
+		"33_modified_at.down.sql",
+	)
+}
+
+var __33_modified_at_up_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x04\xc0\x4b\x0e\x83\x20\x10\x06\xe0\xbd\xa7\xf8\xef\xc1\x6a\x8a\x2e\x4c\x78\x24\x38\x5d\x13\xaa\xa4\x65\xa1\x25\x0c\xa4\xe9\xed\xfd\x36\xa6\xc0\xe0\x40\x6e\x23\xcd\xab\x77\x50\x13\x19\x5e\x02\x98\x1e\x66\xc1\xab\xa5\x6b\xff\xc4\x7c\x15\x01\xcd\x33\xb4\x37\x4f\xeb\x90\x7e\x12\x25\xef\xa3\x95\xfe\x8f\xef\xf6\x1d\x55\xe2\xa8\x47\xea\xf9\x40\x2f\x67\x96\x9e\xce\xaa\x26\xed\xad\x5d\x59\xdd\x01\x00\x00\xff\xff\x8f\x29\x42\xf7\x65\x00\x00\x00")
+
+func _33_modified_at_up_sql() ([]byte, error) {
+	return bindata_read(
+		__33_modified_at_up_sql,
+		"33_modified_at.up.sql",
+	)
+}
+
 var __3_branch_enis2_down_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x54\xcb\x31\x0a\x03\x21\x10\x05\xd0\xde\x53\xfc\x7b\x58\x4d\x86\x21\x08\x3a\x26\x3a\x5b\x6c\x25\x01\xb7\x10\x52\x24\x98\xdc\x3f\x45\xb0\xd8\xfa\xf1\xaa\x51\x31\x58\x21\xad\xc4\x16\xb2\x7a\x47\xd1\xa4\xa0\xca\x7d\x13\x65\xc1\x78\xb5\xe7\x63\x7e\xda\x77\x1e\xbd\x8d\xde\xe6\xf1\x06\x55\x04\x35\xb9\x4a\x81\x66\xf0\xce\x51\xd6\x33\xba\xc4\x73\xc2\x1f\x38\xc7\x2d\x29\x46\x87\xed\x37\x59\xdf\x3b\xce\x29\x05\xf3\xee\x17\x00\x00\xff\xff\x1f\x7d\x3b\xe6\x8a\x00\x00\x00")
 
 func _3_branch_enis2_down_sql() ([]byte, error) {
@@ -673,6 +691,8 @@ var _bindata = map[string]func() ([]byte, error){
 	"31_transition_assignments.up.sql":           _31_transition_assignments_up_sql,
 	"32_add_ipv6_cidr.down.sql":                  _32_add_ipv6_cidr_down_sql,
 	"32_add_ipv6_cidr.up.sql":                    _32_add_ipv6_cidr_up_sql,
+	"33_modified_at.down.sql":                    _33_modified_at_down_sql,
+	"33_modified_at.up.sql":                      _33_modified_at_up_sql,
 	"3_branch_enis2.down.sql":                    _3_branch_enis2_down_sql,
 	"3_branch_enis2.up.sql":                      _3_branch_enis2_up_sql,
 	"4_branch_eni_last_used.down.sql":            _4_branch_eni_last_used_down_sql,
@@ -780,6 +800,8 @@ var _bintree = &_bintree_t{nil, map[string]*_bintree_t{
 	"31_transition_assignments.up.sql":           &_bintree_t{_31_transition_assignments_up_sql, map[string]*_bintree_t{}},
 	"32_add_ipv6_cidr.down.sql":                  &_bintree_t{_32_add_ipv6_cidr_down_sql, map[string]*_bintree_t{}},
 	"32_add_ipv6_cidr.up.sql":                    &_bintree_t{_32_add_ipv6_cidr_up_sql, map[string]*_bintree_t{}},
+	"33_modified_at.down.sql":                    &_bintree_t{_33_modified_at_down_sql, map[string]*_bintree_t{}},
+	"33_modified_at.up.sql":                      &_bintree_t{_33_modified_at_up_sql, map[string]*_bintree_t{}},
 	"3_branch_enis2.down.sql":                    &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{}},
 	"3_branch_enis2.up.sql":                      &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{}},
 	"4_branch_eni_last_used.down.sql":            &_bintree_t{_4_branch_eni_last_used_down_sql, map[string]*_bintree_t{}},
