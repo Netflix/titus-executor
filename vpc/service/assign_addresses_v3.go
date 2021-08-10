@@ -800,9 +800,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	if !hasSecurityGroupSet.Equal(sets.NewString(req.SecurityGroupIds...)) {
-		err = fmt.Errorf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
+		logger.G(ctx).Warnf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
 	}
 
 	/*
