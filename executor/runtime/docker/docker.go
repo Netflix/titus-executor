@@ -1943,7 +1943,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes
 		mountOptions := append(
 			baseMountOptions,
 			fmt.Sprintf("fsc=%s", c.TaskID()),
-			fmt.Sprintf("source=%s:%s", nfs.Server, nfs.ServerPath),
+			fmt.Sprintf("source=[%s]:%s", nfs.Server, nfs.ServerPath),
 		)
 		cmd.Env = []string{
 			fmt.Sprintf("MOUNT_TARGET=%s", nfs.MountPoint),
