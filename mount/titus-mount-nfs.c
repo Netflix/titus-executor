@@ -49,21 +49,21 @@ static int hostname_to_ip_option(const char *hostname, char *final_options)
 
 	error = inet_pton(AF_INET, hostname, buf);
 	if (error == 1) {
-		fprintf(stderr, "Valid IPv4 address %s - No DNS needed", hostname);
+		fprintf(stderr, "Valid IPv4 address %s - No DNS needed\n", hostname);
 		add_addr_options(hostname, final_options);
 		return 0;
 	} 
 
 	error = inet_pton(AF_INET6, hostname, buf);
 	if (error == 1) {
-		fprintf(stderr, "Valid IPv6 address %s - No DNS needed", hostname);
+		fprintf(stderr, "Valid IPv6 address %s - No DNS needed\n", hostname);
 		add_addr_options(hostname, final_options);
 		return 0;
 	} 
 
 	error = getaddrinfo(hostname, NULL, NULL, &result);
 	if (error) {
-		fprintf(stderr, "Error trying to resolve %s - %s: ", hostname, gai_strerror(error));
+		fprintf(stderr, "Error trying to resolve %s - %s: \n", hostname, gai_strerror(error));
 		return -1;
 	} 
 
