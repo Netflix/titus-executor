@@ -843,7 +843,6 @@ WHERE branch_enis.subnet_id = $1
                      'attached',
                      'unattaching')) IS NULL
   AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
-ORDER BY RANDOM()
 LIMIT 1`, req.subnet.subnetID, req.trunkENIAccount)
 	err := row.Scan(&eni.id, &eni.az, &eni.accountID)
 	if err == nil {
