@@ -721,7 +721,7 @@ FROM assignments
 JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
 JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
 JOIN subnets on branch_enis.subnet_id = subnets.subnet_id
-WHERE assignments.id = $1 FOR NO KEY UPDATE
+WHERE assignments.id = $1 FOR NO KEY UPDATE OF assignments
 `, assignmentID)
 	err := row.Scan(&ass.assignmentID, &ass.cidr, &ass.ipv4addr, &ass.ipv6addr)
 	if err != nil {
@@ -800,9 +800,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	if !hasSecurityGroupSet.Equal(sets.NewString(req.SecurityGroupIds...)) {
-		err = fmt.Errorf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
+		logger.G(ctx).Warnf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
 	}
 
 	/*

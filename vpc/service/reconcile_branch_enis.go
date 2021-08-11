@@ -438,7 +438,7 @@ retry:
 		trace.StringAttribute("branch", networkInterfaceStatus),
 		trace.BoolAttribute("dirtySecurityGroups", dirtySecurityGroups),
 		trace.StringAttribute("networkInterfaceSecurityGroups", fmt.Sprint(networkInterfaceSecurityGroups)),
-		trace.StringAttribute("dbSecurityGroups", fmt.Sprint(networkInterfaceSecurityGroups)),
+		trace.StringAttribute("dbSecurityGroups", fmt.Sprint(dbSecurityGroups)),
 		trace.Int64Attribute("assignmentCount", int64(len(assignments))),
 	)
 
