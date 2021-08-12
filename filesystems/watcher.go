@@ -745,14 +745,13 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 					elem.mtime = fileInfo.ModTime()
 					dedupUpload[fileInfo.Name()] = elem
 				} else {
-					log2.Debugf("ignoring possibly duplicate file ", fileInfo.Name())
 					continue
 				}
 			} else {
 				dedupUpload[fileInfo.Name()] = uploaded{fileInfo.ModTime(), fileInfo.Size()}
 			}
 
-			log2.Debug("append to file list %s ", fqName)
+			log2.Debug("append to file list")
 			result = append(result, fqName)
 		}
 	}
