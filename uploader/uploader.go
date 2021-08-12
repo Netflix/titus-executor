@@ -74,7 +74,7 @@ type uploadFileInfo struct {
 func uploadDir(ctx context.Context, uploader Backend, local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	var errs *multierror.Error
 	fileUploadJobs := []uploadFileInfo{}
-	const CONUCRRENT_UPLOADERS = 5
+	const concurrentUploaders = 8
 
 	fi, err := os.Stat(local)
 	if err != nil {
@@ -88,7 +88,7 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 		} else {
 			log.WithField("file", local).Info("is a directory - to read files")
 			//uploadErrs := make([]error, len(finfos))
-			uploadErrs := make(map[string]error, 0)
+			uploadErrs := make(map[string]error)
 			// Iterate over each file and setup the work
 			var wg sync.WaitGroup
 
@@ -108,7 +108,7 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 			close(uploadFileC)
 
 			// How many workers do we need
-			uploadWorkers := CONUCRRENT_UPLOADERS
+			uploadWorkers := concurrentUploaders
 			if len(fileUploadJobs) < uploadWorkers {
 				uploadWorkers = len(fileUploadJobs)
 			}

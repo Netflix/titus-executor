@@ -561,10 +561,10 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	return currentOffsetInt
 }
 
-func (w *Watcher) concurrentUploadLogFile(logFileList []string, ctx context.Context) error {
+func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string) error {
 	// Iterate over each file and setup the work
 	var wg sync.WaitGroup
-	const CONUCRRENT_UPLOADERS = 8
+	const concurrentUploaders = 8
 	var errs *multierror.Error
 
 	// Fill up a buffering channel, so we can drain slowly
@@ -575,7 +575,7 @@ func (w *Watcher) concurrentUploadLogFile(logFileList []string, ctx context.Cont
 	close(uploadFileC)
 
 	// How many workers do we need
-	uploadWorkers := CONUCRRENT_UPLOADERS
+	uploadWorkers := concurrentUploaders
 	if len(logFileList) < uploadWorkers {
 		uploadWorkers = len(logFileList)
 	}
@@ -627,7 +627,7 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 		return err
 	}
 
-	err = w.concurrentUploadLogFile(logFileList, ctx)
+	err = w.concurrentUploadLogFile(ctx, logFileList)
 	tracehelpers.SetStatus(err, span)
 
 	return err
@@ -701,7 +701,7 @@ type uploaded struct {
 }
 
 func buildFileListInDir(dirName string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration) ([]string, error) {
-	dedupUpload := make(map[string]uploaded, 0)
+	dedupUpload := make(map[string]uploaded)
 	return buildFileListInDir2(dirName, []string{}, checkModifiedTimeThreshold, uploadThreshold, dedupUpload)
 }
 
