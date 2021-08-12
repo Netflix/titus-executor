@@ -65,9 +65,16 @@ func NewUploaderWithBackend(backend Backend) *Uploader {
 	return &Uploader{backend}
 }
 
+type uploadFileInfo struct {
+	src  string
+	dest string
+}
+
 // Upload of all of files in a directory but not its subdirectories. Performs the uploads in parallel.
 func uploadDir(ctx context.Context, uploader Backend, local string, remote string, ctypeFunc ContentTypeInferenceFunction) error {
 	var errs *multierror.Error
+	fileUploadJobs := []uploadFileInfo{}
+	const CONUCRRENT_UPLOADERS = 5
 
 	fi, err := os.Stat(local)
 	if err != nil {
@@ -79,41 +86,59 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 		if err != nil {
 			errs = multierror.Append(errs, err)
 		} else {
-			uploadErrs := make([]error, len(finfos))
-
-			// Iterate over each file and upload it
+			log.WithField("file", local).Info("is a directory - to read files")
+			//uploadErrs := make([]error, len(finfos))
+			uploadErrs := make(map[string]error, 0)
+			// Iterate over each file and setup the work
 			var wg sync.WaitGroup
 
-			for i, finfo := range finfos {
+			for _, finfo := range finfos {
 				if finfo.IsDir() {
 					continue // don't upload subdirs
 				}
-
-				wg.Add(1)
-				go func(i int, fi os.FileInfo) {
-					qlocal := path.Join(local, fi.Name())
-					qremote := path.Join(remote, fi.Name())
-
-					log.WithField("local", qlocal).WithField("remote", qremote).Info("uploading")
-					if err = uploader.Upload(ctx, qlocal, qremote, ctypeFunc); err != nil {
-						log.WithField("local", qlocal).WithField("remote", qremote).Error(err)
-						uploadErrs[i] = err
-					}
-
-					wg.Done()
-				}(i, finfo)
+				srcFile := path.Join(local, finfo.Name())
+				fileUploadJobs = append(fileUploadJobs, uploadFileInfo{srcFile, path.Join(remote, finfo.Name())})
 			}
+
+			// Fill up a buffering channel, so we can drain slowly
+			uploadFileC := make(chan uploadFileInfo, len(fileUploadJobs))
+			for _, j := range fileUploadJobs {
+				uploadFileC <- j
+			}
+			close(uploadFileC)
+
+			// How many workers do we need
+			uploadWorkers := CONUCRRENT_UPLOADERS
+			if len(fileUploadJobs) < uploadWorkers {
+				uploadWorkers = len(fileUploadJobs)
+			}
+			wg.Add(uploadWorkers)
+
+			// Define what the worker should do
+			uploadWork := func(ch <-chan uploadFileInfo) {
+				defer wg.Done()
+				for job := range ch {
+					if err = uploader.Upload(ctx, job.src, job.dest, ctypeFunc); err != nil {
+						log.WithField("local", job.src).WithField("remote", job.dest).Error(err)
+						uploadErrs[job.src] = err
+					}
+				}
+			}
+
+			// Start the workers
+			for i := 0; i < uploadWorkers; i++ {
+				go uploadWork(uploadFileC)
+			}
+
 			wg.Wait()
 
-			for _, err := range uploadErrs {
+			for _, v := range uploadErrs {
 				if err != nil {
-					errs = multierror.Append(errs, err)
+					errs = multierror.Append(errs, v)
 				}
 			}
 		}
-
 	}
-
 	return errs.ErrorOrNil()
 }
 
@@ -125,10 +150,11 @@ func (e *Uploader) Upload(ctx context.Context, local, remote string, ctypeFunc C
 	}
 
 	if fi.IsDir() {
+		log.WithField("Going to upload ", local).WithField("to remote", remote).Info(" - directory")
 		return uploadDir(ctx, e.backend, local, remote, ctypeFunc)
 	}
 
-	log.WithField("local", local).WithField("remote", remote).Info("uploading")
+	log.WithField("local", local).WithField("remote", remote).Info("uploading a file")
 	return e.backend.Upload(ctx, local, remote, ctypeFunc)
 }
 

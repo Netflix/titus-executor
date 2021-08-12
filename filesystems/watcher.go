@@ -561,6 +561,55 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	return currentOffsetInt
 }
 
+func (w *Watcher) concurrentUploadLogFile(logFileList []string, ctx context.Context) error {
+	// Iterate over each file and setup the work
+	var wg sync.WaitGroup
+	const CONUCRRENT_UPLOADERS = 8
+	var errs *multierror.Error
+
+	// Fill up a buffering channel, so we can drain slowly
+	uploadFileC := make(chan string, len(logFileList))
+	for _, j := range logFileList {
+		uploadFileC <- j
+	}
+	close(uploadFileC)
+
+	// How many workers do we need
+	uploadWorkers := CONUCRRENT_UPLOADERS
+	if len(logFileList) < uploadWorkers {
+		uploadWorkers = len(logFileList)
+	}
+	wg.Add(uploadWorkers)
+
+	// Define what the worker should do
+	uploadWork := func(ch <-chan string) {
+		defer wg.Done()
+		for logFile := range ch {
+			if ctx.Err() != nil {
+				errs = multierror.Append(errs, ctx.Err())
+				break
+			}
+			if CheckFileForStdio(logFile) {
+				continue
+			}
+			err := w.uploadLogfile(ctx, logFile, true)
+			errs = multierror.Append(errs, err)
+		}
+	}
+	// Start the workers
+	for i := 0; i < uploadWorkers; i++ {
+		go uploadWork(uploadFileC)
+	}
+
+	wg.Wait()
+	err := errs.ErrorOrNil()
+	if err != nil {
+		w.metrics.Counter("titus.executor.logsUploadError", len(errs.Errors), nil)
+	}
+
+	return err
+}
+
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
 func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
@@ -578,27 +627,9 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 		return err
 	}
 
-	var errs *multierror.Error
-
-	for _, logFile := range logFileList {
-		if ctx.Err() != nil {
-			errs = multierror.Append(errs, ctx.Err())
-			break
-		}
-		if CheckFileForStdio(logFile) {
-			continue
-		}
-
-		err = w.uploadLogfile(ctx, logFile, true)
-		errs = multierror.Append(errs, err)
-	}
-
-	err = errs.ErrorOrNil()
-	if err != nil {
-		w.metrics.Counter("titus.executor.logsUploadError", len(errs.Errors), nil)
-	}
-
+	err = w.concurrentUploadLogFile(logFileList, ctx)
 	tracehelpers.SetStatus(err, span)
+
 	return err
 }
 
@@ -664,11 +695,17 @@ func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finali
 	return nil
 }
 
-func buildFileListInDir(dirName string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration) ([]string, error) {
-	return buildFileListInDir2(dirName, []string{}, checkModifiedTimeThreshold, uploadThreshold)
+type uploaded struct {
+	mtime time.Time
+	size  int64
 }
 
-func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration) ([]string, error) {
+func buildFileListInDir(dirName string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration) ([]string, error) {
+	dedupUpload := make(map[string]uploaded, 0)
+	return buildFileListInDir2(dirName, []string{}, checkModifiedTimeThreshold, uploadThreshold, dedupUpload)
+}
+
+func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration, dedupUpload map[string]uploaded) ([]string, error) {
 	result := fileList
 	fileInfos, err := ioutil.ReadDir(dirName)
 	if err != nil {
@@ -681,7 +718,7 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 
 		if fileInfo.IsDir() {
 			log2.Debug("descending into directory")
-			result, err = buildFileListInDir2(fqName, result, checkModifiedTimeThreshold, uploadThreshold) // nolint: ineffassign
+			result, err = buildFileListInDir2(fqName, result, checkModifiedTimeThreshold, uploadThreshold, dedupUpload) // nolint: ineffassign
 			if err != nil {
 				return result, err
 			}
@@ -701,10 +738,29 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 				continue
 			}
 
-			log2.Debug("append to file list")
+			elem, ok := dedupUpload[fileInfo.Name()]
+			if ok {
+				if elem.size < fileInfo.Size() || elem.mtime.Before(fileInfo.ModTime()) {
+					elem.size = fileInfo.Size()
+					elem.mtime = fileInfo.ModTime()
+					dedupUpload[fileInfo.Name()] = elem
+				} else {
+					log2.Debugf("ignoring possibly duplicate file ", fileInfo.Name())
+					continue
+				}
+			} else {
+				dedupUpload[fileInfo.Name()] = uploaded{fileInfo.ModTime(), fileInfo.Size()}
+			}
+
+			log2.Debug("append to file list %s ", fqName)
 			result = append(result, fqName)
 		}
 	}
+
+	for k := range dedupUpload {
+		delete(dedupUpload, k)
+	}
+
 	return result, nil
 }
 
