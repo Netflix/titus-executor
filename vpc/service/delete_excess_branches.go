@@ -243,8 +243,16 @@ get_eni:
 		return false, err
 	}
 
-	if l := len(iface.Ipv6Addresses); l > 1 || l == 1 && len(iface.Ipv6Prefixes) > 0 {
-		err = fmt.Errorf("Could not GC interface, had %d IPv6 addresses, %d IPv6 Prefixes still assigned", l, len(iface.Ipv6Prefixes))
+	if len(iface.Ipv6Prefixes) > 0 {
+		// We currently need 1 IP to work around the PD ND / RA bug
+		if len(iface.Ipv6Addresses) > 1 {
+			err = fmt.Errorf("Could not GC interface, had %d IPv6 addresses, %d IPv6 Prefixes still assigned", len(iface.Ipv6Addresses), len(iface.Ipv6Prefixes))
+		}
+	} else if len(iface.Ipv6Addresses) > 0 {
+		err = fmt.Errorf("Could not GC interface, had %d IPv6 addresses,", len(iface.Ipv6Addresses))
+	}
+
+	if err != nil {
 		span.SetStatus(traceStatusFromError(err))
 		return false, err
 	}
