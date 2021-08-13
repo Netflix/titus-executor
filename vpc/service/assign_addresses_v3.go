@@ -913,7 +913,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		}
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_assigned_to = now() WHERE branch_eni = $1", aws.StringValue(iface.NetworkInterfaceId))
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_assigned_to = now(), last_used = now() WHERE branch_eni = $1", aws.StringValue(iface.NetworkInterfaceId))
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update last_assigned_to")
 		span.SetStatus(traceStatusFromError(err))
@@ -1520,11 +1520,11 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		return nil, err
 	}
 
-	row = tx.QueryRowContext(ctx, "SELECT vpc_id FROM branch_enis JOIN branch_eni_attachments ON branch_eni_attachments.branch_eni = branch_enis.branch_eni WHERE branch_eni_attachments.association_id = $1", association)
-	var vpcID string
-	err = row.Scan(&vpcID)
+	row = tx.QueryRowContext(ctx, "SELECT vpc_id, branch_enis.branch_eni FROM branch_enis JOIN branch_eni_attachments ON branch_eni_attachments.branch_eni = branch_enis.branch_eni WHERE branch_eni_attachments.association_id = $1", association)
+	var vpcID, branchENIID string
+	err = row.Scan(&vpcID, &branchENIID)
 	if err != nil {
-		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not get VPC ID from database").Error())
+		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not get VPC ID / Branch ENI ID from database").Error())
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
@@ -1538,13 +1538,11 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		}
 	}
 
-	if ipv6.Valid {
-		_, err = tx.ExecContext(ctx, "INSERT INTO ip_last_used_v3(ip_address, vpc_id, last_seen) VALUES($1, $2, now()) ON CONFLICT(ip_address, vpc_id) DO UPDATE SET last_seen = now()", ipv6.String, vpcID)
-		if err != nil {
-			err = status.Error(codes.Unknown, errors.Wrap(err, "Could not update IPv6 last used in database").Error())
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_used = now() WHERE branch_eni = $1", branchENIID)
+	if err != nil {
+		err = fmt.Errorf("Could not update last_used on branch ENI: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
 	}
 
 	_, err = tx.ExecContext(ctx, "INSERT INTO branch_eni_last_used(branch_eni, last_used) VALUES ((SELECT branch_eni FROM branch_eni_attachments WHERE association_id = $1), now()) ON CONFLICT (branch_eni) DO UPDATE SET last_used = now()", association)
