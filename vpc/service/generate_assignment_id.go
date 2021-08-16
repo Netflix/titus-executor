@@ -843,7 +843,8 @@ WHERE branch_enis.subnet_id = $1
                      'attached',
                      'unattaching')) IS NULL
   AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
-LIMIT 1`, req.subnet.subnetID, req.trunkENIAccount)
+ORDER BY branch_enis.security_groups = $3::text[] DESC 
+LIMIT 1`, req.subnet.subnetID, req.trunkENIAccount, pq.Array(req.securityGroups))
 	err := row.Scan(&eni.id, &eni.az, &eni.accountID)
 	if err == nil {
 		span.AddAttributes(

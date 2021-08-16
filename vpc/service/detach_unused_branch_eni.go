@@ -86,6 +86,7 @@ WHERE branch_eni_attachments.association_id NOT IN
 	AND branch_eni_attachments.attachment_completed_at < now() - ($1 * interval '1 sec')
     AND branch_eni_attachments.state = 'attached'
     AND branch_enis.last_assigned_to < now() - ($2 * interval '1 sec')
+	AND branch_enis.last_used < now() - ($2 * interval '1 sec')
 ORDER BY COALESCE(branch_enis.last_assigned_to, TIMESTAMP 'EPOCH') ASC
 LIMIT 1
 `, minTimeAttached.Seconds(), minTimeUnused.Seconds())
