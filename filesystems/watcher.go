@@ -40,7 +40,7 @@ const (
 	StdioAttr                    = "user.stdio"
 	waitForDieAfterContextCancel = time.Minute
 	concurrentUploaders          = 3
-	dedupCacheExpirationSec      = time.Second * 10
+	dedupCacheExpirationTime     = time.Second * 10
 )
 
 var (
@@ -584,7 +584,7 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 
 		g.Go(func() error {
 			defer sem.Release(1)
-			if !CheckFileForStdio(fileToUpload) {
+			if !CheckFileForStdio(fileToUploadCopy) {
 				if err := w.uploadLogfile(ctx, fileToUploadCopy, true, dedupCache); err != nil {
 					return err
 				}
@@ -721,13 +721,13 @@ func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finali
 		//Check if we uploaded this file before
 		elem := dedupCache.Get(fileToUpload)
 		if elem == nil {
-			dedupCache.Set(fileToUpload, uploaded{stat.ModTime(), stat.Size()}, dedupCacheExpirationSec)
+			dedupCache.Set(fileToUpload, uploaded{stat.ModTime(), stat.Size()}, dedupCacheExpirationTime)
 		} else {
 			prev := elem.Value().(*uploaded)
 			if prev.size < stat.Size() || prev.mtime.Before(stat.ModTime()) {
 				prev.size = stat.Size()
 				prev.mtime = stat.ModTime()
-				dedupCache.Set(fileToUpload, prev, dedupCacheExpirationSec)
+				dedupCache.Set(fileToUpload, prev, dedupCacheExpirationTime)
 			} else {
 				err = fmt.Errorf("Duplicate file upload for %q", fileToUpload)
 				tracehelpers.SetStatus(err, span)
