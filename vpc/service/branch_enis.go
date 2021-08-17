@@ -1182,8 +1182,16 @@ WHERE subnets.subnet_id = $1
 	iface := output.NetworkInterface
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
 
+	ip, err := assignNextIPv6Address(ctx, tx, subnetID)
+	if err != nil {
+		err = fmt.Errorf("Could not get IPv6 address to assign: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	span.AddAttributes(trace.StringAttribute("ip", ip.String()))
+
 	_, err = session.AssignIPv6Addresses(ctx, ec2.AssignIpv6AddressesInput{
-		Ipv6AddressCount:   aws.Int64(1),
+		Ipv6Addresses:      aws.StringSlice([]string{ip.String()}),
 		NetworkInterfaceId: output.NetworkInterface.NetworkInterfaceId,
 	})
 	if err != nil {

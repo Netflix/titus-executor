@@ -1623,3 +1623,53 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2
 		PrefixLength: uint32(prefixlength),
 	}, nil
 }
+
+func assignNextIPv6Address(ctx context.Context, tx *sql.Tx, subnetid string) (net.IP, error) {
+	sequenceName := fmt.Sprintf("v6seq_%s", strings.ReplaceAll(subnetid, "-", "_"))
+	_, err := tx.ExecContext(ctx, fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s MINVALUE 0 MAXVALUE 65534 CACHE 10 CYCLE", sequenceName))
+	if err != nil {
+		return nil, fmt.Errorf("Cannot create sequence %s: %w", sequenceName, err)
+	}
+
+	/*
+			The address layout looks like:
+
+		 ┌───────────────────────────┬──────────────┬───────────────────────────┬────────────────────┐
+		 │ AWS Subnet CIDR (64-bits) │ 0s (16 bits) │ Time in Seconds (32-bits) │ Sequence (16-bits) │
+		 └───────────────────────────┴──────────────┴───────────────────────────┴────────────────────┘
+
+	*/
+
+	row := tx.QueryRowContext(ctx, "SELECT nextval($1)", sequenceName)
+	var lsb int64
+	err = row.Scan(&lsb)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot scan nextval from sequence %s: %w", sequenceName, err)
+	}
+
+	now := time.Now().Unix() // Should be in seconds
+	lsb |= now << 12
+	lsb &= (1 << 48) - 1
+
+	row = tx.QueryRowContext(ctx, "SELECT cidr6 FROM subnets WHERE subnet_id = $1", subnetid)
+	var subnetCIDR sql.NullString
+	err = row.Scan(&subnetCIDR)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot scan cidr6 from subnet %s: %w", subnetid, err)
+	}
+
+	if !subnetCIDR.Valid {
+		return nil, fmt.Errorf("Subnet %s does not have cidr6", subnetid)
+	}
+
+	_, net, err := net.ParseCIDR(subnetCIDR.String)
+	if err != nil {
+		err = fmt.Errorf("Cannot parse prefix %q: %w", subnetCIDR.String, err)
+		return nil, err
+	}
+
+	prefixInt := cidr.IPv6tod(net.IP)
+	newIPInt := prefixInt.Add(prefixInt, big.NewInt(lsb))
+	newIP := cidr.DtoIPv6(newIPInt)
+	return newIP, nil
+}

@@ -59,7 +59,10 @@ func (c *connectionWrapper) PrepareContext(ctx context.Context, query string) (d
 func (c *connectionWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	ctx, span := trace.StartSpan(ctx, "BeginTx")
 	defer span.End()
-	span.AddAttributes(trace.StringAttribute("isolationLevel", sql.IsolationLevel(opts.Isolation).String()))
+	span.AddAttributes(
+		trace.StringAttribute("isolationLevel", sql.IsolationLevel(opts.Isolation).String()),
+		trace.Int64Attribute("pg_backend_pid", c.pid),
+	)
 
 	isSerial := (sql.IsolationLevel(opts.Isolation) == sql.LevelSerializable)
 	if isSerial {
@@ -82,6 +85,9 @@ func (c *connectionWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) 
 
 	// TODO: Somehow figure out how to link this to all of the things.
 	_, txSpan := trace.StartSpan(ctx, "tx")
+	txSpan.AddAttributes(
+		trace.Int64Attribute("pg_backend_pid", c.pid),
+	)
 	return &txWrapper{
 		span:     txSpan,
 		isSerial: isSerial,
