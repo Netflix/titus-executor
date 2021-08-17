@@ -602,55 +602,6 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 	return nil
 }
 
-/*
-func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string, dedupCache ccache.Cache) error {
-	// Iterate over each file and setup the work
-	var wg sync.WaitGroup
-	var errs *multierror.Error
-
-	// Fill up a buffering channel, so we can drain slowly
-	uploadFileC := make(chan string, len(logFileList))
-	for _, j := range logFileList {
-		uploadFileC <- j
-	}
-	close(uploadFileC)
-
-	// How many workers do we need
-	uploadWorkers := concurrentUploaders
-	if len(logFileList) < uploadWorkers {
-		uploadWorkers = len(logFileList)
-	}
-	wg.Add(uploadWorkers)
-
-	// Define what the worker should do
-	uploadWork := func(ch <-chan string) {
-		defer wg.Done()
-		for logFile := range ch {
-			if ctx.Err() != nil {
-				errs = multierror.Append(errs, ctx.Err())
-				break
-			}
-			if CheckFileForStdio(logFile) {
-				continue
-			}
-			err := w.uploadLogfile(ctx, logFile, true)
-			errs = multierror.Append(errs, err)
-		}
-	}
-	// Start the workers
-	for i := 0; i < uploadWorkers; i++ {
-		go uploadWork(uploadFileC)
-	}
-
-	wg.Wait()
-	err := errs.ErrorOrNil()
-	if err != nil {
-		w.metrics.Counter("titus.executor.logsUploadError", len(errs.Errors), nil)
-	}
-
-	return err
-}*/
-
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
 func (w *Watcher) uploadAllLogFiles(ctx context.Context, dedupCache *ccache.Cache) error {
