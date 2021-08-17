@@ -744,6 +744,11 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		trace.StringAttribute("trunk", ass.trunk),
 		trace.StringAttribute("branch", ass.branch.id),
 	)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"eni":    ass.branch.id,
+		"trunk":  ass.trunk,
+		"branch": ass.branch.id,
+	})
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot start transaction")
