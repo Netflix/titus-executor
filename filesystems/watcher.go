@@ -23,9 +23,11 @@ import (
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-	"github.com/hashicorp/go-multierror"
+	ccache "github.com/karlseguin/ccache/v2"
 	log "github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 )
 
 const (
@@ -37,6 +39,8 @@ const (
 	// StdioAttr is the attribute that states this is a stdio, rotatable file
 	StdioAttr                    = "user.stdio"
 	waitForDieAfterContextCancel = time.Minute
+	concurrentUploaders          = 3
+	dedupCacheExpirationSec      = time.Second * 10
 )
 
 var (
@@ -277,7 +281,7 @@ func (w *Watcher) traditionalRotate(ctx context.Context) {
 	logFileList, err := buildFileListInDir(w.config.localDir, true, w.config.uploadThresholdTime)
 	if err == nil {
 		for _, logFile := range logFileList {
-			_ = w.uploadLogfile(ctx, logFile, false)
+			_ = w.uploadLogfile(ctx, logFile, false, nil)
 		}
 	} else {
 		log.Error(err)
@@ -561,10 +565,47 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	return currentOffsetInt
 }
 
-func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string) error {
+func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string, dedupCache *ccache.Cache) error {
+	// How many workers do we need
+	uploadWorkers := concurrentUploaders
+	if len(logFileList) < uploadWorkers {
+		uploadWorkers = len(logFileList)
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+	// Limit concurrency
+	sem := semaphore.NewWeighted(int64(uploadWorkers))
+	for _, fileToUpload := range logFileList {
+		fileToUploadCopy := fileToUpload
+		err := sem.Acquire(ctx, 1)
+		if err != nil {
+			continue
+		}
+
+		g.Go(func() error {
+			defer sem.Release(1)
+			if !CheckFileForStdio(fileToUpload) {
+				if err := w.uploadLogfile(ctx, fileToUploadCopy, true, dedupCache); err != nil {
+					return err
+				}
+				log.Error("Uploaded concurrently ", fileToUploadCopy)
+
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		log.Error("Error during concurrent upload of files: g.Wait() err ", err)
+		return err
+	}
+	return nil
+}
+
+/*
+func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string, dedupCache ccache.Cache) error {
 	// Iterate over each file and setup the work
 	var wg sync.WaitGroup
-	const concurrentUploaders = 8
 	var errs *multierror.Error
 
 	// Fill up a buffering channel, so we can drain slowly
@@ -608,11 +649,11 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 	}
 
 	return err
-}
+}*/
 
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
-func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
+func (w *Watcher) uploadAllLogFiles(ctx context.Context, dedupCache *ccache.Cache) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -627,16 +668,21 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 		return err
 	}
 
-	err = w.concurrentUploadLogFile(ctx, logFileList)
+	err = w.concurrentUploadLogFile(ctx, logFileList, dedupCache)
 	tracehelpers.SetStatus(err, span)
 
 	return err
 }
 
+type uploaded struct {
+	mtime time.Time
+	size  int64
+}
+
 // uploadLogFile is called to upload a single log file while the
 // task is running. Currently, no error is returned to the caller,
 // it is just logged.
-func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finalization bool) error {
+func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finalization bool, dedupCache *ccache.Cache) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -671,6 +717,26 @@ func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finali
 		return err
 	}
 
+	if dedupCache != nil {
+		//Check if we uploaded this file before
+		elem := dedupCache.Get(fileToUpload)
+		if elem == nil {
+			dedupCache.Set(fileToUpload, uploaded{stat.ModTime(), stat.Size()}, dedupCacheExpirationSec)
+		} else {
+			prev := elem.Value().(*uploaded)
+			if prev.size < stat.Size() || prev.mtime.Before(stat.ModTime()) {
+				prev.size = stat.Size()
+				prev.mtime = stat.ModTime()
+				dedupCache.Set(fileToUpload, prev, dedupCacheExpirationSec)
+			} else {
+				err = fmt.Errorf("Duplicate file upload for %q", fileToUpload)
+				tracehelpers.SetStatus(err, span)
+				log.WithError(err).Error("Error uploading")
+				return err
+			}
+		}
+	}
+
 	err = w.uploader.Upload(ctx, fileToUpload, path.Join(w.config.uploadDir, remoteFilePath), xattr.GetMimeType)
 	if err != nil {
 		w.metrics.Counter("titus.executor.logsUploadError", 1, nil)
@@ -695,17 +761,11 @@ func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finali
 	return nil
 }
 
-type uploaded struct {
-	mtime time.Time
-	size  int64
-}
-
 func buildFileListInDir(dirName string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration) ([]string, error) {
-	dedupUpload := make(map[string]uploaded)
-	return buildFileListInDir2(dirName, []string{}, checkModifiedTimeThreshold, uploadThreshold, dedupUpload)
+	return buildFileListInDir2(dirName, []string{}, checkModifiedTimeThreshold, uploadThreshold)
 }
 
-func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration, dedupUpload map[string]uploaded) ([]string, error) {
+func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThreshold bool, uploadThreshold time.Duration) ([]string, error) {
 	result := fileList
 	fileInfos, err := ioutil.ReadDir(dirName)
 	if err != nil {
@@ -718,7 +778,7 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 
 		if fileInfo.IsDir() {
 			log2.Debug("descending into directory")
-			result, err = buildFileListInDir2(fqName, result, checkModifiedTimeThreshold, uploadThreshold, dedupUpload) // nolint: ineffassign
+			result, err = buildFileListInDir2(fqName, result, checkModifiedTimeThreshold, uploadThreshold) // nolint: ineffassign
 			if err != nil {
 				return result, err
 			}
@@ -738,28 +798,10 @@ func buildFileListInDir2(dirName string, fileList []string, checkModifiedTimeThr
 				continue
 			}
 
-			elem, ok := dedupUpload[fileInfo.Name()]
-			if ok {
-				if elem.size < fileInfo.Size() || elem.mtime.Before(fileInfo.ModTime()) {
-					elem.size = fileInfo.Size()
-					elem.mtime = fileInfo.ModTime()
-					dedupUpload[fileInfo.Name()] = elem
-				} else {
-					continue
-				}
-			} else {
-				dedupUpload[fileInfo.Name()] = uploaded{fileInfo.ModTime(), fileInfo.Size()}
-			}
-
 			log2.Debug("append to file list")
 			result = append(result, fqName)
 		}
 	}
-
-	for k := range dedupUpload {
-		delete(dedupUpload, k)
-	}
-
 	return result, nil
 }
 
@@ -800,8 +842,9 @@ func (w *Watcher) Stop(ctx context.Context) error {
 			return
 		}
 
+		dedupCache := ccache.New(ccache.Configure().MaxSize(100000))
 		// Set retError
-		w.retError = w.uploadAllLogFiles(ctx)
+		w.retError = w.uploadAllLogFiles(ctx, dedupCache)
 
 		w.metrics.Timer("titus.executor.finalLogUpload.Duration", time.Since(uploadStartTime), nil)
 	})

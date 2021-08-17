@@ -42,7 +42,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/json-iterator/go v1.1.11 // indirect
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
-	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
+	github.com/karlseguin/ccache/v2 v2.0.8
 	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.3.0
 	github.com/m7shapan/cidr v0.0.0-20200427124835-7eba0889a5d2

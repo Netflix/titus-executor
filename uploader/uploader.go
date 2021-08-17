@@ -120,6 +120,7 @@ func uploadDir(ctx context.Context, uploader Backend, local string, remote strin
 				for job := range ch {
 					if err = uploader.Upload(ctx, job.src, job.dest, ctypeFunc); err != nil {
 						log.WithField("local", job.src).WithField("remote", job.dest).Error(err)
+						// Note this usage is not thread safe - refer to errGroup implementation in watcher.go
 						uploadErrs[job.src] = err
 					}
 				}
@@ -150,7 +151,6 @@ func (e *Uploader) Upload(ctx context.Context, local, remote string, ctypeFunc C
 	}
 
 	if fi.IsDir() {
-		log.WithField("Going to upload ", local).WithField("to remote", remote).Info(" - directory")
 		return uploadDir(ctx, e.backend, local, remote, ctypeFunc)
 	}
 
