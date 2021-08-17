@@ -183,6 +183,8 @@ type Config struct {
 	SubnetCIDRReservationDescription  string
 
 	WorkerRole string
+
+	FixAllocations bool
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -245,6 +247,15 @@ func Run(ctx context.Context, config *Config) error {
 		subnetCacheExpirationTime: config.ReconcileInterval / 2.0,
 
 		concurrentRequests: semaphore.NewWeighted(int64(config.MaxConcurrentRequests)),
+	}
+
+	if config.FixAllocations {
+		err = vpc.FixOldAllocations(ctx)
+		if err != nil {
+			return fmt.Errorf("Could not fix old allocations: %w", err)
+		}
+
+		return nil
 	}
 
 	// TODO: actually validate this

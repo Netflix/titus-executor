@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 
 	"github.com/lib/pq"
 
@@ -26,7 +27,11 @@ import (
 const maxAddressesPerInterface = 50
 
 // The dummy interface is used for IP addresses that are allocated
-const staticDummyInterfaceDescription = "titus-static-dummy"
+const (
+	staticDummyInterfaceDescription = "titus-static-dummy"
+	tmpDummyInterfaceDescription    = "titus-tmp-dummy"
+	staticReservationDescription    = "titus-static-address"
+)
 
 var (
 	errAllocationNotFound = status.Error(codes.NotFound, "Could not find allocation")
@@ -410,4 +415,165 @@ func (vpcService *vpcService) ValidateAllocation(ctx context.Context, req *titus
 	}
 
 	return &titus.ValidationResponse{}, nil
+}
+
+type allocation struct {
+	id      string
+	region  string
+	account string
+	subnet  string
+}
+
+func (vpcService *vpcService) FixOldAllocations(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
+	if err != nil {
+		return errors.Wrap(err, "Could not start database transaction")
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT 
+       ip_addresses.id, ip_addresses.region, subnets.account_id, ip_addresses.subnet_id 
+FROM ip_addresses 
+JOIN subnets ON ip_addresses.subnet_id = subnets.subnet_id
+WHERE ipv6address IS NULL`)
+	if err != nil {
+		return fmt.Errorf("Could not query IDs from ip_addresses: %w", err)
+	}
+
+	var allocations []allocation
+	for rows.Next() {
+		var alloc allocation
+		err = rows.Scan(&alloc.id, &alloc.region, &alloc.account, &alloc.subnet)
+		if err != nil {
+			return fmt.Errorf("Could not scan row: %w", err)
+		}
+
+		allocations = append(allocations, alloc)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("Cannot commit transaction to get outstanding, unconverted records: %w", err)
+	}
+
+	for _, alloc := range allocations {
+		err = vpcService.fixAllocation(ctx, alloc)
+		if err != nil {
+			return fmt.Errorf("Could not fix allocation %s: %w", alloc.id, err)
+		}
+		break
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) fixAllocation(ctx context.Context, alloc allocation) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
+		AccountID: alloc.account,
+		Region:    alloc.region,
+	})
+	if err != nil {
+		return fmt.Errorf("Cannot get session: %w", err)
+	}
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return errors.Wrap(err, "Could not start database transaction")
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	var ipv4addr string
+	var ipv6addr sql.NullString
+	row := tx.QueryRowContext(ctx,
+		"SELECT ip_address, ipv6address FROM ip_addresses WHERE id = $1 FOR NO KEY UPDATE",
+		alloc.id,
+	)
+	err = row.Scan(&ipv4addr, &ipv6addr)
+	if err != nil {
+		return fmt.Errorf("Cannot scan ip addresses: %w", err)
+	}
+	v4addr := net.ParseIP(ipv4addr)
+	v6addr := net.ParseIP(ipv6addr.String)
+	if !ipv6addr.Valid {
+		// We need to backfill the IPv6 address
+		v6addr, err = assignNextIPv6Address(ctx, tx, alloc.subnet)
+		if err != nil {
+			return fmt.Errorf("Could not assign next IPv6 address: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE ip_addresses SET ipv6address = $1 WHERE id = $2", v6addr.String(), alloc.id)
+		if err != nil {
+			return fmt.Errorf("Could not update ipv6addr: %w", err)
+		}
+	}
+
+	v6output, err := session.CreateSubnetCidrReservation(ctx, ec2.CreateSubnetCidrReservationInput{
+		Cidr:            aws.String(fmt.Sprintf("%s/128", v6addr.String())),
+		Description:     aws.String(staticReservationDescription),
+		ReservationType: aws.String("explicit"),
+		SubnetId:        aws.String(alloc.subnet),
+	})
+	if err != nil {
+		return fmt.Errorf("Cannot make reservation for IPv6 addr: %w", err)
+	}
+
+	v4output, err := session.CreateSubnetCidrReservation(ctx, ec2.CreateSubnetCidrReservationInput{
+		Cidr:            aws.String(fmt.Sprintf("%s/32", v4addr.String())),
+		Description:     aws.String(staticReservationDescription),
+		ReservationType: aws.String("explicit"),
+		SubnetId:        aws.String(alloc.subnet),
+	})
+	if err != nil {
+		return fmt.Errorf("Cannot make reservation for IPv4 addr: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO subnet_cidr_reservations_v6(reservation_id, subnet_id, prefix, type, description) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING ",
+		aws.StringValue(v6output.SubnetCidrReservation.SubnetCidrReservationId),
+		alloc.subnet,
+		aws.StringValue(v6output.SubnetCidrReservation.Cidr),
+		aws.StringValue(v6output.SubnetCidrReservation.ReservationType),
+		aws.StringValue(v6output.SubnetCidrReservation.Description),
+	)
+	if err != nil {
+		return fmt.Errorf("Could not insert subnet CIDR v6 reservation %s: %w", aws.StringValue(v6output.SubnetCidrReservation.SubnetCidrReservationId), err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO subnet_cidr_reservations_v4(reservation_id, subnet_id, prefix, type, description) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING ",
+		aws.StringValue(v4output.SubnetCidrReservation.SubnetCidrReservationId),
+		alloc.subnet,
+		aws.StringValue(v4output.SubnetCidrReservation.Cidr),
+		aws.StringValue(v4output.SubnetCidrReservation.ReservationType),
+		aws.StringValue(v4output.SubnetCidrReservation.Description),
+	)
+	if err != nil {
+		return fmt.Errorf("Could not insert subnet CIDR v4 reservation %s: %w", aws.StringValue(v4output.SubnetCidrReservation.SubnetCidrReservationId), err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		"UPDATE ip_addresses SET v4prefix = $1, v6prefix = $2 WHERE id = $3",
+		aws.StringValue(v4output.SubnetCidrReservation.SubnetCidrReservationId),
+		aws.StringValue(v6output.SubnetCidrReservation.SubnetCidrReservationId),
+		alloc.id,
+	)
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("Could not commit transaction: %w")
+	}
+
+	return nil
 }

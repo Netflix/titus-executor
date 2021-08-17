@@ -267,6 +267,8 @@ func main() {
 				SubnetCIDRReservationDescription:  v.GetString(subnetCIDRReservationFlagName),
 
 				WorkerRole: v.GetString(workerRoleFlagName),
+
+				FixAllocations: v.GetBool("fix-allocations"),
 			})
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
@@ -291,6 +293,7 @@ func main() {
 	rootCmd.Flags().String(subnetCIDRReservationFlagName, vpc.DefaultSubnetCIDRReservationDescription, "The description of CIDRs to use for SCRs")
 	rootCmd.Flags().String(workerRoleFlagName, "", "The role which to assume into to do work")
 	rootCmd.Flags().Int(maxConcurrentRequestsFlagName, 100, "Maximum concurrent gRPC requests to allow")
+	rootCmd.Flags().Bool("fix-allocations", false, "Fix allocations at startup")
 
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
 	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
