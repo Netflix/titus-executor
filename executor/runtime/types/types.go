@@ -473,6 +473,7 @@ type NetworkConfigurationDetails struct {
 	ElasticIPAddress string
 	EniIPAddress     string
 	EniIPv6Address   string
+	NetworkMode      string
 	EniID            string
 	ResourceID       string
 }
@@ -490,7 +491,7 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 	if n.ElasticIPAddress != "" {
 		m["ElasticIPAddress"] = n.ElasticIPAddress
 	}
-
+	m["NetworkMode"] = n.NetworkMode
 	return m
 }
 

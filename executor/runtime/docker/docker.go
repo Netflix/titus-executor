@@ -1447,6 +1447,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 			IsRoutableIP: true,
 			IPAddress:    ipv4addr.Address.Address,
 			EniIPAddress: ipv4addr.Address.Address,
+			NetworkMode:  r.c.EffectiveNetworkMode(),
 			ResourceID:   fmt.Sprintf("resource-eni-%d", allocation.DeviceIndex()-1),
 			EniID:        eni.NetworkInterfaceId,
 		},
