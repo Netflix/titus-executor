@@ -633,11 +633,6 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 	return err
 }
 
-type uploaded struct {
-	mtime time.Time
-	size  int64
-}
-
 // uploadLogFile is called to upload a single log file while the
 // task is running. Currently, no error is returned to the caller,
 // it is just logged.
