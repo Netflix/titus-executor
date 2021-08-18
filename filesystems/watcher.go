@@ -23,7 +23,6 @@ import (
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
-	ccache "github.com/karlseguin/ccache/v2"
 	log "github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
@@ -39,8 +38,7 @@ const (
 	// StdioAttr is the attribute that states this is a stdio, rotatable file
 	StdioAttr                    = "user.stdio"
 	waitForDieAfterContextCancel = time.Minute
-	concurrentUploaders          = 3
-	dedupCacheExpirationTime     = time.Second * 10
+	concurrentUploaders          = 8
 )
 
 var (
@@ -281,7 +279,7 @@ func (w *Watcher) traditionalRotate(ctx context.Context) {
 	logFileList, err := buildFileListInDir(w.config.localDir, true, w.config.uploadThresholdTime)
 	if err == nil {
 		for _, logFile := range logFileList {
-			_ = w.uploadLogfile(ctx, logFile, false, nil)
+			_ = w.uploadLogfile(ctx, logFile, false)
 		}
 	} else {
 		log.Error(err)
@@ -565,7 +563,7 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	return currentOffsetInt
 }
 
-func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string, dedupCache *ccache.Cache) error {
+func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string) error {
 	// How many workers do we need
 	uploadWorkers := concurrentUploaders
 	if len(logFileList) < uploadWorkers {
@@ -585,7 +583,7 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 		g.Go(func() error {
 			defer sem.Release(1)
 			if !CheckFileForStdio(fileToUploadCopy) {
-				if err := w.uploadLogfile(ctx, fileToUploadCopy, true, dedupCache); err != nil {
+				if err := w.uploadLogfile(ctx, fileToUploadCopy, true); err != nil {
 					return err
 				}
 				log.Error("Uploaded concurrently ", fileToUploadCopy)
@@ -604,7 +602,7 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
-func (w *Watcher) uploadAllLogFiles(ctx context.Context, dedupCache *ccache.Cache) error {
+func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -619,7 +617,17 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context, dedupCache *ccache.Cach
 		return err
 	}
 
-	err = w.concurrentUploadLogFile(ctx, logFileList, dedupCache)
+	//Remove duplicate entries in the list of files to upload
+	filenames := make(map[string]bool)
+	uniqueFiles := []string{}
+	for _, filename := range logFileList {
+		if _, exists := filenames[filename]; !exists {
+			filenames[filename] = true
+			uniqueFiles = append(uniqueFiles, filename)
+		}
+	}
+
+	err = w.concurrentUploadLogFile(ctx, uniqueFiles)
 	tracehelpers.SetStatus(err, span)
 
 	return err
@@ -633,7 +641,7 @@ type uploaded struct {
 // uploadLogFile is called to upload a single log file while the
 // task is running. Currently, no error is returned to the caller,
 // it is just logged.
-func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finalization bool, dedupCache *ccache.Cache) error {
+func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finalization bool) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -666,26 +674,6 @@ func (w *Watcher) uploadLogfile(ctx context.Context, fileToUpload string, finali
 		tracehelpers.SetStatus(err, span)
 		log.WithError(err).Error("Error uploading")
 		return err
-	}
-
-	if dedupCache != nil {
-		//Check if we uploaded this file before
-		elem := dedupCache.Get(fileToUpload)
-		if elem == nil {
-			dedupCache.Set(fileToUpload, uploaded{stat.ModTime(), stat.Size()}, dedupCacheExpirationTime)
-		} else {
-			prev := elem.Value().(*uploaded)
-			if prev.size < stat.Size() || prev.mtime.Before(stat.ModTime()) {
-				prev.size = stat.Size()
-				prev.mtime = stat.ModTime()
-				dedupCache.Set(fileToUpload, prev, dedupCacheExpirationTime)
-			} else {
-				err = fmt.Errorf("Duplicate file upload for %q", fileToUpload)
-				tracehelpers.SetStatus(err, span)
-				log.WithError(err).Error("Error uploading")
-				return err
-			}
-		}
 	}
 
 	err = w.uploader.Upload(ctx, fileToUpload, path.Join(w.config.uploadDir, remoteFilePath), xattr.GetMimeType)
@@ -793,9 +781,8 @@ func (w *Watcher) Stop(ctx context.Context) error {
 			return
 		}
 
-		dedupCache := ccache.New(ccache.Configure().MaxSize(100000))
 		// Set retError
-		w.retError = w.uploadAllLogFiles(ctx, dedupCache)
+		w.retError = w.uploadAllLogFiles(ctx)
 
 		w.metrics.Timer("titus.executor.finalLogUpload.Duration", time.Since(uploadStartTime), nil)
 	})
