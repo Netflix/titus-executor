@@ -23,10 +23,12 @@ import (
 	"github.com/Netflix/titus-executor/filesystems/xattr"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -563,7 +565,23 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	return currentOffsetInt
 }
 
+type SafeMultiError struct {
+	mutex sync.Mutex
+	errs  *multierror.Error
+}
+
+func (s *SafeMultiError) AppendErr(err error) {
+	s.mutex.Lock()
+	s.errs = multierror.Append(s.errs, err)
+	s.mutex.Unlock()
+}
+
+func (s *SafeMultiError) ErrorOrNil() error {
+	return s.errs.ErrorOrNil()
+}
+
 func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string) error {
+	safeError := SafeMultiError{}
 	// How many workers do we need
 	uploadWorkers := concurrentUploaders
 	if len(logFileList) < uploadWorkers {
@@ -584,17 +602,16 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 			defer sem.Release(1)
 			if !CheckFileForStdio(fileToUploadCopy) {
 				if err := w.uploadLogfile(ctx, fileToUploadCopy, true); err != nil {
-					return err
+					log.WithError(err).Errorf("Error during concurrent upload of files")
+					safeError.AppendErr(err)
 				}
-				log.Error("Uploaded concurrently ", fileToUploadCopy)
-
 			}
 			return nil
 		})
 	}
 
-	if err := g.Wait(); err != nil {
-		log.Error("Error during concurrent upload of files: g.Wait() err ", err)
+	if err := safeError.ErrorOrNil(); err != nil {
+		log.WithError(err).Errorf("Error during concurrent upload of files")
 		return err
 	}
 	return nil
@@ -617,17 +634,13 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 		return err
 	}
 
-	//Remove duplicate entries in the list of files to upload
-	filenames := make(map[string]bool)
-	uniqueFiles := []string{}
+	//remove duplicate files to upload
+	uniqueFiles := sets.NewString()
 	for _, filename := range logFileList {
-		if _, exists := filenames[filename]; !exists {
-			filenames[filename] = true
-			uniqueFiles = append(uniqueFiles, filename)
-		}
+		uniqueFiles.Insert(filename)
 	}
 
-	err = w.concurrentUploadLogFile(ctx, uniqueFiles)
+	err = w.concurrentUploadLogFile(ctx, uniqueFiles.List())
 	tracehelpers.SetStatus(err, span)
 
 	return err
