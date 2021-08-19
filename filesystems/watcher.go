@@ -610,6 +610,11 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 		})
 	}
 
+	if err := g.Wait(); err != nil {
+		log.WithError(err).Errorf("Error during concurrent upload of files: g.Wait()")
+		return err
+	}
+
 	if err := safeError.ErrorOrNil(); err != nil {
 		log.WithError(err).Errorf("Error during concurrent upload of files")
 		return err
