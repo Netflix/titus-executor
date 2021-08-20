@@ -147,7 +147,7 @@ type update struct {
 }
 
 func (r *Runner) prepareContainer(ctx context.Context) update {
-	logger.G(ctx).Debug("Running prepare")
+	logger.G(ctx).Debug("Running prepare on main container")
 	prepareCtx, prepareCancel := context.WithCancel(ctx)
 	defer prepareCancel()
 	go func() {
@@ -162,14 +162,14 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 	// These steps may or may not have completed depending on if/where a failure occurred.
 	if err := r.runtime.Prepare(prepareCtx); err != nil {
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
-		logger.G(ctx).Error("Task failed to create container: ", err)
+		logger.G(ctx).WithError(err).Error("Task failed to create main container")
 		// Treat registry pull errors as LOST and non-existent images as FAILED.
 		switch err.(type) {
 		case *runtimeTypes.RegistryImageNotFoundError, *runtimeTypes.InvalidSecurityGroupError, *runtimeTypes.BadEntryPointError, *runtimeTypes.InvalidConfigurationError:
-			logger.G(ctx).Error("Returning TASK_FAILED for Task: ", err)
+			logger.G(ctx).WithError(err).Error("Returning TASK_FAILED for Task")
 			return update{status: titusdriver.Failed, msg: err.Error()}
 		}
-		logger.G(ctx).Error("Returning TASK_LOST for Task: ", err)
+		logger.G(ctx).WithError(err).Error("Returning TASK_LOST for Task")
 		return update{status: titusdriver.Lost, msg: err.Error()}
 	}
 
@@ -198,18 +198,18 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
-	updateChan <- update{status: titusdriver.Starting, msg: "preparing main container"}
+	containerNames := getContainerNames(r.pod)
+	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
+	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 
 	prepareUpdate := r.prepareContainer(ctx)
-	updateChan <- prepareUpdate
 	if prepareUpdate.status.IsTerminalStatus() {
+		updateChan <- prepareUpdate
 		logger.G(ctx).WithField("prepareUpdate", prepareUpdate).Debug("Prepare was terminal")
 		return
 	}
 
-	containerNames := getContainerNames(r.pod)
-	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
-	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
+	logger.G(ctx).Info(startingMsg)
 	logDir, details, statusChan, err := r.runtime.Start(ctx, r.pod)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
@@ -224,9 +224,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
 		return
 	}
-	startedMsg := fmt.Sprintf("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
-	logger.G(ctx).Info(startedMsg)
-	updateChan <- update{status: titusdriver.Starting, msg: startedMsg, details: details}
+	logger.G(ctx).Infof("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
 
 	err = r.maybeSetupExternalLogger(ctx, logDir)
 	if err != nil {
