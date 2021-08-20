@@ -26,7 +26,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -565,45 +564,28 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	return currentOffsetInt
 }
 
-type SafeMultiError struct {
-	mutex sync.Mutex
-	errs  *multierror.Error
-}
-
-func (s *SafeMultiError) AppendErr(err error) {
-	s.mutex.Lock()
-	s.errs = multierror.Append(s.errs, err)
-	s.mutex.Unlock()
-}
-
-func (s *SafeMultiError) ErrorOrNil() error {
-	return s.errs.ErrorOrNil()
-}
-
 func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string) error {
-	safeError := SafeMultiError{}
 	// How many workers do we need
 	uploadWorkers := concurrentUploaders
 	if len(logFileList) < uploadWorkers {
 		uploadWorkers = len(logFileList)
 	}
 
-	g, ctx := errgroup.WithContext(ctx)
+	g := &multierror.Group{}
 	// Limit concurrency
 	sem := semaphore.NewWeighted(int64(uploadWorkers))
 	for _, fileToUpload := range logFileList {
 		fileToUploadCopy := fileToUpload
-		err := sem.Acquire(ctx, 1)
-		if err != nil {
-			continue
-		}
 
 		g.Go(func() error {
+			err := sem.Acquire(ctx, 1)
+			if err != nil {
+				return fmt.Errorf("Could not upload %s: %w", fileToUploadCopy, err)
+			}
 			defer sem.Release(1)
 			if !CheckFileForStdio(fileToUploadCopy) {
 				if err := w.uploadLogfile(ctx, fileToUploadCopy, true); err != nil {
 					log.WithError(err).Errorf("Error during concurrent upload of files")
-					safeError.AppendErr(err)
 				}
 			}
 			return nil
@@ -615,10 +597,6 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 		return err
 	}
 
-	if err := safeError.ErrorOrNil(); err != nil {
-		log.WithError(err).Errorf("Error during concurrent upload of files")
-		return err
-	}
 	return nil
 }
 
