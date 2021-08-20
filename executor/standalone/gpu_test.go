@@ -7,7 +7,10 @@ import (
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 )
 
-const gpuTestRuntime = "fake-gpu-runtime"
+const (
+	gpuTestRuntime = "fake-gpu-runtime"
+	devNull        = "/dev/null"
+)
 
 var (
 	_ runtimeTypes.GPUManager = (*gpuManager)(nil)
@@ -42,7 +45,7 @@ func (g *gpuContainer) Env() map[string]string {
 func (g *gpuContainer) Devices() []string {
 	ret := make([]string, g.devices)
 	for i := 0; i < g.devices; i++ {
-		ret[i] = "/dev/null"
+		ret[i] = devNull
 	}
 	return ret
 }

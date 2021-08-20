@@ -126,7 +126,7 @@ func generateJobID(testName string) string {
 }
 
 func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, dockerCfg := GenerateConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -146,7 +146,7 @@ func dockerImageRemove(t *testing.T, imgName string) {
 }
 
 func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, dockerCfg := GenerateConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -238,7 +238,7 @@ func TestInvalidFlatStringAsCmd(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 127); err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func TestEntrypointAndCmdFromImage(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 123); err != nil {
 		t.Fatal(err)
@@ -295,7 +295,7 @@ func TestOverrideCmdFromImage(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 5); err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestResetEntrypointFromImage(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 6); err != nil {
 		t.Fatal(err)
@@ -538,7 +538,7 @@ func TestCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	jobResponse, err := StartJob(t, ctx, &JobInput{
+	jobResponse, err := StartTestTask(t, ctx, &JobInput{
 		JobID:      generateJobID(t.Name()),
 		ImageName:  bigImage.name,
 		Version:    bigImage.tag,
@@ -641,7 +641,7 @@ func TestShutdown(t *testing.T) {
 		UsePodSpec:    UseV1PodspecInTest,
 	}
 
-	jobRunner, err := StartJob(t, ctx, ji)
+	jobRunner, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobRunner.StopExecutor()
 
@@ -752,7 +752,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 		UsePodSpec:      UseV1PodspecInTest,
 	}
 	// Start the executor
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutorAsync()
 
@@ -840,7 +840,7 @@ func TestOOMKill(t *testing.T) {
 	}
 
 	// Start the executor
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutorAsync()
 
@@ -1116,7 +1116,7 @@ func TestMetatronFailure(t *testing.T) {
 		UsePodSpec: UseV1PodspecInTest,
 	}
 
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutor()
 
@@ -1259,7 +1259,7 @@ func TestGPUManager1GPU(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
-	jobResult, err := StartJob(t, ctx, ji)
+	jobResult, err := StartTestTask(t, ctx, ji)
 	assert.Nil(t, err)
 
 	require.True(t, jobResult.WaitForSuccess())
