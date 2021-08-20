@@ -486,29 +486,13 @@ func updateBPFMap(ctx context.Context, mapName string, key []byte, value uint16)
 
 func updateBPFMaps(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
 	if assignment.Ipv4Address != nil {
-		buf := make([]byte, 8)
-
-		binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
-		ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
-		if len(ip) != 4 {
-			panic("Length of IP is not 4")
-		}
-		copy(buf[4:], ip)
-		if err := updateBPFMap(ctx, "ipv4_map", buf, uint16(assignment.ClassId)); err != nil {
+		if err := updateBPFMap(ctx, "ipv4_map", ipv4key(assignment), uint16(assignment.ClassId)); err != nil {
 			return err
 		}
 	}
 
 	if assignment.Ipv6Address != nil {
-		buf := make([]byte, 20)
-		binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
-		ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
-		if len(ip) != 16 {
-			panic("Length of IP is not 16")
-		}
-
-		copy(buf[4:], ip)
-		if err := updateBPFMap(ctx, "ipv6_map", buf, uint16(assignment.ClassId)); err != nil {
+		if err := updateBPFMap(ctx, "ipv6_map", ipv6key(assignment), uint16(assignment.ClassId)); err != nil {
 			return err
 		}
 	}
@@ -667,14 +651,7 @@ func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	if assignment.Ipv4Address == nil {
 		return nil
 	}
-	buf := make([]byte, 8)
 
-	binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
-	ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
-	if len(ip) != 4 {
-		panic("Length of IP is not 4")
-	}
-	copy(buf[4:], ip)
 	path := []byte("/sys/fs/bpf//tc/globals/ipv4_map\000")
 	openAttrObjOp := bpfAttrObjOp{
 		pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
@@ -694,9 +671,10 @@ func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	defer unix.Close(int(fd))
 	runtime.KeepAlive(path)
 
+	key := ipv4key(assignment)
 	uba := bpfAttrMapOpElem{
 		mapFd: uint32(fd),
-		key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
+		key:   uint64(uintptr(unsafe.Pointer(&key[0]))),
 	}
 	_, _, err = unix.Syscall(
 		unix.SYS_BPF,
@@ -704,7 +682,11 @@ func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 		uintptr(unsafe.Pointer(&uba)),
 		unsafe.Sizeof(uba),
 	)
-	if err != unix.ENOENT && err != 0 {
+	if err == unix.ENOENT {
+		err := errors.Wrap(err, "Unable to delete element for ipv4 map (notfound) ")
+		logger.G(ctx).WithError(err).WithField("ip", assignment.Ipv4Address.Address.Address).WithField("classid", assignment.ClassId).WithField("vlanid", assignment.VlanId).Error("Element not found")
+		return err
+	} else if err != 0 {
 		logger.G(ctx).WithError(err).Errorf("Unable to delete element for ipv4 map with file descriptor %d", fd)
 		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
 		return err2
@@ -717,51 +699,81 @@ func deleteFromIPv6BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	if assignment.Ipv6Address == nil {
 		return nil
 	}
-	buf := make([]byte, 20)
-	binary.LittleEndian.PutUint16(buf, uint16(assignment.ClassId))
 	ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
 	if len(ip) != 16 {
 		panic("Length of IP is not 16")
 	}
-
-	copy(buf[4:], ip)
 
 	path := []byte("/sys/fs/bpf//tc/globals/ipv6_map\000")
 	openAttrObjOp := bpfAttrObjOp{
 		pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
 	}
 
-	fd, _, err := unix.Syscall(
+	fd, _, errno := unix.Syscall(
 		unix.SYS_BPF,
 		unix.BPF_OBJ_GET,
 		uintptr(unsafe.Pointer(&openAttrObjOp)),
 		unsafe.Sizeof(openAttrObjOp),
 	)
-	if err != 0 {
-		err2 := errors.Wrap(err, "Cannot open BPF Map ipv6_map")
-		logger.G(ctx).WithError(err2).Error("Cannot get ipv6_map")
-		return err2
+	if errno != 0 {
+		err := errors.Wrap(errno, "Cannot open BPF Map ipv6_map")
+		logger.G(ctx).WithError(err).Error("Cannot get ipv6_map")
+		return err
 	}
 	defer unix.Close(int(fd))
 	runtime.KeepAlive(path)
 
+	key := ipv6key(assignment)
 	uba := bpfAttrMapOpElem{
 		mapFd: uint32(fd),
-		key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
+		key:   uint64(uintptr(unsafe.Pointer(&key[0]))),
 	}
-	_, _, err = unix.Syscall(
+	_, _, errno = unix.Syscall(
 		unix.SYS_BPF,
 		unix.BPF_MAP_DELETE_ELEM,
 		uintptr(unsafe.Pointer(&uba)),
 		unsafe.Sizeof(uba),
 	)
-	if err != unix.ENOENT && err != 0 {
-		logger.G(ctx).WithError(errors.Wrapf(err, "Unable to delete element for map with file descriptor %d", fd)).Error()
-		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
-		return err2
+	if errno == unix.ENOENT {
+		err := errors.Wrap(errno, "Unable to delete element for ipv6 map (notfound)")
+		logger.G(ctx).WithError(err).WithField("ip", assignment.Ipv6Address.Address.Address).WithField("classid", assignment.ClassId).WithField("vlanid", assignment.VlanId).Error("Element not found")
+		return err
+	} else if errno != 0 {
+		logger.G(ctx).WithError(errors.Wrapf(errno, "Unable to delete element for map with file descriptor %d", fd)).Error()
+		err := errors.Wrap(errno, "Unable to delete element for ipv6 map")
+		return err
 	}
 	runtime.KeepAlive(uba)
 	return nil
+}
+
+func ipv6key(assignment *vpcapi.AssignIPResponseV3) []byte {
+	if assignment.Ipv6Address == nil {
+		return nil
+	}
+	buf := make([]byte, 20)
+	binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
+	ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
+	if len(ip) != 16 {
+		panic("Length of IP is not 16")
+	}
+	copy(buf[4:], ip)
+	return buf
+}
+
+func ipv4key(assignment *vpcapi.AssignIPResponseV3) []byte {
+	if assignment.Ipv4Address == nil {
+		return nil
+	}
+	buf := make([]byte, 8)
+
+	binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
+	ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
+	if len(ip) != 4 {
+		panic("Length of IP is not 4")
+	}
+	copy(buf[4:], ip)
+	return buf
 }
 
 type classNotFound struct {
