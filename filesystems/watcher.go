@@ -26,6 +26,8 @@ import (
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
+	"golang.org/x/sync/semaphore"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -37,6 +39,7 @@ const (
 	// StdioAttr is the attribute that states this is a stdio, rotatable file
 	StdioAttr                    = "user.stdio"
 	waitForDieAfterContextCancel = time.Minute
+	concurrentUploaders          = 8
 )
 
 var (
@@ -561,6 +564,42 @@ func parsecurrentOffsetBytes(name string, currentOffsetBytes []byte) int64 {
 	return currentOffsetInt
 }
 
+func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []string) error {
+	// How many workers do we need
+	uploadWorkers := concurrentUploaders
+	if len(logFileList) < uploadWorkers {
+		uploadWorkers = len(logFileList)
+	}
+
+	g := &multierror.Group{}
+	// Intended to create 1 GoRoutine per file to upload
+	sem := semaphore.NewWeighted(int64(uploadWorkers))
+	for _, fileToUpload := range logFileList {
+		fileToUploadCopy := fileToUpload
+
+		g.Go(func() error {
+			err := sem.Acquire(ctx, 1)
+			if err != nil {
+				return fmt.Errorf("Could not upload %s: %w", fileToUploadCopy, err)
+			}
+			defer sem.Release(1)
+			if !CheckFileForStdio(fileToUploadCopy) {
+				if err := w.uploadLogfile(ctx, fileToUploadCopy, true); err != nil {
+					log.WithError(err).Errorf("Error during concurrent upload of files")
+				}
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		log.WithError(err).Errorf("Error during concurrent upload of files: g.Wait()")
+		return err
+	}
+
+	return nil
+}
+
 // uploadAllLogFiles is called to upload all of the files in the directories
 // being watched.
 func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
@@ -578,27 +617,15 @@ func (w *Watcher) uploadAllLogFiles(ctx context.Context) error {
 		return err
 	}
 
-	var errs *multierror.Error
-
-	for _, logFile := range logFileList {
-		if ctx.Err() != nil {
-			errs = multierror.Append(errs, ctx.Err())
-			break
-		}
-		if CheckFileForStdio(logFile) {
-			continue
-		}
-
-		err = w.uploadLogfile(ctx, logFile, true)
-		errs = multierror.Append(errs, err)
+	//remove duplicate files to upload
+	uniqueFiles := sets.NewString()
+	for _, filename := range logFileList {
+		uniqueFiles.Insert(filename)
 	}
 
-	err = errs.ErrorOrNil()
-	if err != nil {
-		w.metrics.Counter("titus.executor.logsUploadError", len(errs.Errors), nil)
-	}
-
+	err = w.concurrentUploadLogFile(ctx, uniqueFiles.List())
 	tracehelpers.SetStatus(err, span)
+
 	return err
 }
 
