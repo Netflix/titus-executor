@@ -827,7 +827,6 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 		securityGroups:   []string{md.defaultSecurityGroupID},
 		maxIPAddresses:   50,
 		maxBranchENIs:    2,
-		ipv6NotRequested: true,
 	}
 
 	wg := &sync.WaitGroup{}
