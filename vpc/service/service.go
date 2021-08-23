@@ -411,6 +411,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		vpcService.reconcileTrunkENIsLongLivedTask(),
 		vpcService.reconcileSecurityGroupsLongLivedTask(),
 		vpcService.reconcileSubnetCIDRReservationsLongLivedTask(),
+		vpcService.gcTransitionNSLongLivedTask(),
 	}
 }
 

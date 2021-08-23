@@ -1,0 +1,1 @@
+drop index assignments_transition_assignment_index;
