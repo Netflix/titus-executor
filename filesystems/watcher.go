@@ -572,7 +572,7 @@ func (w *Watcher) concurrentUploadLogFile(ctx context.Context, logFileList []str
 	}
 
 	g := &multierror.Group{}
-	// Limit concurrency
+	// Intended to create 1 GoRoutine per file to upload
 	sem := semaphore.NewWeighted(int64(uploadWorkers))
 	for _, fileToUpload := range logFileList {
 		fileToUploadCopy := fileToUpload
