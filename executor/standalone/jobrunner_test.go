@@ -235,8 +235,7 @@ func (jobRunResponse *JobRunResponse) logContainerStdErrOut() {
 
 }
 
-// GenerateConfigs generates test configs
-func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
+func GenerateTestConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	configArgs := []string{"--copy-uploader", logUploadDir}
 
 	logViewerEnabled := false
@@ -264,7 +263,6 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 	if err != nil {
 		panic(err)
 	}
-
 	cfg.ContainerLogViewer = logViewerEnabled
 	cfg.LogViewerServiceImage = logViewerTestImage
 	cfg.MetatronEnabled = metatronEnabled
@@ -279,7 +277,7 @@ func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
 		cfg.DockerRegistry = "docker-hub.netflix.net"
 		// during full docker-in-docker tests, the titus agent touches the default file
 		// for darwin, we can just use /dev/null and it is fine, but it must be *some* file
-		cfg.ContainerSSHDCAFile = "/dev/null"
+		cfg.ContainerSSHDCAFile = devNull
 	}
 
 	// This ensures that under test we are using the tini that is part of our build,
@@ -508,9 +506,9 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	return nil
 }
 
-// StartJob starts a job and returns once the job is started
-func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunResponse, error) { // nolint: gocyclo,golint
-	cfg, dockerCfg := GenerateConfigs(jobInput)
+// StartTestTask starts a job and returns once the job is started
+func StartTestTask(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunResponse, error) { // nolint: gocyclo,golint
+	cfg, dockerCfg := GenerateTestConfigs(jobInput)
 
 	log.SetLevel(log.DebugLevel)
 	// Create an executor
@@ -634,7 +632,7 @@ func RunJobExpectingSuccess(t *testing.T, jobInput *JobInput) bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	jobResult, err := StartJob(t, ctx, jobInput)
+	jobResult, err := StartTestTask(t, ctx, jobInput)
 	assert.NilError(t, err)
 
 	defer jobResult.StopExecutor()
@@ -646,7 +644,7 @@ func RunJobExpectingFailure(t *testing.T, jobInput *JobInput) bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	jobResult, err := StartJob(t, ctx, jobInput)
+	jobResult, err := StartTestTask(t, ctx, jobInput)
 	assert.NilError(t, err)
 
 	defer jobResult.StopExecutor()
@@ -658,7 +656,7 @@ func RunJob(t *testing.T, jobInput *JobInput) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	jobResult, err := StartJob(t, ctx, jobInput)
+	jobResult, err := StartTestTask(t, ctx, jobInput)
 	assert.NilError(t, err)
 
 	return jobResult.WaitForCompletion()
@@ -669,7 +667,7 @@ func StartJobExpectingFailure(t *testing.T, jobInput *JobInput) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	jobResult, err := StartJob(t, ctx, jobInput)
+	jobResult, err := StartTestTask(t, ctx, jobInput)
 
 	if jobResult != nil {
 		defer jobResult.StopExecutor()

@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -164,6 +165,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 	// We bind-mount tini in as /sbin/docker-init to ensure we can always
 	// depend on it being there, regardless of the host docker configuration.
 	defaultBindMounts := []string{dockerCfg.tiniPath + ":/sbin/docker-init:ro"}
+	defaultBindMounts = append(defaultBindMounts, filepath.Join(cfg.RuntimeDir, "pod.json")+":/titus/run/pod.json:ro")
 
 	pidCgroupPath, err := getOwnCgroup("pids")
 	if err != nil {
@@ -1714,6 +1716,12 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 			Source:   r.dockerCfg.tiniPath,
 			ReadOnly: true,
 			Target:   "/sbin/docker-init",
+		},
+		{
+			Type:     "bind",
+			Source:   path.Join(r.cfg.RuntimeDir, "pod.json"),
+			ReadOnly: true,
+			Target:   "/titus/run/pod.json",
 		},
 	}
 	if mainContainerRoot != "" {
