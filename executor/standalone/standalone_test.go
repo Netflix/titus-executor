@@ -1356,7 +1356,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
 	wrapTestStandalone(t)
 	skipIfNotPod(t)
-	testEntrypointOld := `/bin/sleep 21`
+	testEntrypointOld := `/bin/sleep 10`
 	badHealthcheckCommand := corev1.ExecAction{
 		Command: []string{"/bin/false"},
 	}
