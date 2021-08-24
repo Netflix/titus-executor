@@ -373,9 +373,17 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 		// Funnily enough, we can end up in KILLED and FINISHED -- if the Task exits, and then gets a KILL from the Titus / Mesos master
 		// while shutting down, it'll get stuck in weird world. Here, we will send a TASK_FINISHED result, over a TASK_KILLED.
 		// TODO(Sargun): Consider. Is this the right decision?
+		msg = "Pod killed on behalf of the control plane"
+		if err := errs.ErrorOrNil(); err != nil {
+			msg += fmt.Sprintf(" Errors: %+v", err)
+		}
 		r.updateStatusWithDetails(ctx, titusdriver.Killed, msg, lastUpdate.details)
 	} else if !lastUpdate.status.IsTerminalStatus() {
-		r.updateStatusWithDetails(ctx, titusdriver.Lost, "Container lost -- Unknown", lastUpdate.details)
+		msg = "Container lost -- Unknown"
+		if err := errs.ErrorOrNil(); err != nil {
+			msg += fmt.Sprintf(" Errors: %+v", err)
+		}
+		r.updateStatusWithDetails(ctx, titusdriver.Lost, msg, lastUpdate.details)
 		logger.G(ctx).Error("Container killed while non-terminal!")
 	} else {
 		r.updateStatusWithDetails(ctx, lastUpdate.status, lastUpdate.msg, lastUpdate.details)
