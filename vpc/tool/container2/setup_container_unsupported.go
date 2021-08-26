@@ -9,7 +9,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/types"
 )
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, assignment *vpcapi.AssignIPResponseV3) error {
+func DoSetupContainer(ctx context.Context, netnsfd int, assignment *vpcapi.AssignIPResponseV3) error {
 	return types.ErrUnsupported
 }
 
