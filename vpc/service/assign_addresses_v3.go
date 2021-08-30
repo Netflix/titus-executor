@@ -302,28 +302,30 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, ass
 
 	row := tx.QueryRowContext(ctx, `
 SELECT assignments.id,
-       branch_eni,
-       trunk_eni,
-       idx,
-       branch_eni_association,
+       bea.branch_eni,
+       bea.trunk_eni,
+       bea.idx,
+       assignments.branch_eni_association,
        ipv4addr,
        ipv6addr,
        completed,
        jumbo,
        bandwidth,
-       ceil
+       ceil,
+       be.subnet_id
 FROM assignments
-JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+JOIN branch_eni_attachments bea ON assignments.branch_eni_association = bea.association_id
+JOIN branch_enis be on bea.branch_eni = be.branch_eni
 WHERE assignment_id = $1
   FOR NO KEY
   UPDATE OF assignments`, assignmentID)
 	var branchENI, trunkENI, associationID string
-	var ipv4addr, ipv6addr sql.NullString
+	var ipv4addr, ipv6addr, subnetID sql.NullString
 	var idx, assignmentRowID int
 	var completed, jumbo bool
 	var bandwidth, ceil uint64
 	err = row.Scan(&assignmentRowID, &branchENI, &trunkENI, &idx, &associationID, &ipv4addr, &ipv6addr, &completed,
-		&jumbo, &bandwidth, &ceil)
+		&jumbo, &bandwidth, &ceil, &subnetID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
@@ -358,6 +360,7 @@ WHERE assignment_id = $1
 		return nil, err
 	}
 
+	// TODO(Sargun): Implement transition assignment logic
 	resp := vpcapi.AssignIPResponseV3{
 		BranchNetworkInterface: &vpcapi.NetworkInterface{
 			// NetworkInterfaceAttachment is not used in assignipv3
@@ -374,7 +377,7 @@ WHERE assignment_id = $1
 		},
 	}
 
-	addDefaultRoute(ctx, jumbo, &resp)
+	resp.Routes = vpcService.getRoutes(ctx, subnetID.String)
 
 	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1", branchENI)
 	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
@@ -656,49 +659,24 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	return resp, nil
 }
 
-func addDefaultRoute(ctx context.Context, jumbo bool, ass *vpcapi.AssignIPResponseV3) {
-	if jumbo {
-		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
-			{
-				Destination: "0.0.0.0/0",
-				Mtu:         9000,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-			},
-			{
-				Destination: "::/0",
-				Mtu:         9000,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-			},
-		}
-	} else {
-		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
-			{
-				Destination: "0.0.0.0/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-			},
-			{
-				Destination: "::/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-			},
-		}
+func (vpcService *vpcService) getRoutes(ctx context.Context, subnetID string) []*vpcapi.AssignIPResponseV3_Route {
+	val, ok := vpcService.routesCache.Load(subnetID)
+	if ok {
+		return val.([]*vpcapi.AssignIPResponseV3_Route)
 	}
+	logger.G(ctx).WithField("subnet", subnetID).Warning("Could not load routes")
+	return []*vpcapi.AssignIPResponseV3_Route{
+		{
 
-	if ass.TransitionAssignment != nil {
-		// Transition assignment takes a slightly conservative stance
-		ass.TransitionAssignment.Routes = []*vpcapi.AssignIPResponseV3_Route{
-			{
-				Destination: "0.0.0.0/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-			},
-			{
-				Destination: "::/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-			},
-		}
+			Destination: "0.0.0.0/0",
+			Mtu:         9000,
+			Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
+		},
+		{
+			Destination: "::/0",
+			Mtu:         9000,
+			Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
+		},
 	}
 }
 
@@ -839,6 +817,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	case *vpcapi.AssignIPRequestV3_TransitionRequested:
 		resp.TransitionAssignment = &vpcapi.AssignIPResponseV3_TransitionAssignment{
 			AssignmentId: transitionAss.assignmentID,
+			Routes:       vpcService.getRoutes(ctx, ass.subnet.subnetID),
 		}
 		if transitionAss.ipv4addr.Valid {
 			_, ipnet, err := net.ParseCIDR(transitionAss.cidr)
@@ -969,7 +948,7 @@ WHERE id =
 		return nil, err
 	}
 
-	addDefaultRoute(ctx, ass.jumbo, &resp)
+	resp.Routes = vpcService.getRoutes(ctx, ass.subnet.subnetID)
 	return &resp, nil
 }
 

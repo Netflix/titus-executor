@@ -53,6 +53,8 @@ func TestService(t *testing.T) {
 
 			TrunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
 			BranchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
+
+			disableRouteCache: true,
 		})
 		if serverErr != nil && serverErr != context.Canceled {
 			panic(serverErr)

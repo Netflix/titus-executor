@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/services"
@@ -103,6 +104,8 @@ type vpcService struct {
 	subnetCacheExpirationTime time.Duration
 	concurrentRequests        *semaphore.Weighted
 
+	routesCache sync.Map
+
 	// PB Services:
 	vpcapi.TitusAgentVPCServiceServer
 	titus.UserIPServiceServer
@@ -183,6 +186,9 @@ type Config struct {
 	SubnetCIDRReservationDescription  string
 
 	WorkerRole string
+
+	// This is only used for testing.
+	disableRouteCache bool
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -344,6 +350,12 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error { return serve(anyListener, false) })
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
+	if !config.disableRouteCache {
+		group.Go(func() error {
+			vpc.monitorRouteTableLoop(ctx)
+			return nil
+		})
+	}
 
 	taskLoops := vpc.getTaskLoops()
 	enabledTaskLoops := sets.NewString(config.EnabledTaskLoops...)

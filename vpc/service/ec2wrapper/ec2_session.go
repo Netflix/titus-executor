@@ -631,3 +631,24 @@ func (s *EC2Session) GetSubnetCidrReservations(ctx context.Context, subnet strin
 	}
 	return ret, nil
 }
+
+func (s *EC2Session) GetRouteTables(ctx context.Context) ([]*ec2.RouteTable, error) {
+	ctx, span := trace.StartSpan(ctx, "GetRouteTables")
+	defer span.End()
+
+	ec2client := ec2.New(s.Session)
+	input := &ec2.DescribeRouteTablesInput{}
+
+	var routeTables []*ec2.RouteTable
+	err := ec2client.DescribeRouteTablesPagesWithContext(ctx, input, func(output *ec2.DescribeRouteTablesOutput, hasNextPage bool) bool {
+		routeTables = append(routeTables, output.RouteTables...)
+		return true
+	})
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get route tables")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+
+	return routeTables, nil
+}
