@@ -624,10 +624,6 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 
 	_, transitionRequested := req.Ipv4.(*vpcapi.AssignIPRequestV3_TransitionRequested)
 
-	ipv6NotRequested := false
-	if _, ok := req.Ipv6.(*vpcapi.AssignIPRequestV3_Ipv6AddressRequested); !ok {
-		ipv6NotRequested = true
-	}
 	ass, err := vpcService.generateAssignmentID(ctx, getENIRequest{
 		region:           subnet.region,
 		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
@@ -645,7 +641,6 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		jumbo:     req.Jumbo,
 
 		transitionAssignmentRequested: transitionRequested,
-		ipv6NotRequested:              ipv6NotRequested,
 	})
 	if err != nil {
 		return nil, err
@@ -810,7 +805,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	if !hasSecurityGroupSet.Equal(sets.NewString(req.SecurityGroupIds...)) {
-		logger.G(ctx).WithField("spanid", span.SpanContext().SpanID.String()).Warnf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
+		logger.G(ctx).WithField("traceid", span.SpanContext().TraceID.String()).Warnf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
 	}
 
 	/*
