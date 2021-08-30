@@ -25,7 +25,7 @@ func SetupContainer(ctx context.Context, instanceIdentityProvider identity.Insta
 
 	switch t := assignment.Assignment.(type) {
 	case *vpcapi.Assignment_AssignIPResponseV3:
-		err = DoSetupContainer(ctx, netns, t.AssignIPResponseV3.Bandwidth.Bandwidth, t.AssignIPResponseV3.Bandwidth.Burst, t.AssignIPResponseV3)
+		err = DoSetupContainer(ctx, netns, t.AssignIPResponseV3)
 		if err != nil {
 			// warning: Errors unhandled.,LOW,HIGH (gosec)
 			_ = json.NewEncoder(os.Stdout).Encode(types.WiringStatus{Success: false, Error: err.Error()}) // nolint: gosec

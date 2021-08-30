@@ -410,6 +410,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 			"net.ipv6.conf.default.stable_secret": stableSecret(), // This is to ensure each container sets their addresses differently
 			"net.ipv6.conf.all.use_tempaddr":      "0",
 			"net.ipv6.conf.default.use_tempaddr":  "0",
+
+			"net.ipv6.conf.default.accept_ra_pinfo": "0",
 		},
 		Init:    &useInit,
 		Runtime: c.Runtime(),
