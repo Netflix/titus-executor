@@ -8,6 +8,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.4.1
 	github.com/DataDog/datadog-go v3.4.0+incompatible // indirect
 	github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
+	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 	github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
 	github.com/Netflix/titus-api-definitions v0.0.2-rc.4
@@ -49,6 +50,7 @@ require (
 	github.com/mvisonneau/go-ebsnvme v0.0.0-20201026165225-e63797fabc2f
 	github.com/myitcv/gobin v0.0.14
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
+	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/opencontainers/runc v1.0.0-rc95
 	github.com/openzipkin/zipkin-go v0.2.2
 	github.com/pelletier/go-toml v1.6.0 // indirect
@@ -59,6 +61,7 @@ require (
 	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/cast v1.3.1 // indirect
 	github.com/spf13/cobra v1.0.0
+	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
@@ -84,7 +87,6 @@ require (
 	k8s.io/api v0.19.10
 	k8s.io/apimachinery v0.22.0
 	k8s.io/client-go v10.0.0+incompatible
-	k8s.io/kubernetes v1.18.4
 	k8s.io/utils v0.0.0-20201104234853-8146046b121e
 	sigs.k8s.io/structured-merge-diff/v3 v3.0.1 // indirect
 )
