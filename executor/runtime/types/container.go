@@ -20,12 +20,12 @@ import (
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/Netflix/titus-executor/utils/maps"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/apex/log"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
 )
 
