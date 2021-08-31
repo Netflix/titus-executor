@@ -5,6 +5,7 @@ go 1.13
 require (
 	cloud.google.com/go v0.53.0 // indirect
 	contrib.go.opencensus.io/exporter/zipkin v0.1.1
+	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/DATA-DOG/go-sqlmock v1.4.1
 	github.com/DataDog/datadog-go v3.4.0+incompatible // indirect
 	github.com/Datadog/opencensus-go-exporter-datadog v0.0.0-20190503082300-0f32ad59ab08
@@ -64,9 +65,9 @@ require (
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.0
+	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 	github.com/urfave/cli v1.22.5
-	github.com/virtual-kubelet/virtual-kubelet v1.0.0
 	github.com/vishvananda/netlink v1.1.1-0.20210330154013-f5de75959ad5
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
