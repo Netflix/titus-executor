@@ -119,7 +119,6 @@ func (r *Runner) startRunner(ctx context.Context, startTime time.Time) {
 
 	var lastUpdate *update
 	for update := range updateChan {
-		logger.G(ctx).WithField("update", update).Debug("Processing update")
 		// This is okay, because it only gets references _after_ loop termination.
 		lastUpdate = &update // nolint:scopelint
 		if update.status.IsTerminalStatus() {
@@ -210,7 +209,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	}
 
 	logger.G(ctx).Info(startingMsg)
-	logDir, details, statusChan, err := r.runtime.Start(ctx, r.pod)
+	logDir, details, statusMessageChan, err := r.runtime.Start(ctx, r.pod)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		logger.G(ctx).WithError(err).Error("error starting container")
@@ -238,7 +237,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
 
-	r.monitorMainContainer(ctx, startTime, statusChan, updateChan, details)
+	r.handleStatusMessageChanUpdates(ctx, startTime, statusMessageChan, updateChan, details)
 }
 
 func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
@@ -254,19 +253,22 @@ func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
 	}
 }
 
-func (r *Runner) monitorMainContainer(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
+// handleStatusMessageChanUpdates bridges two channels and returns when we get to any terminal states.
+// It responds to statusMessageChan updates from the executor *runner* (docker) and translates an pushes
+// them to the updateChan, for the *driver*.
+func (r *Runner) handleStatusMessageChanUpdates(ctx context.Context, startTime time.Time, statusMessageChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
 	lastMessage := ""
 	runningSent := false
 
 	for {
 		select {
-		case statusMessage, ok := <-statusChan:
+		case statusMessage, ok := <-statusMessageChan:
 			if !ok {
 				updateChan <- update{status: titusdriver.Lost, msg: "Lost connection to runtime driver", details: details}
 				return
 			}
 			msg := statusMessage.Msg
-			logger.G(ctx).WithField("statusMessage", statusMessage).Infof("Processing msg from main conatiner: %q - %s", statusMessage.Status, statusMessage.Msg)
+			logger.G(ctx).WithField("statusMessage", statusMessage).Infof("Processing msg from a container: %q - %s", statusMessage.Status, statusMessage.Msg)
 
 			switch statusMessage.Status {
 			case runtimeTypes.StatusRunning:
