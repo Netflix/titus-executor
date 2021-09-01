@@ -1515,12 +1515,18 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID str
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			log.Fatalf("Got unexpected error while listening for docker events for %s, bailing: %s", containerID, err)
+			log.WithError(err).Errorf("Got unexpected error while listening for docker events for %s, bailing: %s", containerID, err)
+			return
 		case event := <-eventChan:
 			log.Debug("Got docker event: ", event)
 			isTerminalEvent := r.handleDockerEvent(event, statusMessageChan)
 			if isTerminalEvent {
-				log.Infof("Closing docker status monitor for %s because terminal docker event received", r.getContainerNameFromID(containerID))
+				cName, err := r.getContainerNameFromID(containerID)
+				if err != nil {
+					log.Infof("Closing docker status monitor for %s because terminal docker event received", cName)
+				} else {
+					log.WithError(err).Error("Closing docker status monitor, encountered and error looking up the container name")
+				}
 				return
 			}
 		}
@@ -1875,7 +1881,6 @@ func (r *DockerRuntime) getPlaformContainerNames() []string {
 // This function returns true if the handling of docker events
 // should stop.
 func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
-	validateMessage(message)
 	action := strings.Split(message.Action, " ")[0]
 	action = strings.TrimRight(action, ":")
 	l := log.WithFields(
@@ -1891,8 +1896,13 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 	for k, v := range message.Actor.Attributes {
 		l = l.WithField(fmt.Sprintf("actor.attributes.%s", k), v)
 	}
-	cName := r.getContainerNameFromDockerEvent(message)
-	l.Infof("Processing docker event on %s container: %s", cName, action)
+	cName, err := r.getContainerNameFromDockerEvent(message)
+	if err == nil {
+		l.Infof("Processing docker event on %s container: %s", cName, action)
+	} else {
+		l.WithError(err).Error("Error looking up the container name for the message, continuing anyway")
+		cName = "Unknown container"
+	}
 	switch action {
 	case "start":
 		// Updating the pod is relativly expensive, so we only send the update and consider the pod "running"
@@ -1975,34 +1985,26 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 //
 // For Titus, the id (container id) is the best way to correlate where this
 // event is coming from.
-func (r *DockerRuntime) getContainerNameFromDockerEvent(m events.Message) string {
+func (r *DockerRuntime) getContainerNameFromDockerEvent(m events.Message) (string, error) {
 	return r.getContainerNameFromID(m.ID)
 }
 
-func (r *DockerRuntime) getContainerNameFromID(id string) string {
+func (r *DockerRuntime) getContainerNameFromID(id string) (string, error) {
 	// Most common case, just the main container, we return the string "main"
 	if id == r.c.ID() {
-		return mainContainerName
+		return mainContainerName, nil
 	}
-	r.c.ExtraPlatformContainers()
 	for _, c := range r.c.ExtraPlatformContainers() {
 		if id == c.Status.ContainerID {
-			return c.Name
+			return c.Name, nil
 		}
 	}
 	for _, c := range r.c.ExtraUserContainers() {
 		if id == c.Status.ContainerID {
-			return c.Name
+			return c.Name, nil
 		}
 	}
-	return "Unknown container"
-}
-
-// The only purpose of this is to test the sanity of our filters, and Docker
-func validateMessage(message events.Message) {
-	if message.Type != "container" {
-		panic(fmt.Sprint("message.Type != container: ", message))
-	}
+	return "", fmt.Errorf("Unknown container couldn't find the container name for cid " + id)
 }
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {
