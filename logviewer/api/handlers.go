@@ -30,11 +30,12 @@ func LogHandler(w http.ResponseWriter, r *http.Request) {
 	if fileName == "" {
 		fileName = "stdout"
 	}
+	addDownloadHeader := r.URL.Query().Get("download") == "true"
 
-	logHandler(w, r, containerID, fileName)
+	logHandler(w, r, containerID, fileName, addDownloadHeader)
 }
 
-func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string) {
+func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string, addDownloadHeader bool) {
 	containerLogsRoot := buildLogLocationBase(containerID)
 
 	filePath, err := securejoin.SecureJoin(containerLogsRoot, fileName)
@@ -57,6 +58,15 @@ func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName st
 		return
 	}
 	defer shouldClose(fout)
+
+	if addDownloadHeader {
+		basename := filepath.Base(fileName)
+		quoteEscapedBasename := strings.ReplaceAll(basename, `"`, `\"`)
+		// This Content-Disposition header tells a browser to pop up the "Save As" dialog
+		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition
+		w.Header().Set("Content-Disposition", `attachment; filename="`+quoteEscapedBasename+`"`)
+	}
+
 	// Logging the error should happen inside of the function itself
 	err = logHandlerWithFile(w, r, fout)
 	if err != nil {
