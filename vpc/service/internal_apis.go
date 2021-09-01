@@ -407,3 +407,58 @@ func (vpcService *vpcService) doDetachBranchNetworkInterface(ctx context.Context
 		AssociationID: associationID,
 	}, nil
 }
+
+/*
+So, a little bit more complicated than that:
+Check if any containers are using that SG
+If no containers are using that SG, go over all ENIs that are using that SG, and in an optimistic transaction update their security_groups and dirty flag — and then in a pessimistic transaction (per ENI) (re)set their security groups
+Return to Spinnaker
+
+SELECT branch_eni FROM branch_enis WHERE array_contains(security_groups, bad_security_group) AND branch_eni IN (SELECT * FROM branch_eni_attachments WHERE branch_eni_attachments.association_id IN (SELECT assocition_id FROM assignments)) - check this returns none.
+UPDATE branch_enis SET security_groups = {default}, dirty = true WHERE array_contains(security_groups, bad_security_group)
+*/
+func (vpcService *vpcService) ResetSecurityGroup(ctx context.Context, in *vpcapi.SecurityGroupRequest) (*vpcapi.Error, error) {
+	var slowTx, fastTx *sql.Tx
+	var err error
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "ResetSecurityGroup")
+	defer span.End()
+
+	fastTx, err = beginSerializableTx(ctx, vpcService.db)
+	if err != nil {
+		err = errors.Wrap(err, "Unable to begin serializable transaction")
+		tracehelpers.SetStatus(err, span)
+		return &vpcapi.Error{}, err
+	}
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback()
+	}(fastTx)
+
+	sg_to_delete := in.GetSgId()
+
+	rows, err := fastTx.QueryContext(ctx, `
+SELECT branch_eni FROM branch_enis 
+WHERE array_contains(security_groups, $1) AND branch_eni IN 
+(SELECT * FROM branch_eni_attachments WHERE branch_eni_attachments.association_id IN 
+	(SELECT branch_eni_association FROM assignments))
+		`, sg_to_delete)
+	if err != nil {
+		err = errors.Wrap(err, "Could not query database for branch ENIs containing the SG to delete")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	count := 0
+	for rows.Next() {
+		count++
+		break
+	}
+	if count != 0 {
+		//We cannot process the delete SG request as there are containers actively using the ENI that uses this SG
+		return &vpcapi.Error{}, err
+	}
+
+	return nil, nil
+}

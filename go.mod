@@ -26,6 +26,7 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0
 	github.com/ftrvxmtrx/fd v0.0.0-20150925145434-c6d800382fff
+	github.com/goccy/go-graphviz v0.0.9 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt v3.2.1+incompatible
 	github.com/golang-migrate/migrate v3.5.4+incompatible
@@ -49,9 +50,11 @@ require (
 	github.com/mvisonneau/go-ebsnvme v0.0.0-20201026165225-e63797fabc2f
 	github.com/myitcv/gobin v0.0.14
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
+	github.com/ofabry/go-callvis v0.6.1 // indirect
 	github.com/opencontainers/runc v1.0.0-rc95
 	github.com/openzipkin/zipkin-go v0.2.2
 	github.com/pelletier/go-toml v1.6.0 // indirect
+	github.com/pkg/browser v0.0.0-20210706143420-7d21f8c997e2 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sirupsen/logrus v1.7.0
@@ -67,11 +70,14 @@ require (
 	github.com/vishvananda/netlink v1.1.1-0.20210330154013-f5de75959ad5
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3
+	github.com/yuin/goldmark v1.3.5 // indirect
 	go.opencensus.io v0.22.3
 	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
-	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	golang.org/x/sys v0.0.0-20210426230700-d19ff857e887
+	golang.org/x/image v0.0.0-20210628002857-a66eb6448b8d // indirect
+	golang.org/x/mod v0.5.0 // indirect
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+	golang.org/x/sys v0.0.0-20210823070655-63515b42dcdf
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
 	golang.org/x/tools v0.1.0
 	google.golang.org/grpc v1.39.0

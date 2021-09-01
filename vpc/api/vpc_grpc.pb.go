@@ -4,7 +4,6 @@ package api
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -38,6 +37,7 @@ type TitusAgentVPCServiceClient interface {
 	DisassociateTrunkNetworkInterface(ctx context.Context, in *DisassociateTrunkNetworkInterfaceRequest, opts ...grpc.CallOption) (*DisassociateTrunkNetworkInterfaceResponse, error)
 	DescribeTrunkNetworkInterface(ctx context.Context, in *DescribeTrunkNetworkInterfaceRequest, opts ...grpc.CallOption) (*DescribeTrunkNetworkInterfaceResponse, error)
 	DetachBranchNetworkInterface(ctx context.Context, in *DetachBranchNetworkInterfaceRequest, opts ...grpc.CallOption) (*DetachBranchNetworkInterfaceResponse, error)
+	ResetSecurityGroup(ctx context.Context, in *SecurityGroupRequest, opts ...grpc.CallOption) (*Error, error)
 }
 
 type titusAgentVPCServiceClient struct {
@@ -183,6 +183,15 @@ func (c *titusAgentVPCServiceClient) DetachBranchNetworkInterface(ctx context.Co
 	return out, nil
 }
 
+func (c *titusAgentVPCServiceClient) ResetSecurityGroup(ctx context.Context, in *SecurityGroupRequest, opts ...grpc.CallOption) (*Error, error) {
+	out := new(Error)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ResetSecurityGroup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TitusAgentVPCServiceServer is the server API for TitusAgentVPCService service.
 // All implementations must embed UnimplementedTitusAgentVPCServiceServer
 // for forward compatibility
@@ -205,6 +214,7 @@ type TitusAgentVPCServiceServer interface {
 	DisassociateTrunkNetworkInterface(context.Context, *DisassociateTrunkNetworkInterfaceRequest) (*DisassociateTrunkNetworkInterfaceResponse, error)
 	DescribeTrunkNetworkInterface(context.Context, *DescribeTrunkNetworkInterfaceRequest) (*DescribeTrunkNetworkInterfaceResponse, error)
 	DetachBranchNetworkInterface(context.Context, *DetachBranchNetworkInterfaceRequest) (*DetachBranchNetworkInterfaceResponse, error)
+	ResetSecurityGroup(context.Context, *SecurityGroupRequest) (*Error, error)
 	mustEmbedUnimplementedTitusAgentVPCServiceServer()
 }
 
@@ -256,6 +266,9 @@ func (UnimplementedTitusAgentVPCServiceServer) DescribeTrunkNetworkInterface(con
 }
 func (UnimplementedTitusAgentVPCServiceServer) DetachBranchNetworkInterface(context.Context, *DetachBranchNetworkInterfaceRequest) (*DetachBranchNetworkInterfaceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DetachBranchNetworkInterface not implemented")
+}
+func (UnimplementedTitusAgentVPCServiceServer) ResetSecurityGroup(context.Context, *SecurityGroupRequest) (*Error, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResetSecurityGroup not implemented")
 }
 func (UnimplementedTitusAgentVPCServiceServer) mustEmbedUnimplementedTitusAgentVPCServiceServer() {}
 
@@ -540,6 +553,24 @@ func _TitusAgentVPCService_DetachBranchNetworkInterface_Handler(srv interface{},
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TitusAgentVPCService_ResetSecurityGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SecurityGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentVPCServiceServer).ResetSecurityGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ResetSecurityGroup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentVPCServiceServer).ResetSecurityGroup(ctx, req.(*SecurityGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TitusAgentVPCService_ServiceDesc is the grpc.ServiceDesc for TitusAgentVPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -606,6 +637,10 @@ var TitusAgentVPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DetachBranchNetworkInterface",
 			Handler:    _TitusAgentVPCService_DetachBranchNetworkInterface_Handler,
+		},
+		{
+			MethodName: "ResetSecurityGroup",
+			Handler:    _TitusAgentVPCService_ResetSecurityGroup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
