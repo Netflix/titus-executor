@@ -82,8 +82,11 @@ const (
 	trueString              = "true"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 	// MS_RDONLY indicates that mount is read-only
-	MS_RDONLY    = 1 // nolint: golint
-	mountTimeout = 5 * time.Minute
+	MS_RDONLY              = 1 // nolint: golint
+	mountTimeout           = 5 * time.Minute
+	mainContainerName      = "main"
+	isTerminalDockerEvent  = true
+	nonTerminalDockerEvent = false
 )
 
 // cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
@@ -1472,7 +1475,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		err = fmt.Errorf("container prestart error: %w", err)
 		return "", nil, statusMessageChan, err
 	}
-	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
+	go r.statusMonitor(eventCancel, r.c.ID(), eventChan, eventErrChan, statusMessageChan)
 
 	inspectOutput, err := r.client.ContainerInspect(ctx, r.c.ID())
 	if err != nil {
@@ -1503,23 +1506,27 @@ func getMainContainerRoot(inspectOutput types.ContainerJSON) string {
 	return inspectOutput.GraphDriver.Data["MergedDir"]
 }
 
-func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.Container, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
-	defer close(statusMessageChan)
-	defer cancel()
-
-	// This context should be tied to the lifetime of the container -- it will get significantly less broken
-	// when we tear out the launchguard code
-
+func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID string, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
 	for {
 		// 3. If the current state of the container is terminal, send it, and bail
 		// 4. Else, keep sending messages until we bail
 		select {
 		case err := <-errChan:
-			log.Fatal("Got error while listening for docker events, bailing: ", err)
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			log.WithError(err).Errorf("Got unexpected error while listening for docker events for %s, bailing: %s", containerID, err)
+			return
 		case event := <-eventChan:
-			log.Info("Got docker event: ", event)
-			if handleDockerEvent(c, event, statusMessageChan) {
-				log.Info("Terminating docker status monitor because terminal docker event received")
+			log.Debug("Got docker event: ", event)
+			isTerminalEvent := r.handleDockerEvent(event, statusMessageChan)
+			if isTerminalEvent {
+				cName, err := r.getContainerNameFromID(containerID)
+				if err != nil {
+					log.Infof("Closing docker status monitor for %s because terminal docker event received", cName)
+				} else {
+					log.WithError(err).Error("Closing docker status monitor, encountered and error looking up the container name")
+				}
 				return
 			}
 		}
@@ -1869,9 +1876,11 @@ func (r *DockerRuntime) getPlaformContainerNames() []string {
 	return platformContainerNames
 }
 
-// return true to exit
-func handleDockerEvent(c runtimeTypes.Container, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
-	validateMessage(c, message)
+// handleDockerEvent takes in docker event messages and may put Task Status updates
+// onto the update channel if they are noteworthy.
+// This function returns true if the handling of docker events
+// should stop.
+func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
 	action := strings.Split(message.Action, " ")[0]
 	action = strings.TrimRight(action, ":")
 	l := log.WithFields(
@@ -1887,61 +1896,113 @@ func handleDockerEvent(c runtimeTypes.Container, message events.Message, statusM
 	for k, v := range message.Actor.Attributes {
 		l = l.WithField(fmt.Sprintf("actor.attributes.%s", k), v)
 	}
-	l.Infof("Processing docker event: %s", action)
+	cName, err := r.getContainerNameFromDockerEvent(message)
+	if err == nil {
+		l.Infof("Processing docker event on %s container: %s", cName, action)
+	} else {
+		l.WithError(err).Error("Error looking up the container name for the message, continuing anyway")
+		cName = "Unknown container"
+	}
 	switch action {
 	case "start":
-		statusMessageChan <- runtimeTypes.StatusMessage{
-			Status: runtimeTypes.StatusRunning,
-			Msg:    "main container is now running",
+		// Updating the pod is relativly expensive, so we only send the update and consider the pod "running"
+		// if the the docker event came from the main container
+		if cName == mainContainerName {
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusRunning,
+				Msg:    cName + " container is now running",
+			}
+			return nonTerminalDockerEvent
 		}
-		return false
+		l.Debugf("Skipping docker start event for %s, no need to update the pod", cName)
+		return nonTerminalDockerEvent
 	case "die":
+		// TODO: Handle the difference between platform/user sidecar, not all
+		// "die"s should result in a Finish
 		if exitCode := message.Actor.Attributes["exitCode"]; exitCode == "0" {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFinished,
-				Msg:    "main container successfully exited with 0",
+				Msg:    cName + " container successfully exited with 0",
 			}
 		} else {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFailed,
-				Msg:    fmt.Sprintf("main container exited with code %s", exitCode),
+				Msg:    fmt.Sprintf("%s container exited with code %s", cName, exitCode),
 			}
 		}
+		return isTerminalDockerEvent
 	case "health_status":
+		// TODO: Update the actual health state of the container
+		// so that ContainerStatus reflects what docker knows
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusRunning,
-			Msg:    fmt.Sprintf("Docker health status: %s", message.Status),
+			Msg:    fmt.Sprintf("%s Docker health status: %s", cName, message.Status),
 		}
-		return false
+		return nonTerminalDockerEvent
 	case "kill":
-		statusMessageChan <- runtimeTypes.StatusMessage{
-			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("main container killed with signal %s", message.Actor.Attributes["signal"]),
+		// TODO: Handle the difference between platform/user sidecar, not all
+		// "kills"s should result in a Failed
+		if cName == mainContainerName {
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusFailed,
+				Msg:    fmt.Sprintf("%s container killed with signal %s", cName, message.Actor.Attributes["signal"]),
+			}
+			return isTerminalDockerEvent
 		}
+		l.Debugf("Skipping docker kill event for %s, no need to update the pod", cName)
+		return nonTerminalDockerEvent
 	case "oom":
+		// TODO: Handle the difference between platform/user sidecar, not all
+		// "oom"s should result in a Failed
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("main container %s exited due to OOMKilled", c.TaskID()),
+			Msg:    fmt.Sprintf("%s container %s exited due to OOMKilled", cName, r.c.TaskID()),
 		}
+		return isTerminalDockerEvent
 	// Ignore exec events entirely
 	case "exec_create", "exec_start", "exec_die":
-		return false
+		return nonTerminalDockerEvent
 	default:
-		log.WithField("taskID", c.ID()).Info("Received unexpected docker event: ", message)
-		return false
+		log.WithField("taskID", r.c.ID()).Info("Received unexpected docker event: ", message)
+		return nonTerminalDockerEvent
 	}
-
-	return true
 }
 
-// The only purpose of this is to test the sanity of our filters, and Docker
-func validateMessage(c runtimeTypes.Container, message events.Message) {
-	if c.ID() != message.ID {
-		panic(fmt.Sprint("c.ID() != message.ID: ", message))
+// getContainerNameFromDockerEvent pulls out the titus-friendly container name (whatever the user specified)
+// out of a docker event. Docker events look like this:
+//
+// {"status":"exec_die","id":"408563a253eb82bf0e76e3cd32594dc55a968a16dc494c45d8d46c7da465ce82",
+//  "from":"busybox","Type":"container","Action":"exec_die",
+//  "Actor":{
+//    "ID":"408563a253eb82bf0e76e3cd32594dc55a968a16dc494c45d8d46c7da465ce82",
+//    "Attributes":{
+//      "execID":"3514a0192401ad20c1bbf693d38d64e036b8ca2b700894cb1cea9df43dcfa34f","exitCode":"1","image":"busybox","name":"123-foobar"}
+//     },
+//   "scope":"local","time":1626119653,"timeNano":1626119653617364285
+// }
+//
+// For Titus, the id (container id) is the best way to correlate where this
+// event is coming from.
+func (r *DockerRuntime) getContainerNameFromDockerEvent(m events.Message) (string, error) {
+	return r.getContainerNameFromID(m.ID)
+}
+
+func (r *DockerRuntime) getContainerNameFromID(id string) (string, error) {
+	// Most common case, just the main container, we return the string "main"
+	if id == r.c.ID() {
+		return mainContainerName, nil
 	}
-	if message.Type != "container" {
-		panic(fmt.Sprint("message.Type != container: ", message))
+	for _, c := range r.c.ExtraPlatformContainers() {
+		if id == c.Status.ContainerID {
+			return c.Name, nil
+		}
 	}
+	for _, c := range r.c.ExtraUserContainers() {
+		if id == c.Status.ContainerID {
+			return c.Name, nil
+		}
+	}
+	return "", fmt.Errorf("Unknown container couldn't find the container name for cid " + id)
 }
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {
