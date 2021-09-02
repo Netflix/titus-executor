@@ -1947,10 +1947,10 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 				Status: runtimeTypes.StatusFailed,
 				Msg:    fmt.Sprintf("%s container killed with signal %s", cName, message.Actor.Attributes["signal"]),
 			}
-		} else {
-			l.Debugf("Skipping docker kill event for %s, no need to update the pod", cName)
-			return nonTerminalDockerEvent
+			return isTerminalDockerEvent
 		}
+		l.Debugf("Skipping docker kill event for %s, no need to update the pod", cName)
+		return nonTerminalDockerEvent
 	case "oom":
 		// TODO: Handle the difference between platform/user sidecar, not all
 		// "oom"s should result in a Failed
@@ -1966,8 +1966,6 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 		log.WithField("taskID", r.c.ID()).Info("Received unexpected docker event: ", message)
 		return nonTerminalDockerEvent
 	}
-
-	return nonTerminalDockerEvent
 }
 
 // getContainerNameFromDockerEvent pulls out the titus-friendly container name (whatever the user specified)
