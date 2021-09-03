@@ -2491,7 +2491,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	}
 	defer shouldClose(pid1DirFile)
 
-	setupCommand := exec.CommandContext(ctx, vpcToolPath(), "setup-container", "--netns", "3") // nolint: gosec
+	setupCommand := exec.CommandContext(ctx, vpcToolPath(), "setup-container", "--pid-1-dir-fd", "3") // nolint: gosec
 	stdin, err := setupCommand.StdinPipe()
 	if err != nil {
 		return nil, err // nolint: vet

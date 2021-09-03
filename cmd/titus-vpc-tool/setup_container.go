@@ -16,16 +16,17 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 		Short: "Setup networking for a particular container",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pid1dirfd := v.GetInt("pid-1-dir-fd")
+			transitionNamespaceDir := v.GetString(transitionNSDirFlagName)
 			switch strings.ToLower(v.GetString(generationFlagName)) {
 			case "v2", "v3":
-				return container2.SetupContainer(ctx, iipGetter(), pid1dirfd)
+				return container2.SetupContainer(ctx, iipGetter(), pid1dirfd, transitionNamespaceDir)
 			default:
 				return fmt.Errorf("Version %q not recognized", v.GetString(generationFlagName))
 			}
 		},
 	}
 
-	cmd.Flags().Int("pid-1-dir", 3, "The File Descriptor # of the pid 1 directory to setup")
+	cmd.Flags().Int("pid-1-dir-fd", 3, "The File Descriptor # of the pid 1 directory to setup")
 	cmd.Flags().String(generationFlagName, generationDefaultValue, "Generation of VPC Tool to use, specify v1, or v2")
 	return cmd
 }

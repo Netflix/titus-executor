@@ -16,7 +16,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, pid1dirfd int) error {
+func SetupContainer(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, pid1dirfd int, transitionNamespaceDir string) error {
 	var assignment vpcapi.Assignment
 	err := jsonpb.Unmarshal(os.Stdin, &assignment)
 	if err != nil {
@@ -25,7 +25,7 @@ func SetupContainer(ctx context.Context, instanceIdentityProvider identity.Insta
 
 	switch t := assignment.Assignment.(type) {
 	case *vpcapi.Assignment_AssignIPResponseV3:
-		err = DoSetupContainer(ctx, pid1dirfd, t.AssignIPResponseV3)
+		err = DoSetupContainer(ctx, pid1dirfd, transitionNamespaceDir, t.AssignIPResponseV3)
 		if err != nil {
 			// warning: Errors unhandled.,LOW,HIGH (gosec)
 			_ = json.NewEncoder(os.Stdout).Encode(types.WiringStatus{Success: false, Error: err.Error()}) // nolint: gosec

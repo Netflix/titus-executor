@@ -9,6 +9,12 @@ func (m *Assignment) IPV4Address() *UsableAddress {
 	}
 	switch t := (m.Assignment).(type) {
 	case *Assignment_AssignIPResponseV3:
+		if t.AssignIPResponseV3.TransitionAssignment != nil {
+			if t.AssignIPResponseV3.Ipv4Address != nil {
+				panic("Both IPv4 address and transition assignment are set")
+			}
+			return t.AssignIPResponseV3.TransitionAssignment.Ipv4Address
+		}
 		return t.AssignIPResponseV3.Ipv4Address
 	default:
 		panic(fmt.Sprintf("Found unexpected type: %T", t))

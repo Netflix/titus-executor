@@ -10,9 +10,14 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"os"
+	"os/exec"
 	"runtime"
+	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/Netflix/titus-executor/vpc/tool/transition"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -30,6 +35,9 @@ const (
 	networkSetupWait = 30 * time.Second
 	// Ethernet II framing overhead
 	framingOverhead = 20
+
+	MOVE_MOUNT_F_EMPTY_PATH = 0x00000004 // nolint: golint
+	OPEN_TREE_CLONE         = 1          // nolint: golint
 )
 
 var (
@@ -80,11 +88,18 @@ func getBranchLink(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) (
 	return vlanLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, pid1dirfd int, assignment *vpcapi.AssignIPResponseV3) error {
+func DoSetupContainer(ctx context.Context, pid1dirfd int, transitionNamespaceDir string, assignment *vpcapi.AssignIPResponseV3) error {
 	logger.G(ctx).WithField("assignment", assignment.String()).Info("Configuring networking with assignment")
 	branchLink, err := getBranchLink(ctx, assignment)
 	if err != nil {
 		return err
+	}
+
+	if assignment.TransitionAssignment != nil {
+		err = configureTransitionAssignment(ctx, branchLink, transitionNamespaceDir, pid1dirfd, assignment)
+		if err != nil {
+			return fmt.Errorf("Could not setup transition namespace: %w", err)
+		}
 	}
 
 	netnsfd, err := unix.Openat(pid1dirfd, "ns/net", unix.O_CLOEXEC, unix.O_RDONLY)
@@ -126,6 +141,214 @@ func DoSetupContainer(ctx context.Context, pid1dirfd int, assignment *vpcapi.Ass
 	}
 
 	return configureLink(ctx, nsHandle, newLink, assignment)
+}
+
+func configureTransitionAssignment(ctx context.Context, branchLink netlink.Link, transitionNamespaceDir string, pid1dirfd int, assignment *vpcapi.AssignIPResponseV3) error {
+	// TODO: Tune? this timeout
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// This only gets called if we know the container has a transition assignment.
+	// Maybe we should just pass the transition assignment here.
+	transitionNamespaceDirFile, cleanup, err := transition.LockTransitionNamespaces(ctx, transitionNamespaceDir)
+	if err != nil {
+		return fmt.Errorf("Could not lock transition namespace dir: %w", err)
+	}
+	defer cleanup()
+
+	transitionNamespaceFile, err := getTransitionNamespace(ctx, branchLink, transitionNamespaceDirFile, assignment.TransitionAssignment)
+	if err != nil {
+		return fmt.Errorf("Could not get transition namespace: %w", err)
+	}
+	defer transitionNamespaceFile.Close()
+
+	// Time to bind mount.
+	err = crossMount(ctx, transitionNamespaceFile, pid1dirfd)
+	if err != nil {
+		return fmt.Errorf("Could not cross mount existing transition namespace: %w", err)
+	}
+
+	return nil
+}
+
+func getTransitionNamespace(ctx context.Context, branchLink netlink.Link, transitionNamespaceDirFile *os.File, assignment *vpcapi.AssignIPResponseV3_TransitionAssignment) (*os.File, error) {
+	fd, err := unix.Openat(int(transitionNamespaceDirFile.Fd()), assignment.AssignmentId, unix.O_CLOEXEC|unix.O_CREAT, 0)
+	if err == nil {
+		var fstat unix.Statfs_t
+		err = unix.Fstatfs(fd, &fstat)
+		if err != nil {
+			_ = unix.Close(fd)
+			return nil, fmt.Errorf("Unable to fstat fs: %w", err)
+		}
+		if fstat.Type == unix.NSFS_MAGIC {
+			return os.NewFile(uintptr(fd), assignment.AssignmentId), nil
+		}
+	}
+	defer unix.Close(fd)
+
+	if err != nil {
+		return nil, fmt.Errorf("Could not open assignment namespace %q: %w", assignment.AssignmentId, err)
+	}
+
+	newnetns, err := createTransitionNS(ctx, branchLink, assignment)
+	if err != nil {
+		return nil, fmt.Errorf("Could not create new transition ns: %w", err)
+	}
+	defer unix.Close(newnetns)
+
+	emptyPath, err := syscall.BytePtrFromString("")
+	if err != nil {
+		panic(err)
+	}
+
+	srctree, _, errno := syscall.Syscall(unix.SYS_OPEN_TREE, uintptr(newnetns), uintptr(unsafe.Pointer(emptyPath)), unix.AT_EMPTY_PATH|OPEN_TREE_CLONE|unix.O_CLOEXEC)
+	if errno != 0 {
+		return nil, fmt.Errorf("Could not open src tree: %s: %w", unix.ErrnoName(errno), errno)
+	}
+	defer unix.Close(int(srctree))
+
+	dsttree, _, errno := syscall.Syscall(unix.SYS_OPEN_TREE, uintptr(fd), uintptr(unsafe.Pointer(emptyPath)), unix.AT_EMPTY_PATH|unix.O_CLOEXEC)
+	if errno != 0 {
+		return nil, fmt.Errorf("Could not open dst tree: %s: %w", unix.ErrnoName(errno), errno)
+	}
+	defer unix.Close(int(dsttree))
+
+	assignmentIDPath, err := syscall.BytePtrFromString(assignment.AssignmentId)
+	if err != nil {
+		return nil, fmt.Errorf("Could not create byte string from assignment: %w", err)
+	}
+
+	_, _, errno = syscall.Syscall6(unix.SYS_MOVE_MOUNT,
+		srctree, uintptr(unsafe.Pointer(emptyPath)),
+		transitionNamespaceDirFile.Fd(), uintptr(unsafe.Pointer(assignmentIDPath)),
+		MOVE_MOUNT_F_EMPTY_PATH, 0)
+	if errno != 0 {
+		return nil, fmt.Errorf("Could not move mount: %s: %w", unix.ErrnoName(errno), errno)
+	}
+
+	// We pass a the file descriptor that is the network namespace FD. We shouldn't return the actual file itself
+	// because that's inconsequential. We can't return the "tree" because when we switch mount namespaces in
+	// nsenter, we violate being able to cross mount that (AFAICT)
+	dup, err := unix.Dup(newnetns)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot dup transition ns fd: %w", err)
+	}
+
+	return os.NewFile(uintptr(dup), assignment.AssignmentId), nil
+}
+
+func createTransitionNS(ctx context.Context, branchLink netlink.Link, assignment *vpcapi.AssignIPResponseV3_TransitionAssignment) (int, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	originalNetNS, err := netns.Get()
+	if err != nil {
+		return 0, fmt.Errorf("Could not retrieve current netns: %w", err)
+	}
+	defer originalNetNS.Close()
+
+	ns, err := netns.New()
+	if err != nil {
+		return 0, fmt.Errorf("Could not create transition ns: %w", err)
+	}
+	defer ns.Close()
+
+	handle, newHandleErr := netlink.NewHandle()
+	err = netns.Setns(originalNetNS, unix.CLONE_NEWNET)
+	if err != nil {
+		return 0, fmt.Errorf("Could not restore original network namespace: %w", err)
+	}
+
+	if newHandleErr != nil {
+		return 0, fmt.Errorf("Could not get netns handle: %w", err)
+	}
+	defer handle.Delete()
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
+	transitionInterfaceName := fmt.Sprintf("transition-%d", r.Intn(10000))
+	ipvlan := netlink.IPVlan{
+		LinkAttrs: netlink.LinkAttrs{
+			Name:        transitionInterfaceName,
+			ParentIndex: branchLink.Attrs().Index,
+			Namespace:   netlink.NsFd(ns),
+			TxQLen:      -1,
+		},
+		Mode: netlink.IPVLAN_MODE_L2,
+	}
+
+	logger.G(ctx).Debugf("Adding IPVlan interface: %+v", ipvlan)
+	err = netlink.LinkAdd(&ipvlan)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not add link")
+		return 0, fmt.Errorf("Cannot create link with name %q: %w", ipvlan.Name, err)
+	}
+	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
+	// what it's index is, so there's no point returning it.
+	logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
+	newLink, err := handle.LinkByName(ipvlan.Name)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not find after adding link")
+		return 0, errors.Wrapf(err, "Cannot find link with name %s", ipvlan.Name)
+	}
+
+	err = handle.LinkSetUp(newLink)
+	if err != nil {
+		return 0, fmt.Errorf("Could not set interface %q up: %w", newLink.Attrs().Name, err)
+	}
+
+	err = addIPv4AddressAndRoutes(ctx, handle, newLink, assignment.Ipv4Address, assignment.Routes)
+	if err != nil {
+		return 0, fmt.Errorf("Could not setup transition namespace IPv4: %w", err)
+	}
+
+	/*
+		fd, err := unix.Open(transitionNamespaceDir, unix.O_CLOEXEC|unix.O_TMPFILE|unix.O_RDWR, 0755)
+		if err != nil {
+			return 0, fmt.Errorf("Cannot create tmpfile for bind: %w", err)
+		}
+	*/
+	// We do this above because the previous fd gets closed via the defer.
+	fd, err := unix.Dup(int(ns))
+	if err != nil {
+		return 0, fmt.Errorf("Could not dup netns: %w", err)
+	}
+
+	return fd, nil
+}
+
+// cross mount takes the _network namespace file descriptor_.
+func crossMount(ctx context.Context, src *os.File, pid1dirfd int) error {
+	root, err := unix.Openat(pid1dirfd, "root", unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("Could not open root dir: %w", err)
+	}
+	defer unix.Close(root)
+
+	mntns, err := unix.Openat(pid1dirfd, "ns/mnt", unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("Could not open container mount ns: %w", err)
+	}
+	containerMountNamespaceFD := os.NewFile(uintptr(mntns), "mnt")
+	defer containerMountNamespaceFD.Close()
+
+	exe := os.Args[0]
+	cmd := exec.CommandContext(ctx,
+		"/usr/bin/nsenter", "--mount=/proc/self/fd/3",
+		exe, "cross-mount", "--net-ns-fd", "4", "--where", "/run/netns/transition")
+
+	cmd.ExtraFiles = []*os.File{
+		containerMountNamespaceFD,
+		src,
+	}
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+
+	err = cmd.Run()
+	if err != nil {
+		return fmt.Errorf("Could not cross mount namespace: %w", err)
+	}
+
+	return nil
 }
 
 func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) error {
