@@ -145,7 +145,14 @@ type update struct {
 	details *runtimeTypes.Details
 }
 
+func (u update) String() string {
+	return fmt.Sprintf("update{msg=%q status=%s details=%v}", u.msg, u.status.String(), u.details)
+}
+
 func (r *Runner) prepareContainer(ctx context.Context) update {
+	ctx, span := trace.StartSpan(ctx, "prepareContainer")
+	defer span.End()
+
 	logger.G(ctx).Debug("Running prepare on main container")
 	prepareCtx, prepareCancel := context.WithCancel(ctx)
 	defer prepareCancel()
@@ -441,6 +448,12 @@ func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) er
 
 func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver.TitusTaskState, msg string, details *runtimeTypes.Details) {
 	l := logger.G(ctx).WithField("msg", msg).WithField("taskStatus", status)
+	ctx, span := trace.StartSpan(ctx, "runMainContainerAndStartSidecars")
+	defer span.End()
+	span.AddAttributes(
+		trace.StringAttribute("status", status.String()),
+		trace.StringAttribute("msg", msg),
+	)
 	select {
 	case r.UpdatesChan <- Update{
 		TaskID:                  r.container.TaskID(),
@@ -453,6 +466,7 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 		l.Info("Updating Task status")
 	case <-ctx.Done():
 		l.Warn("Not sending update, because UpdatesChan Blocked, (or closed), and context completed")
+		tracehelpers.SetStatus(ctx.Err(), span)
 	}
 }
 
