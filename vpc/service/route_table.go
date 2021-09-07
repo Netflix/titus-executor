@@ -146,23 +146,38 @@ func convertRouteTable(ctx context.Context, table *ec2.RouteTable) []*vpcapi.Ass
 		}
 	}
 
-	routes = append(routes, &vpcapi.AssignIPResponseV3_Route{
-		Destination: "0.0.0.0/0",
-		Mtu:         9000,
-		Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-	})
+	/* Always create a default route, even if it doesn't exist. */
+	if getRoute("0.0.0.0/0", routes) == nil {
+		routes = append(routes, &vpcapi.AssignIPResponseV3_Route{
+			Destination: "0.0.0.0/0",
+			Mtu:         1500,
+			Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
+		})
+	}
 
-	routes = append(routes, &vpcapi.AssignIPResponseV3_Route{
-		Destination: "::/0",
-		Mtu:         9000,
-		Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-	})
+	if getRoute("::/0", routes) == nil {
+		routes = append(routes, &vpcapi.AssignIPResponseV3_Route{
+			Destination: "::/0",
+			Mtu:         1500,
+			Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
+		})
+	}
 
 	sort.Slice(routes, func(i, j int) bool {
 		return routes[i].Destination < routes[j].Destination
 	})
 
 	return routes
+}
+
+func getRoute(destination string, routes []*vpcapi.AssignIPResponseV3_Route) *vpcapi.AssignIPResponseV3_Route {
+	for _, route := range routes {
+		if route.Destination == destination {
+			return route
+		}
+	}
+
+	return nil
 }
 
 func getCustomRoute(route *ec2.Route) (*vpcapi.AssignIPResponseV3_Route, error) {
@@ -183,11 +198,12 @@ func getCustomRoute(route *ec2.Route) (*vpcapi.AssignIPResponseV3_Route, error) 
 		vpcroute.Mtu = 8500
 	} else if gateway == "local" ||
 		route.VpcPeeringConnectionId != nil {
-		vpcroute.Mtu = 9000
+		// Allow the MTU to be the default MTU for local connectivity
 	} else if route.EgressOnlyInternetGatewayId != nil ||
 		strings.HasPrefix(gateway, "igw-") ||
 		route.NatGatewayId != nil ||
-		strings.HasPrefix(gateway, "vgw-") {
+		strings.HasPrefix(gateway, "vgw-") ||
+		strings.HasPrefix(gateway, "eigw-") {
 		vpcroute.Mtu = 1500
 	} else {
 		return nil, nil
@@ -211,12 +227,6 @@ func getCustomRoute(route *ec2.Route) (*vpcapi.AssignIPResponseV3_Route, error) 
 	// Normalization
 	vpcroute.Destination = ipnet.String()
 
-	// TODO:
-	// Remove. Right now, the vpc tool derives the MTU of the interface from the default route.
-	if ipnet.String() == "0.0.0.0/0" || ipnet.String() == "::/0" {
-		return nil, nil
-	}
-
 	// Validate the resultant route:
 	if vpcroute.Destination == "" {
 		return nil, fmt.Errorf("route has invalid destination: %s", vpcroute.Destination)
@@ -226,7 +236,7 @@ func getCustomRoute(route *ec2.Route) (*vpcapi.AssignIPResponseV3_Route, error) 
 		return nil, fmt.Errorf("route has invalid family: %s", vpcroute.Family.String())
 	}
 
-	if vpcroute.Mtu < 1280 || vpcroute.Mtu > 9001 {
+	if vpcroute.Mtu != 0 && (vpcroute.Mtu < 1280 || vpcroute.Mtu > 9001) {
 		return nil, fmt.Errorf("route has invalid mtu: %d", vpcroute.Mtu)
 	}
 

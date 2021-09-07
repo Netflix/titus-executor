@@ -13,16 +13,6 @@ import (
 	"gotest.tools/assert"
 )
 
-func getRoute(destination string, routes []*vpcapi.AssignIPResponseV3_Route) *vpcapi.AssignIPResponseV3_Route {
-	for _, route := range routes {
-		if route.Destination == destination {
-			return route
-		}
-	}
-
-	return nil
-}
-
 func TestGenerateRouteTable(t *testing.T) {
 	routeTable := ec2.RouteTable{}
 	f, err := os.Open("route_table_data.json")
@@ -35,7 +25,7 @@ func TestGenerateRouteTable(t *testing.T) {
 		getRoute("0.0.0.0/0", routes),
 		&vpcapi.AssignIPResponseV3_Route{
 			Destination: "0.0.0.0/0",
-			Mtu:         9000,
+			Mtu:         1500,
 			Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
 		},
 		cmp.Comparer(proto.Equal),
@@ -44,7 +34,7 @@ func TestGenerateRouteTable(t *testing.T) {
 		getRoute("::/0", routes),
 		&vpcapi.AssignIPResponseV3_Route{
 			Destination: "::/0",
-			Mtu:         9000,
+			Mtu:         1500,
 			Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
 		},
 		cmp.Comparer(proto.Equal),
@@ -55,7 +45,7 @@ func TestGenerateRouteTable(t *testing.T) {
 		getRoute("100.66.0.0/18", routes),
 		&vpcapi.AssignIPResponseV3_Route{
 			Destination: "100.66.0.0/18",
-			Mtu:         9000,
+			Mtu:         0,
 			Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
 		},
 		cmp.Comparer(proto.Equal),
