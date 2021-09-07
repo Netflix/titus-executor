@@ -76,10 +76,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if mainCfg.journald {
-		log2.MaybeSetupLoggerIfOnJournaldAvailable()
-	}
-
 	logrusLogger := logrus.StandardLogger()
 	ctx = logger.WithLogger(ctx, logrusLogger)
 
@@ -89,6 +85,13 @@ func main() {
 	defer m.Flush()
 
 	app.Action = func(c *cli.Context) error {
+		// We can only inspect the config here, because looking at it any earlier doesn't work since the flags
+		// are not parsed yet.
+		if mainCfg.journald {
+			log2.MaybeSetupLoggerIfOnJournaldAvailable()
+		} else {
+			logrusLogger.Warning("Not enabling journald")
+		}
 		if mainCfg.debug {
 			logrus.SetLevel(logrus.DebugLevel)
 			logrusLogger.Debug("enabled debug logging")
