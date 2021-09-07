@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/renameio"
-
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -24,8 +22,8 @@ import (
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/google/renameio"
 	"github.com/pkg/errors"
-	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -333,9 +331,9 @@ func (b *Backend) RunWithOutputDir(ctx context.Context, dir string) error {
 		case <-ctx.Done():
 			// We should probably kill the pod gracefully now.
 			r.Kill()
-			log.G(ctx).Info("Context complete, terminating gracefully")
+			logger.G(ctx).Info("Context complete, terminating gracefully")
 			<-r.StoppedChan
-			log.G(ctx).Info("Context completed, terminated")
+			logger.G(ctx).Info("Context completed, terminated")
 			return nil
 		}
 	}
@@ -422,21 +420,21 @@ func (b *Backend) RunWithStatusFile(ctx context.Context, statuses *os.File) erro
 
 			lock.Lock()
 			b.handleUpdate(ctx, update)
-			log.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debugf("Updating pod in backend: %+v", b.pod)
+			logger.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debugf("Updating pod in backend: %+v", b.pod)
 			err = encoder.Encode(b.pod)
 			lock.Unlock()
 
 			if err != nil {
-				log.G(ctx).WithError(err).Fatal()
+				logger.G(ctx).WithError(err).Fatal()
 			}
 		case <-runner.StoppedChan:
 			return nil
 		case <-ctx.Done():
 			// We should probably kill the pod gracefully now.
 			runner.Kill()
-			log.G(ctx).Info("Context complete, terminating gracefully")
+			logger.G(ctx).Info("Context complete, terminating gracefully")
 			<-runner.StoppedChan
-			log.G(ctx).Info("Context completed, terminated")
+			logger.G(ctx).Info("Context completed, terminated")
 			return nil
 		}
 	}
