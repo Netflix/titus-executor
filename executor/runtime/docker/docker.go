@@ -1719,7 +1719,7 @@ func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Cont
 }
 
 func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
-	// These labels are needed for titus-node-problem-detector
+	// These labels are needed for titus-node-problem-detector and titus-isolate
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
 		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
