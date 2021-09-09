@@ -9,8 +9,9 @@ PartOf=titus-container@%i.target
 
 [Service]
 EnvironmentFile=/var/lib/titus-environments/%i.env
+Environment="TINI_HANDOFF=true"
 # Run as root (UID 0, GID 0) and with CAP_DAC_OVERRIDE so that containers with a `USER` instruction work
-ExecStart=/usr/bin/runc --root /var/run/docker/runtime-${TITUS_OCI_RUNTIME}/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE ${TITUS_CONTAINER_ID} /sbin/docker-init -s -- /titus/metatron/bin/titus-metatrond
+ExecStart=/usr/bin/runc --root /var/run/docker/runtime-${TITUS_OCI_RUNTIME}/moby exec -e TITUS_UNIX_CB_PATH="" -e TITUS_REDIRECT_STDOUT="" -e TITUS_REDIRECT_STDERR="" --user 0:0 --cap CAP_DAC_OVERRIDE ${TITUS_CONTAINER_ID} /sbin/docker-init -s -- /titus/metatron/bin/titus-metatrond
 
 Restart=on-failure
 RestartSec=3
