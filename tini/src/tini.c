@@ -319,7 +319,7 @@ int spawn(const signal_configuration_t *const sigconf_ptr, char *const argv[],
 	// but the stderr fd fails. Fortunately, this should make the init in the container bail entirely.
 	// This will have the side-effect of closing all of our file descriptors.
 	redir_path = getenv(REDIRECT_STDOUT);
-	if (redir_path) {
+	if (redir_path && strlen(redir_path) > 0) {
 		new_stdout_fd = open(redir_path, O_WRONLY | O_CREAT | O_APPEND,
 				     S_IRUGO | S_IWUGO);
 		if (new_stdout_fd == -1) {
@@ -336,7 +336,7 @@ int spawn(const signal_configuration_t *const sigconf_ptr, char *const argv[],
 	}
 
 	redir_path = getenv(REDIRECT_STDERR);
-	if (redir_path) {
+	if (redir_path && strlen(redir_path) > 0) {
 		new_stderr_fd = open(redir_path, O_WRONLY | O_CREAT | O_APPEND,
 				     S_IRUGO | S_IWUGO);
 		if (new_stderr_fd == -1) {
@@ -850,6 +850,12 @@ void maybe_unix_cb()
 			"No UNIX_CB_PATH set, not connecting back to callback socket")
 		return;
 	}
+
+	if (strlen(socket_path) == 0) {
+        PRINT_INFO(
+            "No UNIX_CB_PATH set, not connecting back to callback socket")
+            return;
+    }
 
 	rootfd = open("/", O_RDONLY);
 	if (rootfd == -1) {
