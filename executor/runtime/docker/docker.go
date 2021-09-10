@@ -1705,7 +1705,10 @@ func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn
 func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
 	containerName := r.c.TaskID() + "-" + v1Container.Name
-	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := r.k8sContainerToDockerConfigs(v1Container, mainContainerID, mainContainerRoot, pod)
+	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, err := r.k8sContainerToDockerConfigs(v1Container, mainContainerID, mainContainerRoot, pod)
+	if err != nil {
+		return "", fmt.Errorf("error creating the %s container: %s", containerName, err)
+	}
 	l.WithFields(map[string]interface{}{
 		"dockerCfg": logger.ShouldJSON(ctx, *dockerContainerConfig),
 		"hostCfg":   logger.ShouldJSON(ctx, *dockerHostConfig),
@@ -1718,7 +1721,7 @@ func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Cont
 	return containerCreateBody.ID, nil
 }
 
-func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
+func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (*container.Config, *container.HostConfig, *network.NetworkingConfig, error) {
 	// These labels are needed for titus-node-problem-detector and titus-isolate
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
@@ -1746,7 +1749,11 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 			Target:   "/logs",
 			ReadOnly: false,
 		})
-		mounts = append(mounts, r.getContainerVolumeMounts(mainContainerRoot, v1Container, pod)...)
+		volumeMounts, err := r.getContainerVolumeMounts(mainContainerRoot, v1Container, pod)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		mounts = append(mounts, volumeMounts...)
 	}
 	if r.cfg.MetatronEnabled {
 		podMetaronHostPath, _ := r.getPodMetatronFsHostPath()
@@ -1829,7 +1836,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 	}
 	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
 	dockerNetworkConfig := &network.NetworkingConfig{}
-	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig
+	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, nil
 }
 
 func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
@@ -1877,26 +1884,29 @@ func (r *DockerRuntime) getPlaformContainerNames() []string {
 	return platformContainerNames
 }
 
-func (r *DockerRuntime) getContainerVolumeMounts(mainContainerRoot string, c v1.Container, pod *v1.Pod) []mount.Mount {
+func (r *DockerRuntime) getContainerVolumeMounts(mainContainerRoot string, c v1.Container, pod *v1.Pod) ([]mount.Mount, error) {
 	mounts := []mount.Mount{}
 	volumes := pod.Spec.Volumes
 	for _, volumeMount := range c.VolumeMounts {
 		v := getVolumeByName(volumes, volumeMount.Name)
 		if v.Name == "" {
-			continue
+			return nil, fmt.Errorf("couldn't find the corresponding volume for volumeMount %+v", volumeMount)
 		}
-		if v.FlexVolume.Driver == "TitusMainContainerVolume" {
+		if v.FlexVolume.Driver == "SharedContainerVolumeSource" {
 			m := mount.Mount{
-				Type:        "bind",
-				Source:      mainContainerRoot + v.FlexVolume.Options["source"],
+				Type: "bind",
+				// TODO: We should only use the mainContainerRoot if the `sourceContainer` == "main"
+				Source:      filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]),
 				Target:      volumeMount.MountPath,
 				ReadOnly:    volumeMount.ReadOnly,
-				BindOptions: &mount.BindOptions{Propagation: mount.PropagationRShared},
+				BindOptions: &mount.BindOptions{Propagation: mount.Propagation(*volumeMount.MountPropagation)},
 			}
 			mounts = append(mounts, m)
+		} else {
+			return nil, fmt.Errorf("the driver is not currently supported for the volume of %+v", v)
 		}
 	}
-	return mounts
+	return mounts, nil
 }
 
 func getVolumeByName(volumes []v1.Volume, name string) v1.Volume {
