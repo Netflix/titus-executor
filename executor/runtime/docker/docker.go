@@ -1595,7 +1595,7 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	for idx := range r.c.ExtraUserContainers() {
 		c := r.c.ExtraUserContainers()[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot, *pod)
+			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot, pod)
 			if err != nil {
 				return fmt.Errorf("Failed to create %s user container: %w", c.Name, err)
 			}
@@ -1608,7 +1608,7 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	for idx := range r.c.ExtraPlatformContainers() {
 		c := r.c.ExtraPlatformContainers()[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot, *pod)
+			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot, pod)
 			if err != nil {
 				return fmt.Errorf("Failed to create %s platform container: %w", c.Name, err)
 			}
@@ -1702,7 +1702,7 @@ func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn
 	return group.Wait()
 }
 
-func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod v1.Pod) (string, error) {
+func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
 	containerName := r.c.TaskID() + "-" + v1Container.Name
 	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := r.k8sContainerToDockerConfigs(v1Container, mainContainerID, mainContainerRoot, pod)
@@ -1718,7 +1718,7 @@ func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Cont
 	return containerCreateBody.ID, nil
 }
 
-func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod v1.Pod) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
+func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
 	// These labels are needed for titus-node-problem-detector and titus-isolate
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
@@ -1877,7 +1877,7 @@ func (r *DockerRuntime) getPlaformContainerNames() []string {
 	return platformContainerNames
 }
 
-func (r *DockerRuntime) getContainerVolumeMounts(mainContainerRoot string, c v1.Container, pod v1.Pod) []mount.Mount {
+func (r *DockerRuntime) getContainerVolumeMounts(mainContainerRoot string, c v1.Container, pod *v1.Pod) []mount.Mount {
 	mounts := []mount.Mount{}
 	volumes := pod.Spec.Volumes
 	for _, volumeMount := range c.VolumeMounts {
