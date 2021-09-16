@@ -378,6 +378,11 @@ message SecurityGroupRequest {
     string sgId = 1;
 }
 
+message ResetSecurityGroupResponse {
+    string response = 1;
+    bool isError = 2;
+}
+ 
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
@@ -399,7 +404,7 @@ service TitusAgentVPCService {
     rpc DisassociateTrunkNetworkInterface (DisassociateTrunkNetworkInterfaceRequest) returns (DisassociateTrunkNetworkInterfaceResponse);
     rpc DescribeTrunkNetworkInterface (DescribeTrunkNetworkInterfaceRequest) returns (DescribeTrunkNetworkInterfaceResponse);
     rpc DetachBranchNetworkInterface (DetachBranchNetworkInterfaceRequest) returns (DetachBranchNetworkInterfaceResponse);
-    rpc ResetSecurityGroup(SecurityGroupRequest) returns (None);
+    rpc ResetSecurityGroup(SecurityGroupRequest) returns (ResetSecurityGroupResponse);
 }
 
 message PrivateKey {
