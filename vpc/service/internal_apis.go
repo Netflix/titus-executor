@@ -431,16 +431,16 @@ func (vpcService *vpcService) ResetSecurityGroup(ctx context.Context, in *vpcapi
 		_ = tx.Rollback()
 	}(resetSgTx)
 
-	sg_to_delete := in.GetSgId()
+	sgToDelete := in.GetSgId()
 
 	rows, err := resetSgTx.QueryContext(ctx, `
 SELECT branch_eni FROM branch_enis 
 WHERE ARRAY[$1] <@ security_groups AND branch_eni IN 
 (SELECT branch_eni FROM branch_eni_attachments WHERE branch_eni_attachments.association_id IN 
 	(SELECT branch_eni_association FROM assignments))
-		`, sg_to_delete)
+		`, sgToDelete)
 	if err != nil {
-		err = errors.Wrap(err, "Could not query database for branch ENIs containing the SG to delete "+sg_to_delete)
+		err = errors.Wrap(err, "Could not query database for branch ENIs containing the SG to delete "+sgToDelete)
 		tracehelpers.SetStatus(err, span)
 		return &vpcapi.ResetSecurityGroupResponse{
 			Response: "Internal titus error",
@@ -463,9 +463,9 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 	}
 
 	_, err = resetSgTx.ExecContext(ctx,
-		"UPDATE branch_enis SET security_groups = '{default}',dirty_security_groups=true WHERE ARRAY[$1] <@ security_groups", sg_to_delete)
+		"UPDATE branch_enis SET security_groups = '{default}',dirty_security_groups=true WHERE ARRAY[$1] <@ security_groups", sgToDelete)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot mark security groups as "+sg_to_delete+" as dirty")
+		err = errors.Wrap(err, "Cannot mark security groups as "+sgToDelete+" as dirty")
 		tracehelpers.SetStatus(err, span)
 		return &vpcapi.ResetSecurityGroupResponse{
 			Response: "Internal titus error",
