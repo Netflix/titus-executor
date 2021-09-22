@@ -66,7 +66,7 @@ require (
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.6.2-0.20201103103935-92707c0b2d50
 	github.com/urfave/cli v1.22.5
-	github.com/virtual-kubelet/virtual-kubelet v1.0.0
+	github.com/virtual-kubelet/virtual-kubelet v1.0.0 // indirect
 	github.com/vishvananda/netlink v1.1.1-0.20210330154013-f5de75959ad5
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae
 	github.com/wercker/journalhook v0.0.0-20180428041537-5d0a5ae867b3

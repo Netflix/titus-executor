@@ -83,6 +83,7 @@ type integrationTestMetadata struct {
 }
 
 func newTestServiceInstance(t *testing.T) *vpcService {
+	t.Logf("DB URL is  %s", dbURL)
 	connector, err := pq.NewConnector(dbURL)
 	assert.NilError(t, err)
 	hostname, err := os.Hostname()
@@ -115,18 +116,21 @@ func TestIntegrationTests(t *testing.T) {
 	if !enableIntegrationTests {
 		t.Skip("Integration tests are not enabled")
 	}
+	/*
+		runIntegrationTest(t, "trunkENITests", trunkENITests)
+		runIntegrationTest(t, "branchENITests", branchENITests)
+		runIntegrationTest(t, "testAssociate", testAssociate)
+		runIntegrationTest(t, "testGenerateAssignmentID", testGenerateAssignmentID)
+		runIntegrationTest(t, "testGenerateAssignmentIDWithFault", testGenerateAssignmentIDWithFault)
+		runIntegrationTest(t, "testGenerateAssignmentIDStressTest", testGenerateAssignmentIDStressTest)
+		runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
+		runIntegrationTest(t, "testActionWorker", testActionWorker)
+		runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
+		runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
+		runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
+	*/
+	runIntegrationTest(t, "testResetSecurityGroup", testResetSecurityGroup)
 
-	runIntegrationTest(t, "trunkENITests", trunkENITests)
-	runIntegrationTest(t, "branchENITests", branchENITests)
-	runIntegrationTest(t, "testAssociate", testAssociate)
-	runIntegrationTest(t, "testGenerateAssignmentID", testGenerateAssignmentID)
-	runIntegrationTest(t, "testGenerateAssignmentIDWithFault", testGenerateAssignmentIDWithFault)
-	runIntegrationTest(t, "testGenerateAssignmentIDStressTest", testGenerateAssignmentIDStressTest)
-	runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
-	runIntegrationTest(t, "testActionWorker", testActionWorker)
-	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
-	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
-	runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
 }
 
 type zipkinReporter struct {
@@ -799,6 +803,100 @@ func testGenerateAssignmentIDNewSG(ctx context.Context, t *testing.T, md integra
 	assert.NilError(t, err)
 }
 
+func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	item := &regionAccount{
+		region:    md.region,
+		accountID: md.account,
+	}
+	reconcileTrunkENILongLivedTask := service.reconcileTrunkENIsLongLivedTask()
+	assert.NilError(t, service.preemptLock(ctx, item, reconcileTrunkENILongLivedTask))
+
+	trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetID, 3)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
+	}()
+
+	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
+
+	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	assert.NilError(t, err)
+
+	req := getENIRequest{
+		region: md.region,
+
+		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
+		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
+		branchENIAccount: md.account,
+		subnet:           subnet,
+		securityGroups:   []string{md.defaultSecurityGroupID, md.testSecurityGroupID},
+		maxIPAddresses:   1,
+		maxBranchENIs:    1,
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(req.maxIPAddresses)
+	group := &multierror.Group{}
+	assignmentIDs := make([]*assignment, req.maxIPAddresses)
+	for i := 0; i < req.maxIPAddresses; i++ {
+		myGetENIRequest := req
+		idx := i
+		myGetENIRequest.assignmentID = fmt.Sprintf("testGenerateAssignmentID-%d-%s", i, uuid.New().String())
+		group.Go(func() error {
+			wg.Done()
+			wg.Wait()
+			response, err := service.generateAssignmentID(ctx, myGetENIRequest)
+			assignmentIDs[idx] = response
+			return err
+		})
+	}
+
+	mErr := group.Wait()
+	assert.NilError(t, mErr.ErrorOrNil())
+
+	time.Sleep(time.Second * 3)
+	var id int
+	var state string
+	var associationID sql.NullString
+	// Verify we only attached one branch ENI
+	row := service.db.QueryRowContext(ctx, "SELECT id, state, association_id FROM branch_eni_attachments WHERE trunk_eni = $1 AND state = 'attached'", aws.StringValue(trunkENI.NetworkInterfaceId))
+	assert.NilError(t, row.Scan(&id, &state, &associationID))
+	assert.Assert(t, associationID.Valid)
+
+	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", md.testSecurityGroupID)
+	//Now that the ENI is createdm reset the SG - should fail
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest {SgId: md.testSecurityGroupID})
+	assert.Error(t, err, fmt.Sprintf("%s is associated to an ENI with active association", md.testSecurityGroupID))
+
+	logger.G(ctx).Debug(" going to delete assignment ", assignmentIDs[0].assignmentID)
+	_, err = service.db.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", assignmentIDs[0].assignmentID)
+	assert.NilError(t, err)
+
+
+	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
+		_, err = service.startDissociation(ctx, tx, associationID.String, true)
+		return err
+	}))
+
+	var branch_eni, trunk_eni string
+	row = service.db.QueryRowContext(ctx, "SELECT state, branch_eni, trunk_eni FROM branch_eni_attachments WHERE id = $1", id)
+	assert.NilError(t, row.Scan(&state, &branch_eni, &trunk_eni))
+	logger.G(ctx).Debug("TEST: branch enis ", branch_eni, " are in state ", state, "trunk eni ", trunk_eni)
+	assert.Assert(t, state == "unattaching" || state == "unattached")
+
+	// Maybe make this smarter than a second
+	time.Sleep(time.Second)
+	row = service.db.QueryRowContext(ctx, "SELECT state FROM branch_eni_attachments WHERE id = $1", id)
+	assert.NilError(t, row.Scan(&state))
+	assert.Assert(t, state == "unattached")
+	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", md.testSecurityGroupID)
+
+	time.Sleep(time.Second * 1)
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest {SgId: md.testSecurityGroupID})
+	assert.NilError(t, err)
+
+}
+
 func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
 	item := &regionAccount{
 		region:    md.region,
@@ -819,7 +917,8 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	assert.NilError(t, err)
 
 	req := getENIRequest{
-		region:           md.region,
+		region: md.region,
+
 		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
 		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
 		branchENIAccount: md.account,
