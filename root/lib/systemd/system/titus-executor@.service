@@ -9,7 +9,7 @@ KillSignal=SIGINT
 KillMode=mixed
 TimeoutStopSec=600
 TimeoutStartSec=1200
-TasksMax=50000
+TasksMax=105000
 RemainAfterExit=yes
 # The runtime directory gets removed upon unit shutdown
 RuntimeDirectory=titus-executor/%i
