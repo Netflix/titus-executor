@@ -1130,12 +1130,20 @@ func testGenerateAssignmentIDWithAddress(ctx context.Context, t *testing.T, md i
 	ass, err := service.generateAssignmentID(ctx, req)
 	assert.NilError(t, err)
 
-	resp, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
-		TaskId:           req.assignmentID,
-		SecurityGroupIds: req.securityGroups,
-		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
-		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{},
-	}, ass, 50)
+	var resp, resp2 *vpcapi.AssignIPResponseV3
+	// This weirdness is to test the race detector
+	ch := make(chan struct{})
+	go func() {
+		defer close(ch)
+		resp, err = service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
+			TaskId:           req.assignmentID,
+			SecurityGroupIds: req.securityGroups,
+			Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+			Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{},
+		}, ass, 50)
+	}()
+	<-ch
+
 	assert.NilError(t, err)
 	assert.Assert(t, resp.Ipv6Address != nil)
 
@@ -1143,12 +1151,17 @@ func testGenerateAssignmentIDWithAddress(ctx context.Context, t *testing.T, md i
 	ass2, err := service.generateAssignmentID(ctx, req)
 	assert.NilError(t, err)
 
-	resp2, err := service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
-		TaskId:           req.assignmentID,
-		SecurityGroupIds: req.securityGroups,
-		Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
-		Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{},
-	}, ass2, 50)
+	ch = make(chan struct{})
+	go func() {
+		defer close(ch)
+		resp2, err = service.assignIPsToENI(ctx, &vpcapi.AssignIPRequestV3{
+			TaskId:           req.assignmentID,
+			SecurityGroupIds: req.securityGroups,
+			Ipv6:             &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{},
+			Ipv4:             &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{},
+		}, ass2, 50)
+	}()
+	<-ch
 	assert.NilError(t, err)
 	assert.Assert(t, resp2.Ipv6Address != nil)
 

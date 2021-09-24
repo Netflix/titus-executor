@@ -106,6 +106,9 @@ type vpcService struct {
 
 	routesCache sync.Map
 
+	workerID int64
+	counters sync.Map
+
 	// PB Services:
 	vpcapi.TitusAgentVPCServiceServer
 	titus.UserIPServiceServer
@@ -275,6 +278,14 @@ func Run(ctx context.Context, config *Config) error {
 			"hostname":  keyHostname,
 			"createdAt": keyCreatedAt,
 		}).Debug("Found matching public key for private key")
+
+		row := config.DB.QueryRowContext(ctx, "SELECT nextval('worker_id')")
+		err = row.Scan(&vpc.workerID)
+		if err != nil {
+			return fmt.Errorf("Unable to get worker ID: %w", err)
+		}
+		vpc.workerID &= (1 << 12) - 1
+		logger.G(ctx).WithField("workerID", vpc.workerID).Info("Got worker ID")
 	}
 
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
