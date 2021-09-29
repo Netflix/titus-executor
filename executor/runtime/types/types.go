@@ -498,7 +498,6 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 // Details contains additional details about a container that are
 // not returned by normal container start calls.
 type Details struct {
-	IPAddresses          map[string]string `json:"ipAddresses,omitempty"`
 	NetworkConfiguration *NetworkConfigurationDetails
 }
 

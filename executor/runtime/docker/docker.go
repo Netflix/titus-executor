@@ -1448,9 +1448,6 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	details = &runtimeTypes.Details{
-		IPAddresses: map[string]string{
-			"nfvpc": ipv4addr.Address.Address,
-		},
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: true,
 			IPAddress:    ipv4addr.Address.Address,
