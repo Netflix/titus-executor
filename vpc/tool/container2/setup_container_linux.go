@@ -17,12 +17,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/Netflix/titus-executor/vpc/tool/transition"
-
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/setup2"
+	"github.com/Netflix/titus-executor/vpc/tool/transition"
 	"github.com/apparentlymart/go-cidr/cidr"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
