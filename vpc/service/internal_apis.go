@@ -4,12 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/golang/protobuf/ptypes/empty"
 	"time"
 
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
+	"github.com/golang/protobuf/ptypes/empty"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/Netflix/titus-executor/logger"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -464,10 +464,10 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 	// 2. Get Default security group ID of the VPC to use in place of the reset SG ID
 	logger.G(ctx).Debug("2. Get Default security group ID of the VPC to use in place of the reset SG ID ", sgToDelete)
 	var defaultSecurityGroupID, region, account string
-	defaultSgIdS := make([]string, 0)
+	defaultSgIDS := make([]string, 0)
 	var resetSgSession *ec2wrapper.EC2Session
 	rows, err = resetSgTx.QueryContext(ctx, `
-SELECT region, account, group_id FROM security_groups WHERE  group_name='default' and account IN (SELECT account FROM security_groups WHERE group_id = $1)
+SELECT region, account, group_id FROM security_groups WHERE  group_name='default' and account IN (SELECT account FROM security_groups WHERE group_id = $1) limit 1
 		`, sgToDelete)
 	if err == sql.ErrNoRows {
 		err = fmt.Errorf("Security group %s does not exist: %w ", sgToDelete, err)
@@ -492,7 +492,6 @@ SELECT region, account, group_id FROM security_groups WHERE  group_name='default
 			tracehelpers.SetStatus(err, span)
 			return &empty.Empty{}, err
 		}
-		break
 	}
 
 	if len(defaultSecurityGroupID) == 0 {
@@ -503,6 +502,11 @@ SELECT region, account, group_id FROM security_groups WHERE  group_name='default
 
 	//Terminate transaction before calling the ec2 API and doing an UPDATE
 	err = resetSgTx.Commit()
+	if err != nil {
+		err = errors.Wrap(err, "Could not commit transaction")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
 
 	resetSgSession, err = vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{Region: region, AccountID: account})
 	if err != nil {
@@ -511,7 +515,7 @@ SELECT region, account, group_id FROM security_groups WHERE  group_name='default
 		return &empty.Empty{}, err
 	}
 
-	defaultSgIdS = append(defaultSgIdS, defaultSecurityGroupID)
+	defaultSgIDS = append(defaultSgIDS, defaultSecurityGroupID)
 
 	//Start new transaction
 	resetSgTx, err = beginSerializableTx(ctx, vpcService.db)
@@ -561,7 +565,7 @@ SELECT region, account, group_id FROM security_groups WHERE  group_name='default
 
 	//lock eni no key update and then call the AWS API (still dirty and sg is default), and reset the dirty flag to false
 	for _, branchEni := range enisWithSgToUpdate {
-		err := vpcService.updateENISecurityGroups(ctx, resetSgSession, defaultSgIdS, branchEni)
+		err := vpcService.updateENISecurityGroups(ctx, resetSgSession, defaultSgIDS, branchEni)
 
 		if err != nil {
 			err = fmt.Errorf("Unable to modify SG ID on AWS to default for %s: %w", branchEni, err)

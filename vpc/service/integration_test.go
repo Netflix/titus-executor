@@ -48,6 +48,11 @@ var dbURL string
 var integrationTestTimeout time.Duration
 var testAZ, testAccount, testSecurityGroupID, wd, subnets, workerRole string
 
+const (
+	Unattached  = "unattached"
+	Unattaching = "unattaching"
+)
+
 func TestMain(m *testing.M) {
 	wrapper.LogTransactions = true
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
@@ -116,21 +121,18 @@ func TestIntegrationTests(t *testing.T) {
 	if !enableIntegrationTests {
 		t.Skip("Integration tests are not enabled")
 	}
-	/*
-		runIntegrationTest(t, "trunkENITests", trunkENITests)
-		runIntegrationTest(t, "branchENITests", branchENITests)
-		runIntegrationTest(t, "testAssociate", testAssociate)
-		runIntegrationTest(t, "testGenerateAssignmentID", testGenerateAssignmentID)
-		runIntegrationTest(t, "testGenerateAssignmentIDWithFault", testGenerateAssignmentIDWithFault)
-		runIntegrationTest(t, "testGenerateAssignmentIDStressTest", testGenerateAssignmentIDStressTest)
-		runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
-		runIntegrationTest(t, "testActionWorker", testActionWorker)
-		runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
-		runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
-		runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
-	*/
+	runIntegrationTest(t, "trunkENITests", trunkENITests)
+	runIntegrationTest(t, "branchENITests", branchENITests)
+	runIntegrationTest(t, "testAssociate", testAssociate)
+	runIntegrationTest(t, "testGenerateAssignmentID", testGenerateAssignmentID)
+	runIntegrationTest(t, "testGenerateAssignmentIDWithFault", testGenerateAssignmentIDWithFault)
+	runIntegrationTest(t, "testGenerateAssignmentIDStressTest", testGenerateAssignmentIDStressTest)
+	runIntegrationTest(t, "testGenerateAssignmentIDBranchENIsStress", testGenerateAssignmentIDBranchENIsStress)
+	runIntegrationTest(t, "testActionWorker", testActionWorker)
+	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
+	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
+	runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
 	runIntegrationTest(t, "testResetSecurityGroup", testResetSecurityGroup)
-
 }
 
 type zipkinReporter struct {
@@ -736,13 +738,13 @@ out:
 
 	row := service.db.QueryRowContext(ctx, "SELECT state FROM branch_eni_attachments WHERE id = $1", id)
 	assert.NilError(t, row.Scan(&state))
-	assert.Assert(t, state == "unattaching" || state == "unattached")
+	assert.Assert(t, state == Unattaching || state == Unattached)
 
 	// Maybe make this smarter than a second
 	time.Sleep(time.Second)
 	row = service.db.QueryRowContext(ctx, "SELECT state FROM branch_eni_attachments WHERE id = $1", id)
 	assert.NilError(t, row.Scan(&state))
-	assert.Assert(t, state == "unattached")
+	assert.Assert(t, state == Unattached)
 
 	workerCancel()
 	assert.Error(t, g2.Wait(), context.Canceled.Error())
@@ -804,6 +806,8 @@ func testGenerateAssignmentIDNewSG(ctx context.Context, t *testing.T, md integra
 }
 
 func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	//This test requires an SG that is not currently associated with any container
+	specialResetSgTestSg := "sg-01d281a4cc5f620c9"
 	item := &regionAccount{
 		region:    md.region,
 		accountID: md.account,
@@ -829,7 +833,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
 		branchENIAccount: md.account,
 		subnet:           subnet,
-		securityGroups:   []string{md.defaultSecurityGroupID, md.testSecurityGroupID},
+		securityGroups:   []string{md.defaultSecurityGroupID, specialResetSgTestSg},
 		maxIPAddresses:   1,
 		maxBranchENIs:    1,
 	}
@@ -863,36 +867,29 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 	assert.NilError(t, row.Scan(&id, &state, &associationID))
 	assert.Assert(t, associationID.Valid)
 
-	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", md.testSecurityGroupID)
+	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", specialResetSgTestSg)
 	//Now that the ENI is createdm reset the SG - should fail
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest {SgId: md.testSecurityGroupID})
-	assert.Error(t, err, fmt.Sprintf("%s is associated to an ENI with active association", md.testSecurityGroupID))
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest{SgId: specialResetSgTestSg})
+	assert.Error(t, err, fmt.Sprintf("%s is associated to an ENI with active association", specialResetSgTestSg))
 
 	logger.G(ctx).Debug(" going to delete assignment ", assignmentIDs[0].assignmentID)
 	_, err = service.db.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", assignmentIDs[0].assignmentID)
 	assert.NilError(t, err)
-
 
 	assert.NilError(t, withTransaction(ctx, service.db, func(ctx context.Context, tx *sql.Tx) error {
 		_, err = service.startDissociation(ctx, tx, associationID.String, true)
 		return err
 	}))
 
-	var branch_eni, trunk_eni string
-	row = service.db.QueryRowContext(ctx, "SELECT state, branch_eni, trunk_eni FROM branch_eni_attachments WHERE id = $1", id)
-	assert.NilError(t, row.Scan(&state, &branch_eni, &trunk_eni))
-	logger.G(ctx).Debug("TEST: branch enis ", branch_eni, " are in state ", state, "trunk eni ", trunk_eni)
-	assert.Assert(t, state == "unattaching" || state == "unattached")
-
 	// Maybe make this smarter than a second
 	time.Sleep(time.Second)
 	row = service.db.QueryRowContext(ctx, "SELECT state FROM branch_eni_attachments WHERE id = $1", id)
 	assert.NilError(t, row.Scan(&state))
 	assert.Assert(t, state == "unattached")
-	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", md.testSecurityGroupID)
+	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", specialResetSgTestSg)
 
 	time.Sleep(time.Second * 1)
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest {SgId: md.testSecurityGroupID})
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest{SgId: specialResetSgTestSg})
 	assert.NilError(t, err)
 
 }
