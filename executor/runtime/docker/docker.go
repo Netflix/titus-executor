@@ -1237,7 +1237,7 @@ func (r *DockerRuntime) getPodMetatronFsHostPath() (string, error) {
 	if r.cfg.RuntimeDir == "" {
 		return "", fmt.Errorf("RuntimeDir not set, unable to create tmpfs for /run/metatron")
 	}
-	hostPath := r.cfg.RuntimeDir + "/mounts/run/metatron"
+	hostPath := path.Join(r.cfg.RuntimeDir, "/mounts/run/metatron")
 	return hostPath, nil
 }
 
@@ -1262,7 +1262,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
 	}
 
 	if err := tw.WriteHeader(&tar.Header{
@@ -1270,7 +1270,15 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0777,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "/run-shared",
+		Mode:     0777,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.WithError(err).Fatal()
 	}
 
 	if err := tw.WriteHeader(&tar.Header{
@@ -1278,7 +1286,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
 	}
 
 	if err := tw.WriteHeader(&tar.Header{
@@ -1286,7 +1294,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
 	}
 
 	if r.cfg.MetatronEnabled {
@@ -1297,7 +1305,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 			Mode:     0755,
 			Typeflag: tar.TypeDir,
 		}); err != nil {
-			log.Fatal(err)
+			log.WithError(err).Fatal()
 		}
 	}
 
@@ -1314,7 +1322,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 			Mode:     0777,
 			Typeflag: tar.TypeDir,
 		}); err != nil {
-			log.Fatal(err)
+			log.WithError(err).Fatal()
 		}
 	}
 
@@ -1330,10 +1338,10 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 	}
 
 	if err := tw.WriteHeader(hdr); err != nil {
-		log.Fatalln(err)
+		log.WithError(err).Fatal()
 	}
 	if _, err := tw.Write(envTemplateBuf.Bytes()); err != nil {
-		log.Fatalln(err)
+		log.WithError(err).Fatal()
 	}
 	// Make sure to check the error on Close.
 
@@ -1519,10 +1527,10 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID str
 			isTerminalEvent := r.handleDockerEvent(event, statusMessageChan)
 			if isTerminalEvent {
 				cName, err := r.getContainerNameFromID(containerID)
-				if err != nil {
-					log.Infof("Closing docker status monitor for %s because terminal docker event received", cName)
+				if err == nil {
+					log.WithField("container_name", cName).Infof("Closing docker status monitor for %s because terminal docker event received", cName)
 				} else {
-					log.WithError(err).Error("Closing docker status monitor, encountered and error looking up the container name")
+					log.WithError(err).Error("Closing docker status monitor, encountered an error looking up the container name")
 				}
 				return
 			}
@@ -1740,12 +1748,20 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		},
 	}
 	if mainContainerRoot != "" {
-		mounts = append(mounts, mount.Mount{
-			Type:     "bind",
-			Source:   mainContainerRoot + "/logs",
-			Target:   "/logs",
-			ReadOnly: false,
-		})
+		mounts = append(
+			mounts, mount.Mount{
+				Type:     "bind",
+				Source:   path.Join(mainContainerRoot, "/logs"),
+				Target:   "/logs",
+				ReadOnly: false,
+			},
+			mount.Mount{
+				Type:     "bind",
+				Source:   path.Join(mainContainerRoot, "/run-shared"),
+				Target:   "/run-shared",
+				ReadOnly: false,
+			},
+		)
 		volumeMounts, err := r.getContainerVolumeMounts(mainContainerRoot, v1Container, pod)
 		if err != nil {
 			return nil, nil, nil, err
@@ -1768,7 +1784,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 			if mainContainerRoot != "" {
 				mounts = append(mounts, mount.Mount{
 					Type:     "bind",
-					Source:   mainContainerRoot + "/metatron",
+					Source:   path.Join(mainContainerRoot, "/metatron"),
 					Target:   "/metatron",
 					ReadOnly: false,
 				})
