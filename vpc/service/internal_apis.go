@@ -508,7 +508,7 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 	for rows.Next() {
 		err = rows.Scan(&count)
 		if err != nil {
-			fmt.Errorf("Could not get count of associations from query results %s: %w ", sgToDelete, err)
+			err = fmt.Errorf("Could not get count of associations from query results %s: %w ", sgToDelete, err)
 			tracehelpers.SetStatus(err, span)
 			return &vpcapi.ResetSecurityGroupResponse{}, status.Errorf(codes.InvalidArgument,
 				"Could not get count of associations from query results")
@@ -516,7 +516,6 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 	}
 
 	if count != 0 {
-		fmt.Errorf("%s is associated to an ENI with active association", sgToDelete)
 		//We cannot process the delete SG request as there are containers actively using the ENI that uses this SG
 		return &vpcapi.ResetSecurityGroupResponse{}, status.Errorf(codes.FailedPrecondition,
 			"%s is attached to an ENI with active association", sgToDelete)
