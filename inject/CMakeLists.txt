@@ -12,3 +12,5 @@ SET(CMAKE_C_STANDARD 11)
 
 add_executable(titus-nsenter titus-nsenter.c)
 target_link_libraries(titus-nsenter pthread seccomp-fd-notify cap)
+
+add_executable(titus-mnt titus-mnt.c)
