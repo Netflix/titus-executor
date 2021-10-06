@@ -295,8 +295,11 @@ message GetAssignmentResponse {
     AssignIPResponseV3 assignment = 1;
 }
 
-message SecurityGroupRequest {
+message ResetSecurityGroupRequest {
     string sgId = 1;
+}
+
+message ResetSecurityGroupResponse {
 }
 
 service TitusAgentVPCService {
@@ -318,7 +321,7 @@ service TitusAgentVPCService {
     rpc DisassociateTrunkNetworkInterface (DisassociateTrunkNetworkInterfaceRequest) returns (DisassociateTrunkNetworkInterfaceResponse);
     rpc DescribeTrunkNetworkInterface (DescribeTrunkNetworkInterfaceRequest) returns (DescribeTrunkNetworkInterfaceResponse);
     rpc DetachBranchNetworkInterface (DetachBranchNetworkInterfaceRequest) returns (DetachBranchNetworkInterfaceResponse);
-    rpc ResetSecurityGroup(SecurityGroupRequest) returns (google.protobuf.Empty);
+    rpc ResetSecurityGroup(ResetSecurityGroupRequest) returns (ResetSecurityGroupResponse);
 }
 
 message PrivateKey {

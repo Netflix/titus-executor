@@ -35,7 +35,7 @@ type TitusAgentVPCServiceClient interface {
 	DisassociateTrunkNetworkInterface(ctx context.Context, in *DisassociateTrunkNetworkInterfaceRequest, opts ...grpc.CallOption) (*DisassociateTrunkNetworkInterfaceResponse, error)
 	DescribeTrunkNetworkInterface(ctx context.Context, in *DescribeTrunkNetworkInterfaceRequest, opts ...grpc.CallOption) (*DescribeTrunkNetworkInterfaceResponse, error)
 	DetachBranchNetworkInterface(ctx context.Context, in *DetachBranchNetworkInterfaceRequest, opts ...grpc.CallOption) (*DetachBranchNetworkInterfaceResponse, error)
-	ResetSecurityGroup(ctx context.Context, in *SecurityGroupRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ResetSecurityGroup(ctx context.Context, in *ResetSecurityGroupRequest, opts ...grpc.CallOption) (*ResetSecurityGroupResponse, error)
 }
 
 type titusAgentVPCServiceClient struct {
@@ -163,8 +163,8 @@ func (c *titusAgentVPCServiceClient) DetachBranchNetworkInterface(ctx context.Co
 	return out, nil
 }
 
-func (c *titusAgentVPCServiceClient) ResetSecurityGroup(ctx context.Context, in *SecurityGroupRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	out := new(emptypb.Empty)
+func (c *titusAgentVPCServiceClient) ResetSecurityGroup(ctx context.Context, in *ResetSecurityGroupRequest, opts ...grpc.CallOption) (*ResetSecurityGroupResponse, error) {
+	out := new(ResetSecurityGroupResponse)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ResetSecurityGroup", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -192,7 +192,7 @@ type TitusAgentVPCServiceServer interface {
 	DisassociateTrunkNetworkInterface(context.Context, *DisassociateTrunkNetworkInterfaceRequest) (*DisassociateTrunkNetworkInterfaceResponse, error)
 	DescribeTrunkNetworkInterface(context.Context, *DescribeTrunkNetworkInterfaceRequest) (*DescribeTrunkNetworkInterfaceResponse, error)
 	DetachBranchNetworkInterface(context.Context, *DetachBranchNetworkInterfaceRequest) (*DetachBranchNetworkInterfaceResponse, error)
-	ResetSecurityGroup(context.Context, *SecurityGroupRequest) (*emptypb.Empty, error)
+	ResetSecurityGroup(context.Context, *ResetSecurityGroupRequest) (*ResetSecurityGroupResponse, error)
 	mustEmbedUnimplementedTitusAgentVPCServiceServer()
 }
 
@@ -239,7 +239,7 @@ func (UnimplementedTitusAgentVPCServiceServer) DescribeTrunkNetworkInterface(con
 func (UnimplementedTitusAgentVPCServiceServer) DetachBranchNetworkInterface(context.Context, *DetachBranchNetworkInterfaceRequest) (*DetachBranchNetworkInterfaceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DetachBranchNetworkInterface not implemented")
 }
-func (UnimplementedTitusAgentVPCServiceServer) ResetSecurityGroup(context.Context, *SecurityGroupRequest) (*emptypb.Empty, error) {
+func (UnimplementedTitusAgentVPCServiceServer) ResetSecurityGroup(context.Context, *ResetSecurityGroupRequest) (*ResetSecurityGroupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResetSecurityGroup not implemented")
 }
 func (UnimplementedTitusAgentVPCServiceServer) mustEmbedUnimplementedTitusAgentVPCServiceServer() {}
@@ -490,7 +490,7 @@ func _TitusAgentVPCService_DetachBranchNetworkInterface_Handler(srv interface{},
 }
 
 func _TitusAgentVPCService_ResetSecurityGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SecurityGroupRequest)
+	in := new(ResetSecurityGroupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -502,7 +502,7 @@ func _TitusAgentVPCService_ResetSecurityGroup_Handler(srv interface{}, ctx conte
 		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ResetSecurityGroup",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TitusAgentVPCServiceServer).ResetSecurityGroup(ctx, req.(*SecurityGroupRequest))
+		return srv.(TitusAgentVPCServiceServer).ResetSecurityGroup(ctx, req.(*ResetSecurityGroupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

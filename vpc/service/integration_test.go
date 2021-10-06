@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net"
 	"os"
 	"path/filepath"
@@ -869,8 +871,11 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 
 	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", specialResetSgTestSg)
 	//Now that the ENI is createdm reset the SG - should fail
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest{SgId: specialResetSgTestSg})
-	assert.Error(t, err, fmt.Sprintf("%s is associated to an ENI with active association", specialResetSgTestSg))
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: specialResetSgTestSg})
+	assert.Check(t, err != nil)
+	if e, ok := status.FromError(err); ok {
+		assert.Equal(t, e.Code(), codes.FailedPrecondition)
+	}
 
 	logger.G(ctx).Debug(" going to delete assignment ", assignmentIDs[0].assignmentID)
 	_, err = service.db.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", assignmentIDs[0].assignmentID)
@@ -889,7 +894,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", specialResetSgTestSg)
 
 	time.Sleep(time.Second * 1)
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.SecurityGroupRequest{SgId: specialResetSgTestSg})
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: specialResetSgTestSg})
 	assert.NilError(t, err)
 
 }
