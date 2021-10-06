@@ -610,6 +610,8 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	// Because there might be a prefix on the interface.
+	maxIPAddresses--
 
 	maxBranchENIs, err := vpc.GetMaxBranchENIs(aws.StringValue(instance.InstanceType))
 	if err != nil {
