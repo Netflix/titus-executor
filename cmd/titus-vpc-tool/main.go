@@ -196,7 +196,6 @@ func main() {
 	rootCmd.AddCommand(gcCommand(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(operatorCmd(ctx, v, ipr.getProvider))
 	rootCmd.AddCommand(unassignNetworkCommand(ctx, v, ipr.getProvider))
-	rootCmd.AddCommand(crossMountCommand(ctx, v))
 
 	cobra.OnInitialize(func() {
 		if cfgFile != "" {
