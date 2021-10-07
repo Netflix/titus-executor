@@ -70,7 +70,6 @@ func (r *runtimeMock) Start(ctx context.Context, pod *v1.Pod) (string, *runtimeT
 	close(r.startCalled)
 	r.startCalled = make(chan<- struct{}) // reset subscription
 	details := &runtimeTypes.Details{
-		IPAddresses: make(map[string]string),
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: false,
 		},

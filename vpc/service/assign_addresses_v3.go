@@ -9,6 +9,7 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/m7shapan/cidr"
@@ -609,6 +610,8 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	// Because there might be a prefix on the interface.
+	maxIPAddresses--
 
 	maxBranchENIs, err := vpc.GetMaxBranchENIs(aws.StringValue(instance.InstanceType))
 	if err != nil {
@@ -879,7 +882,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	switch (req.Ipv6).(type) {
 	case *vpcapi.AssignIPRequestV3_Ipv6AddressRequested:
 		// TODO: Remove
-		resp.Ipv6Address, err = assignArbitraryIPv6AddressV3(ctx, tx, iface, maxIPAddresses, ass)
+		resp.Ipv6Address, err = vpcService.assignArbitraryIPv6AddressV3(ctx, tx, iface, maxIPAddresses, ass)
 		if err != nil {
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
@@ -1115,34 +1118,138 @@ func getBorderGroupForENI(ctx context.Context, tx *sql.Tx, eni *ec2.NetworkInter
 }
 
 // // ctx, tx, iface, maxIPAddresses, ass
-func assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2.NetworkInterface, maxIPAddresses int, ass *assignment) (*vpcapi.UsableAddress, error) {
+func (vpcService *vpcService) assignArbitraryIPv6AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2.NetworkInterface, maxIPAddresses int, ass *assignment) (*vpcapi.UsableAddress, error) {
 	ctx, span := trace.StartSpan(ctx, "assignArbitraryIPv6AddressV3")
 	defer span.End()
 
-	row := tx.QueryRowContext(ctx, "UPDATE subnet_usable_prefix SET last_assigned = last_assigned + 1 WHERE branch_eni_id = $1 RETURNING last_assigned, prefix", ass.branch.intid)
-	var lastAssigned int64
-	var prefix string
-	err := row.Scan(&lastAssigned, &prefix)
+	usedIPAddresses := sets.NewString()
+	rows, err := tx.QueryContext(ctx, "SELECT ipv6addr FROM assignments WHERE ipv6addr IS NOT NULL AND branch_eni_association = $1", ass.branch.associationID)
 	if err != nil {
-		err = fmt.Errorf("Cannot query / scan row from subnet_usable_prefix: %w", err)
+		err = errors.Wrap(err, "Cannot query ipv6addrs already assigned to interface")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	for rows.Next() {
+		var address string
+		err = rows.Scan(&address)
+		if err != nil {
+			err = errors.Wrap(err, "Cannot scan rows")
+			span.SetStatus(traceStatusFromError(err))
+			return nil, err
+		}
+		usedIPAddresses.Insert(address)
+	}
+
+	allInterfaceIPAddresses := sets.NewString()
+	for idx := range branchENI.Ipv6Addresses {
+		allInterfaceIPAddresses.Insert(aws.StringValue(branchENI.Ipv6Addresses[idx].Ipv6Address))
+	}
+
+	if l := usedIPAddresses.Len(); l >= maxIPAddresses {
+		err = status.Errorf(codes.FailedPrecondition, "%d IPv6 addresses already in-use", l)
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	logger.G(ctx).WithField("usedIPAddresses", usedIPAddresses.List()).WithField("allInterfaceIPAddresses", allInterfaceIPAddresses.List()).Debug("Trying to assign IPv6 Address")
+	unusedIPAddresses := allInterfaceIPAddresses.Difference(usedIPAddresses)
+
+	if l := unusedIPAddresses.Len(); l > 0 {
+		unusedIPv6AddressesList := unusedIPAddresses.List()
+
+		row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2 ORDER BY last_seen ASC LIMIT 1", pq.Array(unusedIPv6AddressesList), aws.StringValue(branchENI.VpcId))
+		var ipAddress string
+		err = row.Scan(&ipAddress)
+		if err == sql.ErrNoRows {
+			// Effectively choose a random one.
+			ipAddress = unusedIPv6AddressesList[rand.Intn(l)] // nolint: gosec
+		} else if err != nil {
+			err = errors.Wrap(err, "Could not fetch utilized IPv6 addresses from the database")
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+
+		return &vpcapi.UsableAddress{
+			Address: &vpcapi.Address{
+				Address: ipAddress,
+			},
+			PrefixLength: uint32(128),
+		}, nil
+	}
+
+	ipsToAssign := maxIPAddresses - allInterfaceIPAddresses.Len()
+	if ipsToAssign <= 0 {
+		err = status.Errorf(codes.FailedPrecondition, "%d IPv4 addresses already assigned to interface", allInterfaceIPAddresses.Len())
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+	if ipsToAssign > batchSize {
+		ipsToAssign = batchSize
+	}
+
+	assignIpv6AddressesInput := ec2.AssignIpv6AddressesInput{
+		NetworkInterfaceId: branchENI.NetworkInterfaceId,
+	}
+
+	row := tx.QueryRowContext(ctx, "SELECT cidr6 FROM subnets WHERE subnet_id = $1", aws.StringValue(branchENI.SubnetId))
+	var subnetCIDR sql.NullString
+	err = row.Scan(&subnetCIDR)
+	if err != nil {
+		err = fmt.Errorf("Cannot scan cidr6 from subnet %s: %w", aws.StringValue(branchENI.SubnetId), err)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	_, net, err := net.ParseCIDR(prefix)
-	if err != nil {
-		err = fmt.Errorf("Cannot parse prefix %q: %w", prefix, err)
+	if !subnetCIDR.Valid {
+		err = fmt.Errorf("Subnet %s does not have cidr6", aws.StringValue(branchENI.SubnetId))
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	prefixInt := cidr.IPv6tod(net.IP)
-	newIPInt := prefixInt.Add(prefixInt, big.NewInt(lastAssigned))
-	newIP := cidr.DtoIPv6(newIPInt)
+	_, ipnet, err := net.ParseCIDR(subnetCIDR.String)
+	if err != nil {
+		err = fmt.Errorf("Cannot parse prefix %q: %w", subnetCIDR.String, err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	var counter uint32
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // nolint: gosec
+	atomic.StoreUint32(&counter, r.Uint32())
+	actual, _ := vpcService.counters.LoadOrStore(aws.StringValue(branchENI.SubnetId), &counter)
+	counterPointer := actual.(*uint32)
+
+	base := atomic.AddUint32(counterPointer, uint32(ipsToAssign)) - uint32(ipsToAssign)
+	for i := int64(0); i < int64(ipsToAssign); i++ {
+		prefixInt := cidr.IPv6tod(ipnet.IP)
+		// Base is a uint32, so only the least significant 32-bits will be consumed
+		lsb := int64(base) + i
+		// Set the worker ID. The worker ID is guaranteed to only be 12 bits (4096)
+		lsb |= vpcService.workerID << 32
+
+		// We only control the bottom /80, and although the above math shouldn't exceed 2**48, this is for insurance
+		lsb &= (1 << 48) - 1
+		newIPInt := prefixInt.Add(prefixInt, big.NewInt(lsb))
+		newIP := cidr.DtoIPv6(newIPInt)
+		assignIpv6AddressesInput.Ipv6Addresses = append(assignIpv6AddressesInput.Ipv6Addresses, aws.String(newIP.String()))
+	}
+
+	output, err := ass.branchENISession.AssignIPv6Addresses(ctx, assignIpv6AddressesInput)
+	if err != nil {
+		err = ec2wrapper.HandleEC2Error(err, span)
+		return nil, err
+	}
+
+	newAddresses := make([]string, len(output.AssignedIpv6Addresses))
+	for idx := range output.AssignedIpv6Addresses {
+		newAddresses[idx] = aws.StringValue(output.AssignedIpv6Addresses[idx])
+	}
+
+	logger.G(ctx).WithField("newPrivateAddresses", fmt.Sprintf("%v", newAddresses)).Debug("Assigned new IPv6 Addresses")
 
 	return &vpcapi.UsableAddress{
 		Address: &vpcapi.Address{
-			Address: newIP.String(),
+			Address: aws.StringValue(output.AssignedIpv6Addresses[0]),
 		},
 		PrefixLength: uint32(128),
 	}, nil
@@ -1606,54 +1713,4 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2
 		},
 		PrefixLength: uint32(prefixlength),
 	}, nil
-}
-
-func assignNextIPv6Address(ctx context.Context, tx *sql.Tx, subnetid string) (net.IP, error) {
-	sequenceName := fmt.Sprintf("v6seq_%s", strings.ReplaceAll(subnetid, "-", "_"))
-	_, err := tx.ExecContext(ctx, fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s MINVALUE 0 MAXVALUE 65534 CACHE 10 CYCLE", sequenceName))
-	if err != nil {
-		return nil, fmt.Errorf("Cannot create sequence %s: %w", sequenceName, err)
-	}
-
-	/*
-			The address layout looks like:
-
-		 ┌───────────────────────────┬──────────────┬───────────────────────────┬────────────────────┐
-		 │ AWS Subnet CIDR (64-bits) │ 0s (16 bits) │ Time in Seconds (32-bits) │ Sequence (16-bits) │
-		 └───────────────────────────┴──────────────┴───────────────────────────┴────────────────────┘
-
-	*/
-
-	row := tx.QueryRowContext(ctx, "SELECT nextval($1)", sequenceName)
-	var lsb int64
-	err = row.Scan(&lsb)
-	if err != nil {
-		return nil, fmt.Errorf("Cannot scan nextval from sequence %s: %w", sequenceName, err)
-	}
-
-	now := time.Now().Unix() // Should be in seconds
-	lsb |= now << 12
-	lsb &= (1 << 48) - 1
-
-	row = tx.QueryRowContext(ctx, "SELECT cidr6 FROM subnets WHERE subnet_id = $1", subnetid)
-	var subnetCIDR sql.NullString
-	err = row.Scan(&subnetCIDR)
-	if err != nil {
-		return nil, fmt.Errorf("Cannot scan cidr6 from subnet %s: %w", subnetid, err)
-	}
-
-	if !subnetCIDR.Valid {
-		return nil, fmt.Errorf("Subnet %s does not have cidr6", subnetid)
-	}
-
-	_, net, err := net.ParseCIDR(subnetCIDR.String)
-	if err != nil {
-		err = fmt.Errorf("Cannot parse prefix %q: %w", subnetCIDR.String, err)
-		return nil, err
-	}
-
-	prefixInt := cidr.IPv6tod(net.IP)
-	newIPInt := prefixInt.Add(prefixInt, big.NewInt(lsb))
-	newIP := cidr.DtoIPv6(newIPInt)
-	return newIP, nil
 }
