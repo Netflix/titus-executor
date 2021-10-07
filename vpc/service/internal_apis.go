@@ -508,13 +508,12 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 		var updatedEni string
 		err := rows.Scan(&updatedEni)
 		if err != nil {
-			err = fmt.Errorf("Could not get VPC ID of %s: %w ", sgToDelete, err)
+			err = fmt.Errorf("Could not get ENI that was updated to reset %s: %w ", sgToDelete, err)
 			tracehelpers.SetStatus(err, span)
 			return &vpcapi.ResetSecurityGroupResponse{}, err
 		}
 		enisWithSgToUpdate = append(enisWithSgToUpdate, updatedEni)
 		logger.G(ctx).WithField("resetSg", sgToDelete).Debug("Need to update ", updatedEni, " to default SG ", defaultSecurityGroupID)
-
 	}
 
 	err = resetSgTx.Commit()
@@ -590,8 +589,8 @@ FOR NO KEY UPDATE OF branch_enis`, eni)
 		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false,"+
-		" modified_at = transaction_timestamp(), aws_security_groups_updated = transaction_timestamp() WHERE branch_eni = $1", eni)
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false, " +
+		"modified_at = transaction_timestamp(), aws_security_groups_updated = transaction_timestamp() WHERE branch_eni = $1", eni)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to update database to set security groups to non-dirty")
 		tracehelpers.SetStatus(err, span)

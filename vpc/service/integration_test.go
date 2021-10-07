@@ -896,7 +896,6 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 	time.Sleep(time.Second * 1)
 	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: specialResetSgTestSg})
 	assert.NilError(t, err)
-
 }
 
 func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
