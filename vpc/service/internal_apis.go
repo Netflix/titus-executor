@@ -421,59 +421,27 @@ func (vpcService *vpcService) ResetSecurityGroup(ctx context.Context, request *v
 	ctx, span := trace.StartSpan(ctx, "ResetSecurityGroup")
 	defer span.End()
 
-	resetSgTx, err = beginSerializableTx(ctx, vpcService.db)
+	resetSgTx, err = vpcService.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
 	if err != nil {
 		err = errors.Wrap(err, "Unable to begin serializable transaction")
 		tracehelpers.SetStatus(err, span)
 		return &vpcapi.ResetSecurityGroupResponse{}, err
 	}
-	defer func(tx *sql.Tx) {
-		_ = tx.Rollback()
-	}(resetSgTx)
 
 	sgToDelete := request.GetSgId()
 
 	// First get the default security group that we will replace the Reset SG with
 	logger.G(ctx).WithField("resetSg", sgToDelete).Debug("Get Default security group ID of the VPC to use in place of the SG")
 	row := resetSgTx.QueryRowContext(ctx, `
-SELECT region, account, group_id FROM security_groups WHERE  group_name='default' and account IN (SELECT account FROM security_groups WHERE group_id = $1) limit 1
+SELECT region, account, group_id FROM security_groups WHERE  group_name='default' and account = (SELECT account FROM security_groups WHERE group_id = $1 limit 1)
 		`, sgToDelete)
-	if err == sql.ErrNoRows {
-		err = fmt.Errorf("Security group %s does not exist: %w ", sgToDelete, err)
-		tracehelpers.SetStatus(err, span)
-		return &vpcapi.ResetSecurityGroupResponse{}, status.Errorf(codes.NotFound,
-			"Security group does not exist")
-	}
-	if err != nil {
-		err = fmt.Errorf("Could not query database for VPC ID of %s: %w ", sgToDelete, err)
-		tracehelpers.SetStatus(err, span)
-		return &vpcapi.ResetSecurityGroupResponse{}, err
-	}
 	err = row.Scan(&region, &account, &defaultSecurityGroupID)
 	if err != nil {
-		err = fmt.Errorf("Could not get VPC ID of %s: %w ", sgToDelete, err)
+		err = fmt.Errorf("Could not get region, account and def SG of %s: %w ", sgToDelete, err)
 		tracehelpers.SetStatus(err, span)
 		return &vpcapi.ResetSecurityGroupResponse{}, err
-	}
-
-	if err != nil {
-		err = fmt.Errorf("Could not get EC2 session for branch ENI: %w", err)
-		tracehelpers.SetStatus(err, span)
-		return &vpcapi.ResetSecurityGroupResponse{}, err
-	}
-
-	if len(defaultSecurityGroupID) == 0 {
-		err = fmt.Errorf("Security group %s does not exist: %w ", sgToDelete, err)
-		tracehelpers.SetStatus(err, span)
-		return &vpcapi.ResetSecurityGroupResponse{}, status.Errorf(codes.InvalidArgument,
-			"Security group does not exist")
-	}
-
-	err = resetSgTx.Commit()
-	if err != nil {
-		err = errors.Wrap(err, "Could not commit transaction")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
 	}
 
 	// Create the ec2 session to call AWS with the changed SG and before beginning the next Tx
@@ -505,6 +473,8 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 		tracehelpers.SetStatus(err, span)
 		return &vpcapi.ResetSecurityGroupResponse{}, err
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		err = rows.Scan(&count)
 		if err != nil {
@@ -531,6 +501,7 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 		tracehelpers.SetStatus(err, span)
 		return &vpcapi.ResetSecurityGroupResponse{}, err
 	}
+	defer rows.Close()
 
 	var enisWithSgToUpdate []string
 	for rows.Next() {
@@ -553,7 +524,7 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 		return &vpcapi.ResetSecurityGroupResponse{}, err
 	}
 
-	//5. Call AWS to change the interface SG ID to the default SG ID of the VPC
+	//Call AWS to change the interface SG ID to the default SG ID of the VPC
 	logger.G(ctx).WithField("resetSg", sgToDelete).Debug("Call AWS to change the interface SG ID to the default SG ID of the VPC")
 
 	defaultSgIDS := make([]string, 0)
@@ -561,8 +532,7 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 
 	//lock eni no key update and then call the AWS API (still dirty and sg is default), and reset the dirty flag to false
 	for _, branchEni := range enisWithSgToUpdate {
-		err := vpcService.updateENISecurityGroups(ctx, resetSgSession, defaultSgIDS, branchEni)
-
+		err := vpcService.updateENISecurityGroups(ctx, resetSgSession, defaultSgIDS, branchEni, sgToDelete)
 		if err != nil {
 			err = fmt.Errorf("Unable to modify SG ID on AWS to default for %s: %w", branchEni, err)
 			tracehelpers.SetStatus(err, span)
@@ -574,7 +544,7 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 }
 
 //Update the SG on AWS with the default SG after verifying that the `dirty_security_groups` is unchanged
-func (vpcService *vpcService) updateENISecurityGroups(ctx context.Context, session *ec2wrapper.EC2Session, defSgS []string, eni string) error {
+func (vpcService *vpcService) updateENISecurityGroups(ctx context.Context, session *ec2wrapper.EC2Session, defSgS []string, eni string, sgToDelete string) error {
 	ctx, span := trace.StartSpan(ctx, "updateENISecurityGroups")
 	defer span.End()
 
@@ -602,13 +572,13 @@ FOR NO KEY UPDATE OF branch_enis`, eni)
 	}
 
 	//Check if anything changed on the SG <-> ENI association
-	if !dirtySecurityGroups && len(securityGroups) == 1 && securityGroups[0] == defSgS[0] {
-		err = tx.Commit()
-		if err != nil {
-			err = errors.Wrap(err, "Cannot commit transaction")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
+	if !dirtySecurityGroups {
+		logger.G(ctx).WithField("resetSg", sgToDelete).Debug("dirtySecurityGroups for ", eni, " was set to false")
+		return nil
+	}
+
+	if len(securityGroups) != 1 && securityGroups[0] == defSgS[0] {
+		logger.G(ctx).WithField("resetSg", sgToDelete).Debug("security groups for ", eni, " was non-default")
 		return nil
 	}
 
@@ -617,11 +587,11 @@ FOR NO KEY UPDATE OF branch_enis`, eni)
 		Groups:             aws.StringSlice(defSgS),
 	})
 	if err != nil {
-		_ = tx.Rollback()
 		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false,  aws_security_groups_updated = transaction_timestamp() WHERE branch_eni = $1", eni)
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false,"+
+		" modified_at = transaction_timestamp(), aws_security_groups_updated = transaction_timestamp() WHERE branch_eni = $1", eni)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to update database to set security groups to non-dirty")
 		tracehelpers.SetStatus(err, span)
