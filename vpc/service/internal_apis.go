@@ -589,8 +589,7 @@ FOR NO KEY UPDATE OF branch_enis`, eni)
 		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false, " +
-		"modified_at = transaction_timestamp(), aws_security_groups_updated = transaction_timestamp() WHERE branch_eni = $1", eni)
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = false, modified_at = transaction_timestamp(), aws_security_groups_updated = transaction_timestamp() WHERE branch_eni = $1", eni)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to update database to set security groups to non-dirty")
 		tracehelpers.SetStatus(err, span)
