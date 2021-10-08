@@ -68,7 +68,7 @@ func TestMain(m *testing.M) {
 	flag.BoolVar(&record, "record", true, "Record span for each test")
 	flag.StringVar(&subnets, "subnets", "", "Subnets for stress testing")
 	flag.StringVar(&workerRole, "worker-role", "", "The role to use for the AWS IAM worker")
-	flag.StringVar(&testResetSg, "reset-security-group", "", "Security group unattached to any container")
+	flag.StringVar(&testResetSg, "reset-security-group", "sg-01d281a4cc5f620c9", "Security group unattached to any container")
 	var err error
 	wd, err = os.Getwd()
 	if err != nil {
