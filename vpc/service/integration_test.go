@@ -68,7 +68,7 @@ func TestMain(m *testing.M) {
 	flag.BoolVar(&record, "record", true, "Record span for each test")
 	flag.StringVar(&subnets, "subnets", "", "Subnets for stress testing")
 	flag.StringVar(&workerRole, "worker-role", "", "The role to use for the AWS IAM worker")
-	flag.StringVar(&testResetSg, "reset-security-group","", "Security group unattached to any container" )
+	flag.StringVar(&testResetSg, "reset-security-group", "", "Security group unattached to any container")
 	var err error
 	wd, err = os.Getwd()
 	if err != nil {
@@ -79,15 +79,15 @@ func TestMain(m *testing.M) {
 }
 
 type integrationTestMetadata struct {
-	region    string
-	account   string
-	az        string
-	vpc       string
-	subnetID  string
-	subnetIDs []string
+	region                 string
+	account                string
+	az                     string
+	vpc                    string
+	subnetID               string
+	subnetIDs              []string
 	defaultSecurityGroupID string
 	testSecurityGroupID    string
-	testResetSg string
+	testResetSg            string
 }
 
 func newTestServiceInstance(t *testing.T) *vpcService {
@@ -207,7 +207,7 @@ func runIntegrationTest(tParent *testing.T, testName string, testFunction integr
 			az:                  testAZ,
 			account:             testAccount,
 			testSecurityGroupID: testSecurityGroupID,
-			testResetSg : testResetSg,
+			testResetSg:         testResetSg,
 		}
 
 		row := svc.db.QueryRowContext(ctx, "SELECT region FROM availability_zones WHERE zone_name = $1 AND account_id = $2 LIMIT 1", testAZ, testAccount)
