@@ -295,6 +295,13 @@ message GetAssignmentResponse {
     AssignIPResponseV3 assignment = 1;
 }
 
+message ResetSecurityGroupRequest {
+    string sgId = 1;
+}
+
+message ResetSecurityGroupResponse {
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
     rpc ProvisionInstanceV3 (ProvisionInstanceRequestV3) returns (ProvisionInstanceResponseV3);
@@ -314,6 +321,7 @@ service TitusAgentVPCService {
     rpc DisassociateTrunkNetworkInterface (DisassociateTrunkNetworkInterfaceRequest) returns (DisassociateTrunkNetworkInterfaceResponse);
     rpc DescribeTrunkNetworkInterface (DescribeTrunkNetworkInterfaceRequest) returns (DescribeTrunkNetworkInterfaceResponse);
     rpc DetachBranchNetworkInterface (DetachBranchNetworkInterfaceRequest) returns (DetachBranchNetworkInterfaceResponse);
+    rpc ResetSecurityGroup(ResetSecurityGroupRequest) returns (ResetSecurityGroupResponse);
 }
 
 message PrivateKey {
