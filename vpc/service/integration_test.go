@@ -48,7 +48,7 @@ import (
 var enableIntegrationTests, record bool
 var dbURL string
 var integrationTestTimeout time.Duration
-var testAZ, testAccount, testSecurityGroupID, wd, subnets, workerRole string
+var testAZ, testAccount, testSecurityGroupID, wd, subnets, workerRole, testResetSg string
 
 const (
 	Unattached  = "unattached"
@@ -68,6 +68,7 @@ func TestMain(m *testing.M) {
 	flag.BoolVar(&record, "record", true, "Record span for each test")
 	flag.StringVar(&subnets, "subnets", "", "Subnets for stress testing")
 	flag.StringVar(&workerRole, "worker-role", "", "The role to use for the AWS IAM worker")
+	flag.StringVar(&testResetSg, "reset-security-group","", "Security group unattached to any container" )
 	var err error
 	wd, err = os.Getwd()
 	if err != nil {
@@ -84,9 +85,9 @@ type integrationTestMetadata struct {
 	vpc       string
 	subnetID  string
 	subnetIDs []string
-
 	defaultSecurityGroupID string
 	testSecurityGroupID    string
+	testResetSg string
 }
 
 func newTestServiceInstance(t *testing.T) *vpcService {
@@ -206,6 +207,7 @@ func runIntegrationTest(tParent *testing.T, testName string, testFunction integr
 			az:                  testAZ,
 			account:             testAccount,
 			testSecurityGroupID: testSecurityGroupID,
+			testResetSg : testResetSg,
 		}
 
 		row := svc.db.QueryRowContext(ctx, "SELECT region FROM availability_zones WHERE zone_name = $1 AND account_id = $2 LIMIT 1", testAZ, testAccount)
@@ -808,8 +810,6 @@ func testGenerateAssignmentIDNewSG(ctx context.Context, t *testing.T, md integra
 }
 
 func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
-	//This test requires an SG that is not currently associated with any container
-	specialResetSgTestSg := "sg-01d281a4cc5f620c9"
 	item := &regionAccount{
 		region:    md.region,
 		accountID: md.account,
@@ -835,7 +835,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
 		branchENIAccount: md.account,
 		subnet:           subnet,
-		securityGroups:   []string{md.defaultSecurityGroupID, specialResetSgTestSg},
+		securityGroups:   []string{md.defaultSecurityGroupID, md.testResetSg},
 		maxIPAddresses:   1,
 		maxBranchENIs:    1,
 	}
@@ -869,9 +869,9 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 	assert.NilError(t, row.Scan(&id, &state, &associationID))
 	assert.Assert(t, associationID.Valid)
 
-	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", specialResetSgTestSg)
+	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", md.testResetSg)
 	//Now that the ENI is createdm reset the SG - should fail
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: specialResetSgTestSg})
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: md.testResetSg})
 	assert.Check(t, err != nil)
 	if e, ok := status.FromError(err); ok {
 		assert.Equal(t, e.Code(), codes.FailedPrecondition)
@@ -891,10 +891,10 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 	row = service.db.QueryRowContext(ctx, "SELECT state FROM branch_eni_attachments WHERE id = $1", id)
 	assert.NilError(t, row.Scan(&state))
 	assert.Assert(t, state == "unattached")
-	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", specialResetSgTestSg)
+	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", md.testResetSg)
 
 	time.Sleep(time.Second * 1)
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: specialResetSgTestSg})
+	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: md.testResetSg})
 	assert.NilError(t, err)
 }
 
