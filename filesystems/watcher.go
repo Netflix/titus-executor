@@ -65,10 +65,16 @@ var PotentialStdioNames = map[string]struct{}{
 // We rely on potentialStdioNames not matching any of the regexes here. Otherwise "bad" things will happen.
 var defaultUploadRegexpList = []*regexp.Regexp{
 	regexp.MustCompile(`\.complete$`),
+	// Main container stdout (provided by tini redirection)
 	regexp.MustCompile(`stdout.[\d_\.]+$`),
 	regexp.MustCompile(`stderr.[\d_\.]+$`),
+	// Extra containers or sidecars
+	regexp.MustCompile(`stdout-[a-z0-9]([-a-z0-9]*[a-z0-9])?.[\d_\.]+$`),
+	regexp.MustCompile(`stderr-[a-z0-9]([-a-z0-9]*[a-z0-9])?.[\d_\.]+$`),
+	// Misc logs created by the application
 	regexp.MustCompile(`[\d-_]+.log`),
 	regexp.MustCompile(`[\d-_]+.out`),
+	// Core dumps
 	regexp.MustCompile(`[\S]+\.core\.[\d]+\.[\d]+`),
 }
 
