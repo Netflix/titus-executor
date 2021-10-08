@@ -1306,6 +1306,38 @@ func TestBasicMultiContainer(t *testing.T) {
 	}
 }
 
+func TestBasicMultiContainerSharesCommonVolumes(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+
+	// And for the main container, we use pgrep to ensure that our sentinel container
+	// is in fact running along side us, and we can see shared files
+	testEntrypointOld := "if ! ls -l /logs/sentinel; then exit 2; fi; if ! ls -l /run-shared/sentinel; then exit 3; fi"
+	// The main container and the user-sentinel are both 'user' containers,
+	// So we want the main container to waid just a little bit for the touch-sentinel
+	testEntrypointOld = `/bin/sh -vxc "sleep 3;` + testEntrypointOld + `"`
+
+	ji := &JobInput{
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
+		UsePodSpec: UseV1PodspecInTest,
+		// This sentinel container is a second process we can look out
+		// for, in order to detect if multi-container workloads are setup
+		ExtraContainers: []corev1.Container{
+			{
+				Name:    "touch-sentinel",
+				Image:   busybox.name + `:` + busybox.tag,
+				Command: []string{"/bin/sh", "-vxc"},
+				Args:    []string{"touch /logs/sentinel && touch /run-shared/sentinel"},
+			},
+		},
+		EntrypointOld: testEntrypointOld,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}
+
 func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 	wrapTestStandalone(t)
 	skipIfNotPod(t)
