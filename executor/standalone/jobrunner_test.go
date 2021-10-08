@@ -98,6 +98,7 @@ type JobInput struct {
 	// Raw k8s containers, expected to come from the control plane
 	ExtraContainers  []corev1.Container
 	ExtraAnnotations map[string]string
+	Volumes          []corev1.Volume
 }
 
 // JobRunResponse returned from RunJob
@@ -401,6 +402,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 					Resources: resourceReqs,
 				},
 			},
+			Volumes: jobInput.Volumes,
 		},
 	}
 	pod.Spec.Containers = append(pod.Spec.Containers, jobInput.ExtraContainers...)

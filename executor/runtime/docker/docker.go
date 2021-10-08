@@ -1881,6 +1881,20 @@ func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) *container.Healt
 	return &hc
 }
 
+// v1MountPropToDockerProp converts the incoming pod mount propagation configuration
+// into something that docker can understand, using the documentation for what each means:
+// https://kubernetes.io/docs/concepts/storage/volumes/#mount-propagation
+func v1MountPropToDockerProp(fo v1.MountPropagationMode) mount.Propagation {
+	switch fo {
+	case v1.MountPropagationBidirectional:
+		return mount.PropagationRShared
+	case v1.MountPropagationHostToContainer:
+		return mount.PropagationRSlave
+	default:
+		return mount.PropagationPrivate
+	}
+}
+
 func (r *DockerRuntime) getUserContainerNames() []string {
 	userContainerNames := []string{}
 	for _, c := range r.c.ExtraUserContainers() {
@@ -1912,7 +1926,7 @@ func (r *DockerRuntime) getContainerVolumeMounts(mainContainerRoot string, c v1.
 				Source:      filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]),
 				Target:      volumeMount.MountPath,
 				ReadOnly:    volumeMount.ReadOnly,
-				BindOptions: &mount.BindOptions{Propagation: mount.Propagation(*volumeMount.MountPropagation)},
+				BindOptions: &mount.BindOptions{Propagation: v1MountPropToDockerProp(*volumeMount.MountPropagation)},
 			}
 			mounts = append(mounts, m)
 		} else {
