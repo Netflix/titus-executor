@@ -56,13 +56,8 @@ const (
 	finalUpload
 )
 
-// PotentialStdioNames are the relative paths to the base logging directory that could have stdio in them. Pretend this is an ImmutableSet
-var PotentialStdioNames = map[string]struct{}{
-	"stderr": {},
-	"stdout": {},
-}
-
-// We rely on potentialStdioNames not matching any of the regexes here. Otherwise "bad" things will happen.
+// We rely on potentialStdioNames() not matching any of the regexes here.
+// Otherwise "bad" things will happen, like double rotating
 var defaultUploadRegexpList = []*regexp.Regexp{
 	regexp.MustCompile(`\.complete$`),
 	// Main container stdout (provided by tini redirection)
@@ -293,16 +288,34 @@ func (w *Watcher) traditionalRotate(ctx context.Context) {
 	}
 }
 
-func (w *Watcher) stdioRotate(ctx context.Context, mode stdioRotateMode) {
-	for potentialStdioName := range PotentialStdioNames {
+// PotentialStdioNames takes a base directory and returns all stderr/stout
+// files for the main container as well as any other sidecar container
+// (which has stdout-containername and stderr-containername)
+func PotentialStdioNames(localDir string) []string {
+	allStdioNames := []string{
+		"stdout",
+		"stderr",
+	}
+	otherContainerStdout, _ := filepath.Glob(filepath.Join(localDir, "stdout-*"))
+	otherContainerStderr, _ := filepath.Glob(filepath.Join(localDir, "stderr-*"))
+	// It is possible this glob picked up *rotate* files. We need to filter those out
+	for _, f := range append(otherContainerStdout, otherContainerStderr...) {
+		if !strings.Contains(f, `.`) {
+			allStdioNames = append(allStdioNames, filepath.Base(f))
+		}
+	}
+	return allStdioNames
+}
 
-		fullPath := filepath.Join(w.config.localDir, potentialStdioName)
-		log.WithField("filename", fullPath).WithField("mode", mode).Debug("Stdio checking for rotation")
+func (w *Watcher) stdioRotate(ctx context.Context, mode stdioRotateMode) {
+	for _, f := range PotentialStdioNames(w.config.localDir) {
+		fullPath := path.Join(w.config.localDir, f)
+		log.WithField("filename", fullPath).WithField("mode", mode).Debug("Stdio checking for rotation on " + f)
 
 		if !CheckFileForStdio(fullPath) {
 			continue
 		}
-		log.WithField("filename", fullPath).WithField("mode", mode).Debug("Stdio rotating")
+		log.WithField("filename", fullPath).WithField("mode", mode).Debug("Stdio rotating " + f)
 		file, err := os.OpenFile(fullPath, os.O_RDWR, 0)
 		if err != nil {
 			log.Errorf("Could not open %s because: %v", fullPath, err)
