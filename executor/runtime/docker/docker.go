@@ -1891,7 +1891,7 @@ func v1MountPropToDockerProp(fo v1.MountPropagationMode) mount.Propagation {
 	case v1.MountPropagationHostToContainer:
 		return mount.PropagationRSlave
 	default:
-		return mount.PropagationPrivate
+		return ""
 	}
 }
 

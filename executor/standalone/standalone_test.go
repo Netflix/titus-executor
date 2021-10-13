@@ -1357,7 +1357,7 @@ func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
 			},
 		},
 	}
-	mountProp := corev1.MountPropagationHostToContainer
+	mountProp := corev1.MountPropagationNone
 	sharedVolumeMount := corev1.VolumeMount{
 		Name:             "shared-from-mains-etc",
 		MountPath:        "/mains-etc",
