@@ -1338,6 +1338,56 @@ func TestBasicMultiContainerSharesCommonVolumes(t *testing.T) {
 	}
 }
 
+func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+
+	// In the main container, we expect to see a file created by our sentinel
+	testEntrypointOld := "stat /etc/sentinel"
+	testEntrypointOld = `/bin/sh -vxc "sleep 3;` + testEntrypointOld + `"`
+
+	sharedVolume := corev1.Volume{
+		Name: "shared-from-mains-etc",
+		VolumeSource: corev1.VolumeSource{
+			FlexVolume: &corev1.FlexVolumeSource{
+				Driver: "SharedContainerVolumeSource",
+				Options: map[string]string{
+					"sourcePath": "/etc",
+				},
+			},
+		},
+	}
+	mountProp := corev1.MountPropagationNone
+	sharedVolumeMount := corev1.VolumeMount{
+		Name:             "shared-from-mains-etc",
+		MountPath:        "/mains-etc",
+		ReadOnly:         false,
+		MountPropagation: &mountProp,
+	}
+
+	ji := &JobInput{
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
+		UsePodSpec: UseV1PodspecInTest,
+		// This sentinel container touches a file, and the main container should
+		// see it if volumes are working
+		ExtraContainers: []corev1.Container{
+			{
+				Name:         "touch-sentinel",
+				Image:        busybox.name + `:` + busybox.tag,
+				Command:      []string{"/bin/sh", "-vxc"},
+				Args:         []string{"touch /mains-etc/sentinel"},
+				VolumeMounts: []corev1.VolumeMount{sharedVolumeMount},
+			},
+		},
+		Volumes:       []corev1.Volume{sharedVolume},
+		EntrypointOld: testEntrypointOld,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}
+
 func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 	wrapTestStandalone(t)
 	skipIfNotPod(t)
@@ -1349,7 +1399,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 	// The main container and the user-sentinel are both 'user' containers,
 	// So we want the main container to waid just a little bit for the user-sentinel
 	// to come up, report back if the platform-sentinel is running or not, and then continue
-	testEntrypointOld = `/bin/sh -c "sleep 3;` + testEntrypointOld + `"`
+	testEntrypointOld = `/bin/sh -c "sleep 6;` + testEntrypointOld + `"`
 
 	ji := &JobInput{
 		ImageName:  busybox.name,
