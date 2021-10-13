@@ -166,11 +166,6 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 		}
 	}
 
-	useBytes, err := podCommon.ByteUnitsEnabled(pod)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not parse byte units pod annotation")
-	}
-
 	limits := pod.Spec.Containers[0].Resources.Limits
 
 	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
@@ -195,23 +190,21 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 	memory := limits[v1.ResourceMemory]
 	network := limits[resourceCommon.ResourceNameNetwork]
 
-	if useBytes {
-		// The control plane has passed resource values in bytes, but the runner takes
-		// MiB / MB, so we need to do the conversion.
-		disk, err = resourceBytesToMiB(&disk)
-		if err != nil {
-			return nil, errors.New("error converting disk resource units")
-		}
+	// The control plane has passed resource values in bytes, but the runner takes
+	// MiB / MB, so we need to do the conversion.
+	disk, err = resourceBytesToMiB(&disk)
+	if err != nil {
+		return nil, errors.New("error converting disk resource units")
+	}
 
-		memory, err = resourceBytesToMiB(&memory)
-		if err != nil {
-			return nil, errors.New("error converting memory resource units")
-		}
+	memory, err = resourceBytesToMiB(&memory)
+	if err != nil {
+		return nil, errors.New("error converting memory resource units")
+	}
 
-		network, err = resourceBytesToMB(&network)
-		if err != nil {
-			return nil, errors.New("error converting network resource units")
-		}
+	network, err = resourceBytesToMB(&network)
+	if err != nil {
+		return nil, errors.New("error converting network resource units")
 	}
 
 	be := &Backend{
