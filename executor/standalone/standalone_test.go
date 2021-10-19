@@ -1426,7 +1426,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 			},
 		},
 		ExtraAnnotations: map[string]string{
-			podCommon.AnnotationKeyPrefixContainerType + `platform-sentinel`: podCommon.AnnotationValueContainerTypePlatformSidecar,
+			podCommon.ContainerAnnotation("platform-sentinel", podCommon.AnnotationKeySuffixContainersSidecar): "foo",
 		},
 		EntrypointOld: testEntrypointOld,
 	}
