@@ -170,7 +170,7 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 	c, err := runtimeTypes.NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 
-	res, err := drt.DockerPull(ctx, c)
+	res, err := drt.DockerPull(ctx, c.ImageRef())
 	require.NoError(t, err, "No error doing a docker pull")
 
 	return res, err

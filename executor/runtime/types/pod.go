@@ -360,33 +360,31 @@ func (c *PodContainer) ID() string {
 	return c.id
 }
 
+func (c *PodContainer) ImageRef() reference.Reference {
+	return c.containerImage
+}
+
 func (c *PodContainer) ImageDigest() *string {
-	digest, ok := c.containerImage.(reference.Digested)
-	if !ok {
+	digest := ImageRefToDigest(c.containerImage)
+	if digest == "" {
 		return nil
 	}
-
-	digestStr := digest.Digest().String()
-	return &digestStr
+	return &digest
 }
 
 func (c *PodContainer) ImageName() *string {
-	name, ok := c.containerImage.(reference.Named)
-	if !ok {
+	nameStr := ImageRefToName(c.containerImage)
+	if nameStr == "" {
 		return nil
 	}
-
-	nameStr := reference.Path(name)
 	return &nameStr
 }
 
 func (c *PodContainer) ImageVersion() *string {
-	tag, ok := c.containerImage.(reference.Tagged)
-	if !ok {
+	tagStr := ImageRefToTag(c.containerImage)
+	if tagStr == "" {
 		return nil
 	}
-
-	tagStr := tag.Tag()
 	return &tagStr
 }
 

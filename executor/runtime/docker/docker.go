@@ -34,6 +34,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
@@ -607,14 +608,14 @@ func (r *DockerRuntime) DockerImageRemove(ctx context.Context, imgName string) e
 }
 
 // DockerPull returns an ImageInspect pointer if the image was cached, and we didn't need to pull, nil otherwise
-func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container) (*types.ImageInspect, error) {
+func (r *DockerRuntime) DockerPull(ctx context.Context, imgRef reference.Reference) (*types.ImageInspect, error) {
 	ctx, span := trace.StartSpan(ctx, "DockerPull")
 	defer span.End()
 
-	imgName := c.QualifiedImageName()
-	logger := log.WithField("imageName", imgName)
+	logger := log.WithField("imageName", imgRef.String())
 
-	if c.ImageDigest() != nil {
+	imgName := runtimeTypes.ImageRefToName(imgRef)
+	if runtimeTypes.ImageRefToDigest(imgRef) != "" {
 		// Only check for a cached image if a digest was specified: image tags are mutable
 		imgInfo, err := imageExists(ctx, r.client, imgName)
 		if err != nil {
@@ -638,12 +639,17 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container
 	r.metrics.Counter("titus.executor.dockerImagePulls", 1, nil)
 	logger.Infof("DockerPull: pulling image")
 	pullStartTime := time.Now()
-	if err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
+	fullImage := runtimeTypes.FullyQualifyImage(imgRef, r.cfg.DockerRegistry)
+	if err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, fullImage, doDockerPull); err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
-	r.metrics.Timer("titus.executor.imagePullTime", time.Since(pullStartTime), c.ImageTagForMetrics())
+	r.metrics.Timer("titus.executor.imagePullTime", time.Since(pullStartTime), imageTagForMetrics(imgName))
 	return nil, nil
+}
+
+func imageTagForMetrics(imgName string) map[string]string {
+	return map[string]string{"image": imgName}
 }
 
 func vpcToolPath() string {
@@ -979,7 +985,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 	}
 
 	group.Go(func(ctx context.Context) error {
-		imageInfo, pullErr := r.DockerPull(ctx, r.c)
+		imageInfo, pullErr := r.DockerPull(ctx, r.c.ImageRef())
 		if pullErr != nil {
 			return pullErr
 		}
@@ -1579,10 +1585,21 @@ func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod)
 	otherUserContainers := append(r.c.ExtraUserContainers(), r.c.ExtraPlatformContainers()...)
 	group := groupWithContext(ctx)
 	for _, c := range otherUserContainers {
-		image := c.V1Container.Image
+		c2 := c
+		imgRef, err := reference.Parse(c2.V1Container.Image)
+		if err != nil {
+			return fmt.Errorf("error parsing docker image \"%s\" for container \"%s\": %w", c2.V1Container.Image, c2.Name, err)
+		}
 		group.Go(func(ctx context.Context) error {
-			l.Debugf("pulling other container image %s", image)
-			return pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			l.Debugf("pulling other container image %s", c2.V1Container.Image)
+			inspect, err := r.DockerPull(ctx, imgRef)
+			if err != nil {
+				return err
+			}
+			// We save the image inspect for later purposes where we need to know more low-level
+			// details about what we are running
+			c2.ImageInfo = inspect
+			return nil
 		})
 	}
 	return group.Wait()

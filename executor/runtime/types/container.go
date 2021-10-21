@@ -13,6 +13,7 @@ import (
 	"time"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/docker/distribution/reference"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
@@ -699,6 +700,11 @@ func (c *TitusInfoContainer) ImageDigest() *string {
 	return nil
 }
 
+func (c *TitusInfoContainer) ImageRef() reference.Reference {
+	ref, _ := reference.Parse(*c.titusInfo.FullyQualifiedImage)
+	return ref
+}
+
 func (c *TitusInfoContainer) ImageName() *string {
 	return strPtrOr(c.titusInfo.GetImageName(), nil)
 }
@@ -872,16 +878,19 @@ func (c *TitusInfoContainer) Process() (entrypoint, cmd []string) {
 
 // QualifiedImageName appends the registry and version to the Image name
 func (c *TitusInfoContainer) QualifiedImageName() string {
-	baseRef := c.titusInfo.GetFullyQualifiedImage()
-	if baseRef == "" {
-		baseRef = c.config.DockerRegistry + "/" + ptr.StringPtrDerefOr(c.ImageName(), "")
-	}
-	if c.ImageDigest() != nil {
+	return FullyQualifyImage(c.ImageRef(), c.config.DockerRegistry)
+}
+
+func FullyQualifyImage(imgRef reference.Reference, registry string) string {
+	baseRef := ImageRefToName(imgRef)
+	digest := ImageRefToDigest(imgRef)
+	if digest != "" {
 		// digest has precedence
-		withDigest := baseRef + "@" + ptr.StringPtrDerefOr(c.ImageDigest(), "")
+		withDigest := baseRef + "@" + digest
 		return withDigest
 	}
-	withVersion := baseRef + ":" + ptr.StringPtrDerefOr(c.ImageVersion(), "")
+	tag := ImageRefToTag(imgRef)
+	withVersion := baseRef + ":" + tag
 	return withVersion
 }
 
