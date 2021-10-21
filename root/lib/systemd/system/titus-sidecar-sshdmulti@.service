@@ -1,0 +1,25 @@
+[Unit]
+Description=SSHD-multi for other containers for %i
+ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
+
+StartLimitIntervalSec=30
+StartLimitBurst=5
+CollectMode=inactive-or-failed
+PartOf=titus-container@%i.target
+
+[Service]
+# TSA is used in the main container processes to handle certain syscalls
+# To ensure a sane user experience, we want sshd-spawned processes to
+# get TSA help too. This environment variable ensures that will happen.
+Environment=TITUS_NSENTER_USE_TSA=true
+EnvironmentFile=/var/lib/titus-environments/%i.env
+ExecStart=/apps/titus-executor/bin/titus-sshd-multi
+LimitNOFILE=65535
+## TODO: Wire up more "lockdown" so this unit can't wreck havoc if it gets compromised
+PrivateTmp=yes
+
+RestartSec=3
+# ssh-multi is considered best effort, and if we crash
+# super hard, we won't try to restart
+Restart=never
+KillMode=mixed

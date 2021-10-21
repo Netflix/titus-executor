@@ -426,31 +426,12 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 
 	sidecars, err := c.SidecarConfigs()
 	assert.NilError(t, err)
-	//sort.Slice(sidecars, func(i, j int) bool { return sidecars[i].ServiceName < sidecars[j].ServiceName })
-	sidecarNames := []string{}
 	svcMeshImage := ""
 	for _, sc := range sidecars {
-		sidecarNames = append(sidecarNames, sc.ServiceName)
 		if sc.ServiceName == SidecarServiceServiceMesh {
 			svcMeshImage = sc.Image
 		}
 	}
-	assert.DeepEqual(t, sidecarNames,
-		[]string{
-			SidecarTitusContainer,
-			SidecarServiceSpectatord,
-			SidecarServiceAtlasd,
-			SidecarServiceAtlasAgent,
-			SidecarServiceSshd,
-			SidecarServiceMetadataProxy,
-			SidecarServiceMetatron,
-			SidecarServiceLogViewer,
-			SidecarServiceServiceMesh,
-			SidecarServiceAbMetrix,
-			SidecarSeccompAgent,
-			SidecarTitusStorage,
-			SidecarContainerTools,
-		})
 	assert.Equal(t, svcMeshImage, expSvcMeshImage)
 
 	assert.DeepEqual(t, c.SignedAddressAllocationUUID(), ptr.StringPtr("static-ip-uuid"))

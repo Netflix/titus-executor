@@ -12,6 +12,7 @@ const (
 	SidecarServiceMetatron      = "metatron"
 	SidecarServiceServiceMesh   = "servicemesh"
 	SidecarServiceSshd          = "sshd"
+	SidecarServiceSshdMulti     = "sshdmulti"
 	SidecarServiceSpectatord    = "spectatord"
 	SidecarServiceAtlasd        = "atlasd"
 	SidecarServiceAtlasAgent    = "atlas-agent"
@@ -60,6 +61,12 @@ var sideCars = []ServiceOpts{
 		Volumes: map[string]struct{}{
 			"/titus/sshd": {},
 		},
+	},
+	{
+		ServiceName:  SidecarServiceSshdMulti,
+		UnitName:     "titus-sidecar-sshdmulti",
+		EnabledCheck: shouldStartSSHDMulti,
+		Required:     false,
 	},
 	{
 		ServiceName: SidecarServiceMetadataProxy,
@@ -186,6 +193,13 @@ func shouldStartAtlasAgent(cfg *config.Config, c Container) bool {
 
 func shouldStartSSHD(cfg *config.Config, c Container) bool {
 	return cfg.ContainerSSHD
+}
+
+// shouldStartSSHDMulti returns true only if SSHd is enabled and
+// we have 1 or more extra containers to even spawn sshs for
+func shouldStartSSHDMulti(cfg *config.Config, c Container) bool {
+	extraContainerCount := len(c.ExtraPlatformContainers()) + len(c.ExtraUserContainers())
+	return shouldStartSSHD(cfg, c) && extraContainerCount > 0
 }
 
 func shouldStartLogViewer(cfg *config.Config, c Container) bool {

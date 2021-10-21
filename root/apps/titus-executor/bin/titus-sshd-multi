@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Spawns and extra sshd for ever additional container past
+# the main container in a Pod.
+
+function listExtraContainersFor {
+  # It is important to get the names of the extra containers in the same order that they
+  # are reported in the pod, because that is what the control-plane knows.
+  # The order here ensures that we pick a port number that matches with what
+  # other systems will assume.
+  if [[ -f "/run/titus-executor/default__$1/pod.json" ]]; then
+    jq -r '.spec.containers[1:] | .[].name' "/run/titus-executor/default__$1/pod.json"
+  fi
+}
+
+function spawnSshdForContainer {
+  local cName=$1
+  local port=$2
+  echo "Spawning titus-sshd for docker container $cName on port $port"
+  PID1=$(docker inspect "${TASK_ID}-$cName" --format '{{.State.Pid}}')
+  TITUS_PID_1_DIR="/proc/$PID1/root/proc/1" /apps/titus-executor/bin/titus-nsenter /titus/sshd/run-titus-sshd -D -e -p "$port"
+}
+
+port=23
+for container in $(listExtraContainersFor "$TASK_ID") ; do
+  spawnSshdForContainer "$container" "$port" 2>&1 | sed "s/^/sshd-$container: /g" &
+  (( port++ ))
+done
+wait
