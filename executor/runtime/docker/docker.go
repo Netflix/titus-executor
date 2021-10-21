@@ -1846,6 +1846,9 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		VolumesFrom: []string{mainContainerID},
 		Mounts:      mounts,
 		Init:        &b,
+		Tmpfs: map[string]string{
+			"/run": "rw,exec,size=" + defaultRunTmpFsSize,
+		},
 	}
 	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
 	dockerNetworkConfig := &network.NetworkingConfig{}
