@@ -132,9 +132,10 @@ type DockerRuntime struct { // nolint: golint
 	cleanup         []cleanupFunc
 
 	// To be set when initializing a specific instance of the runtime provider
-	c          runtimeTypes.Container
-	startTime  time.Time
-	gpuManager runtimeTypes.GPUManager
+	c                runtimeTypes.Container
+	startTime        time.Time
+	gpuManager       runtimeTypes.GPUManager
+	volumeContainers []string
 }
 
 type Opt func(ctx context.Context, runtime *DockerRuntime) error
@@ -1093,6 +1094,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 			volumeContainers = append(volumeContainers, sidecarConfig.ContainerName)
 		}
 	}
+	r.volumeContainers = volumeContainers
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)
 
@@ -1843,7 +1845,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		// ensures the other user containers die automatically whe the main one dies.
 		PidMode:     container.PidMode("container:" + mainContainerID),
 		Privileged:  false,
-		VolumesFrom: []string{mainContainerID},
+		VolumesFrom: r.volumeContainers,
 		Mounts:      mounts,
 		Init:        &b,
 		Tmpfs: map[string]string{
