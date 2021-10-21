@@ -1,10 +1,12 @@
 package identity
 
 import (
+	"bytes"
 	"container/list"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +25,8 @@ import (
 
 var (
 	ErrEC2MetadataServiceUnavailable = errors.New("EC2 metadata service unavailable")
+	ErrEC2MetadataFileNotFound = errors.New("EC2 metadata file was not found")
+	ErrPkcsFileNotFound = errors.New("PKCS file was not found")
 )
 
 var (
@@ -31,15 +35,63 @@ var (
 	getIdentitySuccess = stats.Int64("getIdentity.success.count", "How many times getIdentity succeeded", "")
 )
 
+const (
+	InstanceIdentityFile = "/run/instanceIdentity/doc"
+ 	PkcsFile = "/run/instanceIdentity/pkcs"
+)
+
 type ec2Provider struct{}
 
 func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity, error) {
+	var pkcsFile *os.File
 	ctx, span := trace.StartSpan(ctx, "GetIdentity")
 	defer span.End()
 	start := time.Now()
 	stats.Record(ctx, getIdentityCount.M(1))
 
 	newAWSLogger := &awsLogger{logger: logger.G(ctx), oldMessages: list.New()}
+
+	// Attempt to read the data off of /run
+	instanceIdentityFile, err := os.OpenFile(InstanceIdentityFile, os.O_RDONLY, 0644)
+	if errors.Is(err, os.ErrNotExist) || err != nil { //should we separate out the does not exist with the regular error?
+		tracehelpers.SetStatus(ErrEC2MetadataServiceUnavailable, span)
+		goto fetchFromImds
+	}
+	pkcsFile, err = os.OpenFile(PkcsFile, os.O_RDONLY, 0644)
+	if errors.Is(err, os.ErrNotExist) || err != nil { //should we separate out the does not exist with the regular error?
+		// handle the case where the file doesn't exist
+		tracehelpers.SetStatus(ErrPkcsFileNotFound, span)
+		goto fetchFromImds
+
+	} else {
+		defer instanceIdentityFile.Close()
+		defer pkcsFile.Close()
+		// Read the instance Identity file
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(instanceIdentityFile)
+		instanceIdContents := buf.String()
+		var doc ec2metadata.EC2InstanceIdentityDocument
+		err = json.Unmarshal([]byte(instanceIdContents), &doc)
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			goto fetchFromImds
+		}
+
+		// Read the pkcs7 file
+		buf = new(bytes.Buffer)
+		buf.ReadFrom(pkcsFile)
+		pkcs7 := buf.String()
+
+		return &vpcapi.InstanceIdentity{
+			InstanceIdentityDocument:  instanceIdContents,
+			InstanceIdentitySignature: pkcs7,
+			InstanceID:                doc.InstanceID,
+			Region:                    doc.Region,
+			AccountID:                 doc.AccountID,
+			InstanceType:              doc.InstanceType,
+		}, err
+	}
+	fetchFromImds:
 	ec2MetadataClient := ec2metadata.New(
 		session.Must(
 			session.NewSession(
@@ -73,6 +125,22 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 	}
 
 	stats.Record(ctx, getIdentityLatency.M(float64(time.Since(start).Nanoseconds())), getIdentitySuccess.M(1))
+
+	//Write the files to /run
+	iidfile, err := os.OpenFile(InstanceIdentityFile, os.O_WRONLY, 0644)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+	} else{
+		defer iidfile.Close()
+		iidfile.WriteString(resp)
+	}
+	pkcsFile, err = os.OpenFile(PkcsFile, os.O_WRONLY, 0644)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+	} else{
+		defer pkcsFile.Close()
+		pkcsFile.WriteString(pkcs7)
+	}
 
 	return &vpcapi.InstanceIdentity{
 		InstanceIdentityDocument:  resp,
