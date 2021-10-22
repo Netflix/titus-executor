@@ -638,7 +638,7 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container
 	r.metrics.Counter("titus.executor.dockerImagePulls", 1, nil)
 	logger.Infof("DockerPull: pulling image")
 	pullStartTime := time.Now()
-	if err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
+	if err := pullWithRetries(ctx, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -881,7 +881,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 	if tmpImageInfo == nil || imageSpecifiedByTag {
 		logger.G(ctx).WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
-		err = pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+		err = pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
 		if err != nil {
 			return err
 		}
@@ -1582,7 +1582,7 @@ func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod)
 		image := c.V1Container.Image
 		group.Go(func(ctx context.Context) error {
 			l.Debugf("pulling other container image %s", image)
-			return pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			return pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
 		})
 	}
 	return group.Wait()

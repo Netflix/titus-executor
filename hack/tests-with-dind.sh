@@ -69,10 +69,8 @@ docker run $TTYFLAG --privileged --security-opt seccomp=unconfined \
   -v ${PWD}:${PWD} \
   ${metatron_cert_mnt} \
   -w ${PWD} \
-  -e DOCKER_USERNAME \
-  -e DOCKER_PASSWORD \
-  -e BUMP_TINI_SCHED_PRIORITY=false \
   -e DEBUG=${debug} \
+  -e BUMP_TINI_SCHED_PRIORITY=false \
   -e SHORT_CIRCUIT_QUITELITE=true \
   -e GOPATH=${GOPATH} \
   --label "$run_id" \
