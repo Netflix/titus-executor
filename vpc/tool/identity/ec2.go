@@ -1,12 +1,13 @@
 package identity
 
 import (
-	"bytes"
 	"container/list"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/google/renameio"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
@@ -25,8 +27,8 @@ import (
 
 var (
 	ErrEC2MetadataServiceUnavailable = errors.New("EC2 metadata service unavailable")
-	ErrEC2MetadataFileNotFound = errors.New("EC2 metadata file was not found")
-	ErrPkcsFileNotFound = errors.New("PKCS file was not found")
+	ErrEC2MetadataFileNotFound       = errors.New("EC2 metadata file was not found")
+	ErrPkcsFileNotFound              = errors.New("PKCS file was not found")
 )
 
 var (
@@ -37,7 +39,7 @@ var (
 
 const (
 	InstanceIdentityFile = "/run/instanceIdentity/doc"
- 	PkcsFile = "/run/instanceIdentity/pkcs"
+	PkcsFile             = "/run/instanceIdentity/pkcs"
 )
 
 type ec2Provider struct{}
@@ -51,47 +53,51 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 
 	newAWSLogger := &awsLogger{logger: logger.G(ctx), oldMessages: list.New()}
 
-	// Attempt to read the data off of /run
+	// Attempt to read the data off of cache
 	instanceIdentityFile, err := os.OpenFile(InstanceIdentityFile, os.O_RDONLY, 0644)
-	if errors.Is(err, os.ErrNotExist) || err != nil { //should we separate out the does not exist with the regular error?
-		tracehelpers.SetStatus(ErrEC2MetadataServiceUnavailable, span)
+	if err != nil {
+		tracehelpers.SetStatus(ErrEC2MetadataFileNotFound, span)
 		goto fetchFromImds
 	}
+
 	pkcsFile, err = os.OpenFile(PkcsFile, os.O_RDONLY, 0644)
-	if errors.Is(err, os.ErrNotExist) || err != nil { //should we separate out the does not exist with the regular error?
-		// handle the case where the file doesn't exist
+	if err != nil {
 		tracehelpers.SetStatus(ErrPkcsFileNotFound, span)
 		goto fetchFromImds
-
 	} else {
 		defer instanceIdentityFile.Close()
 		defer pkcsFile.Close()
+
 		// Read the instance Identity file
-		buf := new(bytes.Buffer)
-		buf.ReadFrom(instanceIdentityFile)
-		instanceIdContents := buf.String()
+		instanceID, err := ioutil.ReadAll(instanceIdentityFile)
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			goto fetchFromImds
+		}
 		var doc ec2metadata.EC2InstanceIdentityDocument
-		err = json.Unmarshal([]byte(instanceIdContents), &doc)
+		err = json.Unmarshal(instanceID, &doc)
 		if err != nil {
 			tracehelpers.SetStatus(err, span)
 			goto fetchFromImds
 		}
 
 		// Read the pkcs7 file
-		buf = new(bytes.Buffer)
-		buf.ReadFrom(pkcsFile)
-		pkcs7 := buf.String()
+		pkcs7, err := ioutil.ReadAll(pkcsFile)
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			goto fetchFromImds
+		}
 
 		return &vpcapi.InstanceIdentity{
-			InstanceIdentityDocument:  instanceIdContents,
-			InstanceIdentitySignature: pkcs7,
+			InstanceIdentityDocument:  string(instanceID),
+			InstanceIdentitySignature: string(pkcs7),
 			InstanceID:                doc.InstanceID,
 			Region:                    doc.Region,
 			AccountID:                 doc.AccountID,
 			InstanceType:              doc.InstanceType,
 		}, err
 	}
-	fetchFromImds:
+fetchFromImds:
 	ec2MetadataClient := ec2metadata.New(
 		session.Must(
 			session.NewSession(
@@ -126,21 +132,7 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 
 	stats.Record(ctx, getIdentityLatency.M(float64(time.Since(start).Nanoseconds())), getIdentitySuccess.M(1))
 
-	//Write the files to /run
-	iidfile, err := os.OpenFile(InstanceIdentityFile, os.O_WRONLY, 0644)
-	if err != nil {
-		tracehelpers.SetStatus(err, span)
-	} else{
-		defer iidfile.Close()
-		iidfile.WriteString(resp)
-	}
-	pkcsFile, err = os.OpenFile(PkcsFile, os.O_WRONLY, 0644)
-	if err != nil {
-		tracehelpers.SetStatus(err, span)
-	} else{
-		defer pkcsFile.Close()
-		pkcsFile.WriteString(pkcs7)
-	}
+	go cacheIdentityFiles(ctx, resp, pkcs7)
 
 	return &vpcapi.InstanceIdentity{
 		InstanceIdentityDocument:  resp,
@@ -150,6 +142,24 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 		AccountID:                 doc.AccountID,
 		InstanceType:              doc.InstanceType,
 	}, err
+}
+
+func cacheIdentityFiles(ctx context.Context, resp string, pkcs string) {
+	_, span := trace.StartSpan(ctx, "GetIdentity")
+	defer span.End()
+
+	if err := os.MkdirAll(filepath.Dir(InstanceIdentityFile), 0755); err != nil {
+		tracehelpers.SetStatus(err, span)
+		return
+	}
+	if err := renameio.WriteFile(InstanceIdentityFile, []byte(resp), 0644); err != nil {
+		tracehelpers.SetStatus(err, span)
+		return
+	}
+	if err := renameio.WriteFile(PkcsFile, []byte(pkcs), 0644); err != nil {
+		tracehelpers.SetStatus(err, span)
+		return
+	}
 }
 
 // This isn't thread safe. But that's okay, because we don't use it in a multi-threaded way.

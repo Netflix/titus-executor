@@ -35,7 +35,7 @@ require (
 	github.com/google/go-cmp v0.5.5
 	github.com/google/go-jsonnet v0.17.0
 	github.com/google/gofuzz v1.2.0 // indirect
-	github.com/google/renameio v0.1.0
+	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.1.2
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/gorilla/mux v1.7.4
