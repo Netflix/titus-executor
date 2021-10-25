@@ -82,8 +82,9 @@ type virtualFilemap struct {
 
 func buildVirtualFileMapping(containerID, uriFileName string) map[string]virtualFilemap {
 	virtualFilemapping := map[string]virtualFilemap{}
-	for potentialStdioName := range filesystems.PotentialStdioNames {
+	for _, potentialStdioName := range filesystems.PotentialStdioNames(path.Dir(uriFileName)) {
 		// Is the URL filename in this "hashset"?
+		// In other words, does the path we are looking at start with stdout/err ?
 		if !strings.HasPrefix(path.Base(uriFileName), potentialStdioName) {
 			continue
 		}
@@ -110,7 +111,7 @@ func maybeVirtualFileStdioLogHandler(w http.ResponseWriter, r *http.Request, con
 
 	mapping, ok := virtualFilemapping[path.Base(uriFileName)]
 	if !ok {
-		log.WithField("uriFileName", uriFileName).WithField("virtualFilemapping", virtualFilemapping).Debug("Virtaul File Not Found")
+		log.WithField("uriFileName", uriFileName).WithField("virtualFilemapping", virtualFilemapping).Debug("Virtual File Not Found")
 		return errors.New("Virtual Log file not found")
 	}
 
