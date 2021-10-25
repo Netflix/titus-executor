@@ -100,11 +100,6 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 		hostCfg.Sysctls["net.ipv4.conf.all.arp_ignore"] = "1"
 	}
 
-	if c.IsSystemD() {
-		// Tell Tini to exec systemd so it's pid 1
-		c.SetEnv("TINI_HANDOFF", trueString)
-	}
-
 	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
 	asset := seccomp.MustAsset(seccompProfile)
 	var buf bytes.Buffer
