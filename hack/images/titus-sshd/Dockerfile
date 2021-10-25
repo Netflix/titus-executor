@@ -64,6 +64,7 @@ RUN ln -s /etc/passwd /titus/sshd/etc/
 RUN ln -s /etc/hosts /titus/sshd/etc/
 RUN ln -s /titus/sshd/bin/busybox /titus/sshd/bin/sh
 ADD run-titus-sshd /titus/sshd/run-titus-sshd
+ADD switch-container /titus/sshd/usr/bin/switch-container
 # The /titus/sshd volume is considered immutable, but sshd_config is generated
 # dynamically from the titus-agent, so we symlink it in from /titus/etc
 RUN rm /titus/sshd/etc/ssh/sshd_config && ln -s /titus/etc/ssh/sshd_config /titus/sshd/etc/ssh/sshd_config

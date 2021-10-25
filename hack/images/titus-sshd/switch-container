@@ -1,0 +1,42 @@
+#!/bin/bash
+#
+# switch-container: wrapper around nsenter to allow users to
+# switch from one container to another.
+# Requires the nsenter command and root privileges.
+# Also depends on all containers sharing a PID namespace.
+
+declare -A container_pid_map
+function scan_pids {
+for pidpath in /proc/[0-9]*; do
+  container=$(/titus/sshd/bin/busybox strings "$pidpath/environ" 2>/dev/null | grep TITUS_CONTAINER_NAME | cut -f 2 -d =)
+  [[ -z $container ]] && continue
+  container_pid_map[$container]=$(basename "$pidpath")
+done
+}
+
+function list_containers {
+echo "Available running containers in this pod:" >&2
+for c in "${!container_pid_map[@]}"; do
+  echo " - $c (pid ${container_pid_map[$c]})" >&2
+done
+echo "" >&2
+}
+
+scan_pids
+if [[ ! -n $1 ]]; then
+  echo "Please provide a container name as the first argument to this command." >&2
+  list_containers
+  exit 3
+fi
+
+target_container=$1
+target=${container_pid_map[$target_container]}
+if [[ -n $target ]]; then
+  echo "Targeting the $target_container container to ns-enter into (pid $target)" >&2
+else
+  echo "Couldn't find target '$target_container'. Is it running in this pod?" >&2
+  list_containers
+  exit 3
+fi
+
+exec nsenter --all --target "$target" --setuid "$(id -u)" --setgid "$(id -g)" --root="/proc/$target/root" --wd="/proc/$target/root/"
