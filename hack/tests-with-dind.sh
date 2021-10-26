@@ -1,8 +1,5 @@
 #!/bin/bash
-
 set -eu -o pipefail
-
-set -vx
 TTYFLAG=""
 if [ -t 1 ] ;then
   # Setting the tty flag when available streams the test output in real time
@@ -56,6 +53,16 @@ terminate_titus_docker() {
 
 trap terminate_titus_docker EXIT
 
+# The buildkite agent redacts secrest in the build log, but not on artifacts.
+# There "shouldn't" be any sensitive secrets in the build log anyway, except for
+# the docker password. The reason we have a docker password in the build output
+# is because docker changed their policy to *require* a password on docker pulls
+# (or else face severe rate limiting), so this is the one password we try to
+# not leak.
+redact_secrets() {
+  sed "s/$DOCKER_PASSWORD/[REDACTED]/"
+}
+
 debug=${DEBUG:-false}
 metatron_cert_mnt=""
 if [[ $(uname) == "Darwin" ]]; then
@@ -88,11 +95,11 @@ log "Running tests with CInfo"
 docker exec $TTYFLAG --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
-    -coverpkg=github.com/Netflix/... ./executor/standalone/... -short=false -useV1PodspecInTest=false 2>&1 | tee test-standalone.log
+    -coverpkg=github.com/Netflix/... ./executor/standalone/... -short=false -useV1PodspecInTest=false 2>&1 | redact_secrets | tee test-standalone.log
 log "Running tests with Pod Spec v1"
 docker exec $TTYFLAG --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
-    -coverpkg=github.com/Netflix/... ./executor/standalone/... -short=false -useV1PodspecInTest=true 2>&1 | tee test-standalone-podspec.log
+    -coverpkg=github.com/Netflix/... ./executor/standalone/... -short=false -useV1PodspecInTest=true 2>&1 | redact_secrets | tee test-standalone-podspec.log
 
 log "Integration tests complete (rc: $?)"
