@@ -196,7 +196,6 @@ type Container interface {
 	Resources() *Resources
 	RequireIMDSToken() *string
 	Runtime() string
-	SeccompAgentEnabledForNetSyscalls() bool
 	SeccompAgentEnabledForPerfSyscalls() bool
 	SecurityGroupIDs() *[]string
 	ServiceMeshEnabled() bool
@@ -403,14 +402,12 @@ func GenerateV0TestPod(taskID string, resources *Resources, cfg *config.Config) 
 // Someday when network mode is set across the board, we can drop this function and just fail
 // fast when network mode is Unknown, but till then, this function encpasulates the busines logic
 // of interpretting the legacy attributes and computing what the effective network mode "should" be
-func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address bool, seccompAgentEnabledForNetSyscalls bool) string {
+func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address bool) string {
 	if originalNetworkMode == titus.NetworkConfiguration_UnknownNetworkMode.String() {
 		if assignIPv6Address {
-			if seccompAgentEnabledForNetSyscalls {
-				return titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
-			}
 			return titus.NetworkConfiguration_Ipv6AndIpv4.String()
 		}
+		return titus.NetworkConfiguration_Ipv4Only.String()
 	}
 	return originalNetworkMode
 }

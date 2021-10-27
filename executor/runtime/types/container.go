@@ -58,7 +58,6 @@ const (
 	LogKeepLocalFileAfterUploadParam        = "titusParameter.agent.log.keepLocalFileAfterUpload"
 	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
 	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
-	SeccompAgentEnabledForNetSyscallsParam  = "titusParameter.agent.seccompAgentEnabledForNetSyscalls"
 	SeccompAgentEnabledForPerfSyscallsParam = "titusParameter.agent.seccompAgentEnabledForPerfSyscalls"
 	assignIPv6AddressParam                  = "titusParameter.agent.assignIPv6Address"
 	batchPriorityParam                      = "titusParameter.agent.batchPriority"
@@ -174,7 +173,6 @@ type TitusInfoContainer struct {
 	kvmEnabled                         bool
 	nfsMounts                          []NFSMount
 	requireIMDSToken                   string
-	seccompAgentEnabledForNetSyscalls  bool
 	seccompAgentEnabledForPerfSyscalls bool
 	serviceMeshEnabled                 *bool
 	serviceMeshImage                   string
@@ -312,10 +310,6 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 		{
 			paramName:     KvmEnabledParam,
 			containerAttr: &c.kvmEnabled,
-		},
-		{
-			paramName:     SeccompAgentEnabledForNetSyscallsParam,
-			containerAttr: &c.seccompAgentEnabledForNetSyscalls,
 		},
 		{
 			paramName:     SeccompAgentEnabledForPerfSyscallsParam,
@@ -832,7 +826,7 @@ func (c *TitusInfoContainer) EffectiveNetworkMode() string {
 	if c.podConfig != nil && c.podConfig.NetworkMode != nil {
 		mode = *c.podConfig.NetworkMode
 	}
-	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address(), c.SeccompAgentEnabledForNetSyscalls())
+	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address())
 }
 
 func (c *TitusInfoContainer) NFSMounts() []NFSMount {
@@ -902,10 +896,6 @@ func (c *TitusInfoContainer) Runtime() string {
 
 func (c *TitusInfoContainer) SeccompAgentEnabledForPerfSyscalls() bool {
 	return c.seccompAgentEnabledForPerfSyscalls
-}
-
-func (c *TitusInfoContainer) SeccompAgentEnabledForNetSyscalls() bool {
-	return c.seccompAgentEnabledForNetSyscalls
 }
 
 func (c *TitusInfoContainer) SecurityGroupIDs() *[]string {

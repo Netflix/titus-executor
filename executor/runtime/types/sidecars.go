@@ -135,7 +135,7 @@ func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartTitusSeccompAgent(cfg *config.Config, c Container) bool {
-	return c.SeccompAgentEnabledForPerfSyscalls() || c.SeccompAgentEnabledForNetSyscalls() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
+	return c.SeccompAgentEnabledForPerfSyscalls() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
 }
 
 func shouldStartServiceMesh(cfg *config.Config, c Container) bool {
