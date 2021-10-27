@@ -217,7 +217,7 @@ func TestInvalidFlatStringAsCmd(t *testing.T) {
 	defer cancel()
 	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
-	if err := jobResponse.WaitForFailureWithStatus(ctx, 127); err != nil {
+	if err := jobResponse.WaitForFailureWithStatusCode(ctx, 127); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -252,7 +252,7 @@ func TestEntrypointAndCmdFromImage(t *testing.T) {
 	defer cancel()
 	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
-	if err := jobResponse.WaitForFailureWithStatus(ctx, 123); err != nil {
+	if err := jobResponse.WaitForFailureWithStatusCode(ctx, 123); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -271,7 +271,7 @@ func TestOverrideCmdFromImage(t *testing.T) {
 	defer cancel()
 	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
-	if err := jobResponse.WaitForFailureWithStatus(ctx, 5); err != nil {
+	if err := jobResponse.WaitForFailureWithStatusCode(ctx, 5); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -292,7 +292,7 @@ func TestResetEntrypointFromImage(t *testing.T) {
 	defer cancel()
 	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
-	if err := jobResponse.WaitForFailureWithStatus(ctx, 6); err != nil {
+	if err := jobResponse.WaitForFailureWithStatusCode(ctx, 6); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1336,7 +1336,7 @@ func TestOtherUserContaintainerFailsTask(t *testing.T) {
 	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	// We need to look for 42, which is the exit code of the *other* container.
-	if err := jobResponse.WaitForFailureWithStatus(ctx, 42); err != nil {
+	if err := jobResponse.WaitForFailureWithStatusCode(ctx, 42); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1387,7 +1387,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 
 func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
 	wrapTestStandalone(t)
-	testEntrypointOld := `/bin/sleep 10`
+	testEntrypointOld := `/bin/sleep 100`
 	badHealthcheckCommand := corev1.ExecAction{
 		Command: []string{"/bin/false"},
 	}
@@ -1413,10 +1413,13 @@ func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
 		},
 		EntrypointOld: testEntrypointOld,
 	}
-	// TODO: This doesn't fail yet because we don't stream docker events from sidecars
-	// Or any way to see their health currently for that matter except via the update channel
-	if !RunJobExpectingSuccess(t, ji) {
-		t.Fail()
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
+	defer cancel()
+	jobResponse, err := StartTestTask(t, ctx, ji)
+	require.NoError(t, err)
+	expectedStatus := "container failing-sidecar failed its healthcheck, marking task as Failed"
+	if err := jobResponse.WaitForFailureWithStatusMessage(ctx, expectedStatus); err != nil {
+		t.Fatal(err)
 	}
 }
 

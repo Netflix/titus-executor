@@ -144,7 +144,13 @@ func (jobRunResponse *JobRunResponse) WaitForFailure() bool {
 
 // WaitForFailureWithStatus blocks until the job is finished, or ctx expires, and returns no error if the exit status
 // code matches the the desired value
-func (jobRunResponse *JobRunResponse) WaitForFailureWithStatus(ctx context.Context, exitStatus int) error {
+func (jobRunResponse *JobRunResponse) WaitForFailureWithStatusCode(ctx context.Context, exitStatus int) error {
+	m := fmt.Sprintf("exited with code %d", exitStatus)
+	return jobRunResponse.WaitForFailureWithStatusMessage(ctx, m)
+}
+
+func (jobRunResponse *JobRunResponse) WaitForFailureWithStatusMessage(ctx context.Context, expectedMessage string) error {
+
 	for {
 		select {
 		case status, ok := <-jobRunResponse.UpdateChan:
@@ -155,8 +161,8 @@ func (jobRunResponse *JobRunResponse) WaitForFailureWithStatus(ctx context.Conte
 				continue
 			}
 			if status.State == titusdriver.Failed {
-				if !strings.Contains(status.Mesg, fmt.Sprintf("exited with code %d", exitStatus)) {
-					return fmt.Errorf("Did not exit with status %d: %s", exitStatus, status.Mesg)
+				if !strings.Contains(status.Mesg, expectedMessage) {
+					return fmt.Errorf("Did not exit with expected message '%s'. Actual: '%s'", expectedMessage, status.Mesg)
 				}
 				return nil // success
 			}
