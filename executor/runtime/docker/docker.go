@@ -377,7 +377,7 @@ func (r *DockerRuntime) computeDNSServers() []string {
 	}
 }
 
-func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
+func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string, pod v1.Pod) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint and command from the pod. If either is empty,
 	// pass them along and let Docker extract them from the image instead.
 	entrypoint, cmd := c.Process()
@@ -403,7 +403,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		AutoRemove: false,
 		Privileged: false,
 		Binds:      binds,
-		ExtraHosts: []string{},
+		ExtraHosts: generateExtraHostsForPod(pod),
 		DNS:        r.computeDNSServers(),
 		Sysctls: map[string]string{
 			"net.ipv4.tcp_ecn":                    "1",
@@ -936,7 +936,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 }
 
 // Prepare host state (pull image, create fs, create container, etc...) for the main container
-func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
+func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nolint: gocyclo
 	var volumeContainers []string
 
 	ctx, cancel := context.WithTimeout(ctx, r.dockerCfg.prepareTimeout)
@@ -1096,7 +1096,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)
 
-	dockerCfg, hostCfg, err = r.mainContainerDockerConfig(r.c, bindMounts, size, volumeContainers)
+	dockerCfg, hostCfg, err = r.mainContainerDockerConfig(r.c, bindMounts, size, volumeContainers, *pod)
 	if err != nil {
 		goto error
 	}
@@ -1496,6 +1496,19 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	return logDir, details, statusMessageChan, err
+}
+
+func generateExtraHostsForPod(pod v1.Pod) []string {
+	extraHosts := []string{}
+	for i, c := range pod.Spec.Containers {
+		host := fmt.Sprintf("%s:127.0.100.%d", c.Name, i)
+		extraHosts = append(extraHosts, host)
+	}
+	// The first, "main" container is special. Because we don't know the
+	// taskid before it exists, we still need a common name ("main") to refer
+	// to the first container
+	extraHosts = append(extraHosts, "main:127.0.0.1")
+	return extraHosts
 }
 
 // getMainContainerRoot returns the absolute path of the root of the filesystem of the

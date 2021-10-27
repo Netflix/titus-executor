@@ -159,7 +159,7 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 	}()
 	// When Create() returns the host may have been modified to create storage and pull the image.
 	// These steps may or may not have completed depending on if/where a failure occurred.
-	if err := r.runtime.Prepare(prepareCtx); err != nil {
+	if err := r.runtime.Prepare(prepareCtx, r.pod); err != nil {
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		logger.G(ctx).WithError(err).Error("Task failed to create main container")
 		// Treat registry pull errors as LOST and non-existent images as FAILED.

@@ -52,7 +52,7 @@ type runtimeMock struct {
 	killCallback    func(c runtimeTypes.Container) error
 }
 
-func (r *runtimeMock) Prepare(ctx context.Context) error {
+func (r *runtimeMock) Prepare(ctx context.Context, pod *v1.Pod) error {
 	if r.c == nil {
 		panic("Container is nil")
 	}
