@@ -1415,16 +1415,9 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 
 	eventCtx, eventCancel := context.WithCancel(context.Background())
 	eventCtx = trace.NewContext(eventCtx, span)
-	filters := filters.NewArgs()
-	filters.Add("container", r.c.ID())
-	filters.Add("type", "container")
 
-	eventOptions := types.EventsOptions{
-		Filters: filters,
-	}
-
-	// 1. We need to establish a event channel
-	eventChan, eventErrChan := r.client.Events(eventCtx, eventOptions)
+	// 1. We need to establish a docker events channel, one for the whole, but it monitors the main container.
+	eventChan, eventErrChan := r.getDockerEventsChannelsForContainers(eventCtx, []string{r.c.ID()})
 
 	err = r.client.ContainerStart(ctx, r.c.ID(), types.ContainerStartOptions{})
 	if err != nil {
@@ -1480,6 +1473,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		err = fmt.Errorf("container prestart error: %w", err)
 		return "", nil, statusMessageChan, err
 	}
+	entry.Debugf("Adding status monitor for main container (cid %s)", r.c.ID())
 	go r.statusMonitor(eventCancel, r.c.ID(), eventChan, eventErrChan, statusMessageChan)
 
 	inspectOutput, err := r.client.ContainerInspect(ctx, r.c.ID())
@@ -1489,13 +1483,58 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		return "", nil, statusMessageChan, err
 	}
 	mainContainerRoot := getMainContainerRoot(inspectOutput)
-	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
+
+	allOtherContainerIDs := r.getExtraContainerIDs()
+	if len(allOtherContainerIDs) > 0 {
+		err = r.createOtherContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
+		if err != nil {
+			eventCancel()
+			return "", nil, statusMessageChan, err
+		}
+		// This second docker events channel is for the extra containers, and only exists if we have other containers
+		// to work with. This allows the main container channed (created way earliar) to start and watch way before
+		// the sidecar containers even exist.
+		eventChanExtra, eventErrChanExtra := r.getDockerEventsChannelsForContainers(eventCtx, allOtherContainerIDs)
+		for _, c := range r.c.ExtraPlatformContainers() {
+			entry.Debugf("Adding status monitor for %s container (cid %s)", c.Name, c.Status.ContainerID)
+			go r.statusMonitor(eventCancel, c.Status.ContainerID, eventChanExtra, eventErrChanExtra, statusMessageChan)
+		}
+		entry.Infof("Starting %d platform sidecars: %v", len(r.getPlaformContainerNames()), r.getPlaformContainerNames())
+		err = r.startPlatformDefinedContainers(ctx)
+		if err != nil {
+			eventCancel()
+			return "", nil, statusMessageChan, fmt.Errorf("Failed to start a platform-sidecar container: %s", err)
+		}
+		entry.Infof("Starting %d user-defined containers: %v", len(r.getUserContainerNames()), r.getUserContainerNames())
+		for _, c := range r.c.ExtraUserContainers() {
+			entry.Debugf("Adding status monitor for %s container (cid %s)", c.Name, c.Status.ContainerID)
+			go r.statusMonitor(eventCancel, c.Status.ContainerID, eventChanExtra, eventErrChanExtra, statusMessageChan)
+		}
+	}
+
+	// Last, we actually start the containers. And by start we mean:
+	// platform sidecars first (via docker start)
+	// user extra containers second (via docker start)
+	// main container (via tini)
+	err = r.startUserDefinedContainers(ctx, tiniConn)
 	if err != nil {
 		eventCancel()
-		return "", nil, statusMessageChan, err
+		return "", nil, statusMessageChan, fmt.Errorf("Failed to start a user-defined container: %s", err)
 	}
 
 	return logDir, details, statusMessageChan, err
+}
+
+func (r *DockerRuntime) getDockerEventsChannelsForContainers(eventCtx context.Context, containerIDs []string) (<-chan events.Message, <-chan error) {
+	filters := filters.NewArgs()
+	filters.Add("type", "container")
+	for _, containerID := range containerIDs {
+		filters.Add("container", containerID)
+	}
+	eventOptions := types.EventsOptions{
+		Filters: filters,
+	}
+	return r.client.Events(eventCtx, eventOptions)
 }
 
 // getMainContainerRoot returns the absolute path of the root of the filesystem of the
@@ -1509,6 +1548,17 @@ func getMainContainerRoot(inspectOutput types.ContainerJSON) string {
 		return ""
 	}
 	return inspectOutput.GraphDriver.Data["MergedDir"]
+}
+
+func (r *DockerRuntime) getExtraContainerIDs() []string {
+	ids := []string{}
+	for _, c := range r.c.ExtraPlatformContainers() {
+		ids = append(ids, c.Status.ContainerID)
+	}
+	for _, c := range r.c.ExtraUserContainers() {
+		ids = append(ids, c.Status.ContainerID)
+	}
+	return ids
 }
 
 func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID string, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
@@ -1538,14 +1588,12 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID str
 	}
 }
 
-// startOtherUserContainers launches the other user containers, only looking
+// createOtherContainers launches the other user containers, only looking
 // any container objects in the pod *after* the first one, converting the
 // v1.Container spec into something docker can understand, and then
 // running that container.
-func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
-
+func (r *DockerRuntime) createOtherContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
 	l := log.WithField("taskID", r.c.TaskID())
-
 	// For speed, we pull and create other containers in parallel
 	totalExtraContainerCount := len(r.c.ExtraUserContainers()) + len(r.c.ExtraPlatformContainers())
 	if totalExtraContainerCount > 0 {
@@ -1560,15 +1608,7 @@ func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, ma
 			return fmt.Errorf("Failed to create a user/platform container: %s", err)
 		}
 	}
-
-	// Starting, however, has its own logic
-	l.Infof("Starting %d user/platform containers", totalExtraContainerCount)
-	err := r.startAllUserContainers(ctx, pod, r.c.ID(), tiniConn)
-	if err != nil {
-		return fmt.Errorf("Failed to start a user/platform container: %s", err)
-	}
-
-	l.Info("Finished launching user/platform containers")
+	l.Debug("Finished creating (but not starting yet) user/platform containers")
 	return nil
 }
 
@@ -1626,29 +1666,6 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	return group.Wait()
 }
 
-// startAllUserContainers actually launches all containers,
-// and requires all containers to be created and ready
-// The current implementation of multi-container workloads does
-// ordering in 2 phases:
-// Phase 1: Launch all platform containers (service mesh, gandalf, etc)
-// Phase 2: Launch all user-defined conatiners (main, nginx, etc)
-func (r *DockerRuntime) startAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn) error {
-	l := log.WithField("taskID", r.c.TaskID())
-
-	platformContainerNames := r.getPlaformContainerNames()
-	l.Debugf("Starting %d platform sidecars: %s", len(platformContainerNames), platformContainerNames)
-	err := r.startPlatformDefinedContainers(ctx)
-	if err != nil {
-		return err
-	}
-
-	userContainerNames := r.getUserContainerNames()
-	l.Debugf("Starting %d user containers: %s", len(userContainerNames), userContainerNames)
-	err = r.startUserDefinedContainers(ctx, tiniConn)
-
-	return err
-}
-
 func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
@@ -1671,6 +1688,7 @@ func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context) erro
 	return group.Wait()
 }
 
+// startUserDefinedContainers starts all existing (pre-created) containers, even the 'main' one (via tini)
 func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn *net.UnixConn) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
@@ -2458,11 +2476,11 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 
 	if wasKilled {
 		// We're being told by the API to stop, so use the configured stop timeout
-		logger.G(ctx).WithField("stopTimeout", containerStopTimeout.Seconds()).Info("Shutting down main container because we were asked to stop from the API")
+		logger.G(ctx).WithField("stopTimeout", containerStopTimeout.Seconds()).Info("Shutting down containers because we were asked to stop from the API")
 	} else {
 		// The container either finished or died, so the user's workload isn't running. There's no point in delaying the stop.
 		cStopPtr = nil
-		logger.G(ctx).Info("Shutting down main container because it finished or died")
+		logger.G(ctx).Info("Stopping+Cleaning up containers because they finished or died")
 	}
 
 	if containerJSON, err := r.client.ContainerInspect(context.TODO(), r.c.ID()); docker.IsErrNotFound(err) {
@@ -2491,14 +2509,15 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 		errs = multierror.Append(errs, err)
 	}
 
+	// NOTE: We don't stop or kill the sidecar containers here, because they have `autoremove: true`,
+	// and die naturally when the main container dies due to a shared pid namespace.
+
 stopped:
 
 	logger.G(ctx).Debug("Main container stop completed")
 	if gpuInfo := r.c.GPUInfo(); gpuInfo != nil {
 		numDealloc := gpuInfo.Deallocate()
 		logger.G(ctx).WithField("numDealloc", numDealloc).Info("Deallocated GPU devices for task")
-	} else {
-		logger.G(ctx).Debug("No GPU devices deallocated")
 	}
 
 	err := errs.ErrorOrNil()
