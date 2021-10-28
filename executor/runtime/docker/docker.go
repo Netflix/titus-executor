@@ -1623,10 +1623,20 @@ func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod)
 	otherUserContainers := append(r.c.ExtraUserContainers(), r.c.ExtraPlatformContainers()...)
 	group := groupWithContext(ctx)
 	for _, c := range otherUserContainers {
-		image := c.V1Container.Image
+		c2 := c
 		group.Go(func(ctx context.Context) error {
+			image := c2.V1Container.Image
 			l.Debugf("pulling other container image %s", image)
-			return pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			if err != nil {
+				return err
+			}
+			imageInspect, err2 := imageExists(ctx, r.client, image)
+			if err2 != nil {
+				return fmt.Errorf("Failed to inspect %s after pull: %s", image, err2)
+			}
+			c2.ImageInspect = imageInspect
+			return nil
 		})
 	}
 	return group.Wait()
