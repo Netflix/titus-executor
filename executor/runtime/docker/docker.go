@@ -1795,7 +1795,8 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 					Type:     "bind",
 					Source:   podMetaronHostPath,
 					Target:   "/run/metatron",
-					ReadOnly: true,
+					// Allow sidecars to write to metatron folder so it can change cert files if necessary
+					ReadOnly: false,
 				})
 			// These are static certs that the metatron service will create, but we also share them
 			// between all containers in the pod.
