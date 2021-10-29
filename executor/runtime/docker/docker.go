@@ -1794,9 +1794,9 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		if podMetaronHostPath != "" {
 			mounts = append(mounts,
 				mount.Mount{
-					Type:     "bind",
-					Source:   podMetaronHostPath,
-					Target:   "/run/metatron",
+					Type:   "bind",
+					Source: podMetaronHostPath,
+					Target: "/run/metatron",
 					// Allow sidecars to write to metatron folder so it can change cert files if necessary
 					ReadOnly: false,
 				})
