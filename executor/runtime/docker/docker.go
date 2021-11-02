@@ -459,6 +459,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 	if c.IsSystemD() {
 		// systemd requires `/run/lock` to be a separate mount from `/run`
 		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
+		// Systemd *must* be pid1. Setting this variable instructs tini to exec into systemd so it can be pid 1
+		c.SetEnv("TINI_HANDOFF", trueString)
 	}
 
 	if shmSize := c.ShmSizeMiB(); shmSize != nil {
@@ -1871,6 +1873,13 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 			"/run": "rw,exec,size=" + defaultRunTmpFsSize,
 		},
 	}
+
+	// Security options are inherited from the main container's configuration
+	err := setupAdditionalCapabilities(r.c, dockerHostConfig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
 	dockerNetworkConfig := &network.NetworkingConfig{}
 	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, nil
