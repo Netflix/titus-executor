@@ -20,6 +20,7 @@ const (
 	SidecarSeccompAgent         = "seccomp-agent"
 	SidecarServiceMetadataProxy = "metadata-proxy"
 	SidecarContainerTools       = "container-tools"
+	SidecarTrafficSteering      = "traffic-steering"
 )
 
 var systemServices = []ServiceOpts{
@@ -125,6 +126,12 @@ var systemServices = []ServiceOpts{
 			"/titus/container-tools": {},
 		},
 	},
+	{
+		ServiceName:  SidecarTrafficSteering,
+		UnitName:     "titus-sidecar-traffic-steering",
+		Required:     true,
+		EnabledCheck: shouldStartTitusTrafficSteering,
+	},
 }
 
 func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
@@ -201,6 +208,10 @@ func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
 
 func shouldStartContainerTools(cfg *config.Config, c Container) bool {
 	return cfg.ContainerToolsImage != ""
+}
+
+func shouldStartTitusTrafficSteering(cfg *config.Config, c Container) bool {
+	return c.TrafficSteeringEnabled()
 }
 
 // GetSidecarConfig is a helper to get a particular sidecar config out by name

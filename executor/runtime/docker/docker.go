@@ -1054,6 +1054,14 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nol
 		})
 	}
 
+	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarTrafficSteering).EnabledCheck(&r.cfg, r.c) {
+		if r.c.TrafficSteeringEnabled() {
+			r.c.SetEnvs(map[string]string{
+				"TITUS_SECCOMP_AGENT_HANDLE_TRAFFIC_STEERING": "true",
+			})
+		}
+	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()

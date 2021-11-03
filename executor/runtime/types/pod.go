@@ -85,8 +85,9 @@ type PodContainer struct {
 	shmSizeMiB         *uint32
 	ttyEnabled         bool
 	// userEnv is the environment passed in by the user in the pod spec
-	userEnv       map[string]string
-	vpcAllocation *vpcapi.Assignment
+	userEnv                map[string]string
+	vpcAllocation          *vpcapi.Assignment
+	trafficSteeringEnabled bool
 }
 
 func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) {
@@ -612,6 +613,10 @@ func (c *PodContainer) SecurityGroupIDs() *[]string {
 
 func (c *PodContainer) ServiceMeshEnabled() bool {
 	return c.serviceMeshEnabled
+}
+
+func (c *PodContainer) TrafficSteeringEnabled() bool {
+	return c.trafficSteeringEnabled
 }
 
 func (c *PodContainer) SetEnv(key, value string) {
