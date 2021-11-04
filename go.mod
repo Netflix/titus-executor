@@ -12,7 +12,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 	github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
-	github.com/Netflix/titus-api-definitions v0.0.2-rc.4
+	github.com/Netflix/titus-api-definitions v0.0.3-rc.9
 	github.com/Netflix/titus-kube-common v0.20.1-0.20211019204449-0ff5c5960163
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
