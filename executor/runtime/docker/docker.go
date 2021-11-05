@@ -1437,15 +1437,11 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), r.c.ImageTagForMetrics())
 
 	allocation := r.c.VPCAllocation()
-	ipv4addr := allocation.IPV4Address()
 	eni := allocation.ContainerENI()
-	if allocation == nil || ipv4addr == nil || eni == nil {
+	if allocation == nil || eni == nil {
 		eventCancel()
 		if allocation == nil {
 			return "", nil, statusMessageChan, errors.New("allocation unset")
-		}
-		if ipv4addr == nil {
-			return "", nil, statusMessageChan, errors.New("VPC IPv4 allocation unset")
 		}
 		if eni == nil {
 			return "", nil, statusMessageChan, errors.New("ENI in allocation unset")
@@ -1455,12 +1451,15 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	details = &runtimeTypes.Details{
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: true,
-			IPAddress:    ipv4addr.Address.Address,
-			EniIPAddress: ipv4addr.Address.Address,
 			NetworkMode:  r.c.EffectiveNetworkMode(),
 			ResourceID:   fmt.Sprintf("resource-eni-%d", allocation.DeviceIndex()-1),
 			EniID:        eni.NetworkInterfaceId,
 		},
+	}
+
+	if a := allocation.IPV4Address(); a != nil {
+		details.NetworkConfiguration.IPAddress = a.Address.Address
+		details.NetworkConfiguration.EniIPAddress = a.Address.Address
 	}
 
 	if a := allocation.IPV6Address(); a != nil {
