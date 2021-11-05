@@ -648,3 +648,90 @@ var TitusAgentVPCInformationService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "netflix/titus/titus_vpc_api.proto",
 }
+
+// TitusAgentSecurityGroupServiceClient is the client API for TitusAgentSecurityGroupService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type TitusAgentSecurityGroupServiceClient interface {
+	ResetSecurityGroup(ctx context.Context, in *ResetSecurityGroupRequest, opts ...grpc.CallOption) (*ResetSecurityGroupResponse, error)
+}
+
+type titusAgentSecurityGroupServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewTitusAgentSecurityGroupServiceClient(cc grpc.ClientConnInterface) TitusAgentSecurityGroupServiceClient {
+	return &titusAgentSecurityGroupServiceClient{cc}
+}
+
+func (c *titusAgentSecurityGroupServiceClient) ResetSecurityGroup(ctx context.Context, in *ResetSecurityGroupRequest, opts ...grpc.CallOption) (*ResetSecurityGroupResponse, error) {
+	out := new(ResetSecurityGroupResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.TitusAgentSecurityGroupService/ResetSecurityGroup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TitusAgentSecurityGroupServiceServer is the server API for TitusAgentSecurityGroupService service.
+// All implementations must embed UnimplementedTitusAgentSecurityGroupServiceServer
+// for forward compatibility
+type TitusAgentSecurityGroupServiceServer interface {
+	ResetSecurityGroup(context.Context, *ResetSecurityGroupRequest) (*ResetSecurityGroupResponse, error)
+	mustEmbedUnimplementedTitusAgentSecurityGroupServiceServer()
+}
+
+// UnimplementedTitusAgentSecurityGroupServiceServer must be embedded to have forward compatible implementations.
+type UnimplementedTitusAgentSecurityGroupServiceServer struct {
+}
+
+func (UnimplementedTitusAgentSecurityGroupServiceServer) ResetSecurityGroup(context.Context, *ResetSecurityGroupRequest) (*ResetSecurityGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResetSecurityGroup not implemented")
+}
+func (UnimplementedTitusAgentSecurityGroupServiceServer) mustEmbedUnimplementedTitusAgentSecurityGroupServiceServer() {
+}
+
+// UnsafeTitusAgentSecurityGroupServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to TitusAgentSecurityGroupServiceServer will
+// result in compilation errors.
+type UnsafeTitusAgentSecurityGroupServiceServer interface {
+	mustEmbedUnimplementedTitusAgentSecurityGroupServiceServer()
+}
+
+func RegisterTitusAgentSecurityGroupServiceServer(s grpc.ServiceRegistrar, srv TitusAgentSecurityGroupServiceServer) {
+	s.RegisterService(&TitusAgentSecurityGroupService_ServiceDesc, srv)
+}
+
+func _TitusAgentSecurityGroupService_ResetSecurityGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResetSecurityGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TitusAgentSecurityGroupServiceServer).ResetSecurityGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.TitusAgentSecurityGroupService/ResetSecurityGroup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TitusAgentSecurityGroupServiceServer).ResetSecurityGroup(ctx, req.(*ResetSecurityGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// TitusAgentSecurityGroupService_ServiceDesc is the grpc.ServiceDesc for TitusAgentSecurityGroupService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var TitusAgentSecurityGroupService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "com.netflix.titus.TitusAgentSecurityGroupService",
+	HandlerType: (*TitusAgentSecurityGroupServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ResetSecurityGroup",
+			Handler:    _TitusAgentSecurityGroupService_ResetSecurityGroup_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "netflix/titus/titus_vpc_api.proto",
+}

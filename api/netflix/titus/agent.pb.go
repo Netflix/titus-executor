@@ -217,7 +217,8 @@ type ContainerInfo_ImagePullPolicy int32
 const (
 	// Always pull the tag / digest
 	ContainerInfo_Always ContainerInfo_ImagePullPolicy = 0
-	// Only pull if we don't have an image with that given tag / digest (guarantees freshness, as it requires digest)
+	// Only pull if we don't have an image with that given tag / digest
+	// (guarantees freshness, as it requires digest)
 	ContainerInfo_IfNotPresent ContainerInfo_ImagePullPolicy = 1
 	// Only pull if we don't have an image with that given tag
 	ContainerInfo_IfLabelPresent ContainerInfo_ImagePullPolicy = 2
@@ -891,31 +892,33 @@ type ContainerInfo struct {
 	// of CPU, less frequently?
 	Batch          *bool                          `protobuf:"varint,33,opt,name=batch" json:"batch,omitempty"`
 	S3LogLocations []*ContainerInfo_S3LogLocation `protobuf:"bytes,34,rep,name=s3LogLocations" json:"s3LogLocations,omitempty"`
-	// This influences the value of oom_score_adj for the PID 1 (tini) of the container
+	// This influences the value of oom_score_adj for the PID 1 (tini) of the
+	// container
 	//
-	// The value of /proc/<pid>/oom_score_adj is added to the badness score before it
-	// is used to determine which task to kill.  Acceptable values range from -1000
-	// (OOM_SCORE_ADJ_MIN) to +1000 (OOM_SCORE_ADJ_MAX).  This allows userspace to
-	// polarize the preference for oom killing either by always preferring a certain
-	// task or completely disabling it.  The lowest possible value, -1000, is
-	// equivalent to disabling oom killing entirely for that task since it will always
-	// report a badness score of 0.
+	// The value of /proc/<pid>/oom_score_adj is added to the badness score before
+	// it is used to determine which task to kill.  Acceptable values range from
+	// -1000 (OOM_SCORE_ADJ_MIN) to +1000 (OOM_SCORE_ADJ_MAX).  This allows
+	// userspace to polarize the preference for oom killing either by always
+	// preferring a certain task or completely disabling it.  The lowest possible
+	// value, -1000, is equivalent to disabling oom killing entirely for that task
+	// since it will always report a badness score of 0.
 	//
 	// If this value is unset, it will be set to +1000 as default.
 	OomScoreAdj *int32 `protobuf:"varint,35,opt,name=oomScoreAdj" json:"oomScoreAdj,omitempty"`
 	// If omitted, Always is the default
 	ImagePullPolicy *ContainerInfo_ImagePullPolicy `protobuf:"varint,36,opt,name=imagePullPolicy,enum=messages.ContainerInfo_ImagePullPolicy" json:"imagePullPolicy,omitempty"`
-	// passthrough attributes are an arbitrary set of key / value pairs that are passed from API to executor
+	// passthrough attributes are an arbitrary set of key / value pairs that are
+	// passed from API to executor
 	PassthroughAttributes map[string]string `protobuf:"bytes,37,rep,name=passthroughAttributes" json:"passthroughAttributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Process to be executed inside the container
 	Process *ContainerInfo_Process `protobuf:"bytes,38,opt,name=process" json:"process,omitempty"`
 	// Used internally by the agent to store information about a running container
 	RunState *RunningContainerInfo `protobuf:"bytes,39,opt,name=runState" json:"runState,omitempty"`
-	/// (Optional) Amount of shared memory to allocate (must be <= memoryMB)
+	// (Optional) Amount of shared memory to allocate (must be <= memoryMB)
 	ShmSizeMB *uint32 `protobuf:"varint,40,opt,name=shmSizeMB" json:"shmSizeMB,omitempty"`
-	/// (Optional) IP address allocation for the task
+	// (Optional) IP address allocation for the task
 	SignedAddressAllocation *SignedAddressAllocation `protobuf:"bytes,41,opt,name=signedAddressAllocation" json:"signedAddressAllocation,omitempty"`
-	/// Timestamp in epoch millis of when the task's job was Accepted
+	// Timestamp in epoch millis of when the task's job was Accepted
 	JobAcceptedTimestampMs *uint64 `protobuf:"varint,42,opt,name=jobAcceptedTimestampMs" json:"jobAcceptedTimestampMs,omitempty"`
 }
 
@@ -1351,10 +1354,12 @@ type TaskPodIdentity struct {
 	// (Required) Current state of the task
 	TaskInfo *TaskInfo `protobuf:"bytes,1,req,name=taskInfo" json:"taskInfo,omitempty"`
 	// (Required) Pod details in bytes!
-	// > For the same reason, we do not recommend embedding these proto objects within your own proto definitions.
-	// > It is better to store Kubernetes objects as byte arrays, in the wire format, which is self-describing.
-	// > This permits you to use either JSON or binary (proto) wire formats without code changes.
-	// > It will be difficult for you to operate on both Custom Resources and built-in types otherwise.
+	// > For the same reason, we do not recommend embedding these proto objects
+	// within your own proto definitions. > It is better to store Kubernetes
+	// objects as byte arrays, in the wire format, which is self-describing. >
+	// This permits you to use either JSON or binary (proto) wire formats without
+	// code changes. > It will be difficult for you to operate on both Custom
+	// Resources and built-in types otherwise.
 	Pod []byte `protobuf:"bytes,2,req,name=pod" json:"pod,omitempty"`
 	// (Required) Timestamp, in Unix epoch seconds, when request was made.
 	RequestTimestamp *timestamppb.Timestamp `protobuf:"bytes,3,req,name=requestTimestamp" json:"requestTimestamp,omitempty"`
@@ -1441,7 +1446,8 @@ type CertificateSignature struct {
 	Signature []byte `protobuf:"bytes,1,opt,name=signature" json:"signature,omitempty"`
 	// (Required) Signature algorithm used (e.g. SHA512withRSAandMGF1)
 	Algorithm *SignatureAlgorithm `protobuf:"varint,2,opt,name=algorithm,enum=messages.SignatureAlgorithm" json:"algorithm,omitempty"`
-	// (Required) The agent’s public certificate in DER form, followed by its trust chain.
+	// (Required) The agent’s public certificate in DER form, followed by its
+	// trust chain.
 	CertChain [][]byte `protobuf:"bytes,3,rep,name=certChain" json:"certChain,omitempty"`
 }
 
@@ -1498,7 +1504,8 @@ func (x *CertificateSignature) GetCertChain() [][]byte {
 	return nil
 }
 
-// Version of CertificateSignature that encodes all byte[]s as human-readable strings
+// Version of CertificateSignature that encodes all byte[]s as human-readable
+// strings
 type CertificateStringSignature struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1509,7 +1516,8 @@ type CertificateStringSignature struct {
 	Signature *string `protobuf:"bytes,1,opt,name=signature" json:"signature,omitempty"`
 	// (Required) Signature algorithm used (e.g. SHA512withRSAandMGF1)
 	Algorithm *SignatureAlgorithm `protobuf:"varint,2,opt,name=algorithm,enum=messages.SignatureAlgorithm" json:"algorithm,omitempty"`
-	// (Required) The agent’s public certificate in DER form, followed by its trust chain.
+	// (Required) The agent’s public certificate in DER form, followed by its
+	// trust chain.
 	CertChain []string `protobuf:"bytes,3,rep,name=certChain" json:"certChain,omitempty"`
 }
 
@@ -1623,7 +1631,8 @@ func (x *TaskIdentityDocument) GetSignature() *CertificateSignature {
 	return nil
 }
 
-// Version of TaskIdentityDocument that encodes all byte[]s as human-readable strings
+// Version of TaskIdentityDocument that encodes all byte[]s as human-readable
+// strings
 type TaskIdentityStringDocument struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1858,7 +1867,8 @@ type ContainerInfo_NetworkConfigInfo struct {
 	//
 	// Deprecated: Do not use.
 	EniLablel *string `protobuf:"bytes,1,req,name=eniLablel" json:"eniLablel,omitempty"`
-	// this should be required, but it was added later (typo fix) and is optional for backwards compatibility
+	// this should be required, but it was added later (typo fix) and is
+	// optional for backwards compatibility
 	EniLabel           *string  `protobuf:"bytes,5,opt,name=eniLabel" json:"eniLabel,omitempty"`
 	SecurityGroups     []string `protobuf:"bytes,3,rep,name=securityGroups" json:"securityGroups,omitempty"`
 	BandwidthLimitMbps *uint32  `protobuf:"varint,4,opt,name=bandwidthLimitMbps" json:"bandwidthLimitMbps,omitempty"` // In Mbps
@@ -2162,16 +2172,19 @@ func (x *ContainerInfo_S3LogLocation) GetPrefix() string {
 	return ""
 }
 
-// entrypoint and command follow Docker semantics, and can be used to override what is baked into the Docker image:
+// entrypoint and command follow Docker semantics, and can be used to override
+// what is baked into the Docker image:
 // https://docs.docker.com/engine/reference/builder/#understand-how-cmd-and-entrypoint-interact
 //
-// Both CMD and ENTRYPOINT baked into the image can be explicitly cleared with a single empty value (i.e.: `[""]`).
+// Both CMD and ENTRYPOINT baked into the image can be explicitly cleared with
+// a single empty value (i.e.: `[""]`).
 type ContainerInfo_Process struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// when set, will override ENTRYPOINT baked into the image, and cause CMD from the image to be ignored
+	// when set, will override ENTRYPOINT baked into the image, and cause CMD
+	// from the image to be ignored
 	Entrypoint []string `protobuf:"bytes,1,rep,name=entrypoint" json:"entrypoint,omitempty"`
 	// when set, will override CMD baked into the image
 	Command []string `protobuf:"bytes,2,rep,name=command" json:"command,omitempty"`

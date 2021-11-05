@@ -19,48 +19,63 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type JobManagementServiceClient interface {
-	/// Create a new job
+	// Create a new job
 	CreateJob(ctx context.Context, in *JobDescriptor, opts ...grpc.CallOption) (*JobId, error)
-	/// Modify the number of instances for a service job.
+	// Modify the number of instances for a service job.
 	UpdateJobCapacity(ctx context.Context, in *JobCapacityUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Modify job capacity for a service job. It allows you to specify only values (min / max / desired) that need to be updated.
+	// Modify job capacity for a service job. It allows you to specify only
+	// values (min / max / desired) that need to be updated.
 	UpdateJobCapacityWithOptionalAttributes(ctx context.Context, in *JobCapacityUpdateWithOptionalAttributes, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Mark a job as enabled or disabled. Disabled jobs are not auto-scaled.
+	// Mark a job as enabled or disabled. Disabled jobs are not auto-scaled.
 	UpdateJobStatus(ctx context.Context, in *JobStatusUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Update service job processes such as disable increase/decrease instance count
+	// Update service job processes such as disable increase/decrease instance
+	// count
 	UpdateJobProcesses(ctx context.Context, in *JobProcessesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Update a job disruption budget.
+	// Update a job disruption budget.
 	UpdateJobDisruptionBudget(ctx context.Context, in *JobDisruptionBudgetUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	// Return a collection of jobs matching the given criteria. The query result is limited to the active data set.
-	// Finished jobs/tasks are not evaluated when the query is executed.
+	// Return a collection of jobs matching the given criteria. The query result
+	// is limited to the active data set. Finished jobs/tasks are not evaluated
+	// when the query is executed.
 	FindJobs(ctx context.Context, in *JobQuery, opts ...grpc.CallOption) (*JobQueryResult, error)
-	/// Return a job with given id.
+	// Return a job with given id.
 	FindJob(ctx context.Context, in *JobId, opts ...grpc.CallOption) (*Job, error)
-	/// On subscription, sends complete job (definition and active tasks). Next, send distinct job definition
-	// or task state chage notifications. The stream is closed by the server only when the job is finished, which
-	// happens after the 'JobFinished' notification is delivered.
+	// On subscription, sends complete job (definition and active tasks). Next,
+	// send distinct job definition
+	// or task state chage notifications. The stream is closed by the server only
+	// when the job is finished, which happens after the 'JobFinished'
+	// notification is delivered.
 	ObserveJob(ctx context.Context, in *JobId, opts ...grpc.CallOption) (JobManagementService_ObserveJobClient, error)
-	/// Equivalent to ObserveJob, applied to all active jobs. This stream never completes.
+	// Equivalent to ObserveJob, applied to all active jobs. This stream never
+	// completes.
 	ObserveJobs(ctx context.Context, in *ObserveJobsQuery, opts ...grpc.CallOption) (JobManagementService_ObserveJobsClient, error)
-	/// Terminate all running tasks of a job, and than terminate the job.
+	// `ObserveJobsWithKeepAlive` extends the `ObserveJobs` endpoint behavior by supporting keep alive mechanism
+	// in the channel. This stream never completes.
+	ObserveJobsWithKeepAlive(ctx context.Context, opts ...grpc.CallOption) (JobManagementService_ObserveJobsWithKeepAliveClient, error)
+	// Terminate all running tasks of a job, and than terminate the job.
 	KillJob(ctx context.Context, in *JobId, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Update the attributes of a job. This will either create new attributes or replace existing ones with the same key.
+	// Update the attributes of a job. This will either create new attributes or
+	// replace existing ones with the same key.
 	UpdateJobAttributes(ctx context.Context, in *JobAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Delete the attributes of a job.
+	// Delete the attributes of a job.
 	DeleteJobAttributes(ctx context.Context, in *JobAttributesDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Get a task with the specified id.
+	// Get a task with the specified id.
 	FindTask(ctx context.Context, in *TaskId, opts ...grpc.CallOption) (*Task, error)
-	// Return a collection of tasks specified in the 'TaskQuery' request matching the given criteria. The query result is
-	// limited to the active data set. Finished jobs/tasks are not evaluated when the query is executed.
+	// Return a collection of tasks specified in the 'TaskQuery' request matching
+	// the given criteria. The query result is limited to the active data set.
+	// Finished jobs/tasks are not evaluated when the query is executed.
 	FindTasks(ctx context.Context, in *TaskQuery, opts ...grpc.CallOption) (*TaskQueryResult, error)
-	/// Terminate a task with the given id. Depending on job type, the task might be immediately restarted/replaced with a new one.
+	// Terminate a task with the given id. Depending on job type, the task might
+	// be immediately restarted/replaced with a new one.
 	KillTask(ctx context.Context, in *TaskKillRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Update the attributes of a task. This will either create new attributes or replace existing ones with the same key.
+	// Update the attributes of a task. This will either create new attributes or
+	// replace existing ones with the same key.
 	UpdateTaskAttributes(ctx context.Context, in *TaskAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Delete the attributes of a task.
+	// Delete the attributes of a task.
 	DeleteTaskAttributes(ctx context.Context, in *TaskAttributesDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Move a task from one service job to another. Source and destination jobs must be service jobs, and compatible.
-	// Jobs are compatible when their JobDescriptors are identical, ignoring the following values:
+	// Move a task from one service job to another. Source and destination jobs
+	// must be service jobs, and compatible.
+	// Jobs are compatible when their JobDescriptors are identical, ignoring the
+	// following values:
 	//
 	// * owner
 	// * applicationName
@@ -68,7 +83,8 @@ type JobManagementServiceClient interface {
 	// * disruptionBudget
 	// * Any attributes not prefixed with `titus.` or `titusParameter.`
 	// * Any container.attributes not prefixed with `titus.` or `titusParameter.`
-	// * All information specific to service jobs (JobSpec): Capacity, RetryPolicy, MigrationPolicy, etc
+	// * All information specific to service jobs (JobSpec): Capacity,
+	// RetryPolicy, MigrationPolicy, etc
 	MoveTask(ctx context.Context, in *TaskMoveRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
@@ -216,6 +232,37 @@ func (x *jobManagementServiceObserveJobsClient) Recv() (*JobChangeNotification, 
 	return m, nil
 }
 
+func (c *jobManagementServiceClient) ObserveJobsWithKeepAlive(ctx context.Context, opts ...grpc.CallOption) (JobManagementService_ObserveJobsWithKeepAliveClient, error) {
+	stream, err := c.cc.NewStream(ctx, &JobManagementService_ServiceDesc.Streams[2], "/com.netflix.titus.JobManagementService/ObserveJobsWithKeepAlive", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &jobManagementServiceObserveJobsWithKeepAliveClient{stream}
+	return x, nil
+}
+
+type JobManagementService_ObserveJobsWithKeepAliveClient interface {
+	Send(*ObserveJobsWithKeepAliveRequest) error
+	Recv() (*JobChangeNotification, error)
+	grpc.ClientStream
+}
+
+type jobManagementServiceObserveJobsWithKeepAliveClient struct {
+	grpc.ClientStream
+}
+
+func (x *jobManagementServiceObserveJobsWithKeepAliveClient) Send(m *ObserveJobsWithKeepAliveRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *jobManagementServiceObserveJobsWithKeepAliveClient) Recv() (*JobChangeNotification, error) {
+	m := new(JobChangeNotification)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *jobManagementServiceClient) KillJob(ctx context.Context, in *JobId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.JobManagementService/KillJob", in, out, opts...)
@@ -301,48 +348,63 @@ func (c *jobManagementServiceClient) MoveTask(ctx context.Context, in *TaskMoveR
 // All implementations must embed UnimplementedJobManagementServiceServer
 // for forward compatibility
 type JobManagementServiceServer interface {
-	/// Create a new job
+	// Create a new job
 	CreateJob(context.Context, *JobDescriptor) (*JobId, error)
-	/// Modify the number of instances for a service job.
+	// Modify the number of instances for a service job.
 	UpdateJobCapacity(context.Context, *JobCapacityUpdate) (*emptypb.Empty, error)
-	/// Modify job capacity for a service job. It allows you to specify only values (min / max / desired) that need to be updated.
+	// Modify job capacity for a service job. It allows you to specify only
+	// values (min / max / desired) that need to be updated.
 	UpdateJobCapacityWithOptionalAttributes(context.Context, *JobCapacityUpdateWithOptionalAttributes) (*emptypb.Empty, error)
-	/// Mark a job as enabled or disabled. Disabled jobs are not auto-scaled.
+	// Mark a job as enabled or disabled. Disabled jobs are not auto-scaled.
 	UpdateJobStatus(context.Context, *JobStatusUpdate) (*emptypb.Empty, error)
-	/// Update service job processes such as disable increase/decrease instance count
+	// Update service job processes such as disable increase/decrease instance
+	// count
 	UpdateJobProcesses(context.Context, *JobProcessesUpdate) (*emptypb.Empty, error)
-	/// Update a job disruption budget.
+	// Update a job disruption budget.
 	UpdateJobDisruptionBudget(context.Context, *JobDisruptionBudgetUpdate) (*emptypb.Empty, error)
-	// Return a collection of jobs matching the given criteria. The query result is limited to the active data set.
-	// Finished jobs/tasks are not evaluated when the query is executed.
+	// Return a collection of jobs matching the given criteria. The query result
+	// is limited to the active data set. Finished jobs/tasks are not evaluated
+	// when the query is executed.
 	FindJobs(context.Context, *JobQuery) (*JobQueryResult, error)
-	/// Return a job with given id.
+	// Return a job with given id.
 	FindJob(context.Context, *JobId) (*Job, error)
-	/// On subscription, sends complete job (definition and active tasks). Next, send distinct job definition
-	// or task state chage notifications. The stream is closed by the server only when the job is finished, which
-	// happens after the 'JobFinished' notification is delivered.
+	// On subscription, sends complete job (definition and active tasks). Next,
+	// send distinct job definition
+	// or task state chage notifications. The stream is closed by the server only
+	// when the job is finished, which happens after the 'JobFinished'
+	// notification is delivered.
 	ObserveJob(*JobId, JobManagementService_ObserveJobServer) error
-	/// Equivalent to ObserveJob, applied to all active jobs. This stream never completes.
+	// Equivalent to ObserveJob, applied to all active jobs. This stream never
+	// completes.
 	ObserveJobs(*ObserveJobsQuery, JobManagementService_ObserveJobsServer) error
-	/// Terminate all running tasks of a job, and than terminate the job.
+	// `ObserveJobsWithKeepAlive` extends the `ObserveJobs` endpoint behavior by supporting keep alive mechanism
+	// in the channel. This stream never completes.
+	ObserveJobsWithKeepAlive(JobManagementService_ObserveJobsWithKeepAliveServer) error
+	// Terminate all running tasks of a job, and than terminate the job.
 	KillJob(context.Context, *JobId) (*emptypb.Empty, error)
-	/// Update the attributes of a job. This will either create new attributes or replace existing ones with the same key.
+	// Update the attributes of a job. This will either create new attributes or
+	// replace existing ones with the same key.
 	UpdateJobAttributes(context.Context, *JobAttributesUpdate) (*emptypb.Empty, error)
-	/// Delete the attributes of a job.
+	// Delete the attributes of a job.
 	DeleteJobAttributes(context.Context, *JobAttributesDeleteRequest) (*emptypb.Empty, error)
-	/// Get a task with the specified id.
+	// Get a task with the specified id.
 	FindTask(context.Context, *TaskId) (*Task, error)
-	// Return a collection of tasks specified in the 'TaskQuery' request matching the given criteria. The query result is
-	// limited to the active data set. Finished jobs/tasks are not evaluated when the query is executed.
+	// Return a collection of tasks specified in the 'TaskQuery' request matching
+	// the given criteria. The query result is limited to the active data set.
+	// Finished jobs/tasks are not evaluated when the query is executed.
 	FindTasks(context.Context, *TaskQuery) (*TaskQueryResult, error)
-	/// Terminate a task with the given id. Depending on job type, the task might be immediately restarted/replaced with a new one.
+	// Terminate a task with the given id. Depending on job type, the task might
+	// be immediately restarted/replaced with a new one.
 	KillTask(context.Context, *TaskKillRequest) (*emptypb.Empty, error)
-	/// Update the attributes of a task. This will either create new attributes or replace existing ones with the same key.
+	// Update the attributes of a task. This will either create new attributes or
+	// replace existing ones with the same key.
 	UpdateTaskAttributes(context.Context, *TaskAttributesUpdate) (*emptypb.Empty, error)
-	/// Delete the attributes of a task.
+	// Delete the attributes of a task.
 	DeleteTaskAttributes(context.Context, *TaskAttributesDeleteRequest) (*emptypb.Empty, error)
-	/// Move a task from one service job to another. Source and destination jobs must be service jobs, and compatible.
-	// Jobs are compatible when their JobDescriptors are identical, ignoring the following values:
+	// Move a task from one service job to another. Source and destination jobs
+	// must be service jobs, and compatible.
+	// Jobs are compatible when their JobDescriptors are identical, ignoring the
+	// following values:
 	//
 	// * owner
 	// * applicationName
@@ -350,7 +412,8 @@ type JobManagementServiceServer interface {
 	// * disruptionBudget
 	// * Any attributes not prefixed with `titus.` or `titusParameter.`
 	// * Any container.attributes not prefixed with `titus.` or `titusParameter.`
-	// * All information specific to service jobs (JobSpec): Capacity, RetryPolicy, MigrationPolicy, etc
+	// * All information specific to service jobs (JobSpec): Capacity,
+	// RetryPolicy, MigrationPolicy, etc
 	MoveTask(context.Context, *TaskMoveRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedJobManagementServiceServer()
 }
@@ -388,6 +451,9 @@ func (UnimplementedJobManagementServiceServer) ObserveJob(*JobId, JobManagementS
 }
 func (UnimplementedJobManagementServiceServer) ObserveJobs(*ObserveJobsQuery, JobManagementService_ObserveJobsServer) error {
 	return status.Errorf(codes.Unimplemented, "method ObserveJobs not implemented")
+}
+func (UnimplementedJobManagementServiceServer) ObserveJobsWithKeepAlive(JobManagementService_ObserveJobsWithKeepAliveServer) error {
+	return status.Errorf(codes.Unimplemented, "method ObserveJobsWithKeepAlive not implemented")
 }
 func (UnimplementedJobManagementServiceServer) KillJob(context.Context, *JobId) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method KillJob not implemented")
@@ -613,6 +679,32 @@ type jobManagementServiceObserveJobsServer struct {
 
 func (x *jobManagementServiceObserveJobsServer) Send(m *JobChangeNotification) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func _JobManagementService_ObserveJobsWithKeepAlive_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(JobManagementServiceServer).ObserveJobsWithKeepAlive(&jobManagementServiceObserveJobsWithKeepAliveServer{stream})
+}
+
+type JobManagementService_ObserveJobsWithKeepAliveServer interface {
+	Send(*JobChangeNotification) error
+	Recv() (*ObserveJobsWithKeepAliveRequest, error)
+	grpc.ServerStream
+}
+
+type jobManagementServiceObserveJobsWithKeepAliveServer struct {
+	grpc.ServerStream
+}
+
+func (x *jobManagementServiceObserveJobsWithKeepAliveServer) Send(m *JobChangeNotification) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *jobManagementServiceObserveJobsWithKeepAliveServer) Recv() (*ObserveJobsWithKeepAliveRequest, error) {
+	m := new(ObserveJobsWithKeepAliveRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func _JobManagementService_KillJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -863,6 +955,12 @@ var JobManagementService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "ObserveJobs",
 			Handler:       _JobManagementService_ObserveJobs_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "ObserveJobsWithKeepAlive",
+			Handler:       _JobManagementService_ObserveJobsWithKeepAlive_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "netflix/titus/titus_job_api.proto",
