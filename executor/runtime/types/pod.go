@@ -518,7 +518,7 @@ func (c *PodContainer) EffectiveNetworkMode() string {
 	if c.podConfig != nil && c.podConfig.NetworkMode != nil {
 		mode = *c.podConfig.NetworkMode
 	}
-	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address(), c.SeccompAgentEnabledForNetSyscalls())
+	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address())
 }
 
 func (c *PodContainer) NFSMounts() []NFSMount {
@@ -560,16 +560,6 @@ func (c *PodContainer) Runtime() string {
 		return c.gpuInfo.Runtime()
 	}
 	return DefaultOciRuntime
-}
-
-// SeccompAgentEnabledForNetSyscalls only represents whether a user set the SeccompAgentEnabledForNetSyscalls
-// attribute, and does not represent the source of truth of whether TSA will
-// be activated or not (EffectiveNetworkMode is the source of truth for that)
-func (c *PodContainer) SeccompAgentEnabledForNetSyscalls() bool {
-	if c.podConfig.SeccompAgentNetEnabled != nil {
-		return *c.podConfig.SeccompAgentNetEnabled
-	}
-	return false
 }
 
 func (c *PodContainer) SeccompAgentEnabledForPerfSyscalls() bool {

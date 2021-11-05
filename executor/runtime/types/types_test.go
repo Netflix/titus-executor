@@ -156,7 +156,7 @@ func TestDefaultNetworkMode(t *testing.T) {
 
 	c, err := NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
-	assert.Equal(t, titus.NetworkConfiguration_UnknownNetworkMode.String(), c.EffectiveNetworkMode())
+	assert.Equal(t, titus.NetworkConfiguration_Ipv4Only.String(), c.EffectiveNetworkMode())
 }
 
 func TestIPv6NetworkModeRespectsThePassthroughBool(t *testing.T) {

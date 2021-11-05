@@ -295,7 +295,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.Equal(t, c.AllowNetworkBursting(), true)
 	assert.Equal(t, c.AppName(), "appName")
 	assert.Equal(t, c.AssignIPv6Address(), true)
-	assert.Equal(t, c.EffectiveNetworkMode(), titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String())
+	assert.Equal(t, c.EffectiveNetworkMode(), titus.NetworkConfiguration_Ipv6AndIpv4.String())
 	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimit)
 	assert.DeepEqual(t, c.BatchPriority(), ptr.StringPtr("idle"))
 	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
@@ -319,7 +319,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		"NETFLIX_AUTO_SCALE_GROUP":          "appName-appStack-appDetail-appSeq",
 		"NETFLIX_CLUSTER":                   "appName-appStack-appDetail",
 		"NETFLIX_DETAIL":                    "appDetail",
-		"NETFLIX_NETWORK_MODE":              "IPV6_WITH_TRANSITION",
+		"NETFLIX_NETWORK_MODE":              "DUAL_STACK",
 		"NETFLIX_STACK":                     "appStack",
 		"TITUS_BATCH":                       "idle",
 		"TITUS_HOST_EC2_INSTANCE_ID":        "",
@@ -418,7 +418,6 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.DeepEqual(t, c.Resources(), expResources)
 	assert.DeepEqual(t, c.RequireIMDSToken(), ptr.StringPtr("token"))
 	assert.Equal(t, c.Runtime(), "runc")
-	assert.Equal(t, c.SeccompAgentEnabledForNetSyscalls(), true)
 	assert.Equal(t, c.SeccompAgentEnabledForPerfSyscalls(), true)
 	assert.DeepEqual(t, c.SecurityGroupIDs(), &expSGs)
 	assert.Equal(t, c.ServiceMeshEnabled(), true)
