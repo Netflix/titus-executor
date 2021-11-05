@@ -44,8 +44,48 @@ const (
 
 type ec2Provider struct{}
 
-func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity, error) {
+func (e *ec2Provider) GetIdentityFromFile(ctx context.Context) (*ec2metadata.EC2InstanceIdentityDocument, []byte, []byte, error) {
 	var pkcsFile *os.File
+	_, span := trace.StartSpan(ctx, "GetIdentityFromFile")
+	defer span.End()
+	// Attempt to read the data off of cache
+	instanceIdentityFile, err := os.OpenFile(InstanceIdentityFile, os.O_RDONLY, 0644)
+	if err != nil {
+		tracehelpers.SetStatus(ErrEC2MetadataFileNotFound, span)
+		return nil, nil, nil, err
+	}
+
+	pkcsFile, err = os.OpenFile(PkcsFile, os.O_RDONLY, 0644)
+	if err != nil {
+		tracehelpers.SetStatus(ErrPkcsFileNotFound, span)
+		return nil, nil, nil, err
+	}
+	defer instanceIdentityFile.Close()
+	defer pkcsFile.Close()
+
+	// Read the instance Identity file
+	instanceID, err := ioutil.ReadAll(instanceIdentityFile)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, nil, nil, err
+	}
+	var doc ec2metadata.EC2InstanceIdentityDocument
+	err = json.Unmarshal(instanceID, &doc)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, nil, nil, err
+	}
+
+	// Read the pkcs7 file
+	pkcs7, err := ioutil.ReadAll(pkcsFile)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, nil, nil, err
+	}
+	return &doc, instanceID, pkcs7, nil
+}
+
+func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity, error) {
 	ctx, span := trace.StartSpan(ctx, "GetIdentity")
 	defer span.End()
 	start := time.Now()
@@ -54,50 +94,18 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 	newAWSLogger := &awsLogger{logger: logger.G(ctx), oldMessages: list.New()}
 
 	// Attempt to read the data off of cache
-	instanceIdentityFile, err := os.OpenFile(InstanceIdentityFile, os.O_RDONLY, 0644)
-	if err != nil {
-		tracehelpers.SetStatus(ErrEC2MetadataFileNotFound, span)
-		goto fetchFromImds
-	}
-
-	pkcsFile, err = os.OpenFile(PkcsFile, os.O_RDONLY, 0644)
-	if err != nil {
-		tracehelpers.SetStatus(ErrPkcsFileNotFound, span)
-		goto fetchFromImds
-	} else {
-		defer instanceIdentityFile.Close()
-		defer pkcsFile.Close()
-
-		// Read the instance Identity file
-		instanceID, err := ioutil.ReadAll(instanceIdentityFile)
-		if err != nil {
-			tracehelpers.SetStatus(err, span)
-			goto fetchFromImds
-		}
-		var doc ec2metadata.EC2InstanceIdentityDocument
-		err = json.Unmarshal(instanceID, &doc)
-		if err != nil {
-			tracehelpers.SetStatus(err, span)
-			goto fetchFromImds
-		}
-
-		// Read the pkcs7 file
-		pkcs7, err := ioutil.ReadAll(pkcsFile)
-		if err != nil {
-			tracehelpers.SetStatus(err, span)
-			goto fetchFromImds
-		}
-
+	docFromFile, instanceID, pkcs7FromFile, err := e.GetIdentityFromFile(ctx)
+	if err == nil {
 		return &vpcapi.InstanceIdentity{
 			InstanceIdentityDocument:  string(instanceID),
-			InstanceIdentitySignature: string(pkcs7),
-			InstanceID:                doc.InstanceID,
-			Region:                    doc.Region,
-			AccountID:                 doc.AccountID,
-			InstanceType:              doc.InstanceType,
+			InstanceIdentitySignature: string(pkcs7FromFile),
+			InstanceID:                docFromFile.InstanceID,
+			Region:                    docFromFile.Region,
+			AccountID:                 docFromFile.AccountID,
+			InstanceType:              docFromFile.InstanceType,
 		}, err
 	}
-fetchFromImds:
+	logger.G(ctx).Debug("Could not find IMDS cache on disk")
 	ec2MetadataClient := ec2metadata.New(
 		session.Must(
 			session.NewSession(
@@ -132,7 +140,8 @@ fetchFromImds:
 
 	stats.Record(ctx, getIdentityLatency.M(float64(time.Since(start).Nanoseconds())), getIdentitySuccess.M(1))
 
-	go cacheIdentityFiles(ctx, resp, pkcs7)
+	//Cache IMDS results on disk
+	cacheIdentityFiles(ctx, resp, pkcs7)
 
 	return &vpcapi.InstanceIdentity{
 		InstanceIdentityDocument:  resp,
