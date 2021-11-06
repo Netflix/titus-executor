@@ -123,6 +123,16 @@ static void do_fsconfigs(int fsfd, char *options)
 	E_fsconfig(fsfd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
 }
 
+static void switch_namespaces(int pidfd)
+{
+	int ret;
+	ret = setns(pidfd, CLONE_NEWNET | CLONE_NEWNS);
+	if (ret == -1) {
+		perror("setns net / mount");
+		exit(1);
+	}
+}
+
 static int setup_fsfd_in_namespaces(int sk, int pidfd)
 {
 	int fsfd, ret;
@@ -241,6 +251,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	switch_namespaces(pidfd);
 	/* First we need to get a fsfd, but it must be created inside the user namespace */
 	fsfd = fork_and_get_fsfd(pidfd);
 
