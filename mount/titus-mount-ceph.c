@@ -102,10 +102,20 @@ static void process_option(char *option, int fsfd)
 	key = strtok_r(option, "=", &saveptr);
 	option = NULL;
 	value = strtok_r(option, "=", &saveptr);
+
+	char value2[256] = "";
+	strcpy(value2, value);
+	/* We have to tack on an extra '==' because the secret is base64 encoded,
+	 * and this very basic string parsing will treat those == as tokens and skip
+	 * past them */
+	if (strcmp(key, "secret") == 0) {
+		char base64suffix[] = "==";
+		strcat(value2, base64suffix);
+	}
 	fprintf(stderr,
 		"titus-mount-ceph: Setting filesystem mount option %s=%s\n",
-		key, value);
-	E_fsconfig(fsfd, FSCONFIG_SET_STRING, key, value, 0);
+		key, value2);
+	E_fsconfig(fsfd, FSCONFIG_SET_STRING, key, value2, 0);
 }
 
 static void do_fsconfigs(int fsfd, char *options)
