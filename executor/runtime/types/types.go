@@ -206,7 +206,7 @@ type Container interface {
 	SetSystemD(bool)
 	SetVPCAllocation(*vpcapi.Assignment)
 	ShmSizeMiB() *uint32
-	SidecarConfigs() ([]*ServiceOpts, error)
+	SystemServices() ([]*ServiceOpts, error)
 	SignedAddressAllocationUUID() *string
 	SortedEnvArray() []string
 	SubnetIDs() *[]string

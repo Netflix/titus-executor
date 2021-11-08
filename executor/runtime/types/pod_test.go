@@ -423,18 +423,17 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.Equal(t, c.ServiceMeshEnabled(), true)
 	assert.DeepEqual(t, c.ShmSizeMiB(), &expShmSize)
 
-	sidecars, err := c.SidecarConfigs()
+	systemServices, err := c.SystemServices()
 	assert.NilError(t, err)
-	//sort.Slice(sidecars, func(i, j int) bool { return sidecars[i].ServiceName < sidecars[j].ServiceName })
-	sidecarNames := []string{}
+	systemServiceNames := []string{}
 	svcMeshImage := ""
-	for _, sc := range sidecars {
-		sidecarNames = append(sidecarNames, sc.ServiceName)
+	for _, sc := range systemServices {
+		systemServiceNames = append(systemServiceNames, sc.ServiceName)
 		if sc.ServiceName == SidecarServiceServiceMesh {
 			svcMeshImage = sc.Image
 		}
 	}
-	assert.DeepEqual(t, sidecarNames,
+	assert.DeepEqual(t, systemServiceNames,
 		[]string{
 			SidecarTitusContainer,
 			SidecarServiceSpectatord,
@@ -1044,7 +1043,7 @@ func TestPodContainerServiceMeshEnabled(t *testing.T) {
 	c, err := NewPodContainer(pod, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), true)
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	assert.NilError(t, err)
 	var svcMeshConf *ServiceOpts
 	for s := range scConfs {
@@ -1070,7 +1069,7 @@ func TestPodContainerServiceMeshEnabledWithConfig(t *testing.T) {
 	c, err := NewPodContainer(pod, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), false)
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	assert.NilError(t, err)
 	var svcMeshConf *ServiceOpts
 	for s := range scConfs {
@@ -1096,7 +1095,7 @@ func TestPodContainerServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 	c, err := NewPodContainer(pod, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), false)
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	assert.NilError(t, err)
 	var svcMeshConf *ServiceOpts
 	for s := range scConfs {
