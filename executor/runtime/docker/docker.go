@@ -2002,8 +2002,8 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 	if err == nil {
 		l.Infof("Processing docker event on %s container: %s", cName, action)
 	} else {
-		l.WithError(err).Error("Error looking up the container name for the message, continuing anyway")
-		cName = "Unknown container"
+		l.WithError(err).WithField("message", message).Error("Error looking up the container name for the message, ignoring docker event")
+		return nonTerminalDockerEvent
 	}
 	switch action {
 	case "start":
