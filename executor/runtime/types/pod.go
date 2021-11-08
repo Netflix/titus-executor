@@ -802,7 +802,7 @@ func (c *PodContainer) parsePodVolumes() error {
 				MountPoint: filepath.Clean(vm.MountPath),
 				Server:     vol.NFS.Server,
 				ServerPath: filepath.Clean(vol.NFS.Path),
-				ReadOnly:   vol.NFS.ReadOnly,
+				ReadOnly:   vm.ReadOnly,
 			})
 		}
 

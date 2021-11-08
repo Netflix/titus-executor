@@ -227,6 +227,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		{
 			Name:      "efs-fs-abcdef-rwm.subdir1",
 			MountPath: "/efs1",
+			ReadOnly:  true,
 		},
 		{
 			Name:      "dev-shm",
@@ -245,7 +246,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 				NFS: &corev1.NFSVolumeSource{
 					Server:   "fs-abcdef.efs.us-east-1.amazonaws.com",
 					Path:     "/remote-dir",
-					ReadOnly: true,
+					ReadOnly: false,
 				},
 			},
 		},
