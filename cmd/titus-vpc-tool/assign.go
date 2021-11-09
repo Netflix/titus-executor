@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/vpc/tool/assign3"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 func assignNetworkCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentityProviderGetter) *cobra.Command {

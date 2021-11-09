@@ -3,8 +3,9 @@ package titusdriver
 import (
 	"strconv"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // TitusTaskState represents the current state of a task

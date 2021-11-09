@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
@@ -28,6 +27,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (

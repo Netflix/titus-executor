@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/models"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	assert2 "gotest.tools/assert"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 func TestImageNameWithTag(t *testing.T) {

@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (

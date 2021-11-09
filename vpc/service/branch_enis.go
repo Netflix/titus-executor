@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
@@ -21,6 +20,8 @@ import (
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (

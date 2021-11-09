@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/logging"
@@ -35,6 +34,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // Derived from big data portal reports

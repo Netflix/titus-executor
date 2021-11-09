@@ -19,7 +19,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/metadataserver"
@@ -32,6 +31,8 @@ import (
 	"github.com/urfave/cli"
 	"go.opencensus.io/trace"
 	"golang.org/x/sys/unix"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (

@@ -25,7 +25,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
@@ -51,6 +50,8 @@ import (
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (

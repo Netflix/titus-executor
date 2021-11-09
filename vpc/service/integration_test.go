@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/Netflix/titus-executor/logger"
@@ -125,7 +126,7 @@ func TestIntegrationTests(t *testing.T) {
 	if !enableIntegrationTests {
 		t.Skip("Integration tests are not enabled")
 	}
-	/*runIntegrationTest(t, "trunkENITests", trunkENITests)
+	runIntegrationTest(t, "trunkENITests", trunkENITests)
 	runIntegrationTest(t, "branchENITests", branchENITests)
 	runIntegrationTest(t, "testAssociate", testAssociate)
 	runIntegrationTest(t, "testGenerateAssignmentID", testGenerateAssignmentID)
@@ -136,7 +137,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
 	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
 	runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
-	*/runIntegrationTest(t, "testResetSecurityGroup", testResetSecurityGroup)
+	runIntegrationTest(t, "testResetSecurityGroup", testResetSecurityGroup)
 }
 
 type zipkinReporter struct {

@@ -6,8 +6,9 @@ import (
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 func TestFlatStringEntrypointIsParsedWithCinfo(t *testing.T) {

@@ -16,7 +16,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"go.opencensus.io/trace"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -44,6 +43,8 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (

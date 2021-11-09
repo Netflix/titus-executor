@@ -10,7 +10,6 @@ import (
 	"go.opencensus.io/trace"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -21,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // Task contains all information for running a task

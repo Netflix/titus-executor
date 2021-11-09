@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/Netflix/titus-executor/uploader"
@@ -26,6 +25,8 @@ import (
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	ptr "k8s.io/utils/pointer"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (

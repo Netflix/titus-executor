@@ -1,8 +1,9 @@
 package types
 
 import (
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (

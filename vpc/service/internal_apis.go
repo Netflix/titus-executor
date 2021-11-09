@@ -4,8 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"time"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"google.golang.org/protobuf/types/known/timestamppb"

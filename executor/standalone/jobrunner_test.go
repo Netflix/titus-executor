@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
@@ -32,6 +31,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
