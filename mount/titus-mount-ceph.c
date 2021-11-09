@@ -93,6 +93,10 @@ static inline int move_mount(int from_dfd, const char *from_pathname,
 			mount_error(fd, key ?: "create");                      \
 	} while (0)
 
+static void configure_source(int fsfd, const char *source) {
+	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "source", source, 0);
+}
+
 static void process_option(char *option, int fsfd)
 {
 	/* Splits up a k=v string and runs fsconfig on it.
@@ -229,6 +233,7 @@ int main(int argc, char *argv[])
 	 */
 	const char *target = getenv("MOUNT_TARGET");
 	const char *flags = getenv("MOUNT_FLAGS");
+	const char *source = getenv("MOUNT_SOURCE");
 	char *options = getenv("MOUNT_OPTIONS");
 
 	if (argc != 2) {
@@ -243,9 +248,9 @@ int main(int argc, char *argv[])
 	char final_options[buf_size];
 	strcpy(final_options, options);
 
-	if (!(target && flags && options)) {
+	if (!(target && flags && options && source)) {
 		fprintf(stderr,
-			"Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, and MOUNT_OPTIONS env vars");
+			"Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, MOUNT_SOURCE, and MOUNT_OPTIONS env vars");
 		return 1;
 	}
 
@@ -269,6 +274,7 @@ int main(int argc, char *argv[])
 		options);
 
 	/* Now we can do the fs_config calls and actual mount */
+	configure_source(fsfd, source);
 	do_fsconfigs(fsfd, options);
 	mkdir_p(target);
 	mount_and_move(fsfd, target, pidfd, flags_ul);
