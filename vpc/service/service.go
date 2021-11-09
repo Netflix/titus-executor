@@ -114,6 +114,7 @@ type vpcService struct {
 	titus.UserIPServiceServer
 	titus.ValidatorIPServiceServer
 	titus.TitusAgentVPCInformationServiceServer
+	titus.TitusAgentSecurityGroupServiceServer
 }
 
 // trunkTrackerCache keeps track of trunk ENIs, and at least locally (on-instance) tries to reduce contention for operations
@@ -331,6 +332,8 @@ func Run(ctx context.Context, config *Config) error {
 		titus.RegisterUserIPServiceServer(grpcServer, vpc)
 		titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
 		titus.RegisterTitusAgentVPCInformationServiceServer(grpcServer, vpc)
+		titus.RegisterTitusAgentSecurityGroupServiceServer(grpcServer, vpc)
+
 		reflection.Register(grpcServer)
 		group.Go(func() error {
 			<-ctx.Done()

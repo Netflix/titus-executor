@@ -321,7 +321,6 @@ service TitusAgentVPCService {
     rpc DisassociateTrunkNetworkInterface (DisassociateTrunkNetworkInterfaceRequest) returns (DisassociateTrunkNetworkInterfaceResponse);
     rpc DescribeTrunkNetworkInterface (DescribeTrunkNetworkInterfaceRequest) returns (DescribeTrunkNetworkInterfaceResponse);
     rpc DetachBranchNetworkInterface (DetachBranchNetworkInterfaceRequest) returns (DetachBranchNetworkInterfaceResponse);
-    rpc ResetSecurityGroup(ResetSecurityGroupRequest) returns (ResetSecurityGroupResponse);
 }
 
 message PrivateKey {

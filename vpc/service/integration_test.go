@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"net"
 	"os"
 	"path/filepath"
@@ -124,7 +125,7 @@ func TestIntegrationTests(t *testing.T) {
 	if !enableIntegrationTests {
 		t.Skip("Integration tests are not enabled")
 	}
-	runIntegrationTest(t, "trunkENITests", trunkENITests)
+	/*runIntegrationTest(t, "trunkENITests", trunkENITests)
 	runIntegrationTest(t, "branchENITests", branchENITests)
 	runIntegrationTest(t, "testAssociate", testAssociate)
 	runIntegrationTest(t, "testGenerateAssignmentID", testGenerateAssignmentID)
@@ -135,7 +136,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testGenerateAssignmentIDNewSG", testGenerateAssignmentIDNewSG)
 	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
 	runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
-	runIntegrationTest(t, "testResetSecurityGroup", testResetSecurityGroup)
+	*/runIntegrationTest(t, "testResetSecurityGroup", testResetSecurityGroup)
 }
 
 type zipkinReporter struct {
@@ -871,7 +872,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 
 	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", md.testResetSg)
 	//Now that the ENI is createdm reset the SG - should fail
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: md.testResetSg})
+	_, err = service.ResetSecurityGroup(ctx, &titus.ResetSecurityGroupRequest{SecurityGroupID: md.testResetSg})
 	assert.Check(t, err != nil)
 	if e, ok := status.FromError(err); ok {
 		assert.Equal(t, e.Code(), codes.FailedPrecondition)
@@ -894,7 +895,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", md.testResetSg)
 
 	time.Sleep(time.Second * 1)
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: md.testResetSg})
+	_, err = service.ResetSecurityGroup(ctx, &titus.ResetSecurityGroupRequest{SecurityGroupID: md.testResetSg})
 	assert.NilError(t, err)
 }
 
