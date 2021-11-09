@@ -443,6 +443,7 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 	l := logger.G(ctx).WithField("msg", msg).WithField("taskStatus", status)
 	select {
 	case r.UpdatesChan <- Update{
+		ContainerID:             r.container.ID(),
 		TaskID:                  r.container.TaskID(),
 		State:                   status,
 		Mesg:                    msg,
@@ -458,6 +459,7 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 
 // Update encapsulates information on the updatechan about Task status updates
 type Update struct {
+	ContainerID             string
 	TaskID                  string
 	State                   titusdriver.TitusTaskState
 	Mesg                    string
