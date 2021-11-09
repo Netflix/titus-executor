@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/spf13/viper"
 	"log"
 	"os"
 	"path/filepath"
@@ -20,7 +21,60 @@ import (
 	"github.com/mvisonneau/go-ebsnvme/pkg/ebsnvme"
 )
 
-func ebsRunner(ctx context.Context, command string, config MountConfig) error {
+const (
+	ebsVolumeFlagName     = "titus-ebs-volume-id"
+	taskIDFlagName        = "titus-task-id"
+	ebsMountPointFlagName = "ebs-mount-point"
+	ebsMountPermFlagName  = "ebs-mount-perm"
+	ebsFSTypeFlagName     = "ebs-fstype"
+	titusPid1DirFlagName  = "titus-pid1-dir"
+)
+
+
+type EBSMountConfig struct {
+	taskID        string
+	pid1Dir       string
+	ebsMountPoint string
+	ebsMountPerm  string
+	ebsFStype     string
+	ebsVolumeID   string
+}
+
+func bindEBSVariables(v *viper.Viper) {
+	if err := v.BindEnv(ebsVolumeFlagName, "TITUS_EBS_VOLUME_ID"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(taskIDFlagName, "TITUS_TASK_ID"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(ebsMountPointFlagName, "TITUS_EBS_MOUNT_POINT"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(ebsMountPermFlagName, "TITUS_EBS_MOUNT_PERM"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(ebsFSTypeFlagName, "TITUS_EBS_FSTYPE"); err != nil {
+		panic(err)
+	}
+	if err := v.BindEnv(titusPid1DirFlagName, "TITUS_PID_1_DIR"); err != nil {
+		panic(err)
+	}
+
+}
+
+func newEBSMountConfigFromViper(v *viper.Viper) EBSMountConfig {
+	return EBSMountConfig{
+		ebsVolumeID:   v.GetString(ebsVolumeFlagName),
+		taskID:        v.GetString(taskIDFlagName),
+		ebsMountPoint: v.GetString(ebsMountPointFlagName),
+		ebsMountPerm:  v.GetString(ebsMountPermFlagName),
+		ebsFStype:     v.GetString(ebsFSTypeFlagName),
+		pid1Dir:       v.GetString(titusPid1DirFlagName),
+	}
+}
+
+
+func ebsRunner(ctx context.Context, command string, config EBSMountConfig) error {
 	ec2Session := getEC2Session()
 	ec2Client := getEc2Client(ec2Session)
 	ec2InstanceID := getEC2InstanceID(ec2Session)
@@ -45,7 +99,7 @@ func ebsRunner(ctx context.Context, command string, config MountConfig) error {
 	return nil
 }
 
-func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2InstanceID string) error {
+func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c EBSMountConfig, ec2InstanceID string) error {
 	var err error
 	l := logger.GetLogger(ctx)
 
@@ -112,7 +166,7 @@ func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2Instanc
 	return nil
 }
 
-func ebsStop(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2InstanceID string) error {
+func ebsStop(ctx context.Context, ec2Client *ec2.EC2, c EBSMountConfig, ec2InstanceID string) error {
 	l := logger.GetLogger(ctx)
 	ec2Device, ok := getDeviceName(c.ebsVolumeID)
 	if !ok {

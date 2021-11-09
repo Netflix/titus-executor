@@ -23,15 +23,6 @@ type MountCommand struct {
 	fstype     string
 }
 
-func calculateFlags(mountPerm string) (string, error) {
-	if mountPerm == "RW" {
-		return "0", nil
-	} else if mountPerm == "RO" {
-		return "1", nil
-	}
-	return "", fmt.Errorf("error parsing the mount permissions: '%s', needs to be only RW/RO", mountPerm)
-}
-
 func mountBlockDeviceInContainer(ctx context.Context, mc MountCommand) error {
 	l := logger.GetLogger(ctx)
 	flags, err := calculateFlags(mc.perms)

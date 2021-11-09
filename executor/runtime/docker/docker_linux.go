@@ -139,6 +139,7 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	if err != nil {
 		return err
 	}
+
 	// TODO: Can we somehow make sure titus-container always starts first?
 	for _, svc := range sidecars {
 		if svc.EnabledCheck != nil && !svc.EnabledCheck(&cfg, c) {
@@ -155,6 +156,8 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 		if r := c.Runtime(); r != "" {
 			runtime = r
 		}
+
+
 		if err := startSystemdUnit(ctx, conn, c.TaskID(), c.ID(), runtime, *svc); err != nil {
 			logrus.WithError(err).Errorf("Error starting %s service", svc.UnitName)
 			return err
@@ -163,6 +166,7 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 
 	return nil
 }
+
 
 func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, runtime string, opts runtimeTypes.ServiceOpts) error {
 	if opts.InitCommand == "" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Netflix/titus-executor/cmd/common"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -15,8 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	corev1 "k8s.io/api/core/v1"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -93,29 +92,29 @@ func readTaskConfigFile(taskID string) (*titus.ContainerInfo, error) {
 	return &cInfo, nil
 }
 
-func readTaskPodFile(taskID string) (*corev1.Pod, error) {
-	if taskID == "" {
-		log.Errorf("task ID is empty: can't read pod config file")
-		return nil, fmt.Errorf("task ID env var unset: %s", taskInstanceIDEnvVar)
-	}
-
-	// This filename is from VK, which is /run/titus-executor/$namespace__$podname/pod.json
-	// We only use the default namespace, so we hardcode it here.
-	confFile := filepath.Join("/run/titus-executor/default__"+taskID, "pod.json")
-	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
-	if err != nil {
-		log.WithError(err).Errorf("Error reading pod config file %s", confFile)
-		return nil, err
-	}
-
-	var pod corev1.Pod
-	if err = json.Unmarshal(contents, &pod); err != nil {
-		log.WithError(err).Errorf("Error parsing JSON in pod config file %s", confFile)
-		return nil, err
-	}
-
-	return &pod, nil
-}
+//func readTaskPodFile(taskID string) (*corev1.Pod, error) {
+//	if taskID == "" {
+//		log.Errorf("task ID is empty: can't read pod config file")
+//		return nil, fmt.Errorf("task ID env var unset: %s", taskInstanceIDEnvVar)
+//	}
+//
+//	// This filename is from VK, which is /run/titus-executor/$namespace__$podname/pod.json
+//	// We only use the default namespace, so we hardcode it here.
+//	confFile := filepath.Join("/run/titus-executor/default__"+taskID, "pod.json")
+//	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
+//	if err != nil {
+//		log.WithError(err).Errorf("Error reading pod config file %s", confFile)
+//		return nil, err
+//	}
+//
+//	var pod corev1.Pod
+//	if err = json.Unmarshal(contents, &pod); err != nil {
+//		log.WithError(err).Errorf("Error parsing JSON in pod config file %s", confFile)
+//		return nil, err
+//	}
+//
+//	return &pod, nil
+//}
 
 func reloadSigner(ms *metadataserver.MetadataServer) {
 	t := time.NewTicker(certRefreshTime)
@@ -379,7 +378,7 @@ func main() {
 			} else {
 				mdscfg.Container = container
 			}
-			if pod, err := readTaskPodFile(titusTaskInstanceID); err != nil {
+			if pod, err := common.ReadTaskPodFile(titusTaskInstanceID); err != nil {
 				// TOOD: Make this fatal once we depend on this functionality
 				log.WithError(err).Error("Cannot read pod config file, continuing anyway")
 			} else {

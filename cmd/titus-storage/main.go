@@ -15,23 +15,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const (
-	ebsVolumeFlagName     = "titus-ebs-volume-id"
-	taskIDFlagName        = "titus-task-id"
-	ebsMountPointFlagName = "ebs-mount-point"
-	ebsMountPermFlagName  = "ebs-mount-perm"
-	ebsFSTypeFlagName     = "ebs-fstype"
-	titusPid1DirFlagName  = "titus-pid1-dir"
-)
 
-type MountConfig struct {
-	taskID        string
-	pid1Dir       string
-	ebsMountPoint string
-	ebsMountPerm  string
-	ebsFStype     string
-	ebsVolumeID   string
-}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,7 +30,7 @@ func main() {
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mountConfig := newMountConfigFromViper(v)
+			mountConfig := newEBSMountConfigFromViper(v)
 			ctx = logger.WithFields(ctx, logrus.Fields{
 				"ebs_volume_id": mountConfig.ebsVolumeID,
 				"taskid":        mountConfig.taskID,
@@ -73,6 +57,12 @@ func main() {
 					return nil
 				}
 			}
+			//mount cephfs, if there is no cephfs, it will be no-op
+			err = mountCephFS(ctx, v)
+			if err != nil {
+				l.WithError(err).Error("error mounting cephFS")
+				return err
+			}
 			return nil
 		},
 		Use: "titus-storage <start|stop>",
@@ -82,7 +72,7 @@ func main() {
 		logger.G(ctx).WithError(err).Fatal("Unable to configure Viper")
 	}
 
-	bindVariables(v)
+	bindEBSVariables(v)
 	v.AutomaticEnv()
 
 	err := cmd.Execute()
@@ -95,38 +85,7 @@ func main() {
 	os.Exit(0)
 }
 
-func bindVariables(v *viper.Viper) {
-	if err := v.BindEnv(ebsVolumeFlagName, "TITUS_EBS_VOLUME_ID"); err != nil {
-		panic(err)
-	}
-	if err := v.BindEnv(taskIDFlagName, "TITUS_TASK_ID"); err != nil {
-		panic(err)
-	}
-	if err := v.BindEnv(ebsMountPointFlagName, "TITUS_EBS_MOUNT_POINT"); err != nil {
-		panic(err)
-	}
-	if err := v.BindEnv(ebsMountPermFlagName, "TITUS_EBS_MOUNT_PERM"); err != nil {
-		panic(err)
-	}
-	if err := v.BindEnv(ebsFSTypeFlagName, "TITUS_EBS_FSTYPE"); err != nil {
-		panic(err)
-	}
-	if err := v.BindEnv(titusPid1DirFlagName, "TITUS_PID_1_DIR"); err != nil {
-		panic(err)
-	}
 
-}
-
-func newMountConfigFromViper(v *viper.Viper) MountConfig {
-	return MountConfig{
-		ebsVolumeID:   v.GetString(ebsVolumeFlagName),
-		taskID:        v.GetString(taskIDFlagName),
-		ebsMountPoint: v.GetString(ebsMountPointFlagName),
-		ebsMountPerm:  v.GetString(ebsMountPermFlagName),
-		ebsFStype:     v.GetString(ebsFSTypeFlagName),
-		pid1Dir:       v.GetString(titusPid1DirFlagName),
-	}
-}
 
 func getExclusiveLock(ctx context.Context) (*fslocker.ExclusiveLock, error) {
 	stateDir := "/run/titus-storage"

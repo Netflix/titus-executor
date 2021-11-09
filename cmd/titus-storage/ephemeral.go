@@ -23,7 +23,7 @@ func ephemeralStorageIsAvailable() bool {
 	return err == nil
 }
 
-func ephemeralStorageRunner(ctx context.Context, command string, config MountConfig) error {
+func ephemeralStorageRunner(ctx context.Context, command string, config EBSMountConfig) error {
 	l := logger.GetLogger(ctx)
 	var err error
 	switch command {
@@ -45,7 +45,7 @@ func ephemeralStorageRunner(ctx context.Context, command string, config MountCon
 	return nil
 }
 
-func ephemeralStorageStart(ctx context.Context, config MountConfig) error {
+func ephemeralStorageStart(ctx context.Context, config EBSMountConfig) error {
 	l := logger.GetLogger(ctx)
 	sizeGB, err := getEphemeralStorageSizeGB()
 	if err != nil {
@@ -78,7 +78,7 @@ func ephemeralStorageStart(ctx context.Context, config MountConfig) error {
 	return nil
 }
 
-func ephemeralStorageStop(ctx context.Context, config MountConfig) error {
+func ephemeralStorageStop(ctx context.Context, config EBSMountConfig) error {
 	l := logger.GetLogger(ctx)
 	device, err := getTaskEphemeralStorageDevice(config.taskID)
 	if err != nil {
