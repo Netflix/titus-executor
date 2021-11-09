@@ -955,7 +955,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		myImageInfo         *types.ImageInspect
 		dockerCfg           *container.Config
 		hostCfg             *container.HostConfig
-		sidecarConfigs      []*runtimeTypes.ServiceOpts
+		systemServices      []*runtimeTypes.ServiceOpts
 		size                int64
 		runTmpfs            string
 		err                 error
@@ -976,7 +976,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		bindMounts = append(bindMounts, runTmpfs)
 	}
 
-	sidecarConfigs, err = r.c.SidecarConfigs()
+	systemServices, err = r.c.SystemServices()
 	if err != nil {
 		goto error
 	}
@@ -1005,14 +1005,14 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		return nil
 	})
 
-	for _, sidecarConfig := range sidecarConfigs {
+	for _, sidecarConfig := range systemServices {
 		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
 			sidecarConfig.ContainerName = sidecarConfig.ServiceName
 			group.Go(r.createVolumeContainerFunc(sidecarConfig))
 		}
 	}
 
-	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
 			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
 			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
@@ -1029,7 +1029,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		}
 	}
 
-	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
 		v := r.c.EBSInfo()
 		r.c.SetEnvs(map[string]string{
 			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
@@ -1091,7 +1091,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		goto error
 	}
 
-	for _, sidecarConfig := range sidecarConfigs {
+	for _, sidecarConfig := range systemServices {
 		if sidecarConfig.ContainerName != "" {
 			volumeContainers = append(volumeContainers, sidecarConfig.ContainerName)
 		}

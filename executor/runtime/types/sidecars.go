@@ -21,7 +21,7 @@ const (
 	SidecarContainerTools       = "container-tools"
 )
 
-var sideCars = []ServiceOpts{
+var systemServices = []ServiceOpts{
 	{
 		ServiceName: SidecarTitusContainer,
 		UnitName:    "titus-container",

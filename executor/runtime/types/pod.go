@@ -612,7 +612,7 @@ func (c *PodContainer) ShmSizeMiB() *uint32 {
 	return c.shmSizeMiB
 }
 
-func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
+func (c *PodContainer) SystemServices() ([]*ServiceOpts, error) {
 	svcMeshImage := ""
 	if c.ServiceMeshEnabled() {
 		svcMeshImage = c.serviceMeshImage
@@ -630,7 +630,7 @@ func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 	}
 
 	sideCarPtrs := []*ServiceOpts{}
-	for _, scOrig := range sideCars {
+	for _, scOrig := range systemServices {
 		// Make a copy to avoid mutating the original
 		sc := scOrig
 		imgName := imageMap[sc.ServiceName]

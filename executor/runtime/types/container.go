@@ -976,7 +976,7 @@ func (c *TitusInfoContainer) ShmSizeMiB() *uint32 {
 	return nil
 }
 
-func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
+func (c *TitusInfoContainer) SystemServices() ([]*ServiceOpts, error) {
 	svcMeshImage := ""
 	sideCarPtrs := []*ServiceOpts{}
 	if c.ServiceMeshEnabled() {
@@ -998,7 +998,7 @@ func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 		SidecarContainerTools:     c.config.ContainerToolsImage,
 	}
 
-	for _, scOrig := range sideCars {
+	for _, scOrig := range systemServices {
 		// Make a copy to avoid mutating the original
 		sc := scOrig
 		image, ok := imageMap[sc.ServiceName]
