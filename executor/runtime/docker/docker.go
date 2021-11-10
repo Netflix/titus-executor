@@ -2047,20 +2047,27 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 		l.Debugf("Skipping docker start event for %s, no need to update the pod", cName)
 		return nonTerminalDockerEvent
 	case "die":
-		// TODO: Handle the difference between platform/user sidecar, not all
-		// "die"s should result in a Finish
-		if exitCode := message.Actor.Attributes["exitCode"]; exitCode == "0" {
+		exitCode := message.Actor.Attributes["exitCode"]
+		if exitCode == "0" {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFinished,
 				Msg:    cName + " container successfully exited with 0",
 			}
+			return isTerminalDockerEvent
+		} else if exitCode == "137" && cName != mainContainerName {
+			// An exit code of 137 means it was killed.
+			// If we are not on the 'main' container, and docker doesn't have us in the 'oom' case,
+			// then it *probably* means that a sidecar container got killed while we were tearing down the pod
+			// In this case, we should not update the task status, and let the "real" docker event do that for us.
+			l.Infof("Ignoring %s container dying with exit code 137, probably meaning that it was killed while the main container was exiting", cName)
+			return nonTerminalDockerEvent
 		} else {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFailed,
 				Msg:    fmt.Sprintf("%s container exited with code %s", cName, exitCode),
 			}
+			return isTerminalDockerEvent
 		}
-		return isTerminalDockerEvent
 	case "health_status":
 		// TODO: Update the actual health state of the container
 		// so that ContainerStatus reflects what docker knows
