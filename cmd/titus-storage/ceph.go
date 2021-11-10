@@ -65,16 +65,12 @@ func mountSource(mc CephMountCommand) string {
 	return fmt.Sprintf("%s:%s", mc.monitorIP, mc.cephFSPath)
 }
 
-func isMountingCephFS(mc *CephMountCommand) bool {
-	return mc != nil
-}
-
 func cephMountCmds(ctx context.Context, v *viper.Viper) ([]CephMountCommand, error) {
 	cmds, err := mountCmds(ctx, CEPHFS, v.GetString(taskIDFlagName))
 	if err != nil {
 		return nil, err
 	}
-	ret := make([]CephMountCommand, 30)
+	var ret []CephMountCommand
 	for _, c := range cmds {
 		ret = append(ret, c.(CephMountCommand))
 	}

@@ -41,7 +41,8 @@ func mountCmds(ctx context.Context, mtype string, taskId string) ([]interface{},
 			containerNameToId[cs.Name] = cs.ContainerID
 		}
 	}
-	cmds := make([]interface{}, 30)
+	l.Printf("container name  to id map %v", containerNameToId)
+	var cmds []interface{}
 	for _, p := range pod.Spec.Volumes {
 		switch mtype {
 		case CEPHFS:
@@ -57,11 +58,13 @@ func mountCmds(ctx context.Context, mtype string, taskId string) ([]interface{},
 				}
 				for _, d := range mountDetail {
 					containerId := containerNameToId[d.containerName]
+					l.Printf("getting pid for container %s containerId %s ", d.containerName, containerId)
 					inspect, err := dockerClient.ContainerInspect(ctx, containerId)
 					if err != nil {
 						return nil, err
 					}
 					containerPID := strconv.Itoa(inspect.State.Pid)
+					l.Printf("pid for container %s", containerPID)
 					cmd := CephMountCommand{
 						perms:        perms,
 						mountPoint:   d.mountPath,
@@ -88,7 +91,7 @@ type ContainerVolumeMount struct {
 }
 
 func containersUsingVolume(vol string, pod *corev1.Pod) []ContainerVolumeMount {
-	ret := make([]ContainerVolumeMount, 30)
+	var ret []ContainerVolumeMount
 	for _, c := range pod.Spec.Containers {
 		for _, v := range c.VolumeMounts {
 			if v.Name == vol {
