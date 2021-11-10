@@ -1795,7 +1795,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 				ReadOnly: false,
 			},
 		)
-		volumeMounts, err := r.getContainerVolumeMounts(mainContainerRoot, v1Container, pod)
+		volumeMounts, err := r.getContainerSharedVolumeSourceMounts(mainContainerRoot, v1Container, pod)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1972,7 +1972,11 @@ func (r *DockerRuntime) getPlaformContainerNames() []string {
 	return platformContainerNames
 }
 
-func (r *DockerRuntime) getContainerVolumeMounts(mainContainerRoot string, c v1.Container, pod *v1.Pod) ([]mount.Mount, error) {
+// getContainerSharedVolumeSourceMounts returns a docker mount object
+// for every "SharedContainerVolumeSource", which is a special volume/VolumeMount
+// combo in a k8s pod spec that indicates that we should bind-mount one
+// directory in one container into another
+func (r *DockerRuntime) getContainerSharedVolumeSourceMounts(mainContainerRoot string, c v1.Container, pod *v1.Pod) ([]mount.Mount, error) {
 	mounts := []mount.Mount{}
 	volumes := pod.Spec.Volumes
 	for _, volumeMount := range c.VolumeMounts {
@@ -1980,18 +1984,18 @@ func (r *DockerRuntime) getContainerVolumeMounts(mainContainerRoot string, c v1.
 		if v.Name == "" {
 			return nil, fmt.Errorf("couldn't find the corresponding volume for volumeMount %+v", volumeMount)
 		}
-		if v.FlexVolume.Driver == "SharedContainerVolumeSource" {
+		if v.FlexVolume != nil && v.FlexVolume.Driver == "SharedContainerVolumeSource" && v.FlexVolume.Options != nil {
+			if v.FlexVolume.Options["sourceContainer"] != "main" && v.FlexVolume.Options["sourceContainer"] != "" {
+				return nil, fmt.Errorf("only 'main' SharedContainerVolume volumes are supported. Volume: %+v", v)
+			}
 			m := mount.Mount{
-				Type: "bind",
-				// TODO: We should only use the mainContainerRoot if the `sourceContainer` == "main"
+				Type:        "bind",
 				Source:      filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]),
 				Target:      volumeMount.MountPath,
 				ReadOnly:    volumeMount.ReadOnly,
 				BindOptions: &mount.BindOptions{Propagation: v1MountPropToDockerProp(*volumeMount.MountPropagation)},
 			}
 			mounts = append(mounts, m)
-		} else {
-			return nil, fmt.Errorf("the driver is not currently supported for the volume of %+v", v)
 		}
 	}
 	return mounts, nil
