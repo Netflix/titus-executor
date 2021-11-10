@@ -14,6 +14,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
+	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -129,9 +130,10 @@ type SidecarContainerConfig struct {
 // ExtraContainer stores data about the other containers running alongside the
 // main container in the C&W implementation of pods
 type ExtraContainer struct {
-	Name        string                 // Name of the container from the pod spec
-	V1Container corev1.Container       // The k8s definition of the container from the pod object
-	Status      corev1.ContainerStatus // Status of the container, shows up in podstatus
+	Name         string                    // Name of the container from the pod spec
+	V1Container  corev1.Container          // The k8s definition of the container from the pod object
+	Status       corev1.ContainerStatus    // Status of the container, shows up in podstatus
+	ImageInspect *dockerTypes.ImageInspect // Inspect of the image that the extra container will run
 }
 
 type NFSMount struct {

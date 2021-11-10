@@ -1622,10 +1622,20 @@ func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod)
 	otherUserContainers := append(r.c.ExtraUserContainers(), r.c.ExtraPlatformContainers()...)
 	group := groupWithContext(ctx)
 	for _, c := range otherUserContainers {
-		image := c.V1Container.Image
+		c2 := c
 		group.Go(func(ctx context.Context) error {
+			image := c2.V1Container.Image
 			l.Debugf("pulling other container image %s", image)
-			return pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			if err != nil {
+				return err
+			}
+			imageInspect, err2 := imageExists(ctx, r.client, image)
+			if err2 != nil {
+				return fmt.Errorf("Failed to inspect %s after pull: %w", image, err2)
+			}
+			c2.ImageInspect = imageInspect
+			return nil
 		})
 	}
 	return group.Wait()
@@ -1643,7 +1653,7 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	for idx := range r.c.ExtraUserContainers() {
 		c := r.c.ExtraUserContainers()[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot, pod)
+			cid, err := r.createExtraContainerInDocker(ctx, c, mainContainerID, mainContainerRoot, pod)
 			if err != nil {
 				return fmt.Errorf("Failed to create %s user container: %w", c.Name, err)
 			}
@@ -1656,7 +1666,7 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	for idx := range r.c.ExtraPlatformContainers() {
 		c := r.c.ExtraPlatformContainers()[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot, pod)
+			cid, err := r.createExtraContainerInDocker(ctx, c, mainContainerID, mainContainerRoot, pod)
 			if err != nil {
 				return fmt.Errorf("Failed to create %s platform container: %w", c.Name, err)
 			}
@@ -1728,26 +1738,27 @@ func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn
 	return group.Wait()
 }
 
-func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (string, error) {
+func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, c *runtimeTypes.ExtraContainer, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
-	containerName := r.c.TaskID() + "-" + v1Container.Name
-	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, err := r.k8sContainerToDockerConfigs(v1Container, mainContainerID, mainContainerRoot, pod)
+	containerName := r.c.TaskID() + "-" + c.Name
+	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, err := r.k8sContainerToDockerConfigs(c, mainContainerID, mainContainerRoot, pod)
 	if err != nil {
 		return "", fmt.Errorf("error creating the %s container: %s", containerName, err)
 	}
 	l.WithFields(map[string]interface{}{
 		"dockerCfg": logger.ShouldJSON(ctx, *dockerContainerConfig),
 		"hostCfg":   logger.ShouldJSON(ctx, *dockerHostConfig),
-	}).Infof("Creating other container in docker: %s", v1Container.Name)
+	}).Infof("Creating other container in docker: %s", c.Name)
 	containerCreateBody, err := r.client.ContainerCreate(ctx, dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, containerName)
 	if err != nil {
 		return "", err
 	}
-	l.Debugf("Finished creating container %s, CID: %s, Env: %+v", v1Container.Name, containerCreateBody.ID, dockerContainerConfig.Env)
+	l.Debugf("Finished creating container %s, CID: %s, Env: %+v", c.Name, containerCreateBody.ID, dockerContainerConfig.Env)
 	return containerCreateBody.ID, nil
 }
 
-func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (*container.Config, *container.HostConfig, *network.NetworkingConfig, error) {
+func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContainer, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (*container.Config, *container.HostConfig, *network.NetworkingConfig, error) {
+	v1Container := c.V1Container
 	// These labels are needed for titus-node-problem-detector and titus-isolate
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
@@ -1825,26 +1836,15 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		}...)
 	}
 	b := true
-	// What docker calls "command", is what k8s calls "Args"
-	dockerCmd := v1Container.Args
-	// What docker calls "entrypoint", k8s calls "command", but in addition, we prepend tini
-	// The reason we do this is because, even with init=true, docker will only inject tini
-	// on containers running in a private pid namespace.
-	// On titus, we want tini on *every* container, because it gives us features like stdout/err
-	// TODO: get the entrypoint that comes from the *image* and use it here if `v1Container.Command` is null
-	// Because as is, we are *setting* the entrypoint all the time here, which means docker is going
-	// to ignore whatever entrypoing is on the *image*. We want the normal docker behavior here,
-	// but we *also* want tini.
-	dockerEntrypoint := append([]string{"/sbin/docker-init", "-s", "--"}, v1Container.Command...)
 	healthcheck := v1ContainerHealthcheckToDockerHealthcheck(v1Container.LivenessProbe)
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
 		Hostname:    "",
-		Cmd:         dockerCmd,
+		Cmd:         v1Container.Args,
 		Image:       v1Container.Image,
 		WorkingDir:  v1Container.WorkingDir,
-		Entrypoint:  dockerEntrypoint,
+		Entrypoint:  computeExtraContainersDockerEntrypoint(c),
 		Labels:      labels,
 		Env:         append(baseEnv, v1ConatinerEnvToList(v1Container.Env)...),
 		Healthcheck: healthcheck,
@@ -1882,6 +1882,34 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
 	dockerNetworkConfig := &network.NetworkingConfig{}
 	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, nil
+}
+
+// computeExtraContainersDockerEntrypoint takes an extra container, and tries our best to take multiple
+// inputs, and computing the most sane entrypoint we can come up with given our requirements. That is:
+// 1. We have input k8s container "Command" (docker entrypoint)
+// 2. We have the original docker entrypoint on the image
+// 3. We have tini, which we need to inject ourselves because we want tini goodness (stdout/err, seccomp, etc)
+//
+// Given those 3 things, we must return *something* that docker can actually run.
+func computeExtraContainersDockerEntrypoint(c *runtimeTypes.ExtraContainer) []string {
+	// What docker calls "entrypoint", k8s calls "command", but in addition, we prepend tini
+	// The reason we do this is because, even with init=true, docker will only inject tini
+	// on containers running in a private pid namespace.
+	// On titus, we want tini on *every* container, because it gives us features like stdout/err
+	originalEntrypoint := getExtraContainerEntrypoint(c)
+	return append([]string{"/sbin/docker-init", "-s", "--"}, originalEntrypoint...)
+}
+
+// getExtraContainerEntrypoint computes the original entrypoint that the user
+// wants to run, given two sources:
+// 1. the input k8s pod "command" (takes precedence)
+// 2. the input ENTRYPOINT on the image (should be used if no command is specified on the container spec)
+func getExtraContainerEntrypoint(c *runtimeTypes.ExtraContainer) []string {
+	if len(c.V1Container.Command) > 0 {
+		return c.V1Container.Command
+	}
+	// Otherwise we provide whatever the original image had, even if it is an empty array
+	return c.ImageInspect.ContainerConfig.Entrypoint
 }
 
 func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
