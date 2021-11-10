@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/google/renameio"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
@@ -23,6 +27,8 @@ import (
 
 var (
 	ErrEC2MetadataServiceUnavailable = errors.New("EC2 metadata service unavailable")
+	ErrEC2MetadataFileNotFound       = errors.New("EC2 metadata file was not found")
+	ErrPkcsFileNotFound              = errors.New("PKCS file was not found")
 )
 
 var (
@@ -31,7 +37,53 @@ var (
 	getIdentitySuccess = stats.Int64("getIdentity.success.count", "How many times getIdentity succeeded", "")
 )
 
+const (
+	InstanceIdentityFile = "/run/instanceIdentity/doc"
+	PkcsFile             = "/run/instanceIdentity/pkcs"
+)
+
 type ec2Provider struct{}
+
+func (e *ec2Provider) GetIdentityFromFile(ctx context.Context) (*ec2metadata.EC2InstanceIdentityDocument, []byte, []byte, error) {
+	var pkcsFile *os.File
+	_, span := trace.StartSpan(ctx, "GetIdentityFromFile")
+	defer span.End()
+	// Attempt to read the data off of cache
+	instanceIdentityFile, err := os.OpenFile(InstanceIdentityFile, os.O_RDONLY, 0644)
+	if err != nil {
+		tracehelpers.SetStatus(ErrEC2MetadataFileNotFound, span)
+		return nil, nil, nil, err
+	}
+
+	pkcsFile, err = os.OpenFile(PkcsFile, os.O_RDONLY, 0644)
+	if err != nil {
+		tracehelpers.SetStatus(ErrPkcsFileNotFound, span)
+		return nil, nil, nil, err
+	}
+	defer instanceIdentityFile.Close()
+	defer pkcsFile.Close()
+
+	// Read the instance Identity file
+	instanceID, err := ioutil.ReadAll(instanceIdentityFile)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, nil, nil, err
+	}
+	var doc ec2metadata.EC2InstanceIdentityDocument
+	err = json.Unmarshal(instanceID, &doc)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, nil, nil, err
+	}
+
+	// Read the pkcs7 file
+	pkcs7, err := ioutil.ReadAll(pkcsFile)
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return nil, nil, nil, err
+	}
+	return &doc, instanceID, pkcs7, nil
+}
 
 func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity, error) {
 	ctx, span := trace.StartSpan(ctx, "GetIdentity")
@@ -40,6 +92,20 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 	stats.Record(ctx, getIdentityCount.M(1))
 
 	newAWSLogger := &awsLogger{logger: logger.G(ctx), oldMessages: list.New()}
+
+	// Attempt to read the data off of cache
+	docFromFile, instanceID, pkcs7FromFile, err := e.GetIdentityFromFile(ctx)
+	if err == nil {
+		return &vpcapi.InstanceIdentity{
+			InstanceIdentityDocument:  string(instanceID),
+			InstanceIdentitySignature: string(pkcs7FromFile),
+			InstanceID:                docFromFile.InstanceID,
+			Region:                    docFromFile.Region,
+			AccountID:                 docFromFile.AccountID,
+			InstanceType:              docFromFile.InstanceType,
+		}, err
+	}
+	logger.G(ctx).Debug("Could not find IMDS cache on disk")
 	ec2MetadataClient := ec2metadata.New(
 		session.Must(
 			session.NewSession(
@@ -74,6 +140,9 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 
 	stats.Record(ctx, getIdentityLatency.M(float64(time.Since(start).Nanoseconds())), getIdentitySuccess.M(1))
 
+	//Cache IMDS results on disk
+	cacheIdentityFiles(ctx, resp, pkcs7)
+
 	return &vpcapi.InstanceIdentity{
 		InstanceIdentityDocument:  resp,
 		InstanceIdentitySignature: pkcs7,
@@ -82,6 +151,24 @@ func (e *ec2Provider) GetIdentity(ctx context.Context) (*vpcapi.InstanceIdentity
 		AccountID:                 doc.AccountID,
 		InstanceType:              doc.InstanceType,
 	}, err
+}
+
+func cacheIdentityFiles(ctx context.Context, resp string, pkcs string) {
+	_, span := trace.StartSpan(ctx, "GetIdentity")
+	defer span.End()
+
+	if err := os.MkdirAll(filepath.Dir(InstanceIdentityFile), 0755); err != nil {
+		tracehelpers.SetStatus(err, span)
+		return
+	}
+	if err := renameio.WriteFile(InstanceIdentityFile, []byte(resp), 0644); err != nil {
+		tracehelpers.SetStatus(err, span)
+		return
+	}
+	if err := renameio.WriteFile(PkcsFile, []byte(pkcs), 0644); err != nil {
+		tracehelpers.SetStatus(err, span)
+		return
+	}
 }
 
 // This isn't thread safe. But that's okay, because we don't use it in a multi-threaded way.
