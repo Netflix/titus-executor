@@ -157,7 +157,6 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 			runtime = r
 		}
 
-
 		if err := startSystemdUnit(ctx, conn, c.TaskID(), c.ID(), runtime, *svc); err != nil {
 			logrus.WithError(err).Errorf("Error starting %s service", svc.UnitName)
 			return err
@@ -166,7 +165,6 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 
 	return nil
 }
-
 
 func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, runtime string, opts runtimeTypes.ServiceOpts) error {
 	if opts.InitCommand == "" {

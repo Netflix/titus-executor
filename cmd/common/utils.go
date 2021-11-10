@@ -3,13 +3,15 @@ package common
 import (
 	"encoding/json"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
-	corev1 "k8s.io/api/core/v1"
 	"path/filepath"
+
+	log "github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const taskInstanceIDEnvVar = "TITUS_TASK_INSTANCE_ID"
+
 func ReadTaskPodFile(taskID string) (*corev1.Pod, error) {
 	if taskID == "" {
 		log.Errorf("task ID is empty: can't read pod config file")

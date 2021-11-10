@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/Netflix/titus-executor/logger"
-	"github.com/spf13/viper"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/Netflix/titus-executor/logger"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -15,10 +16,10 @@ const (
 )
 
 type CephMountCommand struct {
-	perms      string
-	mountPoint string
-	monitorIP  string
-	cephFSPath string
+	perms        string
+	mountPoint   string
+	monitorIP    string
+	cephFSPath   string
 	containerPID string
 	name         string
 	secret       string
@@ -60,11 +61,11 @@ func cephOptions(mc CephMountCommand) string {
 	return fmt.Sprintf("name=%s,secret=%s", mc.name, mc.secret)
 }
 
-func mountSource(mc CephMountCommand) string  {
+func mountSource(mc CephMountCommand) string {
 	return fmt.Sprintf("%s:%s", mc.monitorIP, mc.cephFSPath)
 }
 
-func isMountingCephFS(mc *CephMountCommand) bool  {
+func isMountingCephFS(mc *CephMountCommand) bool {
 	return mc != nil
 }
 

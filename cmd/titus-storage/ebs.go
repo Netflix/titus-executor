@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"time"
+
+	"github.com/spf13/viper"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/aws/aws-sdk-go/aws"
@@ -29,7 +30,6 @@ const (
 	ebsFSTypeFlagName     = "ebs-fstype"
 	titusPid1DirFlagName  = "titus-pid1-dir"
 )
-
 
 type EBSMountConfig struct {
 	taskID        string
@@ -72,7 +72,6 @@ func newEBSMountConfigFromViper(v *viper.Viper) EBSMountConfig {
 		pid1Dir:       v.GetString(titusPid1DirFlagName),
 	}
 }
-
 
 func ebsRunner(ctx context.Context, command string, config EBSMountConfig) error {
 	ec2Session := getEC2Session()

@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/logger"
 	docker "github.com/docker/docker/client"
 	corev1 "k8s.io/api/core/v1"
-	"strconv"
-	"strings"
 )
 
 func calculateFlags(mountPerm string) (string, error) {
@@ -61,7 +62,7 @@ func mountCmds(ctx context.Context, mtype string, taskId string) ([]interface{},
 						return nil, err
 					}
 					containerPID := strconv.Itoa(inspect.State.Pid)
-					cmd := CephMountCommand {
+					cmd := CephMountCommand{
 						perms:        perms,
 						mountPoint:   d.mountPath,
 						monitorIP:    mons,
@@ -82,11 +83,11 @@ func mountCmds(ctx context.Context, mtype string, taskId string) ([]interface{},
 }
 
 type ContainerVolumeMount struct {
-	mountPath  string
+	mountPath     string
 	containerName string
 }
 
-func containersUsingVolume(vol string, pod *corev1.Pod) []ContainerVolumeMount  {
+func containersUsingVolume(vol string, pod *corev1.Pod) []ContainerVolumeMount {
 	ret := make([]ContainerVolumeMount, 30)
 	for _, c := range pod.Spec.Containers {
 		for _, v := range c.VolumeMounts {
@@ -100,4 +101,3 @@ func containersUsingVolume(vol string, pod *corev1.Pod) []ContainerVolumeMount  
 	}
 	return ret
 }
-

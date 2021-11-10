@@ -15,8 +15,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-
-
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -84,8 +82,6 @@ func main() {
 	}
 	os.Exit(0)
 }
-
-
 
 func getExclusiveLock(ctx context.Context) (*fslocker.ExclusiveLock, error) {
 	stateDir := "/run/titus-storage"
