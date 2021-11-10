@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
 	"github.com/lib/pq"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 func (vpcService *vpcService) ValidateAllocationParameters(ctx context.Context, req *titus.ParametersValidationRequest) (*titus.ParametersValidationResponse, error) {

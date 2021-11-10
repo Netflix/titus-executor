@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/metadataserver/identity"
 	"github.com/Netflix/titus-executor/metadataserver/metrics"
 	"github.com/pkg/errors"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	log "github.com/sirupsen/logrus"

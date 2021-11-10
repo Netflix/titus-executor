@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -20,6 +19,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"

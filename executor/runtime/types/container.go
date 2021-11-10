@@ -14,7 +14,6 @@ import (
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
@@ -27,6 +26,8 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	ptr "k8s.io/utils/pointer"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (

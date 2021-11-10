@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
@@ -24,6 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (

@@ -7,7 +7,6 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
@@ -20,6 +19,8 @@ import (
 	"golang.org/x/crypto/ed25519"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // this is the maximum number of IP addresses you are allowed to assign to an interface in EC2.

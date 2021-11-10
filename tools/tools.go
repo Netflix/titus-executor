@@ -5,7 +5,7 @@ package tools
 
 import (
 	_ "github.com/golang/protobuf/protoc-gen-go"
-	_ "golang.org/x/tools/cmd/goimports"
-	_ "github.com/myitcv/gobin"
 	_ "github.com/jteeuwen/go-bindata/go-bindata"
+	_ "github.com/myitcv/gobin"
+	_ "golang.org/x/tools/cmd/goimports"
 )

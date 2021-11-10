@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netflix/titus-executor/api/netflix/titus"
+
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -871,7 +873,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 
 	logger.G(ctx).Debug("Attachment verified..Going to reset the SG - should fail", md.testResetSg)
 	//Now that the ENI is createdm reset the SG - should fail
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: md.testResetSg})
+	_, err = service.ResetSecurityGroup(ctx, &titus.ResetSecurityGroupRequest{SecurityGroupID: md.testResetSg})
 	assert.Check(t, err != nil)
 	if e, ok := status.FromError(err); ok {
 		assert.Equal(t, e.Code(), codes.FailedPrecondition)
@@ -894,7 +896,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 	logger.G(ctx).Debug("Dissociate complete, for ", id, " call reset again ..", md.testResetSg)
 
 	time.Sleep(time.Second * 1)
-	_, err = service.ResetSecurityGroup(ctx, &vpcapi.ResetSecurityGroupRequest{SgId: md.testResetSg})
+	_, err = service.ResetSecurityGroup(ctx, &titus.ResetSecurityGroupRequest{SecurityGroupID: md.testResetSg})
 	assert.NilError(t, err)
 }
 

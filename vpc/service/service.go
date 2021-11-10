@@ -16,7 +16,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"go.opencensus.io/trace"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -44,6 +43,8 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -114,6 +115,7 @@ type vpcService struct {
 	titus.UserIPServiceServer
 	titus.ValidatorIPServiceServer
 	titus.TitusAgentVPCInformationServiceServer
+	titus.TitusAgentSecurityGroupServiceServer
 }
 
 // trunkTrackerCache keeps track of trunk ENIs, and at least locally (on-instance) tries to reduce contention for operations
@@ -331,6 +333,8 @@ func Run(ctx context.Context, config *Config) error {
 		titus.RegisterUserIPServiceServer(grpcServer, vpc)
 		titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
 		titus.RegisterTitusAgentVPCInformationServiceServer(grpcServer, vpc)
+		titus.RegisterTitusAgentSecurityGroupServiceServer(grpcServer, vpc)
+
 		reflection.Register(grpcServer)
 		group.Go(func() error {
 			<-ctx.Done()

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
@@ -23,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ptr "k8s.io/utils/pointer"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (

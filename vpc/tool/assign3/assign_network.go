@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
@@ -17,6 +16,8 @@ import (
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 type Arguments struct {

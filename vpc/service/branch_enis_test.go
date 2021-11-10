@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 
 	"github.com/pkg/errors"
 	"gotest.tools/assert"
