@@ -131,6 +131,12 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 			ServerPath: "/remote-dir",
 			ReadOnly:   true,
 		},
+		{
+			MountPoint: "/efs1-rw",
+			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
+			ServerPath: "/remote-dir",
+			ReadOnly:   false,
+		},
 	}
 	expEBSMount := EBSInfo{
 		VolumeID:  "vol-abcdef",
@@ -229,6 +235,10 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 			Name:      "efs-fs-abcdef-rwm.subdir1",
 			MountPath: "/efs1",
 			ReadOnly:  true,
+		},
+		{
+			Name:      "efs-fs-abcdef-rwm.subdir1",
+			MountPath: "/efs1-rw",
 		},
 		{
 			Name:      "dev-shm",
