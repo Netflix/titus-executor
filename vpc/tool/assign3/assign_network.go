@@ -208,6 +208,8 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 
 func shouldAssignV6(args Arguments) bool {
 	switch args.NetworkMode {
+	case titus.NetworkConfiguration_Ipv6Only.String():
+		return true
 	case titus.NetworkConfiguration_Ipv6AndIpv4.String():
 		return true
 	case titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String():

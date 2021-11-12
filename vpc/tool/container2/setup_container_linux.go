@@ -203,9 +203,11 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return errors.Wrap(err, "Unable to set link up")
 	}
 
-	err = addIPv4AddressAndRoutes(ctx, nsHandle, link, assignment.Ipv4Address, assignment.Routes)
-	if err != nil {
-		return err
+	if assignment.Ipv4Address != nil {
+		err = addIPv4AddressAndRoutes(ctx, nsHandle, link, assignment.Ipv4Address, assignment.Routes)
+		if err != nil {
+			return fmt.Errorf("Unable to setup IPv4 address: %w", err)
+		}
 	}
 
 	if assignment.Ipv6Address != nil {

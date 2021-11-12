@@ -723,6 +723,17 @@ func (c *TitusInfoContainer) IPv4Address() *string {
 	return &addr.Address.Address
 }
 
+func (c *TitusInfoContainer) IPv6Address() *string {
+	if c.vpcAllocation == nil {
+		return nil
+	}
+	addr := c.vpcAllocation.IPV6Address()
+	if addr == nil {
+		return nil
+	}
+	return &addr.Address.Address
+}
+
 func (c *TitusInfoContainer) IsSystemD() bool {
 	return c.isSystemD
 }

@@ -346,7 +346,7 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 			b.pod.Status.PodIPs = []v1.PodIP{
 				{IP: update.Details.NetworkConfiguration.ElasticIPAddress},
 			}
-		} else {
+		} else if update.Details.NetworkConfiguration.IPAddress != "" {
 			b.pod.Status.PodIPs = []v1.PodIP{
 				{IP: update.Details.NetworkConfiguration.IPAddress},
 			}

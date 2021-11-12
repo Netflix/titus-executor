@@ -409,6 +409,21 @@ func (c *PodContainer) IPv4Address() *string {
 		if t.AssignIPResponseV3.Ipv4Address != nil {
 			return &t.AssignIPResponseV3.Ipv4Address.Address.Address
 		}
+		return nil
+	}
+	panic("Unxpected state")
+}
+
+func (c *PodContainer) IPv6Address() *string {
+	if c.vpcAllocation == nil {
+		return nil
+	}
+	switch t := c.vpcAllocation.Assignment.(type) {
+	case *vpcapi.Assignment_AssignIPResponseV3:
+		if t.AssignIPResponseV3.Ipv6Address != nil {
+			return &t.AssignIPResponseV3.Ipv6Address.Address.Address
+		}
+		return nil
 	}
 	panic("Unxpected state")
 }
