@@ -821,10 +821,7 @@ func (c *PodContainer) parsePodVolumes() error {
 				c.ebsInfo.MountPerm = "RO"
 			}
 		}
-
-		delete(nameToMount, vm.Name)
 	}
-
 	return nil
 }
 
