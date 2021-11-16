@@ -1232,6 +1232,7 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 		env[metadataserverTypes.EC2IPv6sEnvVarName] = a.Address.Address
 		env[metadataserverTypes.NetflixIPv6EnvVarName] = a.Address.Address
 		env[metadataserverTypes.NetflixIPv6sEnvVarName] = a.Address.Address
+		env[metadataserverTypes.NetflixIPv6HostnameEnvVar] = computeNetflixIPv6Hostname(a.Address.Address)
 	}
 
 	if a := vpcAllocation.ElasticAddress(); a != nil {
@@ -1380,4 +1381,9 @@ func GetHumanFriendlyNetworkMode(mode string) string {
 	default:
 		return ""
 	}
+}
+
+func computeNetflixIPv6Hostname(ipv6 string) string {
+	sanitizedv6 := strings.ReplaceAll(ipv6, ":", "-")
+	return fmt.Sprintf("ip-%s.node.netflix.net", sanitizedv6)
 }
