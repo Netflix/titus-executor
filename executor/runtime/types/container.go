@@ -1143,6 +1143,13 @@ func (c *TitusInfoContainer) parseLogStdioCheckInterval(logStdioCheckIntervalStr
 	return duration, nil
 }
 
+func isNetworkModeIPv6Only(c Container) bool {
+	if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6Only.String() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		return true
+	}
+	return false
+}
+
 func populateContainerEnv(c Container, config config.Config, userEnv map[string]string) map[string]string {
 	// Order goes (least priority, to highest priority:
 	// -Hard coded environment variables
@@ -1224,7 +1231,8 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 		env["NETFLIX_NETWORK_MODE"] = netMode
 	}
 	vpcAllocation := c.VPCAllocation()
-	if a := vpcAllocation.IPV4Address(); a != nil {
+
+	if a := vpcAllocation.IPV4Address(); a != nil && ! isNetworkModeIPv6Only(c){
 		env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
 	}
 
