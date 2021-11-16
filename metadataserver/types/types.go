@@ -21,6 +21,7 @@ const (
 	NetflixAccountIDVarName   = "NETFLIX_ACCOUNT_ID"
 	NetflixIPv6EnvVarName     = "NETFLIX_IPV6"
 	NetflixIPv6sEnvVarName    = "NETFLIX_IPV6S"
+	NetflixIPv6HostnameEnvVar = "NETFLIX_IPV6_HOSTNAME"
 )
 
 // MetadataServerConfiguration is a configuration for metadata service + IAM Proxy
