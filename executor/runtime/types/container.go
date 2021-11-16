@@ -1225,7 +1225,14 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 	}
 	vpcAllocation := c.VPCAllocation()
 	if a := vpcAllocation.IPV4Address(); a != nil {
-		env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
+		if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+			// IPv4 Transition mode is a special case, where we don't want to just set this
+			// variable to the transition mode. Instead we want to set it to a "dummy" value
+			// (127.0.0.1) so applications don't break.
+			env[metadataserverTypes.EC2IPv4EnvVarName] = "127.0.0.1"
+		} else {
+			env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
+		}
 	}
 
 	if a := vpcAllocation.IPV6Address(); a != nil {
