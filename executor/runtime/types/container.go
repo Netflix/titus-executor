@@ -1143,6 +1143,14 @@ func (c *TitusInfoContainer) parseLogStdioCheckInterval(logStdioCheckIntervalStr
 	return duration, nil
 }
 
+func isNetworkModeIPv6Only(c Container) bool {
+	if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6Only.String() ||
+		c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		return true
+	}
+	return false
+}
+
 func populateContainerEnv(c Container, config config.Config, userEnv map[string]string) map[string]string {
 	// Order goes (least priority, to highest priority:
 	// -Hard coded environment variables
@@ -1224,15 +1232,11 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 		env["NETFLIX_NETWORK_MODE"] = netMode
 	}
 	vpcAllocation := c.VPCAllocation()
-	if a := vpcAllocation.IPV4Address(); a != nil {
-		if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
-			// IPv4 Transition mode is a special case, where we don't want to just set this
-			// variable to the transition mode. Instead we want to set it to a "dummy" value
-			// (127.0.0.1) so applications don't break.
-			env[metadataserverTypes.EC2IPv4EnvVarName] = "127.0.0.1"
-		} else {
-			env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
-		}
+	if isNetworkModeIPv6Only(c) {
+		//Maintain 127.0.0.1 for EC2_LOCAL_IPV4 even for IPv6 only lest something breaks
+		env[metadataserverTypes.EC2IPv4EnvVarName] = "127.0.0.1"
+	} else if a := vpcAllocation.IPV4Address(); a != nil {
+		env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
 	}
 
 	if a := vpcAllocation.IPV6Address(); a != nil {
