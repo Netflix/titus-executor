@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uex -o pipefail
+set -ue -o pipefail
 
 log() {
     echo -e "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $1" >&2
@@ -17,9 +17,19 @@ export GOPATH="${HOME}/go"
 export PATH="${GO_INSTALL_DIR}/go/bin:${GOPATH}/bin:${PATH}"
 export TEST_FLAGS="-v -parallel 1"
 
+# The buildkite agent redacts secrest in the build log, but not on artifacts.
+# There "shouldn't" be any sensitive secrets in the build log anyway, except for
+# the docker password. The reason we have a docker password in the build output
+# is because docker changed their policy to *require* a password on docker pulls
+# (or else face severe rate limiting), so this is the one password we try to
+# not leak.
+redact_secrets() {
+  sed "s/$DOCKER_PASSWORD/[REDACTED]/"
+}
+
 log "Building executor"
 
 make clean
-make --output-sync -j16 builder all 2>&1 | tee build.log
+make --output-sync -j16 builder all 2>&1 | redact_secrets | tee build.log
 
 
