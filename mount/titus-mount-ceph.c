@@ -93,7 +93,8 @@ static inline int move_mount(int from_dfd, const char *from_pathname,
 			mount_error(fd, key ?: "create");                      \
 	} while (0)
 
-static void configure_source(int fsfd, const char *source) {
+static void configure_source(int fsfd, const char *source)
+{
 	E_fsconfig(fsfd, FSCONFIG_SET_STRING, "source", source, 0);
 }
 
@@ -103,12 +104,15 @@ static void process_option(char *option, int fsfd)
            We supply all the inputs here, so it is safe, but parsing things
            like this is a little dangerous */
 	char *key, *value, *saveptr;
+	char value2[256] = "";
+
 	key = strtok_r(option, "=", &saveptr);
 	option = NULL;
 	value = strtok_r(option, "=", &saveptr);
 
-	char value2[256] = "";
+	assert(strlen(value) < sizeof(value2) - 1);
 	strcpy(value2, value);
+
 	/* We have to tack on an extra '==' because the secret is base64 encoded,
 	 * and this very basic string parsing will treat those == as tokens and skip
 	 * past them */
@@ -124,10 +128,11 @@ static void process_option(char *option, int fsfd)
 
 static void do_fsconfigs(int fsfd, char *options)
 {
-	char *str1, *token, *saveptr;
+	char *str1 = options;
+	char *token, *saveptr;
 	/* Mount options come in in the classic comma-separated key=value pairs
 	   we need to split them up and pass them in for fsconfig to handle one at a time */
-	for (str1 = options;; str1 = NULL) {
+	for (;; str1 = NULL) {
 		token = strtok_r(str1, ",", &saveptr);
 		if (token == NULL)
 			break;
@@ -243,10 +248,6 @@ int main(int argc, char *argv[])
 	errno = 0;
 	container_pid = strtol(argv[1], NULL, 10);
 	assert(errno == 0);
-
-	int buf_size = sysconf(_SC_PAGESIZE);
-	char final_options[buf_size];
-	strcpy(final_options, options);
 
 	if (!(target && flags && options && source)) {
 		fprintf(stderr,
