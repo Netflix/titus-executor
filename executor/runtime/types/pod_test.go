@@ -45,7 +45,22 @@ func addPodAnnotations(pod *corev1.Pod, annotations map[string]string) {
 	}
 }
 
-func TestPodImageNameWithTag(t *testing.T) {
+func TestPodImageNameWithTagAndDigest(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+
+	uc := podCommon.GetUserContainer(pod)
+	uc.Image = "docker.io/titusoss/alpine@" + testDigest
+	pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+"main"] = "myCoolTag"
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	assert.Equal(t, c.QualifiedImageName(), uc.Image)
+	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
+	assert.DeepEqual(t, c.ImageVersion(), ptr.StringPtr("myCoolTag"))
+	assert.DeepEqual(t, c.ImageDigest(), &testDigest)
+}
+
+func TestPodImageNameWithOtherTagAndNoDigest(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
