@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -331,9 +332,20 @@ func crossMount(ctx context.Context, src *os.File, pid1dirfd int) error {
 	defer containerMountNamespaceFD.Close()
 
 	exe := os.Args[0]
+	nsentermnt, err := filepath.Abs(filepath.Join(filepath.Dir(exe), "titus-mnt"))
+	if err != nil {
+		return fmt.Errorf("Cannot resolve absolute path: %w", err)
+	}
+
 	cmd := exec.CommandContext(ctx,
-		"/usr/bin/nsenter", "--mount=/proc/self/fd/3",
-		exe, "cross-mount", "--net-ns-fd", "4", "--where", "/run/netns/transition")
+		nsentermnt,
+		"/run/netns/transition")
+
+	cmd.Env = append(
+		os.Environ(),
+		"TITUS_MNT_NS_FD=3",
+		"TITUS_NET_NS_FD=4",
+	)
 
 	cmd.ExtraFiles = []*os.File{
 		containerMountNamespaceFD,

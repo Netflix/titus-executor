@@ -28,5 +28,6 @@ func setupContainercommand(ctx context.Context, v *pkgviper.Viper, iipGetter ins
 
 	cmd.Flags().Int("pid-1-dir-fd", 3, "The File Descriptor # of the pid 1 directory to setup")
 	cmd.Flags().String(generationFlagName, generationDefaultValue, "Generation of VPC Tool to use, specify v1, or v2")
+	cmd.Flags().String(transitionNSDirFlagName, "/run/transition", "Directory to mount transition namespaces into")
 	return cmd
 }

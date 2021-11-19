@@ -461,7 +461,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 	// Always setup tmpfs: it's needed to ensure Metatron credentials don't persist across reboots and for SystemD to work
 	hostCfg.Tmpfs = map[string]string{
-		"/run": "rw,exec,size=" + defaultRunTmpFsSize,
+		"/run":       "rw,exec,size=" + defaultRunTmpFsSize,
+		"/run/netns": "rw,size=" + defaultRunTmpFsSize,
 	}
 
 	if c.IsSystemD() {
@@ -1533,6 +1534,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), r.c.ImageTagForMetrics())
 
 	allocation := r.c.VPCAllocation()
+
 	eni := allocation.ContainerENI()
 	if allocation == nil || eni == nil {
 		eventCancel()

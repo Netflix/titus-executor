@@ -418,14 +418,15 @@ type Resources struct {
 
 // NetworkConfigurationDetails used to pass results back to master
 type NetworkConfigurationDetails struct {
-	IsRoutableIP     bool
-	IPAddress        string
-	ElasticIPAddress string
-	EniIPAddress     string
-	EniIPv6Address   string
-	NetworkMode      string
-	EniID            string
-	ResourceID       string
+	IsRoutableIP        bool
+	IPAddress           string
+	ElasticIPAddress    string
+	EniIPAddress        string
+	EniIPv6Address      string
+	NetworkMode         string
+	EniID               string
+	ResourceID          string
+	TransitionIPAddress string
 }
 
 func (n *NetworkConfigurationDetails) ToMap() map[string]string {
@@ -446,6 +447,9 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 		m["ElasticIPAddress"] = n.ElasticIPAddress
 	}
 	m["NetworkMode"] = n.NetworkMode
+	if n.TransitionIPAddress != "" {
+		m["TransitionIPAddress"] = n.TransitionIPAddress
+	}
 	return m
 }
 

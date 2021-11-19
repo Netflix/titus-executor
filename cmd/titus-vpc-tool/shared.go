@@ -32,8 +32,6 @@ func addSharedFlags(flags *pflag.FlagSet) {
 	flags.String(sslCAFlagName, "", "SSL CA")
 	flags.String(sslKeyFlagName, "", "SSL Key")
 	flags.String(sslCertFlagName, "", "SSL Cert")
-	flags.String(transitionNSDirFlagName, "/run/transition", "Directory to mount transition namespaces into")
-
 }
 
 func getSecurityConfiguration(ctx context.Context, v *pkgviper.Viper) (grpc.DialOption, error) {

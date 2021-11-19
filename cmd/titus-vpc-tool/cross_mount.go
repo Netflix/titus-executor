@@ -19,8 +19,8 @@ func crossMountCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().Int("net-ns-fd", -1, "The file descriptor of the pid 1 of the container")
-	cmd.Flags().String("where", "", "Where to mount the ")
+	cmd.Flags().Int("net-ns-fd", -1, "The file descriptor of the net ns fd of the container")
+	cmd.Flags().String("where", "", "Where to mount the network namespace")
 
 	return cmd
 }
