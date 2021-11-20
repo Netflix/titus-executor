@@ -173,6 +173,7 @@ type Container interface {
 	ImageVersion() *string
 	ImageTagForMetrics() map[string]string
 	IPv4Address() *string
+	IPv6Address() *string
 	IsSystemD() bool
 	JobGroupDetail() string
 	JobGroupStack() string
@@ -247,9 +248,8 @@ func ComputeHostname(c Container) (string, error) {
 	case ec2HostnameStyle:
 		ipAddr := c.IPv4Address()
 		if ipAddr == nil {
-			return "", &InvalidConfigurationError{Reason: errors.New("Unable to get container IP address")}
+			return "ip-127-0-0-1", nil
 		}
-
 		hostname := fmt.Sprintf("ip-%s", strings.Replace(*ipAddr, ".", "-", 3))
 		return hostname, nil
 	default:
@@ -481,8 +481,12 @@ type NetworkConfigurationDetails struct {
 func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 	m := make(map[string]string)
 	m["IsRoutableIp"] = strconv.FormatBool(n.IsRoutableIP)
-	m["IpAddress"] = n.IPAddress
-	m["EniIpAddress"] = n.EniIPAddress
+	if n.IPAddress != "" {
+		m["IpAddress"] = n.IPAddress
+	}
+	if n.EniIPAddress != "" {
+		m["EniIpAddress"] = n.EniIPAddress
+	}
 	m["EniId"] = n.EniID
 	m["ResourceId"] = n.ResourceID
 	if n.EniIPv6Address != "" {

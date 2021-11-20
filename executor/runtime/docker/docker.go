@@ -424,10 +424,16 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 	maybeAddOptimisticDad(hostCfg.Sysctls)
 
-	// TODO(Sargun): Add IPv6 address
 	ipv4Addr := c.IPv4Address()
 	if ipv4Addr != nil {
 		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv4Addr))
+	}
+	// Only in IPv6-Only modes do we set the extra hosts entry for our v6 address
+	if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6Only.String() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		ipv6Addr := c.IPv6Address()
+		if ipv6Addr != nil {
+			hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv6Addr))
+		}
 	}
 
 	for _, containerName := range volumeContainers {

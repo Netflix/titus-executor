@@ -78,6 +78,7 @@ func newIamProxy(ctx context.Context, config types.MetadataServerConfiguration, 
 	if conn != nil {
 		iamServiceClient = iamapi.NewIAMClient(conn)
 	} else if config.Region != "" {
+		// TODO: Use dual stack endpoints when available someday
 		endpoint := fmt.Sprintf("sts.%s.amazonaws.com", config.Region)
 		if config.STSEndpoint != "" {
 			endpoint = config.STSEndpoint
