@@ -7,8 +7,6 @@ import (
 	"math/big"
 	"math/rand"
 	"net"
-	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -34,9 +32,6 @@ import (
 const (
 	invalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
 	assignTimeout                = 5 * time.Minute
-
-	// The P99 for get subnet is 3 seconds
-	getSubnetTimeout = 10 * time.Second
 )
 
 var (
@@ -106,13 +101,10 @@ type branchENI struct {
 	idx           int
 }
 
-func subnetCacheKey(az, accountID string, subnetIDs []string) string {
-	sort.Strings(subnetIDs)
-	return fmt.Sprintf("az:%s accountID:%s subnetIDs:%s", az, accountID, strings.Join(subnetIDs, ","))
-}
-
-func (vpcService *vpcService) getSubnetUncached(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
-	ctx, span := trace.StartSpan(ctx, "getSubnetUncached")
+func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "getSubnet")
 	defer span.End()
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
@@ -130,31 +122,54 @@ func (vpcService *vpcService) getSubnetUncached(ctx context.Context, az, account
 	var row *sql.Row
 	if len(subnetIDs) == 0 {
 		row = tx.QueryRowContext(ctx, `
-SELECT subnets.az,
-       subnets.vpc_id,
-       subnets.account_id,
-       subnets.subnet_id,
-       subnets.cidr,
-       availability_zones.region
-FROM subnets
-JOIN account_mapping ON subnets.subnet_id = account_mapping.subnet_id
-JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets.account_id = availability_zones.account_id
-WHERE subnets.account_id = $1
-  AND subnets.az = $2
+WITH usable_subnets AS
+  (SELECT subnets.az,
+          subnets.vpc_id,
+          subnets.account_id,
+          subnets.subnet_id,
+          subnets.cidr,
+          availability_zones.region
+   FROM subnets
+   JOIN account_mapping ON subnets.subnet_id = account_mapping.subnet_id
+   JOIN availability_zones ON subnets.az = availability_zones.zone_name
+   AND subnets.account_id = availability_zones.account_id
+   WHERE subnets.account_id = $1
+     AND subnets.az = $2)
+SELECT *
+FROM usable_subnets
+ORDER BY
+  (SELECT count(ipv4addr)
+   FROM branch_enis
+   LEFT JOIN branch_eni_attachments bea ON branch_enis.branch_eni = bea.branch_eni
+   LEFT JOIN assignments ON bea.association_id = branch_eni_association
+   WHERE subnet_id = usable_subnets.subnet_id
+     AND bea.state = 'attached' ) ASC
+LIMIT 1
 `,
 			accountID, az)
 	} else {
 		row = tx.QueryRowContext(ctx, `
-SELECT subnets.az,
-       subnets.vpc_id,
-       subnets.account_id,
-       subnet_id,
-       CIDR,
-       availability_zones.region
-FROM subnets
-JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets.account_id = availability_zones.account_id
-WHERE subnets.az = $1
-  AND subnets.subnet_id = any($2)
+WITH usable_subnets AS
+  (SELECT subnets.az,
+          subnets.vpc_id,
+          subnets.account_id,
+          subnets.subnet_id,
+          subnets.cidr,
+          availability_zones.region
+   FROM subnets
+   JOIN availability_zones ON subnets.az = availability_zones.zone_name
+   AND subnets.account_id = availability_zones.account_id
+   WHERE subnets.az = $1
+     AND subnets.subnet_id = any($2))
+SELECT *
+FROM usable_subnets
+ORDER BY
+  (SELECT count(ipv4addr)
+   FROM branch_enis
+   LEFT JOIN branch_eni_attachments bea ON branch_enis.branch_eni = bea.branch_eni
+   LEFT JOIN assignments ON bea.association_id = branch_eni_association
+   WHERE subnet_id = usable_subnets.subnet_id
+     AND bea.state = 'attached' ) ASC
 LIMIT 1
 `, az, pq.Array(subnetIDs))
 	}
@@ -177,73 +192,6 @@ LIMIT 1
 	}
 
 	return &ret, nil
-}
-
-func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "getSubnet")
-	defer span.End()
-
-	// NOTE[jigish] caching using the full set of subnetIDs will cause the same subnet to be returned for all hits
-	cacheKey := subnetCacheKey(az, accountID, subnetIDs)
-
-	item := vpcService.getSubnetCache.Get(cacheKey)
-	if item != nil {
-		span.AddAttributes(trace.BoolAttribute("cached", true))
-		val := item.Value().(*subnet)
-		if !item.Expired() {
-			return val, nil
-		}
-
-		span.AddAttributes(trace.BoolAttribute("expired", true))
-		span.AddAttributes(trace.StringAttribute("expires", item.Expires().String()))
-
-		span.AddAttributes(trace.BoolAttribute("stale", true))
-	}
-
-	spanContext := span.SpanContext()
-	resultChan := vpcService.getSubnetLock.DoChan(cacheKey, func() (interface{}, error) {
-		// There could be a race here between the time we checked above and this singleflight started
-		// so check again
-		//
-		// Also, go scoping makes this confusing, so keep this name different than above
-		item2 := vpcService.getSubnetCache.Get(cacheKey)
-		if item2 != nil && !item2.Expired() {
-			span.AddAttributes(trace.BoolAttribute("cached", true))
-			return item2.Value().(*subnet), nil
-		}
-
-		// The lifetime of this singleflight should be independent of that of the connection / request
-		ctx2, cancel2 := context.WithTimeout(context.Background(), getSubnetTimeout)
-		defer cancel2()
-		ctx2, span2 := trace.StartSpanWithRemoteParent(ctx2, "getSubnetSingleflight", spanContext)
-		defer span2.End()
-		subnet, err := vpcService.getSubnetUncached(ctx2, az, accountID, subnetIDs)
-		if err != nil {
-			tracehelpers.SetStatus(err, span2)
-			return nil, err
-		}
-		vpcService.getSubnetCache.Set(cacheKey, subnet, vpcService.subnetCacheExpirationTime)
-		return subnet, nil
-	})
-
-	select {
-	case result := <-resultChan:
-		span.AddAttributes(trace.BoolAttribute("shared", result.Shared))
-		if result.Err == nil {
-			return result.Val.(*subnet), nil
-		}
-		if item != nil {
-			span.AddAttributes(trace.BoolAttribute("fallback", true))
-			return item.Value().(*subnet), nil
-		}
-		tracehelpers.SetStatus(result.Err, span)
-		return nil, result.Err
-	case <-ctx.Done():
-		tracehelpers.SetStatus(ctx.Err(), span)
-		return nil, ctx.Err()
-	}
 }
 
 type staticAllocation struct {

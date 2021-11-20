@@ -117,7 +117,6 @@ func newTestServiceInstance(t *testing.T) *vpcService {
 		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
 		subnetCacheExpirationTime: time.Second * 10,
-		getSubnetCache:            ccache.New(ccache.Configure()),
 	}
 }
 
