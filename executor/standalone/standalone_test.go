@@ -1353,7 +1353,8 @@ func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
 			FlexVolume: &corev1.FlexVolumeSource{
 				Driver: "SharedContainerVolumeSource",
 				Options: map[string]string{
-					"sourcePath": "/etc",
+					"sourcePath":      "/etc",
+					"sourceContainer": "main",
 				},
 			},
 		},
