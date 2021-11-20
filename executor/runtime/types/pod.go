@@ -717,7 +717,7 @@ func NewExtraContainersFromPod(pod corev1.Pod) ([]*ExtraContainer, []*ExtraConta
 			Name: c.Name,
 			State: corev1.ContainerState{
 				Waiting: &corev1.ContainerStateWaiting{
-					Reason:  c.Name + "has yet to be initialized by the runtime",
+					Reason:  c.Name + " has yet to be initialized by the runtime",
 					Message: "Not created yet",
 				},
 			},

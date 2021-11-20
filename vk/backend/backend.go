@@ -378,9 +378,9 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 		LastTerminationState: v1.ContainerState{},
 		Ready:                true,
 		RestartCount:         0,
-		Image:                "",
+		Image:                b.pod.Spec.Containers[0].Image,
 		ImageID:              "",
-		ContainerID:          "",
+		ContainerID:          update.ContainerID,
 	}
 	statuses := append([]v1.ContainerStatus{mainContainerStatus}, update.ExtraContainerStatuses...)
 	statuses = append(statuses, update.PlatformSidecarStatuses...)
