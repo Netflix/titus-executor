@@ -99,9 +99,6 @@ type vpcService struct {
 	trunkTracker              *trunkTrackerCache
 	invalidSecurityGroupCache *ccache.Cache
 
-	getSubnetCache *ccache.Cache
-	getSubnetLock  singleflight.Group
-
 	subnetCacheExpirationTime time.Duration
 	concurrentRequests        *semaphore.Weighted
 
@@ -247,7 +244,6 @@ func Run(ctx context.Context, config *Config) error {
 
 		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
-		getSubnetCache:            ccache.New(ccache.Configure()),
 
 		// Failures to find subnet (negative result) is never cached. Only positive results are cached.
 		// The reconcile interval drives how often the subnets change in the DB. Although they may be out of phase
