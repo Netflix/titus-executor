@@ -75,6 +75,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 			err = errors.Wrap(writeError, err.Error())
 			return err
 		}
+		return err
 	}
 
 	switch a := allocation.Assignment.(type) {

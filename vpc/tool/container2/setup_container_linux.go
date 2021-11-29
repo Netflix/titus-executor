@@ -80,12 +80,18 @@ func getBranchLink(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) (
 	return vlanLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netnsfd int, assignment *vpcapi.AssignIPResponseV3) error {
+func DoSetupContainer(ctx context.Context, pid1dirfd int, assignment *vpcapi.AssignIPResponseV3) error {
 	logger.G(ctx).WithField("assignment", assignment.String()).Info("Configuring networking with assignment")
 	branchLink, err := getBranchLink(ctx, assignment)
 	if err != nil {
 		return err
 	}
+
+	netnsfd, err := unix.Openat(pid1dirfd, "ns/net", unix.O_CLOEXEC, unix.O_RDONLY)
+	if err != nil {
+		return fmt.Errorf("Cannot open / get netns fd: %w", err)
+	}
+	defer unix.Close(netnsfd)
 
 	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
 	if err != nil {
