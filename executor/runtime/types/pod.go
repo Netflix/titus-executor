@@ -382,6 +382,20 @@ func (c *PodContainer) ImageName() *string {
 }
 
 func (c *PodContainer) ImageVersion() *string {
+	// The docker image tag (what cInfo calls "ImageVersion") is not normally
+	// in the pod v1 container `Image` field. Usually it is the digest, because
+	// the control-plane does tag->digest resolution.
+	// However, the control-plan saves the original tag in a special annotation for us
+	// so that we can look up the *original* tag the digest came from.
+	tagFromPodAnnotation, ok := c.pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+"main"]
+	if ok {
+		return &tagFromPodAnnotation
+	}
+
+	// If we don't have that original tag, we can fall-back to what we have in `Image`,
+	// but it may be bogus.
+	// (a docker Reference assumes a tag of "latest" on something that references a full digest,
+	// even though it has no idea if it came from the latest tag or not.)
 	tag, ok := c.containerImage.(reference.Tagged)
 	if !ok {
 		return nil

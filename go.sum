@@ -45,12 +45,10 @@ github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07 h1:F5H05
 github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07/go.mod h1:dKY6lNcNBfC6gYy4CpGw9iQ9Qgvcn+g46Diu21Co81k=
 github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef h1:KJSUpdkLKovenA1HmmoEIPkJ4CYsMApqW2RVVEvjX5Q=
 github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef/go.mod h1:3oJNZd93I7dEODYw8RBj8v5DO8VRgZrZLFZXWkmNqmY=
-github.com/Netflix/titus-api-definitions v0.0.2-rc.4 h1:pitsthmhmZSa9QC0Pu+b3/ifmk8VAqwkGhNm00JBf8s=
-github.com/Netflix/titus-api-definitions v0.0.2-rc.4/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Netflix/titus-api-definitions v0.0.3-rc.9 h1:xJIFlNXfnGVrLIM2m/QTuZvzg4j4G+Cpkn9Ji0pRmpo=
 github.com/Netflix/titus-api-definitions v0.0.3-rc.9/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
-github.com/Netflix/titus-kube-common v0.20.1-0.20211019204449-0ff5c5960163 h1:wBtP9z6mmDMGIM9K/GbJwK6odxFDwtV5cDHlo8BthBA=
-github.com/Netflix/titus-kube-common v0.20.1-0.20211019204449-0ff5c5960163/go.mod h1:WiYKaBxoim+zOj+5k23D5JUMOerfF+Wuhb5ujrwYdM8=
+github.com/Netflix/titus-kube-common v0.21.1 h1:cA8/oJWNLZi6bNRGmYNWuFbsoDpP0PGkXfhqw5kyY2Q=
+github.com/Netflix/titus-kube-common v0.21.1/go.mod h1:WiYKaBxoim+zOj+5k23D5JUMOerfF+Wuhb5ujrwYdM8=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
@@ -218,7 +216,6 @@ github.com/google/martian v2.1.0+incompatible/go.mod h1:9I4somxYTbIHy5NJKHRl3wXi
 github.com/google/pprof v0.0.0-20181206194817-3ea8567a2e57/go.mod h1:zfwlbNMJ+OItoe0UupaVj+oy1omPYYDuagoSzA8v9mc=
 github.com/google/pprof v0.0.0-20190515194954-54271f7e092f/go.mod h1:zfwlbNMJ+OItoe0UupaVj+oy1omPYYDuagoSzA8v9mc=
 github.com/google/pprof v0.0.0-20200212024743-f11f1df84d12/go.mod h1:ZgVRPoUq/hfqzAqh7sHMqb3I9Rq5C59dIz2SbBwJ4eM=
-github.com/google/renameio v0.1.0 h1:GOZbcHa3HfsPKPlmyPyN2KEohoMXOhdMbHrvbpl2QaA=
 github.com/google/renameio v0.1.0/go.mod h1:KWCgfxg9yswjAJkECMjeO8J8rahYeXnNhOm40UhjYkI=
 github.com/google/renameio v1.0.1 h1:Lh/jXZmvZxb0BBeSY5VKEfidcbcbenKjZFzM/q0fSeU=
 github.com/google/renameio v1.0.1/go.mod h1:t/HQoYBZSsWSNK35C6CO/TpPLDVWvxOHboWUAweKUpk=
