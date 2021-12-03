@@ -76,7 +76,7 @@ PasswordAuthentication no
 #GSSAPIAuthentication no
 #GSSAPICleanupCredentials yes
 
-X11Forwarding no
+X11Forwarding yes
 X11DisplayOffset 10
 PrintMotd no
 PrintLastLog no
