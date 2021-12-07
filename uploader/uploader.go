@@ -33,6 +33,17 @@ type Config struct {
 func NewUploader(config *config.Config, uploaderConfig *Config, iamRole string, taskID string, m metrics.Reporter) (*Uploader, error) {
 	bucketName, useTitusRole := "", true
 
+	// TODO: Plumb through annotations and stuff
+	// if uploaderConfig.UseInsightLogs {
+	if true {
+		log.Infof("Using the insight logs log uploading backend")
+		insightLogBackend, err := NewInsightLogsBackend()
+		if err != nil {
+			return nil, err
+		}
+		return NewUploaderWithBackend(insightLogBackend), nil
+	}
+
 	if uploaderConfig.DisableUpload {
 		return NewUploaderWithBackend(NewNoopBackend()), nil
 	}
