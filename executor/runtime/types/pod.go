@@ -227,7 +227,7 @@ func (c *PodContainer) CombinedAppStackDetails() string {
 }
 
 func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
-	// TODO: this needs to be removed once Metatron supports pods
+	// TODO: this needs to be removed once Metatron supports the v2 identity endpoint (TITUS-5823)
 	userContainer := podCommon.GetUserContainer(c.pod)
 	appName := c.AppName()
 	stack := c.JobGroupStack()
@@ -250,6 +250,13 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	}
 
 	for _, env := range userContainer.Env {
+		if stringSliceContains(c.podConfig.InjectedEnvVarNames, env.Name) {
+			// If the env variable in question was injected, we must ignore it
+			// because it is outside of the scope of what metatron (which uses this synthetic cInfo)
+			// should consider. In other words, it is neither system-provided
+			// nor is it user-provided.
+			continue
+		}
 		if _, ok := systemEnvVarNames[env.Name]; ok {
 			titusProvidedEnv[env.Name] = env.Value
 		} else {
@@ -971,4 +978,13 @@ func (c *PodContainer) parsePodCommandAndArgs() error {
 
 func BoolPtr(b bool) *bool {
 	return &b
+}
+
+func stringSliceContains(haystack []string, needle string) bool {
+	for _, a := range haystack {
+		if a == needle {
+			return true
+		}
+	}
+	return false
 }

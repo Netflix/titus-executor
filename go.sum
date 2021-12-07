@@ -49,6 +49,8 @@ github.com/Netflix/titus-api-definitions v0.0.3-rc.9 h1:xJIFlNXfnGVrLIM2m/QTuZvz
 github.com/Netflix/titus-api-definitions v0.0.3-rc.9/go.mod h1:eECoVkmltHzQUz/9gpDKfBvdjYhCVRPGLJz4YuVVRcE=
 github.com/Netflix/titus-kube-common v0.21.1 h1:cA8/oJWNLZi6bNRGmYNWuFbsoDpP0PGkXfhqw5kyY2Q=
 github.com/Netflix/titus-kube-common v0.21.1/go.mod h1:WiYKaBxoim+zOj+5k23D5JUMOerfF+Wuhb5ujrwYdM8=
+github.com/Netflix/titus-kube-common v0.21.2 h1:QiMxmEq2ZDqrM/p1pfinpTwEN52XoRsYabWnYg1nwL0=
+github.com/Netflix/titus-kube-common v0.21.2/go.mod h1:WiYKaBxoim+zOj+5k23D5JUMOerfF+Wuhb5ujrwYdM8=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
