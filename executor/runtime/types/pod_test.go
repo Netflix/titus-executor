@@ -224,7 +224,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		podCommon.AnnotationKeyNetworkSubnetIDs:              strings.Join(expSubnets, ","),
 		podCommon.AnnotationKeyNetworkJumboFramesEnabled:     True,
 		podCommon.AnnotationKeyNetworkStaticIPAllocationUUID: "static-ip-uuid",
-		// Add servicemesh sidecar
+		// Add servicemesh titus system service
 		podCommon.AnnotationKeyServicePrefix + "/servicemesh.v1.enabled": True,
 		podCommon.AnnotationKeyServicePrefix + "/servicemesh.v1.image":   "titusoss/servicemesh:latest",
 	})
@@ -1450,10 +1450,19 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 			Name:  "FROM_TITUS_2",
 			Value: "T2",
 		},
+		{
+			Name:  "FROM_MUTATOR_1",
+			Value: "M1",
+		},
+		{
+			Name:  "FROM_MUTATOR_2",
+			Value: "M2",
+		},
 	}
 
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyPodTitusSystemEnvVarNames:   "FROM_TITUS_1, FROM_TITUS_2",
+		podCommon.AnnotationKeyPodInjectedEnvVarNames:      "FROM_MUTATOR_1, FROM_MUTATOR_2",
 		podCommon.AnnotationKeyWorkloadName:                testAppName,
 		podCommon.AnnotationKeyWorkloadDetail:              testAppDetail,
 		podCommon.AnnotationKeyWorkloadOwnerEmail:          testAppOwner,
