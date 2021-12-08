@@ -21,7 +21,7 @@ require (
 	github.com/aws/aws-sdk-go v1.40.6
 	github.com/containernetworking/cni v0.7.1
 	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
-	github.com/coreos/go-systemd/v22 v22.3.1
+	github.com/coreos/go-systemd/v22 v22.3.2
 	github.com/cyphar/filepath-securejoin v0.2.2
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0
@@ -52,12 +52,12 @@ require (
 	github.com/myitcv/gobin v0.0.14
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/image-spec v1.0.1 // indirect
-	github.com/opencontainers/runc v1.0.0-rc95
+	github.com/opencontainers/runc v1.0.3
 	github.com/openzipkin/zipkin-go v0.2.2
 	github.com/pelletier/go-toml v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/sirupsen/logrus v1.7.0
+	github.com/sirupsen/logrus v1.8.1
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/cast v1.3.1 // indirect
