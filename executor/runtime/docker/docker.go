@@ -945,8 +945,8 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 	}
 }
 
-// Prepare host state (pull image, create fs, create container, etc...) for the main container
-func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
+// Prepare host state (pull images, create fs, create container, etc...)
+func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nolint: gocyclo
 	var volumeContainers []string
 
 	ctx, cancel := context.WithTimeout(ctx, r.dockerCfg.prepareTimeout)
@@ -970,6 +970,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 	dockerCreateStartTime := time.Now()
 	group := groupWithContext(ctx)
 	bindMounts := r.defaultBindMounts
+	totalExtraContainerCount := len(r.c.ExtraUserContainers()) + len(r.c.ExtraPlatformContainers())
 
 	// In the case where we have multiple containers, we must create a tmps on disk
 	// for *all* of them to share. Otherwise, in the simple case where there is only
@@ -1011,6 +1012,13 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		myImageInfo = imageInfo
 		return nil
 	})
+
+	if totalExtraContainerCount > 0 {
+		group.Go(func(ctx context.Context) error {
+			logger.G(ctx).Infof("Pulling %d other user/platform containers", totalExtraContainerCount)
+			return r.pullAllExtraContainers(ctx, pod)
+		})
+	}
 
 	for _, sidecarConfig := range systemServices {
 		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
@@ -1633,16 +1641,11 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID str
 // running that container.
 func (r *DockerRuntime) createOtherContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
 	l := log.WithField("taskID", r.c.TaskID())
-	// For speed, we pull and create other containers in parallel
+	// For speed, we create other containers in parallel
 	totalExtraContainerCount := len(r.c.ExtraUserContainers()) + len(r.c.ExtraPlatformContainers())
 	if totalExtraContainerCount > 0 {
-		l.Infof("Pulling %d other user/platform containers", totalExtraContainerCount)
-		err := r.pullAllExtraContainers(ctx, pod)
-		if err != nil {
-			return fmt.Errorf("Failed to pull an image for user/platform container: %s", err)
-		}
 		l.Infof("Creating %d other user/platform containers", totalExtraContainerCount)
-		err = r.createAllExtraContainers(ctx, pod, r.c.ID(), mainContainerRoot)
+		err := r.createAllExtraContainers(ctx, pod, r.c.ID(), mainContainerRoot)
 		if err != nil {
 			return fmt.Errorf("Failed to create a user/platform container: %s", err)
 		}
@@ -1653,8 +1656,10 @@ func (r *DockerRuntime) createOtherContainers(ctx context.Context, pod *v1.Pod, 
 
 func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod) error {
 	l := log.WithField("taskID", r.c.TaskID())
-	// In this design, the first container has already been pulled and started, so we only look
+	// In this design, the first container has already been pulled, so we only look
 	// at the other containers here.
+	// It is important to not only pull, but also save a `docker image inspect` on the image
+	// we just pulled for later use.
 	otherUserContainers := append(r.c.ExtraUserContainers(), r.c.ExtraPlatformContainers()...)
 	group := groupWithContext(ctx)
 	for _, c := range otherUserContainers {
