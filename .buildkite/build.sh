@@ -25,6 +25,7 @@ export TEST_FLAGS="-v -parallel 1"
 # not leak.
 redact_secrets() {
   sed "s/$DOCKER_PASSWORD/[REDACTED]/"
+  sed "s/$DOCKER_USERNAME/[REDACTED]/"
 }
 
 log "Building executor"
