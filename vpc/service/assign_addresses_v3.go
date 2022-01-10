@@ -298,6 +298,10 @@ WHERE assignment_id = $1
 				tracehelpers.SetStatus(err, span)
 				return nil, err
 			}
+		} else {
+			err = status.Errorf(codes.FailedPrecondition, "Assignment %s is not completed", assignmentID)
+			tracehelpers.SetStatus(err, span)
+			return nil, err
 		}
 		return nil, nil
 	}
