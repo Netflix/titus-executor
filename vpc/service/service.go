@@ -420,7 +420,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		vpcService.deleteExcessBranchesLongLivedTask(),
 		{
 			taskName:   "detach_unused_branch_eni",
-			itemLister: nilItemEnumerator,
+			itemLister: vpcService.getSubnets,
 			workFunc:   vpcService.detatchUnusedBranchENILoop,
 		},
 		{
