@@ -417,6 +417,11 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 			itemLister: nilItemEnumerator,
 			workFunc:   vpcService.deleteFailedAssignments,
 		},
+		{
+			taskName:   "subnets",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.doReconcileSubnetsForRegionAccountLoop,
+		},
 		vpcService.reconcileBranchENIsLongLivedTask(),
 		vpcService.associateActionWorker().longLivedTask(),
 		vpcService.disassociateActionWorker().longLivedTask(),
@@ -444,12 +449,6 @@ type taskLoop struct {
 
 func (vpcService *vpcService) getTaskLoops() []taskLoop {
 	return []taskLoop{
-		{
-			// This was bumped to subnets2 because the "new" version adds prefixes.
-			taskName:   "subnets2",
-			itemLister: vpcService.getRegionAccounts,
-			workFunc:   vpcService.reconcileSubnetsForRegionAccount,
-		},
 		{
 			taskName:   "elastic_ip",
 			itemLister: vpcService.getRegionAccounts,
