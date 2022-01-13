@@ -6,16 +6,22 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"time"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/m7shapan/cidr"
-	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+	"k8s.io/apimachinery/pkg/util/sets"
+)
+
+const (
+	timeBetweenSubnetReconcilation = 2 * time.Minute
 )
 
 func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]keyedItem, error) {
@@ -48,13 +54,26 @@ func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]keyedIte
 	return ret, nil
 }
 
-func (vpcService *vpcService) reconcileSubnetsForRegionAccount(ctx context.Context, protoAccount keyedItem, tx *sql.Tx) (retErr error) {
+func (vpcService *vpcService) doReconcileSubnetsForRegionAccountLoop(ctx context.Context, protoItem keyedItem) error {
+	item := protoItem.(*regionAccount)
+	for {
+		err := vpcService.doReconcileSubnetsForRegionAccount(ctx, item)
+		if err != nil {
+			logger.G(ctx).WithField("region", item.region).WithField("accountID", item.accountID).WithError(err).Error("Failed to reconcile subnets")
+		}
+		err = waitFor(ctx, timeBetweenSubnetReconcilation)
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func (vpcService *vpcService) doReconcileSubnetsForRegionAccount(ctx context.Context, account *regionAccount) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileSubnetsForRegionAccount")
 	defer span.End()
 
-	account := protoAccount.(*regionAccount)
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
@@ -98,37 +117,78 @@ func (vpcService *vpcService) reconcileSubnetsForRegionAccount(ctx context.Conte
 		describeSubnetsInput.NextToken = output.NextToken
 	}
 
+	var result *multierror.Error
 	for _, subnet := range subnets {
-		_, err = tx.ExecContext(ctx, "INSERT INTO subnets(az, az_id, vpc_id, account_id, subnet_id, cidr) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (subnet_id) DO NOTHING",
+		err = vpcService.insertSubnet(ctx, subnet)
+		if err != nil {
+			logger.G(ctx).WithField("subnet", aws.StringValue(subnet.SubnetId)).WithError(err).Error("Could not insert subnet")
+			result = multierror.Append(result, err)
+		}
+	}
+
+	err = result.ErrorOrNil()
+	if err != nil {
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	return nil
+}
+
+func (vpcService *vpcService) insertSubnet(ctx context.Context, subnet *ec2.Subnet) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "insertSubnet")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("subnet", aws.StringValue(subnet.SubnetId)),
+	)
+
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		err = fmt.Errorf("Could not begin tx: %w", err)
+		tracehelpers.SetStatus(err, span)
+	}
+
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	row := tx.QueryRowContext(ctx, "SELECT id, cidr6 FROM subnets WHERE subnet_id = $1", aws.StringValue(subnet.SubnetId))
+	var id int
+	var cidr6 sql.NullString
+	err = row.Scan(&id, &cidr6)
+	if err == sql.ErrNoRows {
+		row = tx.QueryRowContext(ctx, "INSERT INTO subnets(az, az_id, vpc_id, account_id, subnet_id, cidr) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
 			aws.StringValue(subnet.AvailabilityZone),
 			aws.StringValue(subnet.AvailabilityZoneId),
 			aws.StringValue(subnet.VpcId),
 			aws.StringValue(subnet.OwnerId),
 			aws.StringValue(subnet.SubnetId),
 			aws.StringValue(subnet.CidrBlock))
-		if err != nil {
-			err = errors.Wrap(err, "Cannot insert subnets")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
-
-		row := tx.QueryRowContext(ctx, "SELECT id FROM subnets WHERE subnet_id = $1", aws.StringValue(subnet.SubnetId))
-		var id int
 		err = row.Scan(&id)
 		if err != nil {
-			err = errors.Wrap(err, "Cannot read subnet ID")
+			err = fmt.Errorf("Cannot insert subnet: %w", err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+	} else if err != nil {
+		err = fmt.Errorf("Cannot select subnet %s from db: %w", aws.StringValue(subnet.SubnetId), err)
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	if len(subnet.Ipv6CidrBlockAssociationSet) == 1 && aws.StringValue(subnet.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlockState.State) == "associated" {
+		_, ipnet, err := net.ParseCIDR(aws.StringValue(subnet.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock))
+		if err != nil {
+			err = fmt.Errorf("Cannot parse cidr %q: %w", aws.StringValue(subnet.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock), err)
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
 
-		if len(subnet.Ipv6CidrBlockAssociationSet) == 1 && aws.StringValue(subnet.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlockState.State) == "associated" {
-			_, ipnet, err := net.ParseCIDR(aws.StringValue(subnet.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock))
-			if err != nil {
-				err = fmt.Errorf("Cannot parse cidr %q: %w", aws.StringValue(subnet.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock), err)
-				tracehelpers.SetStatus(err, span)
-				return err
-			}
-			_, err = tx.ExecContext(ctx, "UPDATE subnets SET cidr6 = $1 WHERE id = $2 AND cidr6 IS NULL",
+		if !cidr6.Valid {
+			_, err = tx.ExecContext(ctx, "UPDATE subnets SET cidr6 = $1 WHERE id = $2",
 				ipnet.String(),
 				id,
 			)
@@ -137,37 +197,65 @@ func (vpcService *vpcService) reconcileSubnetsForRegionAccount(ctx context.Conte
 				tracehelpers.SetStatus(err, span)
 				return err
 			}
-
-			cidrs := []string{}
-			first := cidr.IPv6tod(ipnet.IP)
-			// 48 comes from 128 - 80
-			offset := big.NewInt(1 << 48)
-			var i int64
-			// TODO: Consider not hardcoding this.
-			for i = 1; i <= 65535; i++ {
-				ip := big.NewInt(0)
-				ip = ip.Mul(big.NewInt(i), offset)
-				ip = ip.Add(ip, first)
-				addr := cidr.DtoIPv6(ip)
-				cidr := net.IPNet{
-					IP:   addr,
-					Mask: net.CIDRMask(80, 128),
-				}
-				cidrs = append(cidrs, cidr.String())
+		}
+		knownPrefixes := sets.NewString()
+		rows, err := tx.QueryContext(ctx, "SELECT prefix FROM subnet_usable_prefix WHERE subnet_id = $1", id)
+		if err != nil {
+			err = fmt.Errorf("Could not query subnet_usable_prefix: %w", err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		for rows.Next() {
+			var prefix string
+			err = rows.Scan(&prefix)
+			if err != nil {
+				err = fmt.Errorf("Could not scan prefix: %w", err)
+				tracehelpers.SetStatus(err, span)
+				return err
 			}
 
+			knownPrefixes.Insert(prefix)
+		}
+
+		allPrefixes := sets.NewString()
+		first := cidr.IPv6tod(ipnet.IP)
+		// 48 comes from 128 - 80
+		offset := big.NewInt(1 << 48)
+		var i int64
+		// TODO: Consider not hardcoding this.
+		for i = 1; i <= 65535; i++ {
+			ip := big.NewInt(0)
+			ip = ip.Mul(big.NewInt(i), offset)
+			ip = ip.Add(ip, first)
+			addr := cidr.DtoIPv6(ip)
+			cidr := net.IPNet{
+				IP:   addr,
+				Mask: net.CIDRMask(80, 128),
+			}
+			allPrefixes.Insert(cidr.String())
+		}
+
+		newPrefixes := allPrefixes.Difference(knownPrefixes)
+
+		if newPrefixes.Len() > 0 {
 			_, err = tx.ExecContext(ctx, `
 INSERT INTO subnet_usable_prefix (subnet_id, prefix)
 SELECT $1, unnest($2::cidr[])
-ON CONFLICT (subnet_id, prefix) DO NOTHING 
 `,
-				id, pq.Array(cidrs))
+				id, pq.Array(newPrefixes.UnsortedList()))
 			if err != nil {
 				err = fmt.Errorf("Cannot update / set cidr6: %w", err)
 				tracehelpers.SetStatus(err, span)
 				return err
 			}
 		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		err = fmt.Errorf("Cannot commit transaction: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return err
 	}
 
 	return nil
