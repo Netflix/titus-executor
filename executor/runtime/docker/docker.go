@@ -1107,7 +1107,24 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nol
 	}
 
 	for _, sidecarConfig := range systemServices {
-		if sidecarConfig.ContainerName != "" {
+		if sidecarConfig.ContainerName == "" {
+			// This indicates that the systemService doesn't have a container at all,
+			// and should not assume it has a volume container
+			continue
+		} else if sidecarConfig.ContainerName == sidecarConfig.ServiceName {
+			// If the ContainerName is still just ServiceName, that indicates it has not be initialized yet,
+			// probably because if failed to be pulled, potentically indicating that the image doesn't exist,
+			// or a bad deploy, or heck just a typo in the name or something
+			if sidecarConfig.Required {
+				err = fmt.Errorf("Unable to get volume container of required sidecar %s", sidecarConfig.ServiceName)
+				goto error
+			} else {
+				// If the ContainerName is still uninitialized, but this service is not required, then it is
+				// ok to just log about it, but it should not be included on the list of volume containers to use
+				// (because it doesn't exist)
+				logger.G(ctx).Warnf("Skipping volume container of optional sidecar %s", sidecarConfig.ServiceName)
+			}
+		} else {
 			volumeContainers = append(volumeContainers, sidecarConfig.ContainerName)
 		}
 	}
