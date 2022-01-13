@@ -142,13 +142,29 @@ static int install_notify_filter(void) {
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 	};
 
-	struct sock_filter net_filter[] = {
+struct sock_filter net_and_perf_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 0, 2),
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
 		BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 1),
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
+		/* Trap perf-related syscalls. */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_bpf, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_perf_event_open, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		/* We only need to trap the 2 perf-related ioctls */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 5),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+			 (offsetof(struct seccomp_data, args[1]))),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_SET_BPF, 0,
+			 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PERF_EVENT_IOC_QUERY_BPF, 0,
+			 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 
 		/* Trap sendto */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_sendto, 0, 1),
@@ -199,10 +215,10 @@ static int install_notify_filter(void) {
 	char *is_handle_net = getenv("TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS");
 	char *is_handle_perf = getenv("TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS");
 	if (is_handle_net != NULL) {
-		prog.filter = net_filter;
+		prog.filter = net_and_perf_filter;
 		prog.len = 
-			(unsigned short)(sizeof(net_filter) / sizeof(net_filter[0]));
-		PRINT_INFO("Networking system calls will be intercepted");
+			(unsigned short)(sizeof(net_and_perf_filter) / sizeof(net_and_perf_filter[0]));
+		PRINT_INFO("Networking and Perf system calls will be intercepted");
 	} else if (is_handle_perf != NULL) {
 		prog.filter = perf_filter;
 		prog.len = 
