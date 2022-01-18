@@ -167,26 +167,11 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 		}
 	}
 
+	// All limits for the entire pod are encoded by the limits of the first container.
+	// We don't currently support per-container limits.
 	limits := pod.Spec.Containers[0].Resources.Limits
-
-	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	disk, _ := resource.ParseQuantity("2G")
-	for _, k := range []v1.ResourceName{v1.ResourceEphemeralStorage, v1.ResourceStorage, "titus/disk"} {
-		if v, ok := limits[k]; ok {
-			disk = v
-			break
-		}
-	}
-
-	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	gpu, _ := resource.ParseQuantity("0")
-	for _, k := range []v1.ResourceName{resourceCommon.ResourceNameGpuLegacy, resourceCommon.ResourceNameGpu, resourceCommon.ResourceNameNvidiaGpu} {
-		if v, ok := limits[k]; ok {
-			gpu = v
-			break
-		}
-	}
-
+	disk := limits[resourceCommon.ResourceNameDisk]
+	gpu := limits[resourceCommon.ResourceNameNetwork]
 	cpu := limits[v1.ResourceCPU]
 	memory := limits[v1.ResourceMemory]
 	network := limits[resourceCommon.ResourceNameNetwork]
