@@ -783,7 +783,7 @@ func AddContainerInfoToPod(pod *corev1.Pod, cInfo *titus.ContainerInfo) error {
 
 func getContainerResources(userContainer *corev1.Container) (*Resources, error) {
 	gpus := int64(0)
-	if numGPUs, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameGpu]; ok {
+	if numGPUs, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameNvidiaGpu]; ok {
 		gpus = numGPUs.Value()
 	}
 	net, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameNetwork]

@@ -317,18 +317,18 @@ func ResourcesToPodResourceRequirements(resources *Resources) corev1.ResourceReq
 
 	return corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:                 *cpu,
-			corev1.ResourceMemory:              *mem,
-			corev1.ResourceEphemeralStorage:    *disk,
-			resourceCommon.ResourceNameNetwork: *net,
-			resourceCommon.ResourceNameGpu:     *gpu,
+			corev1.ResourceCPU:                   *cpu,
+			corev1.ResourceMemory:                *mem,
+			corev1.ResourceEphemeralStorage:      *disk,
+			resourceCommon.ResourceNameNetwork:   *net,
+			resourceCommon.ResourceNameNvidiaGpu: *gpu,
 		},
 		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:                 *cpu,
-			corev1.ResourceMemory:              *mem,
-			corev1.ResourceEphemeralStorage:    *disk,
-			resourceCommon.ResourceNameNetwork: *net,
-			resourceCommon.ResourceNameGpu:     *gpu,
+			corev1.ResourceCPU:                   *cpu,
+			corev1.ResourceMemory:                *mem,
+			corev1.ResourceEphemeralStorage:      *disk,
+			resourceCommon.ResourceNameNetwork:   *net,
+			resourceCommon.ResourceNameNvidiaGpu: *gpu,
 		},
 	}
 }
