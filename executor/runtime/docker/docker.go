@@ -2002,12 +2002,22 @@ func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) *container.Healt
 // v1MountPropToDockerProp converts the incoming pod mount propagation configuration
 // into something that docker can understand, using the documentation for what each means:
 // https://kubernetes.io/docs/concepts/storage/volumes/#mount-propagation
-func v1MountPropToDockerProp(fo v1.MountPropagationMode) mount.Propagation {
-	switch fo {
+func v1MountPropToDockerProp(vm v1.VolumeMount) mount.Propagation {
+	// Currently only supporting RShared and RSlave because we are mostly mounting
+	// paths in the docker daemon root.
+	// Otherwise we get "invalid mount config: must use either propagation mode "rslave" or "rshared" when mount source is within the daemon root"
+	// This will need to change if we ever try to support different mount propagations elsewhere.
+	if vm.MountPropagation == nil {
+		return ""
+	}
+	mp := *vm.MountPropagation
+	switch mp {
 	case v1.MountPropagationBidirectional:
 		return mount.PropagationRShared
 	case v1.MountPropagationHostToContainer:
 		return mount.PropagationRSlave
+	case v1.MountPropagationNone:
+		return ""
 	default:
 		return ""
 	}
@@ -2050,7 +2060,7 @@ func (r *DockerRuntime) getContainerSharedVolumeSourceMounts(mainContainerRoot s
 				Source:      filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]),
 				Target:      volumeMount.MountPath,
 				ReadOnly:    volumeMount.ReadOnly,
-				BindOptions: &mount.BindOptions{Propagation: v1MountPropToDockerProp(*volumeMount.MountPropagation)},
+				BindOptions: &mount.BindOptions{Propagation: v1MountPropToDockerProp(volumeMount)},
 			}
 			mounts = append(mounts, m)
 		}
