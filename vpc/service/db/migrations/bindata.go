@@ -529,6 +529,24 @@ func _35_worker_id_up_sql() ([]byte, error) {
 	)
 }
 
+var __36_transition_index_down_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x72\x09\xf2\x0f\x50\xf0\xf4\x73\x71\x8d\x50\x48\x2c\x2e\xce\x4c\xcf\xcb\x4d\xcd\x2b\x29\x8e\x2f\x29\x4a\xcc\x2b\xce\x2c\xc9\xcc\xcf\x8b\x47\x08\x5b\x03\x02\x00\x00\xff\xff\x46\x8f\x84\xe0\x2d\x00\x00\x00")
+
+func _36_transition_index_down_sql() ([]byte, error) {
+	return bindata_read(
+		__36_transition_index_down_sql,
+		"36_transition_index.down.sql",
+	)
+}
+
+var __36_transition_index_up_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x72\x0e\x72\x75\x0c\x71\x55\xf0\xf4\x73\x71\x8d\x50\xf0\x74\x53\xf0\xf3\x0f\x51\x70\x8d\xf0\x0c\x0e\x09\x56\x48\x2c\x2e\xce\x4c\xcf\xcb\x4d\xcd\x2b\x29\x8e\x2f\x29\x4a\xcc\x2b\xce\x2c\xc9\xcc\xcf\x8b\x47\x08\x2b\xf8\xfb\x21\x2b\xd2\xc0\xaa\x48\xd3\x9a\x0b\x10\x00\x00\xff\xff\xe0\xed\xce\x40\x64\x00\x00\x00")
+
+func _36_transition_index_up_sql() ([]byte, error) {
+	return bindata_read(
+		__36_transition_index_up_sql,
+		"36_transition_index.up.sql",
+	)
+}
+
 var __3_branch_enis2_down_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x54\xcb\x31\x0a\x03\x21\x10\x05\xd0\xde\x53\xfc\x7b\x58\x4d\x86\x21\x08\x3a\x26\x3a\x5b\x6c\x25\x01\xb7\x10\x52\x24\x98\xdc\x3f\x45\xb0\xd8\xfa\xf1\xaa\x51\x31\x58\x21\xad\xc4\x16\xb2\x7a\x47\xd1\xa4\xa0\xca\x7d\x13\x65\xc1\x78\xb5\xe7\x63\x7e\xda\x77\x1e\xbd\x8d\xde\xe6\xf1\x06\x55\x04\x35\xb9\x4a\x81\x66\xf0\xce\x51\xd6\x33\xba\xc4\x73\xc2\x1f\x38\xc7\x2d\x29\x46\x87\xed\x37\x59\xdf\x3b\xce\x29\x05\xf3\xee\x17\x00\x00\xff\xff\x1f\x7d\x3b\xe6\x8a\x00\x00\x00")
 
 func _3_branch_enis2_down_sql() ([]byte, error) {
@@ -733,6 +751,8 @@ var _bindata = map[string]func() ([]byte, error){
 	"34_branch_eni_last_used.up.sql":             _34_branch_eni_last_used_up_sql,
 	"35_worker_id.down.sql":                      _35_worker_id_down_sql,
 	"35_worker_id.up.sql":                        _35_worker_id_up_sql,
+	"36_transition_index.down.sql":               _36_transition_index_down_sql,
+	"36_transition_index.up.sql":                 _36_transition_index_up_sql,
 	"3_branch_enis2.down.sql":                    _3_branch_enis2_down_sql,
 	"3_branch_enis2.up.sql":                      _3_branch_enis2_up_sql,
 	"4_branch_eni_last_used.down.sql":            _4_branch_eni_last_used_down_sql,
@@ -846,6 +866,8 @@ var _bintree = &_bintree_t{nil, map[string]*_bintree_t{
 	"34_branch_eni_last_used.up.sql":             &_bintree_t{_34_branch_eni_last_used_up_sql, map[string]*_bintree_t{}},
 	"35_worker_id.down.sql":                      &_bintree_t{_35_worker_id_down_sql, map[string]*_bintree_t{}},
 	"35_worker_id.up.sql":                        &_bintree_t{_35_worker_id_up_sql, map[string]*_bintree_t{}},
+	"36_transition_index.down.sql":               &_bintree_t{_36_transition_index_down_sql, map[string]*_bintree_t{}},
+	"36_transition_index.up.sql":                 &_bintree_t{_36_transition_index_up_sql, map[string]*_bintree_t{}},
 	"3_branch_enis2.down.sql":                    &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{}},
 	"3_branch_enis2.up.sql":                      &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{}},
 	"4_branch_eni_last_used.down.sql":            &_bintree_t{_4_branch_eni_last_used_down_sql, map[string]*_bintree_t{}},
