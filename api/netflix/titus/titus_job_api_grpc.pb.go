@@ -49,8 +49,9 @@ type JobManagementServiceClient interface {
 	// Equivalent to ObserveJob, applied to all active jobs. This stream never
 	// completes.
 	ObserveJobs(ctx context.Context, in *ObserveJobsQuery, opts ...grpc.CallOption) (JobManagementService_ObserveJobsClient, error)
-	// `ObserveJobsWithKeepAlive` extends the `ObserveJobs` endpoint behavior by supporting keep alive mechanism
-	// in the channel. This stream never completes.
+	// `ObserveJobsWithKeepAlive` extends the `ObserveJobs` endpoint behavior by
+	// supporting keep alive mechanism in the channel. This stream never
+	// completes.
 	ObserveJobsWithKeepAlive(ctx context.Context, opts ...grpc.CallOption) (JobManagementService_ObserveJobsWithKeepAliveClient, error)
 	// Terminate all running tasks of a job, and than terminate the job.
 	KillJob(ctx context.Context, in *JobId, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -378,8 +379,9 @@ type JobManagementServiceServer interface {
 	// Equivalent to ObserveJob, applied to all active jobs. This stream never
 	// completes.
 	ObserveJobs(*ObserveJobsQuery, JobManagementService_ObserveJobsServer) error
-	// `ObserveJobsWithKeepAlive` extends the `ObserveJobs` endpoint behavior by supporting keep alive mechanism
-	// in the channel. This stream never completes.
+	// `ObserveJobsWithKeepAlive` extends the `ObserveJobs` endpoint behavior by
+	// supporting keep alive mechanism in the channel. This stream never
+	// completes.
 	ObserveJobsWithKeepAlive(JobManagementService_ObserveJobsWithKeepAliveServer) error
 	// Terminate all running tasks of a job, and than terminate the job.
 	KillJob(context.Context, *JobId) (*emptypb.Empty, error)

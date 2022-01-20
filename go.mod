@@ -12,7 +12,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07
 	github.com/Netflix/spectator-go v0.0.0-20190913215732-d4e0463555ef
-	github.com/Netflix/titus-api-definitions v0.0.3-rc.9
+	github.com/Netflix/titus-api-definitions v0.0.3-rc.17
 	github.com/Netflix/titus-kube-common v0.21.2
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
@@ -23,6 +23,7 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
 	github.com/coreos/go-systemd/v22 v22.3.2
 	github.com/cyphar/filepath-securejoin v0.2.2
+	github.com/deckarep/golang-set v1.8.0
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0
 	github.com/docker/go-connections v0.4.0 // indirect
@@ -83,6 +84,7 @@ require (
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/ini.v1 v1.52.0 // indirect
+	gopkg.in/urfave/cli.v1 v1.20.0
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.20.9
