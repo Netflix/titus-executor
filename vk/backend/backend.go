@@ -171,7 +171,7 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 	// We don't currently support per-container limits.
 	limits := pod.Spec.Containers[0].Resources.Limits
 	disk := limits[resourceCommon.ResourceNameDisk]
-	gpu := limits[resourceCommon.ResourceNameNetwork]
+	gpu := limits[resourceCommon.ResourceNameNvidiaGpu]
 	cpu := limits[v1.ResourceCPU]
 	memory := limits[v1.ResourceMemory]
 	network := limits[resourceCommon.ResourceNameNetwork]
