@@ -412,6 +412,10 @@ func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address b
 		}
 		return titus.NetworkConfiguration_Ipv4Only.String()
 	}
+	if originalNetworkMode == titus.NetworkConfiguration_HighScale.String() {
+		// HighScale is really an alias for the Transition Mode today
+		return titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
+	}
 	return originalNetworkMode
 }
 

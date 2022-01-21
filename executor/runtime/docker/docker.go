@@ -719,7 +719,7 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		"--security-groups", strings.Join(*sgIDs, ","),
 		"--task-id", c.TaskID(),
 		"--bandwidth", strconv.FormatInt(bw, 10),
-		"--network-mode", c.EffectiveNetworkMode(),
+		"--network-mode", c.EffectiveNetworkMode(), // TODO: Deal with HighScale mode either here, or use the effective mode (which is fallback)
 	}
 
 	if c.SignedAddressAllocationUUID() != nil {
