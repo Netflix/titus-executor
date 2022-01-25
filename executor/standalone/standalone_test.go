@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/user"
 	"runtime"
 	"strings"
 	"testing"
@@ -107,9 +108,13 @@ func wrapTestStandalone(t *testing.T) {
 	t.Parallel()
 }
 
-func skipOnDarwin(t *testing.T) {
+func skipOnDarwinOrNoRoot(t *testing.T) {
 	if runtime.GOOS == "darwin" { //nolint:goconst
 		t.Skip("This test is not compatible with darwin or docker-for-mac")
+	}
+	currentUser, _ := user.Current()
+	if currentUser.Username != "root" {
+		t.Skip("This test must be run as root")
 	}
 }
 
@@ -678,7 +683,7 @@ func TestShutdown(t *testing.T) {
 func TestMetadataProxyInjection(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -694,7 +699,7 @@ func TestMetadataProxyInjection(t *testing.T) {
 func TestMetadataProxyFromLocalhost(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -710,7 +715,7 @@ func TestMetadataProxyFromLocalhost(t *testing.T) {
 func TestMetadataProxyOnIPv6(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -726,7 +731,7 @@ func TestMetadataProxyOnIPv6(t *testing.T) {
 func TestMetadataProxyPublicIP(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -814,7 +819,7 @@ func TestTerminateTimeoutNotTooSlow(t *testing.T) {
 func TestOOMAdj(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it assumes you can see /proc from the container
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -962,7 +967,7 @@ func TestOldEnvironmentLocationNegative(t *testing.T) {
 func TestNoCPUBursting(t *testing.T) {
 	wrapTestStandalone(t)
 	// Not sure exactly why this doesn't work on darwin, cfs_quota_us isn't in there
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
@@ -979,7 +984,7 @@ func TestNoCPUBursting(t *testing.T) {
 func TestCPUBursting(t *testing.T) {
 	wrapTestStandalone(t)
 	// Not sure exactly why this doesn't work on darwin, cfs_quota_us isn't in there
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
@@ -997,7 +1002,7 @@ func TestCPUBursting(t *testing.T) {
 func TestTwoCPUs(t *testing.T) {
 	wrapTestStandalone(t)
 	// Not sure exactly why this doesn't work on darwin, cpus.shares isn't there
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	var cpuCount int64 = 2
 	ji := &JobInput{
 		ImageName: ubuntu.name,
@@ -1071,7 +1076,7 @@ func TestCachedDockerPull(t *testing.T) {
 func TestMetatron(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it need system stuff
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:       userSet.name,
 		Version:         userSet.tag,
@@ -1099,7 +1104,7 @@ func TestMetatron(t *testing.T) {
 func TestMetatronFailure(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it need systemd stuff
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
@@ -1200,7 +1205,7 @@ func TestShm(t *testing.T) {
 func TestContainerLogViewer(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it need systemd stuff
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:        ubuntu.name,
 		Version:          ubuntu.tag,
@@ -1243,7 +1248,7 @@ func TestNegativeSeccomp(t *testing.T) {
 func TestGPUManager1GPU(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin docker-for-mac won't accept alt docker runtimes
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	g := &gpuManager{}
 	var gpu int64 = 1
 
