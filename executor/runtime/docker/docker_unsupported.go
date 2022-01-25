@@ -57,3 +57,11 @@ func mountTmpfs(path string, size string) error {
 func unmountTmpfs(path string) error {
 	return nil
 }
+
+func makeBackingFsDev(home, tempdir string) error {
+	return nil
+}
+
+func mkdirAllInContainer(source string) error {
+	return nil
+}

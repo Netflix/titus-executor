@@ -2055,9 +2055,14 @@ func (r *DockerRuntime) getContainerSharedVolumeSourceMounts(mainContainerRoot s
 			if v.FlexVolume.Options["sourceContainer"] != "main" && v.FlexVolume.Options["sourceContainer"] != "" {
 				return nil, fmt.Errorf("only 'main' SharedContainerVolume volumes are supported. Volume: %+v", v)
 			}
+			source := filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"])
+			err := mkdirAllInContainer(source)
+			if err != nil {
+				return mounts, fmt.Errorf("Unable to use shared volume source %s with a sourcePath of %s: %w", volumeMount.Name, v.FlexVolume.Options["sourcePath"], err)
+			}
 			m := mount.Mount{
 				Type:        "bind",
-				Source:      filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]),
+				Source:      source,
 				Target:      volumeMount.MountPath,
 				ReadOnly:    volumeMount.ReadOnly,
 				BindOptions: &mount.BindOptions{Propagation: v1MountPropToDockerProp(volumeMount)},

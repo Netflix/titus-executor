@@ -355,3 +355,22 @@ func mountTmpfs(path string, size string) error {
 func unmountTmpfs(path string) error {
 	return unix.Unmount(path, unix.MNT_DETACH|umountNoFollow)
 }
+
+// mkdirAllInContainer tries to create a directory in a container for the purpose of mounting
+// This can fail in any number of ways, but presenting the error in a human readable way is better
+// than letter a docker container start crash with an obscure error about a deeply nested folder that doesn't exist.
+func mkdirAllInContainer(source string) error {
+	fileInfo, err := os.Stat(source)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 777 may not be the most secure, but it replicates a "tmpfs" where we can't really
+			// know what the permissions "should" be.
+			return os.MkdirAll(source, 0777)
+		}
+		return fmt.Errorf("Error reading sourcePath %s: %w", source, err)
+	}
+	if fileInfo.IsDir() {
+		return nil
+	}
+	return fmt.Errorf("%s already exists but is not a directory", source)
+}
