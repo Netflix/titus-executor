@@ -85,9 +85,8 @@ type PodContainer struct {
 	shmSizeMiB         *uint32
 	ttyEnabled         bool
 	// userEnv is the environment passed in by the user in the pod spec
-	userEnv                map[string]string
-	vpcAllocation          *vpcapi.Assignment
-	trafficSteeringEnabled bool
+	userEnv       map[string]string
+	vpcAllocation *vpcapi.Assignment
 }
 
 func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) {
