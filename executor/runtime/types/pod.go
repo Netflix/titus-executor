@@ -614,6 +614,13 @@ func (c *PodContainer) ServiceMeshEnabled() bool {
 	return c.serviceMeshEnabled
 }
 
+func (c *PodContainer) TrafficSteeringEnabled() bool {
+	if c.podConfig.TrafficSteeringEnabled != nil {
+		return *c.podConfig.TrafficSteeringEnabled
+	}
+	return false
+}
+
 func (c *PodContainer) SetEnv(key, value string) {
 	c.envLock.Lock()
 	defer c.envLock.Unlock()

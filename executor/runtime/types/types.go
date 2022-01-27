@@ -220,6 +220,7 @@ type Container interface {
 	UseJumboFrames() bool
 	VPCAllocation() *vpcapi.Assignment
 	VPCAccountID() *string
+	TrafficSteeringEnabled() bool
 }
 
 func validateHostnameStyle(style string) error {

@@ -1,0 +1,15 @@
+[Unit]
+Description=Titus traffic steering for container %i
+
+StartLimitIntervalSec=30
+StartLimitBurst=5
+CollectMode=inactive-or-failed
+PartOf=titus-container@%i.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nise -task_id %i
+
+Restart=on-failure
+RestartSec=3
+KillMode=mixed

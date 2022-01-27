@@ -71,6 +71,7 @@ const (
 	subnetsParam                            = "titusParameter.agent.subnets"
 	elasticIPPoolParam                      = "titusParameter.agent.elasticIPPool"
 	elasticIPsParam                         = "titusParameter.agent.elasticIPs"
+	TrafficSteeringEnabledParam             = "titusParameter.agent.trafficSteeringEnabled"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
@@ -178,6 +179,7 @@ type TitusInfoContainer struct {
 	serviceMeshEnabled                 *bool
 	serviceMeshImage                   string
 	ttyEnabled                         bool
+	trafficSteeringEnabled             bool
 
 	config config.Config
 }
@@ -327,6 +329,10 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 		{
 			paramName:     jumboFrameParam,
 			containerAttr: &c.useJumboFrames,
+		},
+		{
+			paramName:     TrafficSteeringEnabledParam,
+			containerAttr: &c.trafficSteeringEnabled,
 		},
 	}
 
@@ -927,6 +933,10 @@ func (c *TitusInfoContainer) ServiceMeshEnabled() bool {
 	}
 	_, err := c.serviceMeshImageName()
 	return err == nil
+}
+
+func (c *TitusInfoContainer) TrafficSteeringEnabled() bool {
+	return c.trafficSteeringEnabled
 }
 
 func (c *TitusInfoContainer) serviceMeshImageName() (string, error) {
