@@ -74,7 +74,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			"NETFLIX_ENVIRONMENT",
 			"NETFLIX_ACCOUNT",
 			"NETFLIX_STACK",
-			"EC2_INSTANCE_ID",
 			"EC2_REGION",
 			"EC2_AVAILABILITY_ZONE",
 			"EC2_OWNER_ID",
@@ -91,6 +90,7 @@ func NewConfig() (*Config, []cli.Flag) {
 			 */
 			"AWS_METADATA_SERVICE_TIMEOUT=5",
 			"AWS_METADATA_SERVICE_NUM_ATTEMPTS=3",
+			"EC2_INSTANCE_ID=i-mock",
 		},
 		ContainerSSHDUsers: []string{
 			"root",
