@@ -948,6 +948,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 // Prepare host state (pull images, create fs, create container, etc...)
 func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nolint: gocyclo
 	var volumeContainers []string
+	var sharedMountDirs []string
 
 	ctx, cancel := context.WithTimeout(ctx, r.dockerCfg.prepareTimeout)
 	defer cancel()
@@ -1178,7 +1179,8 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nol
 	}
 	logger.G(ctx).Info("Titus Configuration pushed")
 
-	err = r.pushEnvironment(ctx, r.c, myImageInfo)
+	sharedMountDirs = getSharedMountDirsFromPod(pod)
+	err = r.pushEnvironment(ctx, r.c, myImageInfo, sharedMountDirs)
 	if err != nil {
 		goto error
 	}
@@ -1191,6 +1193,22 @@ error:
 		r.metrics.Counter("titus.executor.dockerCreateContainerError", 1, nil)
 	}
 	return err
+}
+
+// getSharedMountDirsFromPod takes a pod and looks for special SharedVolumeMounts for the main container.
+// We must get this list first, and ensure these directories exists for inside the container so that the
+// actual bind mount will work.
+// Note that this does not support sharing volumes from a source other than the 'main' container.
+func getSharedMountDirsFromPod(pod *v1.Pod) []string {
+	sharedMountDirs := []string{}
+	for _, v := range pod.Spec.Volumes {
+		if v.FlexVolume != nil && v.FlexVolume.Driver == "SharedContainerVolumeSource" && v.FlexVolume.Options != nil {
+			if v.FlexVolume.Options["sourceContainer"] == "main" {
+				sharedMountDirs = append(sharedMountDirs, v.FlexVolume.Options["sourcePath"])
+			}
+		}
+	}
+	return sharedMountDirs
 }
 
 // Creates the file $titusEnvironments/ContainerID.json as a serialized version of the ContainerInfo protobuf struct
@@ -1318,10 +1336,8 @@ func (r *DockerRuntime) logDir(c runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
 
-func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
+func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Container, imageInfo *types.ImageInspect, sharedMountDirs []string) error { // nolint: gocyclo
 	var envTemplateBuf, tarBuf bytes.Buffer
-
-	//myImageInfo.Config.Env
 
 	if err := executeEnvFileTemplate(c.Env(), imageInfo, &envTemplateBuf); err != nil {
 		return err
@@ -1352,6 +1368,16 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Typeflag: tar.TypeDir,
 	}); err != nil {
 		log.WithError(err).Fatal()
+	}
+
+	for _, d := range sharedMountDirs {
+		if err := tw.WriteHeader(&tar.Header{
+			Name:     d,
+			Mode:     0777,
+			Typeflag: tar.TypeDir,
+		}); err != nil {
+			log.WithError(err).Fatal()
+		}
 	}
 
 	if err := tw.WriteHeader(&tar.Header{
