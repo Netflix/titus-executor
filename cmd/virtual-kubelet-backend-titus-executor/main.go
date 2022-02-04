@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 
 	log2 "github.com/Netflix/titus-executor/utils/log"
@@ -110,9 +111,13 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 		return errors.Wrap(err, "cannot create Titus executor")
 	}
 
-	err = backend.RunWithBackend(ctx, rp, m, pipe, pod, *cfg)
+	b, err := backend.NewBackend(ctx, rp, pod, cfg, m)
 	if err != nil {
-		log.G(ctx).WithError(err).Fatal("Could not run container")
+		return err
 	}
-	return nil
+	err = b.RunWithStatusFile(ctx, pipe)
+	if err != nil {
+		return fmt.Errorf("Could not start container: %w", err)
+	}
+	return err
 }

@@ -7,29 +7,32 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	"github.com/Netflix/titus-executor/logger"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/google/renameio"
 	"github.com/pkg/errors"
-	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
-	errContainerInfo = errors.New("Cannot find container info")
+	errContainerInfo = errors.New("cannot find container info annotation")
 )
 
 func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
@@ -113,108 +116,278 @@ func state2containerState(prevState *v1.ContainerState, currState titusdriver.Ti
 	}
 }
 
-func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, m metrics.Reporter, statuses *os.File, pod *v1.Pod, cfg config.Config) error { // nolint: gocyclo
+type Backend struct {
+	network, disk, memory, gpu, cpu resource.Quantity
+	pod                             *v1.Pod
+	containerinfo                   *titus.ContainerInfo
+	readyErr                        error
+	readyLock                       sync.RWMutex
+	m                               metrics.Reporter
+	rp                              runtimeTypes.ContainerRuntimeProvider
+	cfg                             *config.Config
+}
+
+func getContainerInfo(pod *v1.Pod) (string, error) {
 	containerInfoStr, ok := pod.GetAnnotations()["containerInfo"]
+	if ok {
+		return containerInfoStr, nil
+	}
+
+	containerInfoStr, ok = pod.GetAnnotations()[podCommon.AnnotationKeyPodTitusContainerInfo]
 	if !ok {
-		return errContainerInfo
+		return "", errContainerInfo
 	}
-	data, err := base64.StdEncoding.DecodeString(containerInfoStr)
-	if err != nil {
-		return errors.Wrap(err, "Could not decode containerInfo from base64")
-	}
+
+	return containerInfoStr, nil
+}
+
+func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, pod *v1.Pod, cfg *config.Config, m metrics.Reporter) (*Backend, error) {
 	var containerInfo titus.ContainerInfo
 
-	err = proto.Unmarshal(data, &containerInfo)
+	podSchemaVer, err := podCommon.PodSchemaVersion(pod)
 	if err != nil {
-		return errors.Wrap(err, "Could not deserialize protobuf")
+		return nil, err
 	}
 
-	useBytes, err := podCommon.ByteUnitsEnabled(pod)
-	if err != nil {
-		return errors.Wrap(err, "Could not parse byte units pod annotation")
+	// As of pod schema v1, the containerInfo annotation is optional.
+	if podSchemaVer < 1 {
+		containerInfoStr, err := getContainerInfo(pod)
+		if err != nil {
+			return nil, err
+		}
+
+		data, err := base64.StdEncoding.DecodeString(containerInfoStr)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not decode containerInfo from base64")
+		}
+
+		err = proto.Unmarshal(data, &containerInfo)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not deserialize protobuf")
+		}
 	}
 
+	// All limits for the entire pod are encoded by the limits of the first container.
+	// We don't currently support per-container limits.
 	limits := pod.Spec.Containers[0].Resources.Limits
-
-	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	disk, _ := resource.ParseQuantity("2G")
-	for _, k := range []v1.ResourceName{v1.ResourceEphemeralStorage, v1.ResourceStorage, "titus/disk"} {
-		if v, ok := limits[k]; ok {
-			disk = v
-			break
-		}
-	}
-
-	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	gpu, _ := resource.ParseQuantity("0")
-	for _, k := range []v1.ResourceName{resourceCommon.ResourceNameGpuLegacy, resourceCommon.ResourceNameGpu, resourceCommon.ResourceNameNvidiaGpu} {
-		if v, ok := limits[k]; ok {
-			gpu = v
-			break
-		}
-	}
-
+	disk := limits[resourceCommon.ResourceNameDisk]
+	gpu := limits[resourceCommon.ResourceNameNvidiaGpu]
 	cpu := limits[v1.ResourceCPU]
 	memory := limits[v1.ResourceMemory]
 	network := limits[resourceCommon.ResourceNameNetwork]
 
-	if useBytes {
-		// The control plane has passed resource values in bytes, but the runner takes
-		// MiB / MB, so we need to do the conversion.
-		disk, err = resourceBytesToMiB(&disk)
-		if err != nil {
-			return errors.New("error converting disk resource units")
-		}
-
-		memory, err = resourceBytesToMiB(&memory)
-		if err != nil {
-			return errors.New("error converting memory resource units")
-		}
-
-		network, err = resourceBytesToMB(&network)
-		if err != nil {
-			return errors.New("error converting network resource units")
-		}
-	}
-
-	runner, err := runner.StartTaskWithRuntime(ctx, runner.Task{
-		TaskID:    pod.GetName(),
-		TitusInfo: &containerInfo,
-		Pod:       pod,
-		Mem:       memory.Value(),
-		CPU:       cpu.Value(),
-		Gpu:       gpu.Value(),
-		Disk:      disk.Value(),
-		Network:   network.Value(),
-	}, m, rp, cfg)
+	// The control plane has passed resource values in bytes, but the runner takes
+	// MiB / MB, so we need to do the conversion.
+	disk, err = resourceBytesToMiB(&disk)
 	if err != nil {
-		return errors.Wrap(err, "Could not start task")
+		return nil, errors.New("error converting disk resource units")
 	}
 
+	memory, err = resourceBytesToMiB(&memory)
+	if err != nil {
+		return nil, errors.New("error converting memory resource units")
+	}
+
+	network, err = resourceBytesToMB(&network)
+	if err != nil {
+		return nil, errors.New("error converting network resource units")
+	}
+
+	be := &Backend{
+		network:       network,
+		disk:          disk,
+		memory:        memory,
+		gpu:           gpu,
+		cpu:           cpu,
+		pod:           pod,
+		containerinfo: &containerInfo,
+		m:             m,
+		rp:            rp,
+		cfg:           cfg,
+	}
+	be.readyLock.Lock()
+
+	return be, nil
+}
+
+func (b *Backend) Ready(ctx context.Context) error {
+	b.readyLock.RLock()
+	defer b.readyLock.RUnlock()
+	return b.readyErr
+}
+
+func (b *Backend) run(ctx context.Context) (*runner.Runner, error) {
+	r, err := runner.StartTaskWithRuntime(ctx, runner.Task{
+		TaskID:    b.pod.GetName(),
+		TitusInfo: b.containerinfo,
+		Pod:       b.pod,
+		Mem:       b.memory.Value(),
+		CPU:       b.cpu.Value(),
+		Gpu:       b.gpu.Value(),
+		Disk:      b.disk.Value(),
+		Network:   b.network.Value(),
+	}, b.m, b.rp, *b.cfg)
+	b.readyErr = err
+
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not start task")
+	}
+	go b.waitForTerminationSignal(ctx, r)
+	return r, nil
+}
+
+func (b *Backend) waitForTerminationSignal(ctx context.Context, r *runner.Runner) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, unix.SIGUSR1, unix.SIGTERM)
+	// TODO: Should we always call r.Kill(), here?
+	select {
+	case sig := <-ch:
+		logger.G(ctx).WithField("signal", sig).Info("Terminating pod due to signal")
+		r.Kill()
+	case <-ctx.Done():
+		return
+	}
+}
+
+func (b *Backend) writePod(ctx context.Context, statedir string) error {
+	f, err := renameio.TempFile(statedir, filepath.Join(statedir, "state.json"))
+	if err != nil {
+		return fmt.Errorf("Cannot create temporary pod file")
+	}
+
+	encoder := json.NewEncoder(f)
+	encoder.SetIndent("", "\t")
+	err = encoder.Encode(b.pod)
+	if err != nil {
+		_ = f.Cleanup()
+		return fmt.Errorf("Unable to marshal pod object: %w", err)
+	}
+
+	return f.CloseAtomicallyReplace()
+}
+
+func (b *Backend) RunWithOutputDir(ctx context.Context, dir string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	r, err := b.run(ctx)
+	if err != nil {
+		b.readyLock.Unlock()
+		b.handleUpdate(ctx, runner.Update{
+			TaskID: b.pod.Name,
+			State:  titusdriver.Lost,
+			Mesg:   fmt.Sprintf("error launching task: %s", err.Error()),
+		})
+		err = b.writePod(ctx, dir)
+		if err != nil {
+			logger.G(ctx).WithError(err).Fatal("Unable to update pod directory")
+		} else {
+			logger.G(ctx).Info("Updated pod dir")
+		}
+
+		return err
+	}
+	err = b.writePod(ctx, dir)
+	b.readyLock.Unlock()
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case update, ok := <-r.UpdatesChan:
+			if !ok {
+				return nil
+			}
+			b.handleUpdate(ctx, update)
+			err = b.writePod(ctx, dir)
+			if err != nil {
+				logger.G(ctx).WithError(err).Fatal("Unable to update pod directory")
+				return err
+			}
+			logger.G(ctx).Info("Updated pod dir")
+		case <-r.StoppedChan:
+			return nil
+		case <-ctx.Done():
+			// We should probably kill the pod gracefully now.
+			r.Kill()
+			logger.G(ctx).Info("Context complete, terminating gracefully")
+			<-r.StoppedChan
+			logger.G(ctx).Info("Context completed, terminated")
+			return nil
+		}
+	}
+}
+
+func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
+	b.pod.Status.Message = update.Mesg
+	if update.Details != nil {
+		b.pod.Status.PodIP = update.Details.NetworkConfiguration.IPAddress
+
+		// We only get to have 1 IPv4 and 1 IPv6 address in this array
+		// https://github.com/kubernetes/kubernetes/blob/31030820be979ea0b2c39e08eb18fddd71f353ed/pkg/apis/core/validation/validation.go#L3289
+		// So the best we can do is, if we have an EIP, we put it here, and leave the main `PodIP`
+		// as the non-EIP one.
+		if update.Details.NetworkConfiguration.ElasticIPAddress != "" {
+			b.pod.Status.PodIPs = []v1.PodIP{
+				{IP: update.Details.NetworkConfiguration.ElasticIPAddress},
+			}
+		} else if update.Details.NetworkConfiguration.IPAddress != "" {
+			b.pod.Status.PodIPs = []v1.PodIP{
+				{IP: update.Details.NetworkConfiguration.IPAddress},
+			}
+		}
+
+		// And now, V6, if we have one
+		// TODO: append a non-eip v6 if we can determine that we have one
+		if update.Details.NetworkConfiguration.EniIPv6Address != "" {
+			b.pod.Status.PodIPs = append(b.pod.Status.PodIPs, v1.PodIP{
+				IP: update.Details.NetworkConfiguration.EniIPv6Address,
+			})
+		}
+	}
+
+	b.pod.Status.Reason = update.State.String()
+	b.pod.Status.Phase = state2phase(update.State)
+
+	var prevContainerState *v1.ContainerState
+	if b.pod.Status.ContainerStatuses != nil && len(b.pod.Status.ContainerStatuses) > 0 {
+		prevContainerState = &b.pod.Status.ContainerStatuses[0].State
+	}
+
+	logger.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debug("Setting ContainerStatus...")
+	// Order is important here, we need the first (0th) container to be the main one so that
+	// other code that looks at the first container status continues to behave in a compatible way
+	mainContainerStatus := v1.ContainerStatus{
+		Name:                 b.pod.Name,
+		State:                state2containerState(prevContainerState, update.State),
+		LastTerminationState: v1.ContainerState{},
+		Ready:                true,
+		RestartCount:         0,
+		Image:                b.pod.Spec.Containers[0].Image,
+		ImageID:              "",
+		ContainerID:          "",
+	}
+
+	b.pod.Status.ContainerStatuses = []v1.ContainerStatus{mainContainerStatus}
+
+	if update.Details != nil && update.Details.NetworkConfiguration != nil {
+		for k, v := range update.Details.NetworkConfiguration.ToMap() {
+			b.pod.Annotations[k] = v
+		}
+	}
+}
+
+func (b *Backend) RunWithStatusFile(ctx context.Context, statuses *os.File) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	runner, err := b.run(ctx)
+	b.readyLock.Unlock()
+	if err != nil {
+		return err
+	}
 	encoder := json.NewEncoder(statuses)
 	var lock sync.Mutex
-
-	go func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, os.Interrupt, unix.SIGUSR1, unix.SIGTERM)
-		select {
-		case sig := <-ch:
-			switch sig {
-			case unix.SIGUSR1:
-				log.G(ctx).WithField("signal", sig).Info("Terminating pod due to signal")
-				runner.Kill()
-			case unix.SIGTERM:
-				log.G(ctx).WithField("signal", sig).Info("Terminating pod due to signal")
-				runner.Kill()
-			case os.Interrupt:
-				log.G(ctx).WithField("signal", sig).Info("Terminating pod due to signal")
-				runner.Kill()
-			}
-		case <-ctx.Done():
-			return
-		}
-	}()
-
 	for {
 		select {
 		case update, ok := <-runner.UpdatesChan:
@@ -223,59 +396,22 @@ func RunWithBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvide
 			}
 
 			lock.Lock()
-			pod.Status.Message = update.Mesg
-			if update.Details != nil {
-				pod.Status.PodIP = update.Details.NetworkConfiguration.IPAddress
-				pod.Status.PodIPs = []v1.PodIP{
-					{IP: update.Details.NetworkConfiguration.IPAddress},
-				}
-
-				if update.Details.NetworkConfiguration.ElasticIPAddress != "" {
-					pod.Status.PodIPs = append(pod.Status.PodIPs, v1.PodIP{IP: update.Details.NetworkConfiguration.ElasticIPAddress})
-				}
-			}
-
-			pod.Status.Reason = update.State.String()
-			pod.Status.Phase = state2phase(update.State)
-
-			var prevContainerState *v1.ContainerState
-			if pod.Status.ContainerStatuses != nil && len(pod.Status.ContainerStatuses) > 0 {
-				prevContainerState = &pod.Status.ContainerStatuses[0].State
-			}
-
-			log.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)).Debug("Setting ContainerStatus...")
-			pod.Status.ContainerStatuses = []v1.ContainerStatus{{
-				Name:                 pod.Name,
-				State:                state2containerState(prevContainerState, update.State),
-				LastTerminationState: v1.ContainerState{},
-				Ready:                true,
-				RestartCount:         0,
-				Image:                "",
-				ImageID:              "",
-				ContainerID:          "",
-			}}
-
-			if update.Details != nil && update.Details.NetworkConfiguration != nil {
-				for k, v := range update.Details.NetworkConfiguration.ToMap() {
-					pod.Annotations[k] = v
-				}
-			}
-
-			log.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)).Debugf("Updating pod in backend: %+v", pod)
-			err = encoder.Encode(pod)
+			b.handleUpdate(ctx, update)
+			logger.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debugf("Updating pod in backend: %+v", b.pod)
+			err = encoder.Encode(b.pod)
 			lock.Unlock()
 
 			if err != nil {
-				log.G(ctx).WithError(err).Fatal()
+				logger.G(ctx).WithError(err).Fatal()
 			}
 		case <-runner.StoppedChan:
 			return nil
 		case <-ctx.Done():
 			// We should probably kill the pod gracefully now.
 			runner.Kill()
-			log.G(ctx).Info("Context complete, terminating gracefully")
+			logger.G(ctx).Info("Context complete, terminating gracefully")
 			<-runner.StoppedChan
-			log.G(ctx).Info("Context completed, terminated")
+			logger.G(ctx).Info("Context completed, terminated")
 			return nil
 		}
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -122,7 +123,17 @@ func mainWithError(podFileName string, statusPipe string) error {
 	}
 
 	cfg, _ := config.NewConfig()
-	err = backend.RunWithBackend(ctx, runtime, metrics.Discard, pipe, pod, *cfg)
+
+	b, err := backend.NewBackend(ctx, runtime, pod, cfg, metrics.Discard)
+	if err != nil {
+		return fmt.Errorf("Could not instantiate backend: %w", err)
+	}
+
+	err = b.RunWithStatusFile(ctx, pipe)
+	if err != nil {
+		return fmt.Errorf("Could not start container: %w", err)
+	}
+
 	if err != nil {
 		log.G(ctx).WithError(err).Fatal("Could not run container")
 	}
