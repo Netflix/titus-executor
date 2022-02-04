@@ -1349,16 +1349,16 @@ func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
 	skipIfNotPod(t)
 
 	// In the main container, we expect to see a file created by our sentinel
-	testEntrypointOld := "stat /etc/sentinel"
+	testEntrypointOld := "stat /data2/sentinel"
 	testEntrypointOld = `/bin/sh -vxc "sleep 3;` + testEntrypointOld + `"`
 
 	sharedVolume := corev1.Volume{
-		Name: "shared-from-mains-etc",
+		Name: "shared-from-mains-data2",
 		VolumeSource: corev1.VolumeSource{
 			FlexVolume: &corev1.FlexVolumeSource{
 				Driver: "SharedContainerVolumeSource",
 				Options: map[string]string{
-					"sourcePath":      "/etc",
+					"sourcePath":      "/data2",
 					"sourceContainer": "main",
 				},
 			},
@@ -1366,8 +1366,8 @@ func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
 	}
 	mountProp := corev1.MountPropagationNone
 	sharedVolumeMount := corev1.VolumeMount{
-		Name:             "shared-from-mains-etc",
-		MountPath:        "/mains-etc",
+		Name:             "shared-from-mains-data2",
+		MountPath:        "/mains-data2",
 		ReadOnly:         false,
 		MountPropagation: &mountProp,
 	}
@@ -1382,7 +1382,7 @@ func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
 				Name:         "touch-sentinel",
 				Image:        busybox.name + `:` + busybox.tag,
 				Command:      []string{"/bin/sh", "-vxc"},
-				Args:         []string{"touch /mains-etc/sentinel"},
+				Args:         []string{"touch /mains-data2/sentinel"},
 				VolumeMounts: []corev1.VolumeMount{sharedVolumeMount},
 			},
 		},
