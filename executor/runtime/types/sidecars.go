@@ -7,19 +7,19 @@ import (
 )
 
 const (
-	SidecarTitusContainer       = "titus-container"
-	SidecarServiceAbMetrix      = "abmetrix"
-	SidecarServiceLogViewer     = "logviewer"
-	SidecarServiceMetatron      = "metatron"
-	SidecarServiceServiceMesh   = "servicemesh"
-	SidecarServiceSshd          = "sshd"
-	SidecarServiceSpectatord    = "spectatord"
-	SidecarServiceAtlasd        = "atlasd"
-	SidecarTitusStorage         = "titus-storage"
-	SidecarSeccompAgent         = "seccomp-agent"
-	SidecarServiceMetadataProxy = "metadata-proxy"
-	SidecarContainerTools       = "container-tools"
-	SidecarTrafficSteering      = "traffic-steering"
+	SidecarTitusContainer         = "titus-container"
+	SidecarServiceAbMetrix        = "abmetrix"
+	SidecarServiceLogViewer       = "logviewer"
+	SidecarServiceMetatron        = "metatron"
+	SidecarServiceServiceMesh     = "servicemesh"
+	SidecarServiceSshd            = "sshd"
+	SidecarServiceSpectatord      = "spectatord"
+	SidecarServiceAtlasTitusAgent = "atlas-titus-agent"
+	SidecarTitusStorage           = "titus-storage"
+	SidecarSeccompAgent           = "seccomp-agent"
+	SidecarServiceMetadataProxy   = "metadata-proxy"
+	SidecarContainerTools         = "container-tools"
+	SidecarTrafficSteering        = "traffic-steering"
 )
 
 var systemServices = []ServiceOpts{
@@ -39,10 +39,9 @@ var systemServices = []ServiceOpts{
 		},
 	},
 	{
-		// TODO: this is named incorrectly
-		ServiceName:  SidecarServiceAtlasd,
-		UnitName:     "titus-sidecar-atlasd",
-		EnabledCheck: shouldStartAtlasd,
+		ServiceName:  SidecarServiceAtlasTitusAgent,
+		UnitName:     "titus-sidecar-atlas-titus-agent",
+		EnabledCheck: shouldStartAtlasTitusAgent,
 		Required:     false,
 		Volumes: map[string]struct{}{
 			"/titus/atlas-titus-agent": {},
@@ -169,14 +168,13 @@ func shouldStartSpectatord(cfg *config.Config, c Container) bool {
 	return true
 }
 
-// TODO: This is named incorrectly
-func shouldStartAtlasd(cfg *config.Config, c Container) bool {
-	enabled := cfg.ContainerAtlasd
+func shouldStartAtlasTitusAgent(cfg *config.Config, c Container) bool {
+	enabled := cfg.ContainerAtlasTitusAgent
 	if !enabled {
 		return false
 	}
 
-	if cfg.AtlasdServiceImage == "" {
+	if cfg.AtlasTitusAgentServiceImage == "" {
 		return false
 	}
 	return true

@@ -63,8 +63,8 @@ type Config struct {
 	SpectatordServiceImage string
 
 	// Do we enable atlas-titus-agent titus-system-service?
-	ContainerAtlasd    bool
-	AtlasdServiceImage string
+	ContainerAtlasTitusAgent    bool
+	AtlasTitusAgentServiceImage string
 
 	ContainerToolsImage string
 
@@ -195,6 +195,16 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-abmetrix",
 			Destination: &cfg.ContainerAbmetrixEnabled,
 			EnvVar:      "CONTAINER_ABMETRIX",
+		},
+		cli.BoolFlag{
+			Name:        "container-atlas-titus-agent",
+			EnvVar:      "CONTAINER_ATLAS_TITUS_AGENT",
+			Destination: &cfg.ContainerAtlasTitusAgent,
+		},
+		cli.StringFlag{
+			Name:        "container-atlas-titus-agent-service-image",
+			EnvVar:      "ATLAS_TITUS_AGENT_SERVICE_IMAGE",
+			Destination: &cfg.AtlasTitusAgentServiceImage,
 		},
 		cli.StringFlag{
 			Name:        "abmetrix-service-image",

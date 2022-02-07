@@ -1010,14 +1010,14 @@ func (c *TitusInfoContainer) SystemServices() ([]*ServiceOpts, error) {
 	}
 
 	imageMap := map[string]string{
-		SidecarServiceAbMetrix:    c.config.AbmetrixServiceImage,
-		SidecarServiceLogViewer:   c.config.LogViewerServiceImage,
-		SidecarServiceMetatron:    c.config.MetatronServiceImage,
-		SidecarServiceServiceMesh: svcMeshImage,
-		SidecarServiceSshd:        c.config.SSHDServiceImage,
-		SidecarServiceSpectatord:  c.config.SpectatordServiceImage,
-		SidecarServiceAtlasd:      c.config.AtlasdServiceImage,
-		SidecarContainerTools:     c.config.ContainerToolsImage,
+		SidecarServiceAbMetrix:        c.config.AbmetrixServiceImage,
+		SidecarServiceLogViewer:       c.config.LogViewerServiceImage,
+		SidecarServiceMetatron:        c.config.MetatronServiceImage,
+		SidecarServiceServiceMesh:     svcMeshImage,
+		SidecarServiceSshd:            c.config.SSHDServiceImage,
+		SidecarServiceSpectatord:      c.config.SpectatordServiceImage,
+		SidecarServiceAtlasTitusAgent: c.config.AtlasTitusAgentServiceImage,
+		SidecarContainerTools:         c.config.ContainerToolsImage,
 	}
 
 	for _, scOrig := range systemServices {
