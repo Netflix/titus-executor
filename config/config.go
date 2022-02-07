@@ -58,13 +58,13 @@ type Config struct {
 	ContainerSSHDUsers  cli.StringSlice
 	SSHAccountID        string
 
-	// Do we enable spectator rootless image?
+	// Do we enable spectatord titus-system-service?
 	ContainerSpectatord    bool
 	SpectatordServiceImage string
 
-	// Do we enable atlasd rootless image?
-	ContainerAtlasd    bool
-	AtlasdServiceImage string
+	// Do we enable atlas-titus-agent titus-system-service?
+	ContainerAtlasTitusAgent    bool
+	AtlasTitusAgentServiceImage string
 
 	ContainerToolsImage string
 
@@ -196,6 +196,16 @@ func NewConfig() (*Config, []cli.Flag) {
 			Destination: &cfg.ContainerAbmetrixEnabled,
 			EnvVar:      "CONTAINER_ABMETRIX",
 		},
+		cli.BoolFlag{
+			Name:        "container-atlas-titus-agent",
+			EnvVar:      "CONTAINER_ATLAS_TITUS_AGENT",
+			Destination: &cfg.ContainerAtlasTitusAgent,
+		},
+		cli.StringFlag{
+			Name:        "container-atlas-titus-agent-service-image",
+			EnvVar:      "ATLAS_TITUS_AGENT_SERVICE_IMAGE",
+			Destination: &cfg.AtlasTitusAgentServiceImage,
+		},
 		cli.StringFlag{
 			Name:        "abmetrix-service-image",
 			Destination: &cfg.AbmetrixServiceImage,
@@ -245,16 +255,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-spectatord-image",
 			EnvVar:      "SPECTATORD_SERVICE_IMAGE",
 			Destination: &cfg.SpectatordServiceImage,
-		},
-		cli.BoolFlag{
-			Name:        "container-atlasd",
-			EnvVar:      "CONTAINER_ATLASD",
-			Destination: &cfg.ContainerAtlasd,
-		},
-		cli.StringFlag{
-			Name:        "container-atlasd-image",
-			EnvVar:      "ATLASD_SERVICE_IMAGE",
-			Destination: &cfg.AtlasdServiceImage,
 		},
 		cli.StringFlag{
 			Name:        "container-tools-image",

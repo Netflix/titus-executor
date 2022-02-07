@@ -464,8 +464,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		[]string{
 			SidecarTitusContainer,
 			SidecarServiceSpectatord,
-			SidecarServiceAtlasd,
-			SidecarServiceAtlasAgent,
+			SidecarServiceAtlasTitusAgent,
 			SidecarServiceSshd,
 			SidecarServiceMetadataProxy,
 			SidecarServiceMetatron,
