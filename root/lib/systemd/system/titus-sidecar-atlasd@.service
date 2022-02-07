@@ -1,5 +1,5 @@
 [Unit]
-Description=Atlas for container %i
+Description=Atlas-titus-agent for container %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 
 StartLimitIntervalSec=30

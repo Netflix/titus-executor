@@ -15,7 +15,6 @@ const (
 	SidecarServiceSshd          = "sshd"
 	SidecarServiceSpectatord    = "spectatord"
 	SidecarServiceAtlasd        = "atlasd"
-	SidecarServiceAtlasAgent    = "atlas-agent"
 	SidecarTitusStorage         = "titus-storage"
 	SidecarSeccompAgent         = "seccomp-agent"
 	SidecarServiceMetadataProxy = "metadata-proxy"
@@ -40,6 +39,7 @@ var systemServices = []ServiceOpts{
 		},
 	},
 	{
+		// TODO: this is named incorrectly
 		ServiceName:  SidecarServiceAtlasd,
 		UnitName:     "titus-sidecar-atlasd",
 		EnabledCheck: shouldStartAtlasd,
@@ -47,12 +47,6 @@ var systemServices = []ServiceOpts{
 		Volumes: map[string]struct{}{
 			"/titus/atlas-titus-agent": {},
 		},
-	},
-	{
-		ServiceName:  SidecarServiceAtlasAgent,
-		UnitName:     "titus-sidecar-atlas-titus-agent",
-		EnabledCheck: shouldStartAtlasAgent,
-		Required:     false,
 	},
 	{
 		ServiceName:  SidecarServiceSshd,
@@ -175,6 +169,7 @@ func shouldStartSpectatord(cfg *config.Config, c Container) bool {
 	return true
 }
 
+// TODO: This is named incorrectly
 func shouldStartAtlasd(cfg *config.Config, c Container) bool {
 	enabled := cfg.ContainerAtlasd
 	if !enabled {
@@ -185,11 +180,6 @@ func shouldStartAtlasd(cfg *config.Config, c Container) bool {
 		return false
 	}
 	return true
-}
-
-// This starts the old version of the atlas titus agent, which we are migrating to a system service.
-func shouldStartAtlasAgent(cfg *config.Config, c Container) bool {
-	return !shouldStartAtlasd(cfg, c)
 }
 
 func shouldStartSSHD(cfg *config.Config, c Container) bool {
