@@ -358,7 +358,7 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	// Order is important here, we need the first (0th) container to be the main one so that
 	// other code that looks at the first container status continues to behave in a compatible way
 	mainContainerStatus := v1.ContainerStatus{
-		Name:                 b.pod.Name,
+		Name:                 "main",
 		State:                state2containerState(prevContainerState, update.State),
 		LastTerminationState: v1.ContainerState{},
 		Ready:                true,
