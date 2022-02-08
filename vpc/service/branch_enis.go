@@ -1150,7 +1150,7 @@ WHERE subnets.subnet_id = $1
   AND subnet_cidr_reservations_v6.type = 'explicit'
   ORDER BY random()
   FOR
-  NO KEY UPDATE OF subnet_usable_prefix
+  NO KEY UPDATE OF subnet_usable_prefix SKIP LOCKED
   LIMIT 1
 `, subnetID, vpcService.subnetCIDRReservationDescription)
 	var prefix string
