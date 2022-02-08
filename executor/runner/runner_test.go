@@ -10,14 +10,11 @@ import (
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types" // nolint: staticcheck
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
-
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -27,10 +24,6 @@ var (
 func init() {
 	logrus.SetLevel(logrus.DebugLevel)
 }
-
-const (
-	image = "titusops/alpine"
-)
 
 // runtimeMock implements the Runtime interface
 type runtimeMock struct {
@@ -125,12 +118,6 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 	defer cancel()
 
 	taskID := "TestSendTerminalStatusUntilCleanup"
-	image := image
-	taskInfo := &titus.ContainerInfo{
-		ImageName:         &image,
-		IgnoreLaunchGuard: proto.Bool(true),
-		IamProfile:        proto.String("arn:aws:iam::0:role/DefaultContainerRole"),
-	}
 	kills := make(chan chan<- struct{}, 1)
 
 	statusChan := make(chan runtimeTypes.StatusMessage, 10)
@@ -155,15 +142,15 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 		return nil
 	}
 
+	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
-		TaskID:    taskID,
-		TitusInfo: taskInfo,
-		Mem:       1,
-		CPU:       1,
-		Gpu:       0,
-		Disk:      1,
-		Network:   1,
-		Pod:       runtimeTypes.GenerateV0TestPod(taskID, nil, nil),
+		TaskID:  taskID,
+		Mem:     1,
+		CPU:     1,
+		Gpu:     0,
+		Disk:    1,
+		Network: 1,
+		Pod:     pod,
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -214,12 +201,6 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	defer cancel()
 
 	taskID := "TestCancelDuringPrepare"
-	image := image
-	taskInfo := &titus.ContainerInfo{
-		ImageName:         &image,
-		IgnoreLaunchGuard: proto.Bool(true),
-		IamProfile:        proto.String("arn:aws:iam::0:role/DefaultContainerRole"),
-	}
 	kills := make(chan chan<- struct{}, 1)
 
 	statusChan := make(chan runtimeTypes.StatusMessage, 10)
@@ -236,15 +217,16 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 		return c.Err()
 	}
 
+	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
 		TaskID:    taskID,
-		TitusInfo: taskInfo,
+		TitusInfo: nil,
 		Mem:       1,
 		CPU:       1,
 		Gpu:       0,
 		Disk:      1,
 		Network:   1,
-		Pod:       runtimeTypes.GenerateV0TestPod(taskID, nil, nil),
+		Pod:       pod,
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -312,12 +294,6 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	defer cancel()
 
 	taskID := "Titus-123-worker-0-2"
-	image := image
-	taskInfo := &titus.ContainerInfo{
-		ImageName:         &image,
-		IgnoreLaunchGuard: proto.Bool(true),
-		IamProfile:        proto.String("arn:aws:iam::0:role/DefaultContainerRole"),
-	}
 	kills := make(chan chan<- struct{}, 1)
 
 	statusChan := make(chan runtimeTypes.StatusMessage, 10)
@@ -329,15 +305,15 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 		statusChan:  statusChan,
 	}
 
+	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
-		TaskID:    taskID,
-		TitusInfo: taskInfo,
-		Mem:       1,
-		CPU:       1,
-		Gpu:       0,
-		Disk:      1,
-		Network:   1,
-		Pod:       runtimeTypes.GenerateV0TestPod(taskID, nil, nil),
+		TaskID:  taskID,
+		Mem:     1,
+		CPU:     1,
+		Gpu:     0,
+		Disk:    1,
+		Network: 1,
+		Pod:     pod,
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c

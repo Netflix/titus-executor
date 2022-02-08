@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -20,7 +19,6 @@ import (
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	"github.com/docker/distribution/reference"
 	units "github.com/docker/go-units"
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -771,21 +769,6 @@ func NewExtraContainersFromPod(pod corev1.Pod) ([]*ExtraContainer, []*ExtraConta
 		}
 	}
 	return extraUserContainers, extraPlatformContainers
-}
-
-func AddContainerInfoToPod(pod *corev1.Pod, cInfo *titus.ContainerInfo) error {
-	pObj, err := proto.Marshal(cInfo)
-	if err != nil {
-		return err
-	}
-
-	b64str := base64.StdEncoding.EncodeToString(pObj)
-
-	if pod.Annotations == nil {
-		pod.Annotations = map[string]string{}
-	}
-	pod.Annotations[podCommon.AnnotationKeyPodTitusContainerInfo] = b64str
-	return nil
 }
 
 func getContainerResources(userContainer *corev1.Container) (*Resources, error) {
