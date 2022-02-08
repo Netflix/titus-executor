@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
@@ -23,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ptr "k8s.io/utils/pointer"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -44,7 +45,22 @@ func addPodAnnotations(pod *corev1.Pod, annotations map[string]string) {
 	}
 }
 
-func TestPodImageNameWithTag(t *testing.T) {
+func TestPodImageNameWithTagAndDigest(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+
+	uc := podCommon.GetUserContainer(pod)
+	uc.Image = "docker.io/titusoss/alpine@" + testDigest
+	pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+"main"] = "myCoolTag"
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	assert.Equal(t, c.QualifiedImageName(), uc.Image)
+	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
+	assert.DeepEqual(t, c.ImageVersion(), ptr.StringPtr("myCoolTag"))
+	assert.DeepEqual(t, c.ImageDigest(), &testDigest)
+}
+
+func TestPodImageNameWithOtherTagAndNoDigest(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
@@ -130,6 +146,12 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 			ServerPath: "/remote-dir",
 			ReadOnly:   true,
 		},
+		{
+			MountPoint: "/efs1-rw",
+			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
+			ServerPath: "/remote-dir",
+			ReadOnly:   false,
+		},
 	}
 	expEBSMount := EBSInfo{
 		VolumeID:  "vol-abcdef",
@@ -202,7 +224,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		podCommon.AnnotationKeyNetworkSubnetIDs:              strings.Join(expSubnets, ","),
 		podCommon.AnnotationKeyNetworkJumboFramesEnabled:     True,
 		podCommon.AnnotationKeyNetworkStaticIPAllocationUUID: "static-ip-uuid",
-		// Add servicemesh sidecar
+		// Add servicemesh titus system service
 		podCommon.AnnotationKeyServicePrefix + "/servicemesh.v1.enabled": True,
 		podCommon.AnnotationKeyServicePrefix + "/servicemesh.v1.image":   "titusoss/servicemesh:latest",
 	})
@@ -227,6 +249,11 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		{
 			Name:      "efs-fs-abcdef-rwm.subdir1",
 			MountPath: "/efs1",
+			ReadOnly:  true,
+		},
+		{
+			Name:      "efs-fs-abcdef-rwm.subdir1",
+			MountPath: "/efs1-rw",
 		},
 		{
 			Name:      "dev-shm",
@@ -245,7 +272,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 				NFS: &corev1.NFSVolumeSource{
 					Server:   "fs-abcdef.efs.us-east-1.amazonaws.com",
 					Path:     "/remote-dir",
-					ReadOnly: true,
+					ReadOnly: false,
 				},
 			},
 		},
@@ -295,7 +322,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.Equal(t, c.AllowNetworkBursting(), true)
 	assert.Equal(t, c.AppName(), "appName")
 	assert.Equal(t, c.AssignIPv6Address(), true)
-	assert.Equal(t, c.EffectiveNetworkMode(), titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String())
+	assert.Equal(t, c.EffectiveNetworkMode(), titus.NetworkConfiguration_Ipv6AndIpv4.String())
 	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimit)
 	assert.DeepEqual(t, c.BatchPriority(), ptr.StringPtr("idle"))
 	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
@@ -319,7 +346,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		"NETFLIX_AUTO_SCALE_GROUP":          "appName-appStack-appDetail-appSeq",
 		"NETFLIX_CLUSTER":                   "appName-appStack-appDetail",
 		"NETFLIX_DETAIL":                    "appDetail",
-		"NETFLIX_NETWORK_MODE":              "IPV6_WITH_TRANSITION",
+		"NETFLIX_NETWORK_MODE":              "DUAL_STACK",
 		"NETFLIX_STACK":                     "appStack",
 		"TITUS_BATCH":                       "idle",
 		"TITUS_HOST_EC2_INSTANCE_ID":        "",
@@ -418,24 +445,22 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.DeepEqual(t, c.Resources(), expResources)
 	assert.DeepEqual(t, c.RequireIMDSToken(), ptr.StringPtr("token"))
 	assert.Equal(t, c.Runtime(), "runc")
-	assert.Equal(t, c.SeccompAgentEnabledForNetSyscalls(), true)
 	assert.Equal(t, c.SeccompAgentEnabledForPerfSyscalls(), true)
 	assert.DeepEqual(t, c.SecurityGroupIDs(), &expSGs)
 	assert.Equal(t, c.ServiceMeshEnabled(), true)
 	assert.DeepEqual(t, c.ShmSizeMiB(), &expShmSize)
 
-	sidecars, err := c.SidecarConfigs()
+	systemServices, err := c.SystemServices()
 	assert.NilError(t, err)
-	//sort.Slice(sidecars, func(i, j int) bool { return sidecars[i].ServiceName < sidecars[j].ServiceName })
-	sidecarNames := []string{}
+	systemServiceNames := []string{}
 	svcMeshImage := ""
-	for _, sc := range sidecars {
-		sidecarNames = append(sidecarNames, sc.ServiceName)
+	for _, sc := range systemServices {
+		systemServiceNames = append(systemServiceNames, sc.ServiceName)
 		if sc.ServiceName == SidecarServiceServiceMesh {
 			svcMeshImage = sc.Image
 		}
 	}
-	assert.DeepEqual(t, sidecarNames,
+	assert.DeepEqual(t, systemServiceNames,
 		[]string{
 			SidecarTitusContainer,
 			SidecarServiceSpectatord,
@@ -450,6 +475,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 			SidecarSeccompAgent,
 			SidecarTitusStorage,
 			SidecarContainerTools,
+			SidecarTrafficSteering,
 		})
 	assert.Equal(t, svcMeshImage, expSvcMeshImage)
 
@@ -1045,7 +1071,7 @@ func TestPodContainerServiceMeshEnabled(t *testing.T) {
 	c, err := NewPodContainer(pod, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), true)
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	assert.NilError(t, err)
 	var svcMeshConf *ServiceOpts
 	for s := range scConfs {
@@ -1071,7 +1097,7 @@ func TestPodContainerServiceMeshEnabledWithConfig(t *testing.T) {
 	c, err := NewPodContainer(pod, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), false)
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	assert.NilError(t, err)
 	var svcMeshConf *ServiceOpts
 	for s := range scConfs {
@@ -1097,7 +1123,7 @@ func TestPodContainerServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 	c, err := NewPodContainer(pod, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), false)
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	assert.NilError(t, err)
 	var svcMeshConf *ServiceOpts
 	for s := range scConfs {
@@ -1425,10 +1451,19 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 			Name:  "FROM_TITUS_2",
 			Value: "T2",
 		},
+		{
+			Name:  "FROM_MUTATOR_1",
+			Value: "M1",
+		},
+		{
+			Name:  "FROM_MUTATOR_2",
+			Value: "M2",
+		},
 	}
 
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyPodTitusSystemEnvVarNames:   "FROM_TITUS_1, FROM_TITUS_2",
+		podCommon.AnnotationKeyPodInjectedEnvVarNames:      "FROM_MUTATOR_1, FROM_MUTATOR_2",
 		podCommon.AnnotationKeyWorkloadName:                testAppName,
 		podCommon.AnnotationKeyWorkloadDetail:              testAppDetail,
 		podCommon.AnnotationKeyWorkloadOwnerEmail:          testAppOwner,

@@ -6,6 +6,7 @@ set -eu -o pipefail -x
 mkdir -p build/bin/linux-amd64
 
 # Go
+export CGO_ENABLED=0
 gox -gcflags="${GC_FLAGS:--N -l}" -osarch="linux/amd64 darwin/amd64" \
   -output="build/bin/{{.OS}}-{{.Arch}}/{{.Dir}}" -verbose ./cmd/...
 

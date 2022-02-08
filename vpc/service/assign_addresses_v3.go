@@ -7,11 +7,7 @@ import (
 	"math/big"
 	"math/rand"
 	"net"
-	"sort"
-	"strings"
 	"time"
-
-	"github.com/m7shapan/cidr"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
@@ -23,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
 	"github.com/lib/pq"
+	"github.com/m7shapan/cidr"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
@@ -33,9 +30,6 @@ import (
 const (
 	invalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
 	assignTimeout                = 5 * time.Minute
-
-	// The P99 for get subnet is 3 seconds
-	getSubnetTimeout = 10 * time.Second
 )
 
 var (
@@ -105,13 +99,10 @@ type branchENI struct {
 	idx           int
 }
 
-func subnetCacheKey(az, accountID string, subnetIDs []string) string {
-	sort.Strings(subnetIDs)
-	return fmt.Sprintf("az:%s accountID:%s subnetIDs:%s", az, accountID, strings.Join(subnetIDs, ","))
-}
-
-func (vpcService *vpcService) getSubnetUncached(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
-	ctx, span := trace.StartSpan(ctx, "getSubnetUncached")
+func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "getSubnet")
 	defer span.End()
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
@@ -129,31 +120,54 @@ func (vpcService *vpcService) getSubnetUncached(ctx context.Context, az, account
 	var row *sql.Row
 	if len(subnetIDs) == 0 {
 		row = tx.QueryRowContext(ctx, `
-SELECT subnets.az,
-       subnets.vpc_id,
-       subnets.account_id,
-       subnets.subnet_id,
-       subnets.cidr,
-       availability_zones.region
-FROM subnets
-JOIN account_mapping ON subnets.subnet_id = account_mapping.subnet_id
-JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets.account_id = availability_zones.account_id
-WHERE subnets.account_id = $1
-  AND subnets.az = $2
+WITH usable_subnets AS
+  (SELECT subnets.az,
+          subnets.vpc_id,
+          subnets.account_id,
+          subnets.subnet_id,
+          subnets.cidr,
+          availability_zones.region
+   FROM subnets
+   JOIN account_mapping ON subnets.subnet_id = account_mapping.subnet_id
+   JOIN availability_zones ON subnets.az = availability_zones.zone_name
+   AND subnets.account_id = availability_zones.account_id
+   WHERE subnets.account_id = $1
+     AND subnets.az = $2)
+SELECT *
+FROM usable_subnets
+ORDER BY
+  (SELECT count(ipv4addr)
+   FROM branch_enis
+   LEFT JOIN branch_eni_attachments bea ON branch_enis.branch_eni = bea.branch_eni
+   LEFT JOIN assignments ON bea.association_id = branch_eni_association
+   WHERE subnet_id = usable_subnets.subnet_id
+     AND bea.state = 'attached' ) ASC
+LIMIT 1
 `,
 			accountID, az)
 	} else {
 		row = tx.QueryRowContext(ctx, `
-SELECT subnets.az,
-       subnets.vpc_id,
-       subnets.account_id,
-       subnet_id,
-       CIDR,
-       availability_zones.region
-FROM subnets
-JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets.account_id = availability_zones.account_id
-WHERE subnets.az = $1
-  AND subnets.subnet_id = any($2)
+WITH usable_subnets AS
+  (SELECT subnets.az,
+          subnets.vpc_id,
+          subnets.account_id,
+          subnets.subnet_id,
+          subnets.cidr,
+          availability_zones.region
+   FROM subnets
+   JOIN availability_zones ON subnets.az = availability_zones.zone_name
+   AND subnets.account_id = availability_zones.account_id
+   WHERE subnets.az = $1
+     AND subnets.subnet_id = any($2))
+SELECT *
+FROM usable_subnets
+ORDER BY
+  (SELECT count(ipv4addr)
+   FROM branch_enis
+   LEFT JOIN branch_eni_attachments bea ON branch_enis.branch_eni = bea.branch_eni
+   LEFT JOIN assignments ON bea.association_id = branch_eni_association
+   WHERE subnet_id = usable_subnets.subnet_id
+     AND bea.state = 'attached' ) ASC
 LIMIT 1
 `, az, pq.Array(subnetIDs))
 	}
@@ -176,73 +190,6 @@ LIMIT 1
 	}
 
 	return &ret, nil
-}
-
-func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "getSubnet")
-	defer span.End()
-
-	// NOTE[jigish] caching using the full set of subnetIDs will cause the same subnet to be returned for all hits
-	cacheKey := subnetCacheKey(az, accountID, subnetIDs)
-
-	item := vpcService.getSubnetCache.Get(cacheKey)
-	if item != nil {
-		span.AddAttributes(trace.BoolAttribute("cached", true))
-		val := item.Value().(*subnet)
-		if !item.Expired() {
-			return val, nil
-		}
-
-		span.AddAttributes(trace.BoolAttribute("expired", true))
-		span.AddAttributes(trace.StringAttribute("expires", item.Expires().String()))
-
-		span.AddAttributes(trace.BoolAttribute("stale", true))
-	}
-
-	spanContext := span.SpanContext()
-	resultChan := vpcService.getSubnetLock.DoChan(cacheKey, func() (interface{}, error) {
-		// There could be a race here between the time we checked above and this singleflight started
-		// so check again
-		//
-		// Also, go scoping makes this confusing, so keep this name different than above
-		item2 := vpcService.getSubnetCache.Get(cacheKey)
-		if item2 != nil && !item2.Expired() {
-			span.AddAttributes(trace.BoolAttribute("cached", true))
-			return item2.Value().(*subnet), nil
-		}
-
-		// The lifetime of this singleflight should be independent of that of the connection / request
-		ctx2, cancel2 := context.WithTimeout(context.Background(), getSubnetTimeout)
-		defer cancel2()
-		ctx2, span2 := trace.StartSpanWithRemoteParent(ctx2, "getSubnetSingleflight", spanContext)
-		defer span2.End()
-		subnet, err := vpcService.getSubnetUncached(ctx2, az, accountID, subnetIDs)
-		if err != nil {
-			tracehelpers.SetStatus(err, span2)
-			return nil, err
-		}
-		vpcService.getSubnetCache.Set(cacheKey, subnet, vpcService.subnetCacheExpirationTime)
-		return subnet, nil
-	})
-
-	select {
-	case result := <-resultChan:
-		span.AddAttributes(trace.BoolAttribute("shared", result.Shared))
-		if result.Err == nil {
-			return result.Val.(*subnet), nil
-		}
-		if item != nil {
-			span.AddAttributes(trace.BoolAttribute("fallback", true))
-			return item.Value().(*subnet), nil
-		}
-		tracehelpers.SetStatus(result.Err, span)
-		return nil, result.Err
-	case <-ctx.Done():
-		tracehelpers.SetStatus(ctx.Err(), span)
-		return nil, ctx.Err()
-	}
 }
 
 type staticAllocation struct {
@@ -302,28 +249,30 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, ass
 
 	row := tx.QueryRowContext(ctx, `
 SELECT assignments.id,
-       branch_eni,
-       trunk_eni,
-       idx,
-       branch_eni_association,
+       bea.branch_eni,
+       bea.trunk_eni,
+       bea.idx,
+       assignments.branch_eni_association,
        ipv4addr,
        ipv6addr,
        completed,
        jumbo,
        bandwidth,
-       ceil
+       ceil,
+       be.subnet_id
 FROM assignments
-JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+JOIN branch_eni_attachments bea ON assignments.branch_eni_association = bea.association_id
+JOIN branch_enis be on bea.branch_eni = be.branch_eni
 WHERE assignment_id = $1
   FOR NO KEY
   UPDATE OF assignments`, assignmentID)
 	var branchENI, trunkENI, associationID string
-	var ipv4addr, ipv6addr sql.NullString
+	var ipv4addr, ipv6addr, subnetID sql.NullString
 	var idx, assignmentRowID int
 	var completed, jumbo bool
 	var bandwidth, ceil uint64
 	err = row.Scan(&assignmentRowID, &branchENI, &trunkENI, &idx, &associationID, &ipv4addr, &ipv6addr, &completed,
-		&jumbo, &bandwidth, &ceil)
+		&jumbo, &bandwidth, &ceil, &subnetID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
@@ -347,6 +296,10 @@ WHERE assignment_id = $1
 				tracehelpers.SetStatus(err, span)
 				return nil, err
 			}
+		} else {
+			err = status.Errorf(codes.FailedPrecondition, "Assignment %s is not completed", assignmentID)
+			tracehelpers.SetStatus(err, span)
+			return nil, err
 		}
 		return nil, nil
 	}
@@ -358,6 +311,7 @@ WHERE assignment_id = $1
 		return nil, err
 	}
 
+	// TODO(Sargun): Implement transition assignment logic
 	resp := vpcapi.AssignIPResponseV3{
 		BranchNetworkInterface: &vpcapi.NetworkInterface{
 			// NetworkInterfaceAttachment is not used in assignipv3
@@ -374,7 +328,7 @@ WHERE assignment_id = $1
 		},
 	}
 
-	addDefaultRoute(ctx, jumbo, &resp)
+	resp.Routes = vpcService.getRoutes(ctx, subnetID.String)
 
 	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1", branchENI)
 	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
@@ -606,6 +560,8 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
+	// Because there might be a prefix on the interface.
+	maxIPAddresses--
 
 	maxBranchENIs, err := vpc.GetMaxBranchENIs(aws.StringValue(instance.InstanceType))
 	if err != nil {
@@ -624,10 +580,6 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 
 	_, transitionRequested := req.Ipv4.(*vpcapi.AssignIPRequestV3_TransitionRequested)
 
-	ipv6NotRequested := false
-	if _, ok := req.Ipv6.(*vpcapi.AssignIPRequestV3_Ipv6AddressRequested); !ok {
-		ipv6NotRequested = true
-	}
 	ass, err := vpcService.generateAssignmentID(ctx, getENIRequest{
 		region:           subnet.region,
 		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
@@ -645,7 +597,6 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		jumbo:     req.Jumbo,
 
 		transitionAssignmentRequested: transitionRequested,
-		ipv6NotRequested:              ipv6NotRequested,
 	})
 	if err != nil {
 		return nil, err
@@ -661,49 +612,24 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	return resp, nil
 }
 
-func addDefaultRoute(ctx context.Context, jumbo bool, ass *vpcapi.AssignIPResponseV3) {
-	if jumbo {
-		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
-			{
-				Destination: "0.0.0.0/0",
-				Mtu:         9000,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-			},
-			{
-				Destination: "::/0",
-				Mtu:         9000,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-			},
-		}
-	} else {
-		ass.Routes = []*vpcapi.AssignIPResponseV3_Route{
-			{
-				Destination: "0.0.0.0/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-			},
-			{
-				Destination: "::/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-			},
-		}
+func (vpcService *vpcService) getRoutes(ctx context.Context, subnetID string) []*vpcapi.AssignIPResponseV3_Route {
+	val, ok := vpcService.routesCache.Load(subnetID)
+	if ok {
+		return val.([]*vpcapi.AssignIPResponseV3_Route)
 	}
+	logger.G(ctx).WithField("subnet", subnetID).Warning("Could not load routes")
+	return []*vpcapi.AssignIPResponseV3_Route{
+		{
 
-	if ass.TransitionAssignment != nil {
-		// Transition assignment takes a slightly conservative stance
-		ass.TransitionAssignment.Routes = []*vpcapi.AssignIPResponseV3_Route{
-			{
-				Destination: "0.0.0.0/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-			},
-			{
-				Destination: "::/0",
-				Mtu:         1500,
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-			},
-		}
+			Destination: "0.0.0.0/0",
+			Mtu:         9000,
+			Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
+		},
+		{
+			Destination: "::/0",
+			Mtu:         9000,
+			Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
+		},
 	}
 }
 
@@ -810,7 +736,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	if !hasSecurityGroupSet.Equal(sets.NewString(req.SecurityGroupIds...)) {
-		logger.G(ctx).WithField("spanid", span.SpanContext().SpanID.String()).Warnf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
+		logger.G(ctx).WithField("traceid", span.SpanContext().TraceID.String()).Warnf("Branch ENI has security groups %s, when expected %s", hasSecurityGroupSet.List(), req.SecurityGroupIds)
 	}
 
 	/*
@@ -844,6 +770,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	case *vpcapi.AssignIPRequestV3_TransitionRequested:
 		resp.TransitionAssignment = &vpcapi.AssignIPResponseV3_TransitionAssignment{
 			AssignmentId: transitionAss.assignmentID,
+			Routes:       vpcService.getRoutes(ctx, ass.subnet.subnetID),
 		}
 		if transitionAss.ipv4addr.Valid {
 			_, ipnet, err := net.ParseCIDR(transitionAss.cidr)
@@ -974,7 +901,7 @@ WHERE id =
 		return nil, err
 	}
 
-	addDefaultRoute(ctx, ass.jumbo, &resp)
+	resp.Routes = vpcService.getRoutes(ctx, ass.subnet.subnetID)
 	return &resp, nil
 }
 
@@ -1632,54 +1559,4 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2
 		},
 		PrefixLength: uint32(prefixlength),
 	}, nil
-}
-
-func assignNextIPv6Address(ctx context.Context, tx *sql.Tx, subnetid string) (net.IP, error) {
-	sequenceName := fmt.Sprintf("v6seq_%s", strings.ReplaceAll(subnetid, "-", "_"))
-	_, err := tx.ExecContext(ctx, fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s MINVALUE 0 MAXVALUE 65534 CACHE 10 CYCLE", sequenceName))
-	if err != nil {
-		return nil, fmt.Errorf("Cannot create sequence %s: %w", sequenceName, err)
-	}
-
-	/*
-			The address layout looks like:
-
-		 ┌───────────────────────────┬──────────────┬───────────────────────────┬────────────────────┐
-		 │ AWS Subnet CIDR (64-bits) │ 0s (16 bits) │ Time in Seconds (32-bits) │ Sequence (16-bits) │
-		 └───────────────────────────┴──────────────┴───────────────────────────┴────────────────────┘
-
-	*/
-
-	row := tx.QueryRowContext(ctx, "SELECT nextval($1)", sequenceName)
-	var lsb int64
-	err = row.Scan(&lsb)
-	if err != nil {
-		return nil, fmt.Errorf("Cannot scan nextval from sequence %s: %w", sequenceName, err)
-	}
-
-	now := time.Now().Unix() // Should be in seconds
-	lsb |= now << 12
-	lsb &= (1 << 48) - 1
-
-	row = tx.QueryRowContext(ctx, "SELECT cidr6 FROM subnets WHERE subnet_id = $1", subnetid)
-	var subnetCIDR sql.NullString
-	err = row.Scan(&subnetCIDR)
-	if err != nil {
-		return nil, fmt.Errorf("Cannot scan cidr6 from subnet %s: %w", subnetid, err)
-	}
-
-	if !subnetCIDR.Valid {
-		return nil, fmt.Errorf("Subnet %s does not have cidr6", subnetid)
-	}
-
-	_, net, err := net.ParseCIDR(subnetCIDR.String)
-	if err != nil {
-		err = fmt.Errorf("Cannot parse prefix %q: %w", subnetCIDR.String, err)
-		return nil, err
-	}
-
-	prefixInt := cidr.IPv6tod(net.IP)
-	newIPInt := prefixInt.Add(prefixInt, big.NewInt(lsb))
-	newIP := cidr.DtoIPv6(newIPInt)
-	return newIP, nil
 }

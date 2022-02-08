@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package container2
@@ -9,7 +10,6 @@ import (
 	"math"
 	"math/rand"
 	"net"
-	"os"
 	"runtime"
 	"time"
 	"unsafe"
@@ -28,11 +28,12 @@ import (
 
 const (
 	networkSetupWait = 30 * time.Second
+	// Ethernet II framing overhead
+	framingOverhead = 20
 )
 
 var (
 	errNoRoutesReceived = errors.New("No routes receives from Titus VPC Service")
-	errNoDefaultRoute   = errors.New("No default route installed")
 )
 
 func getBranchLink(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) (netlink.Link, error) {
@@ -79,7 +80,7 @@ func getBranchLink(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) (
 	return vlanLink, nil
 }
 
-func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, assignment *vpcapi.AssignIPResponseV3) error {
+func DoSetupContainer(ctx context.Context, netnsfd int, assignment *vpcapi.AssignIPResponseV3) error {
 	logger.G(ctx).WithField("assignment", assignment.String()).Info("Configuring networking with assignment")
 	branchLink, err := getBranchLink(ctx, assignment)
 	if err != nil {
@@ -118,10 +119,10 @@ func DoSetupContainer(ctx context.Context, netnsfd int, bandwidth, ceil uint64, 
 		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
 	}
 
-	return configureLink(ctx, nsHandle, newLink, bandwidth, ceil, assignment, netnsfd)
+	return configureLink(ctx, nsHandle, newLink, assignment)
 }
 
-func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) (uint64, error) {
+func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, address *vpcapi.UsableAddress, routes []*vpcapi.AssignIPResponseV3_Route) error {
 	mask := net.CIDRMask(int(address.PrefixLength), 32)
 	ip := net.ParseIP(address.Address.Address)
 
@@ -131,47 +132,21 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	ipnet := &net.IPNet{IP: ip, Mask: mask}
 	new4Addr := netlink.Addr{
 		IPNet: ipnet,
+		// This forces all traffic through the gateway, which is the AWS virtual gateway / phantom router
+		// this is beneficial for two reasons:
+		// 1. No ARP needed because you only ever need to learn the ARP / neighbor entry of the default gateway
+		// 2. It means that certain security things are enforced
+		Flags: unix.IFA_F_NOPREFIXROUTE,
 	}
 	err := nsHandle.AddrAdd(link, &new4Addr)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add IPv4 addr to link")
-		return 0, errors.Wrap(err, "Unable to add IPv4 addr to link")
+		return errors.Wrap(err, "Unable to add IPv4 addr to link")
 	}
 
 	gateway := cidr.Inc(ip.Mask(mask))
-	var mtu uint64
 	if len(routes) == 0 {
-		return 0, errNoRoutesReceived
-	}
-	for _, route := range routes {
-		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv4 {
-			continue
-		}
-		logger.G(ctx).WithField("route", route).Debug("Adding route")
-		_, routeNet, err := net.ParseCIDR(route.Destination)
-		if err != nil {
-			logger.G(ctx).WithError(err).Error("Could not parse route")
-			return 0, fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
-		}
-		if routeNet.String() == "0.0.0.0/0" {
-			mtu = uint64(route.Mtu)
-		}
-		newRoute := netlink.Route{
-			Gw:        gateway.To4(),
-			Src:       ip,
-			LinkIndex: link.Attrs().Index,
-			Dst:       routeNet,
-			MTU:       int(route.Mtu),
-		}
-		err = nsHandle.RouteAdd(&newRoute)
-		if err != nil {
-			logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
-			return 0, fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
-		}
-	}
-
-	if mtu == 0 {
-		return 0, errNoDefaultRoute
+		return errNoRoutesReceived
 	}
 
 	// Add a /32 route on the link to *only* the virtual gateway / phantom router
@@ -185,34 +160,37 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 	err = nsHandle.RouteAdd(&gatewayRoute)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add route to link")
-		return 0, errors.Wrap(err, "Unable to add gateway route to link")
+		return errors.Wrap(err, "Unable to add gateway route to link")
 	}
 
-	// Removing this forces all traffic through the gateway, which is the AWS virtual gateway / phantom router
-	// this is beneficial for two reasons:
-	// 1. No ARP needed because you only ever need to learn the ARP / neighbor entry of the default gateway
-	// 2. It means that certain security things are enforced
-	oldLinkRoute := netlink.Route{
-		Protocol:  unix.RTPROT_UNSPEC,
-		Dst:       &net.IPNet{IP: ip.Mask(mask), Mask: mask},
-		LinkIndex: link.Attrs().Index,
-		Src:       ip,
-		Table:     unix.RT_TABLE_MAIN,
-		Scope:     unix.RT_SCOPE_NOWHERE,
-		Type:      unix.RTN_UNSPEC,
+	for _, route := range routes {
+		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv4 {
+			continue
+		}
+		logger.G(ctx).WithField("route", route).Debug("Adding route")
+		_, routeNet, err := net.ParseCIDR(route.Destination)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not parse route")
+			return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
+		}
+		newRoute := netlink.Route{
+			Gw:        gateway.To4(),
+			Src:       ip,
+			LinkIndex: link.Attrs().Index,
+			Dst:       routeNet,
+			MTU:       int(route.Mtu),
+		}
+		err = nsHandle.RouteAdd(&newRoute)
+		if err != nil {
+			logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
+			return fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
+		}
 	}
-	logger.G(ctx).WithField("route", oldLinkRoute).Debug("Deleting link route")
 
-	err = nsHandle.RouteDel(&oldLinkRoute)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to delete route on link")
-		return 0, errors.Wrap(err, "Unable to add delete existing 'link' route to link")
-	}
-
-	return mtu, nil
+	return nil
 }
 
-func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, bandwidth, ceil uint64, assignment *vpcapi.AssignIPResponseV3, netnsfd int) error {
+func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.Link, assignment *vpcapi.AssignIPResponseV3) error {
 	// Rename link
 	err := nsHandle.LinkSetName(link, "eth0")
 	if err != nil {
@@ -225,13 +203,15 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return errors.Wrap(err, "Unable to set link up")
 	}
 
-	defaultMTU, err := addIPv4AddressAndRoutes(ctx, nsHandle, link, assignment.Ipv4Address, assignment.Routes)
-	if err != nil {
-		return err
+	if assignment.Ipv4Address != nil {
+		err = addIPv4AddressAndRoutes(ctx, nsHandle, link, assignment.Ipv4Address, assignment.Routes)
+		if err != nil {
+			return fmt.Errorf("Unable to setup IPv4 address: %w", err)
+		}
 	}
 
 	if assignment.Ipv6Address != nil {
-		err = addIPv6AddressAndRoutes(ctx, assignment, nsHandle, link, netnsfd)
+		err = addIPv6AddressAndRoutes(ctx, assignment, nsHandle, link)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Unable to add IPv6 address")
 			return fmt.Errorf("Unable to setup IPv6 address: %w", err)
@@ -243,7 +223,7 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 		return err
 	}
 
-	err = setupHTBClasses(ctx, bandwidth, ceil, defaultMTU, uint16(assignment.ClassId), assignment.TrunkNetworkInterface.MacAddress)
+	err = setupHTBClasses(ctx, assignment.Bandwidth, link.Attrs().MTU, uint16(assignment.ClassId), assignment.TrunkNetworkInterface.MacAddress)
 	if err != nil {
 		return err
 	}
@@ -251,112 +231,25 @@ func configureLink(ctx context.Context, nsHandle *netlink.Handle, link netlink.L
 	return nil
 }
 
-// If mtu is nil, it will not be configured
-func configureSysCtls(ctx context.Context, mtu *uint32) error {
-	acceptRAPrefixInfo, err := os.OpenFile("/proc/sys/net/ipv6/conf/eth0/accept_ra_pinfo", os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("Could not open accept_ra_pinfo: %w", err)
-	}
-	_, err = acceptRAPrefixInfo.WriteString("0")
-	_ = acceptRAPrefixInfo.Close()
-	if err != nil {
-		return fmt.Errorf("Could not write 0 to accept_ra_pinfo: %w", err)
-	}
-
-	if mtu == nil {
-		return nil
-	}
-
-	acceptRAMTU, err := os.OpenFile("/proc/sys/net/ipv6/conf/eth0/accept_ra_mtu", os.O_RDWR, 0)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could open accept_ra_mtu")
-		return fmt.Errorf("Could open accept_ra_mtu: %w", err)
-	}
-	_, err = acceptRAMTU.WriteString("0")
-	_ = acceptRAMTU.Close()
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could write to accept_ra_mtu")
-		return fmt.Errorf("Could write to accept_ra_mtu: %w", err)
-	}
-
-	mtuFile, err := os.OpenFile("/proc/sys/net/ipv6/conf/eth0/mtu", os.O_RDWR, 0)
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could open mtu")
-		return fmt.Errorf("Could open mtu: %w", err)
-	}
-	_, err = fmt.Fprintf(mtuFile, "%d", *mtu)
-	_ = mtuFile.Close()
-	if err != nil {
-		logger.G(ctx).WithError(err).Error("Could write to mtu")
-		return fmt.Errorf("Could write to mtu: %w", err)
-	}
-
-	logger.G(ctx).WithField("mtu", *mtu).Debug("Overrode MTU")
-
-	return nil
-}
-
-func addIPv6AddressAndRoutes(ctx context.Context, assignment *vpcapi.AssignIPResponseV3, nsHandle *netlink.Handle, link netlink.Link, netnsfd int) error {
+func addIPv6AddressAndRoutes(ctx context.Context, assignment *vpcapi.AssignIPResponseV3, nsHandle *netlink.Handle, link netlink.Link) error {
 	ctx, cancel := context.WithTimeout(ctx, networkSetupWait)
 	defer cancel()
 
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	origns, err := netns.Get()
-	if err != nil {
-		return fmt.Errorf("Could not get current net ns: %w", err)
-	}
-	defer origns.Close()
-
-	err = netns.Set(netns.NsHandle(netnsfd))
-	if err != nil {
-		return fmt.Errorf("Could not switch net ns: %w", err)
-	}
-
-	// MTU is the MTU sent from the VPC Service if there is a default route MTU. We set this via a sysctl.
-	// All other MTUs are route specific
-	var mtu *uint32
-	var routes []struct {
-		mtu   uint32
-		route net.IPNet
-	}
-	for _, route := range assignment.Routes {
-		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv6 {
-			continue
-		}
-
-		_, routeNet, err := net.ParseCIDR(route.Destination)
-		if err != nil {
-			logger.G(ctx).WithError(err).Error("Could not parse route")
-			return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
-		}
-
-		ones, zeros := routeNet.Mask.Size()
-		if routeNet.IP.Equal(net.IPv6zero) && ones == 0 && zeros == 128 {
-			mtu = &route.Mtu
-		} else {
-			routes = append(routes, struct {
-				mtu   uint32
-				route net.IPNet
-			}{mtu: route.Mtu, route: *routeNet})
-		}
-	}
-
-	err = configureSysCtls(ctx, mtu)
-	if err != nil {
-		return fmt.Errorf("Could not configure sysctls: %w", err)
-	}
+	// The executor relies on docker.go to set accept_ra_pinfo to 0. When eth0 is created, it doesn't get a prefix route
+	//
+	// We mimic the behaaviour on IPv4 by forcing all traffic through the default gateway.
+	// The reason is that we want to avoid learning ARP / doing neighbor discovery, and rely
+	// on the gateway to do this heavy lifting.
 
 	// Amazon only gives out /128s
 	new6IP := net.IPNet{IP: net.ParseIP(assignment.Ipv6Address.Address.Address), Mask: net.CIDRMask(128, 128)}
 	new6Addr := netlink.Addr{
 		// TODO (Sargun): Check IP Mask setting.
 		IPNet: &new6IP,
-		Flags: unix.IFA_F_PERMANENT | unix.IFA_F_NODAD,
+		Flags: unix.IFA_F_PERMANENT | unix.IFA_F_NODAD | unix.IFA_F_NOPREFIXROUTE,
 		Scope: unix.RT_SCOPE_UNIVERSE,
 	}
-	err = nsHandle.AddrAdd(link, &new6Addr)
+	err := nsHandle.AddrAdd(link, &new6Addr)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Unable to add IPv6 addr to link")
 		return errors.Wrap(err, "Unable to add IPv6 addr to link")
@@ -387,13 +280,25 @@ func addIPv6AddressAndRoutes(ctx context.Context, assignment *vpcapi.AssignIPRes
 
 	logger.G(ctx).WithField("defaultRoutes", defaultRoutes).Debug("Got default route")
 
-	for _, route := range routes {
+	for _, route := range assignment.Routes {
+		if route.Family != vpcapi.AssignIPResponseV3_Route_IPv6 {
+			continue
+		}
+
+		_, routeNet, err := net.ParseCIDR(route.Destination)
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Could not parse route")
+			return fmt.Errorf("Could not parse route CIDR (%s): %w", route.Destination, err)
+		}
+
 		newRoute := netlink.Route{
 			Gw:        defaultRoutes[0].Gw,
 			Src:       new6IP.IP,
 			LinkIndex: link.Attrs().Index,
-			Dst:       &route.route,
-			MTU:       int(route.mtu),
+			Dst:       routeNet,
+			MTU:       int(route.Mtu),
+			// We use the metric 128. The PD / RA based routes have a metric of 128.
+			Priority: 128,
 		}
 		// RA may have already installed a route, therefore we need to use route replace.
 		err = nsHandle.RouteReplace(&newRoute)
@@ -401,33 +306,6 @@ func addIPv6AddressAndRoutes(ctx context.Context, assignment *vpcapi.AssignIPRes
 			logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
 			return fmt.Errorf("Unable to add route %v to link due to: %w", route, err)
 		}
-	}
-
-	// We mimic the behaaviour on IPv4 by forcing all traffic through the default gateway.
-	// The reason is that we want to avoid learning ARP / doing neighbor discovery, and rely
-	// on the gateway to do this heavy lifting.
-	oldLinkRoute := netlink.Route{
-		Protocol:  unix.RTPROT_UNSPEC,
-		Dst:       &net.IPNet{IP: new6IP.IP, Mask: net.CIDRMask(64, 128)},
-		LinkIndex: link.Attrs().Index,
-		Src:       new6IP.IP,
-		Table:     unix.RT_TABLE_MAIN,
-		Scope:     unix.RT_SCOPE_NOWHERE,
-		Type:      unix.RTN_UNSPEC,
-	}
-	logger.G(ctx).WithField("route", oldLinkRoute).Debug("Deleting link ipv6 route")
-
-	err = nsHandle.RouteDel(&oldLinkRoute)
-	if err == unix.ESRCH {
-		logger.G(ctx).WithError(err).WithField("route", oldLinkRoute).Warn("Unable to delete ipv6 route on link as old route was not found, continuing")
-	} else if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to delete ipv6 route on link")
-		return errors.Wrap(err, "Unable to add delete existing 'link' ipv6 route to link")
-	}
-
-	err = netns.Set(origns)
-	if err != nil {
-		return fmt.Errorf("Could not set NS back to original net ns: %w", err)
 	}
 
 	return nil
@@ -486,29 +364,13 @@ func updateBPFMap(ctx context.Context, mapName string, key []byte, value uint16)
 
 func updateBPFMaps(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
 	if assignment.Ipv4Address != nil {
-		buf := make([]byte, 8)
-
-		binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
-		ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
-		if len(ip) != 4 {
-			panic("Length of IP is not 4")
-		}
-		copy(buf[4:], ip)
-		if err := updateBPFMap(ctx, "ipv4_map", buf, uint16(assignment.ClassId)); err != nil {
+		if err := updateBPFMap(ctx, "ipv4_map", ipv4key(assignment), uint16(assignment.ClassId)); err != nil {
 			return err
 		}
 	}
 
 	if assignment.Ipv6Address != nil {
-		buf := make([]byte, 20)
-		binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
-		ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
-		if len(ip) != 16 {
-			panic("Length of IP is not 16")
-		}
-
-		copy(buf[4:], ip)
-		if err := updateBPFMap(ctx, "ipv6_map", buf, uint16(assignment.ClassId)); err != nil {
+		if err := updateBPFMap(ctx, "ipv6_map", ipv6key(assignment), uint16(assignment.ClassId)); err != nil {
 			return err
 		}
 	}
@@ -516,7 +378,7 @@ func updateBPFMaps(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) e
 	return nil
 }
 
-func setupHTBClasses(ctx context.Context, bandwidth, ceil, mtu uint64, allocationIndex uint16, trunkENIMac string) error {
+func setupHTBClasses(ctx context.Context, bandwidth *vpcapi.AssignIPResponseV3_Bandwidth, mtu int, allocationIndex uint16, trunkENIMac string) error {
 	trunkENI, err := setup2.GetLinkByMac(trunkENIMac)
 	if err != nil {
 		return err
@@ -527,7 +389,7 @@ func setupHTBClasses(ctx context.Context, bandwidth, ceil, mtu uint64, allocatio
 		return err
 	}
 
-	err = setupClass(ctx, bandwidth, ceil, mtu, allocationIndex, trunkENI)
+	err = setupClass(ctx, bandwidth, mtu, allocationIndex, trunkENI)
 	if err != nil {
 		return err
 	}
@@ -536,14 +398,14 @@ func setupHTBClasses(ctx context.Context, bandwidth, ceil, mtu uint64, allocatio
 		return err
 	}
 
-	err = setupClass(ctx, bandwidth, ceil, mtu, allocationIndex, ifbIngress)
+	err = setupClass(ctx, bandwidth, mtu, allocationIndex, ifbIngress)
 	if err != nil {
 		return err
 	}
 	return setupSubqdisc(ctx, allocationIndex, ifbIngress, uint32(mtu))
 }
 
-func setupClass(ctx context.Context, bandwidth, ceil, mtu uint64, allocationIndex uint16, link netlink.Link) error {
+func setupClass(ctx context.Context, assignmentBandwidth *vpcapi.AssignIPResponseV3_Bandwidth, mtu int, allocationIndex uint16, link netlink.Link) error {
 	classattrs := netlink.ClassAttrs{
 		LinkIndex: link.Attrs().Index,
 		Parent:    netlink.MakeHandle(1, 1),
@@ -551,6 +413,8 @@ func setupClass(ctx context.Context, bandwidth, ceil, mtu uint64, allocationInde
 		Handle: netlink.MakeHandle(1, allocationIndex),
 	}
 
+	bandwidth := assignmentBandwidth.Bandwidth
+	ceil := assignmentBandwidth.Burst
 	bytespersecond := float64(bandwidth) / 8.0
 	ceilbytespersecond := float64(ceil) / 8.0
 	htbclassattrs := netlink.HtbClassAttrs{
@@ -579,7 +443,8 @@ func setupSubqdisc(ctx context.Context, allocationIndex uint16, link netlink.Lin
 		Parent:    netlink.MakeHandle(1, allocationIndex),
 	}
 	qdisc := netlink.NewFqCodel(attrs)
-	qdisc.Quantum = mtu
+	// We add some overhead here for framing
+	qdisc.Quantum = mtu + framingOverhead
 
 	err := netlink.QdiscAdd(qdisc)
 	if err != nil && err != unix.EEXIST {
@@ -667,14 +532,7 @@ func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	if assignment.Ipv4Address == nil {
 		return nil
 	}
-	buf := make([]byte, 8)
 
-	binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
-	ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
-	if len(ip) != 4 {
-		panic("Length of IP is not 4")
-	}
-	copy(buf[4:], ip)
 	path := []byte("/sys/fs/bpf//tc/globals/ipv4_map\000")
 	openAttrObjOp := bpfAttrObjOp{
 		pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
@@ -694,9 +552,10 @@ func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	defer unix.Close(int(fd))
 	runtime.KeepAlive(path)
 
+	key := ipv4key(assignment)
 	uba := bpfAttrMapOpElem{
 		mapFd: uint32(fd),
-		key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
+		key:   uint64(uintptr(unsafe.Pointer(&key[0]))),
 	}
 	_, _, err = unix.Syscall(
 		unix.SYS_BPF,
@@ -704,7 +563,11 @@ func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 		uintptr(unsafe.Pointer(&uba)),
 		unsafe.Sizeof(uba),
 	)
-	if err != unix.ENOENT && err != 0 {
+	if err == unix.ENOENT {
+		err := errors.Wrap(err, "Unable to delete element for ipv4 map (notfound) ")
+		logger.G(ctx).WithError(err).WithField("ip", assignment.Ipv4Address.Address.Address).WithField("classid", assignment.ClassId).WithField("vlanid", assignment.VlanId).Error("Element not found")
+		return err
+	} else if err != 0 {
 		logger.G(ctx).WithError(err).Errorf("Unable to delete element for ipv4 map with file descriptor %d", fd)
 		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
 		return err2
@@ -717,51 +580,81 @@ func deleteFromIPv6BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	if assignment.Ipv6Address == nil {
 		return nil
 	}
-	buf := make([]byte, 20)
-	binary.LittleEndian.PutUint16(buf, uint16(assignment.ClassId))
 	ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
 	if len(ip) != 16 {
 		panic("Length of IP is not 16")
 	}
-
-	copy(buf[4:], ip)
 
 	path := []byte("/sys/fs/bpf//tc/globals/ipv6_map\000")
 	openAttrObjOp := bpfAttrObjOp{
 		pathname: uint64(uintptr(unsafe.Pointer(&path[0]))),
 	}
 
-	fd, _, err := unix.Syscall(
+	fd, _, errno := unix.Syscall(
 		unix.SYS_BPF,
 		unix.BPF_OBJ_GET,
 		uintptr(unsafe.Pointer(&openAttrObjOp)),
 		unsafe.Sizeof(openAttrObjOp),
 	)
-	if err != 0 {
-		err2 := errors.Wrap(err, "Cannot open BPF Map ipv6_map")
-		logger.G(ctx).WithError(err2).Error("Cannot get ipv6_map")
-		return err2
+	if errno != 0 {
+		err := errors.Wrap(errno, "Cannot open BPF Map ipv6_map")
+		logger.G(ctx).WithError(err).Error("Cannot get ipv6_map")
+		return err
 	}
 	defer unix.Close(int(fd))
 	runtime.KeepAlive(path)
 
+	key := ipv6key(assignment)
 	uba := bpfAttrMapOpElem{
 		mapFd: uint32(fd),
-		key:   uint64(uintptr(unsafe.Pointer(&buf[0]))),
+		key:   uint64(uintptr(unsafe.Pointer(&key[0]))),
 	}
-	_, _, err = unix.Syscall(
+	_, _, errno = unix.Syscall(
 		unix.SYS_BPF,
 		unix.BPF_MAP_DELETE_ELEM,
 		uintptr(unsafe.Pointer(&uba)),
 		unsafe.Sizeof(uba),
 	)
-	if err != unix.ENOENT && err != 0 {
-		logger.G(ctx).WithError(errors.Wrapf(err, "Unable to delete element for map with file descriptor %d", fd)).Error()
-		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
-		return err2
+	if errno == unix.ENOENT {
+		err := errors.Wrap(errno, "Unable to delete element for ipv6 map (notfound)")
+		logger.G(ctx).WithError(err).WithField("ip", assignment.Ipv6Address.Address.Address).WithField("classid", assignment.ClassId).WithField("vlanid", assignment.VlanId).Error("Element not found")
+		return err
+	} else if errno != 0 {
+		logger.G(ctx).WithError(errors.Wrapf(errno, "Unable to delete element for map with file descriptor %d", fd)).Error()
+		err := errors.Wrap(errno, "Unable to delete element for ipv6 map")
+		return err
 	}
 	runtime.KeepAlive(uba)
 	return nil
+}
+
+func ipv6key(assignment *vpcapi.AssignIPResponseV3) []byte {
+	if assignment.Ipv6Address == nil {
+		return nil
+	}
+	buf := make([]byte, 20)
+	binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
+	ip := net.ParseIP(assignment.Ipv6Address.Address.Address).To16()
+	if len(ip) != 16 {
+		panic("Length of IP is not 16")
+	}
+	copy(buf[4:], ip)
+	return buf
+}
+
+func ipv4key(assignment *vpcapi.AssignIPResponseV3) []byte {
+	if assignment.Ipv4Address == nil {
+		return nil
+	}
+	buf := make([]byte, 8)
+
+	binary.LittleEndian.PutUint16(buf, uint16(assignment.VlanId))
+	ip := net.ParseIP(assignment.Ipv4Address.Address.Address).To4()
+	if len(ip) != 4 {
+		panic("Length of IP is not 4")
+	}
+	copy(buf[4:], ip)
+	return buf
 }
 
 type classNotFound struct {

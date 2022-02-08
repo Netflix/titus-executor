@@ -11,10 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/renameio"
-
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
@@ -24,12 +21,14 @@ import (
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	units "github.com/docker/go-units"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/google/renameio"
 	"github.com/pkg/errors"
-	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -168,52 +167,30 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 		}
 	}
 
-	useBytes, err := podCommon.ByteUnitsEnabled(pod)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not parse byte units pod annotation")
-	}
-
+	// All limits for the entire pod are encoded by the limits of the first container.
+	// We don't currently support per-container limits.
 	limits := pod.Spec.Containers[0].Resources.Limits
-
-	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	disk, _ := resource.ParseQuantity("2G")
-	for _, k := range []v1.ResourceName{v1.ResourceEphemeralStorage, v1.ResourceStorage, "titus/disk"} {
-		if v, ok := limits[k]; ok {
-			disk = v
-			break
-		}
-	}
-
-	// TODO: pick one, agreed upon resource name after migration to k8s scheduler is complete.
-	gpu, _ := resource.ParseQuantity("0")
-	for _, k := range []v1.ResourceName{resourceCommon.ResourceNameGpuLegacy, resourceCommon.ResourceNameGpu, resourceCommon.ResourceNameNvidiaGpu} {
-		if v, ok := limits[k]; ok {
-			gpu = v
-			break
-		}
-	}
-
+	disk := limits[resourceCommon.ResourceNameDisk]
+	gpu := limits[resourceCommon.ResourceNameNvidiaGpu]
 	cpu := limits[v1.ResourceCPU]
 	memory := limits[v1.ResourceMemory]
 	network := limits[resourceCommon.ResourceNameNetwork]
 
-	if useBytes {
-		// The control plane has passed resource values in bytes, but the runner takes
-		// MiB / MB, so we need to do the conversion.
-		disk, err = resourceBytesToMiB(&disk)
-		if err != nil {
-			return nil, errors.New("error converting disk resource units")
-		}
+	// The control plane has passed resource values in bytes, but the runner takes
+	// MiB / MB, so we need to do the conversion.
+	disk, err = resourceBytesToMiB(&disk)
+	if err != nil {
+		return nil, errors.New("error converting disk resource units")
+	}
 
-		memory, err = resourceBytesToMiB(&memory)
-		if err != nil {
-			return nil, errors.New("error converting memory resource units")
-		}
+	memory, err = resourceBytesToMiB(&memory)
+	if err != nil {
+		return nil, errors.New("error converting memory resource units")
+	}
 
-		network, err = resourceBytesToMB(&network)
-		if err != nil {
-			return nil, errors.New("error converting network resource units")
-		}
+	network, err = resourceBytesToMB(&network)
+	if err != nil {
+		return nil, errors.New("error converting network resource units")
 	}
 
 	be := &Backend{
@@ -333,9 +310,9 @@ func (b *Backend) RunWithOutputDir(ctx context.Context, dir string) error {
 		case <-ctx.Done():
 			// We should probably kill the pod gracefully now.
 			r.Kill()
-			log.G(ctx).Info("Context complete, terminating gracefully")
+			logger.G(ctx).Info("Context complete, terminating gracefully")
 			<-r.StoppedChan
-			log.G(ctx).Info("Context completed, terminated")
+			logger.G(ctx).Info("Context completed, terminated")
 			return nil
 		}
 	}
@@ -354,7 +331,7 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 			b.pod.Status.PodIPs = []v1.PodIP{
 				{IP: update.Details.NetworkConfiguration.ElasticIPAddress},
 			}
-		} else {
+		} else if update.Details.NetworkConfiguration.IPAddress != "" {
 			b.pod.Status.PodIPs = []v1.PodIP{
 				{IP: update.Details.NetworkConfiguration.IPAddress},
 			}
@@ -378,16 +355,22 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	}
 
 	logger.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debug("Setting ContainerStatus...")
-	b.pod.Status.ContainerStatuses = []v1.ContainerStatus{{
+	// Order is important here, we need the first (0th) container to be the main one so that
+	// other code that looks at the first container status continues to behave in a compatible way
+	mainContainerStatus := v1.ContainerStatus{
 		Name:                 b.pod.Name,
 		State:                state2containerState(prevContainerState, update.State),
 		LastTerminationState: v1.ContainerState{},
 		Ready:                true,
 		RestartCount:         0,
-		Image:                "",
+		Image:                b.pod.Spec.Containers[0].Image,
 		ImageID:              "",
-		ContainerID:          "",
-	}}
+		ContainerID:          update.ContainerID,
+	}
+	statuses := append([]v1.ContainerStatus{mainContainerStatus}, update.ExtraContainerStatuses...)
+	statuses = append(statuses, update.PlatformSidecarStatuses...)
+
+	b.pod.Status.ContainerStatuses = statuses
 
 	if update.Details != nil && update.Details.NetworkConfiguration != nil {
 		for k, v := range update.Details.NetworkConfiguration.ToMap() {
@@ -416,21 +399,21 @@ func (b *Backend) RunWithStatusFile(ctx context.Context, statuses *os.File) erro
 
 			lock.Lock()
 			b.handleUpdate(ctx, update)
-			log.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debugf("Updating pod in backend: %+v", b.pod)
+			logger.G(ctx).WithField("pod", fmt.Sprintf("%s/%s", b.pod.Namespace, b.pod.Name)).Debugf("Updating pod in backend: %+v", b.pod)
 			err = encoder.Encode(b.pod)
 			lock.Unlock()
 
 			if err != nil {
-				log.G(ctx).WithError(err).Fatal()
+				logger.G(ctx).WithError(err).Fatal()
 			}
 		case <-runner.StoppedChan:
 			return nil
 		case <-ctx.Done():
 			// We should probably kill the pod gracefully now.
 			runner.Kill()
-			log.G(ctx).Info("Context complete, terminating gracefully")
+			logger.G(ctx).Info("Context complete, terminating gracefully")
 			<-runner.StoppedChan
-			log.G(ctx).Info("Context completed, terminated")
+			logger.G(ctx).Info("Context completed, terminated")
 			return nil
 		}
 	}

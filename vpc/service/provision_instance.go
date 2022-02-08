@@ -14,14 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
-
-func (vpcService *vpcService) ProvisionInstance(ctx context.Context, req *vpcapi.ProvisionInstanceRequest) (*vpcapi.ProvisionInstanceResponse, error) {
-	err := status.Error(codes.Unimplemented, "ProvisionInstance Call is deprecated")
-	return nil, err
-}
 
 func (vpcService *vpcService) ProvisionInstanceV3(ctx context.Context, req *vpcapi.ProvisionInstanceRequestV3) (*vpcapi.ProvisionInstanceResponseV3, error) {
 	ctx, cancel := context.WithCancel(ctx)

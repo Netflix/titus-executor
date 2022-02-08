@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/models"
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	assert2 "gotest.tools/assert"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 func TestImageNameWithTag(t *testing.T) {
@@ -179,7 +180,7 @@ func TestNewContainer(t *testing.T) {
 	assert.Equal(t, *containerConfig.RunState.HostName, taskID)
 
 	assert.False(t, container.ServiceMeshEnabled())
-	scConfs, err := container.SidecarConfigs()
+	scConfs, err := container.SystemServices()
 	require.Nil(t, err)
 	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
@@ -671,7 +672,7 @@ func TestServiceMeshEnabled(t *testing.T) {
 	c, err := NewContainerWithPod(taskID, titusInfo, *resources, config, pod)
 	require.Nil(t, err)
 	assert.True(t, c.ServiceMeshEnabled())
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	require.Nil(t, err)
 	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
@@ -690,7 +691,7 @@ func TestServiceMeshEnabledWithConfig(t *testing.T) {
 	c, err := NewContainerWithPod(taskID, titusInfo, *resources, config, pod)
 	require.Nil(t, err)
 	assert.False(t, c.ServiceMeshEnabled())
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	require.Nil(t, err)
 	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
@@ -709,7 +710,7 @@ func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 	c, err := NewContainerWithPod(taskID, titusInfo, *resources, config, pod)
 	require.Nil(t, err)
 	assert.False(t, c.ServiceMeshEnabled())
-	scConfs, err := c.SidecarConfigs()
+	scConfs, err := c.SystemServices()
 	require.Nil(t, err)
 	svcMeshConf := GetSidecarConfig(scConfs, SidecarServiceServiceMesh)
 	assert.NotNil(t, svcMeshConf)
@@ -729,4 +730,11 @@ func TestSubnetIDHasSpaces(t *testing.T) {
 	ret := c.SubnetIDs()
 	require.NotNil(t, ret)
 	assert.Equal(t, "subnet-foo,subnet-bar", strings.Join(*ret, ","))
+}
+
+func TestComputeNetflixIPv6Hostname(t *testing.T) {
+	ip := "2001:db8::2:1"
+	expected := "ip-2001-db8--2-1.node.netflix.net"
+	actual := computeNetflixIPv6Hostname(ip)
+	assert.Equal(t, expected, actual)
 }

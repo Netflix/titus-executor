@@ -86,6 +86,7 @@ checkstyle-result.xml
 /root/apps/titus-executor/bin/titus-logviewer
 /root/apps/titus-executor/bin/titus-metadata-service
 /root/apps/titus-executor/bin/titus-mount-block-device
+/root/apps/titus-executor/bin/titus-mount-block-ceph
 /root/apps/titus-executor/bin/titus-mount-nfs
 /root/apps/titus-executor/bin/tini-static
 /root/apps/titus-executor/bin/titus-inject-metadataproxy
@@ -94,6 +95,7 @@ checkstyle-result.xml
 /root/apps/titus-executor/bin/titus-nsenter
 
 /mount/titus-mount-block-device
+/mount/titus-mount-ceph
 /mount/titus-mount-nfs
 
 # unignore directories named titus-executor

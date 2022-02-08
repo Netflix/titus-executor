@@ -1,8 +1,9 @@
 package types
 
 import (
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (
@@ -19,9 +20,10 @@ const (
 	SidecarSeccompAgent         = "seccomp-agent"
 	SidecarServiceMetadataProxy = "metadata-proxy"
 	SidecarContainerTools       = "container-tools"
+	SidecarTrafficSteering      = "traffic-steering"
 )
 
-var sideCars = []ServiceOpts{
+var systemServices = []ServiceOpts{
 	{
 		ServiceName: SidecarTitusContainer,
 		UnitName:    "titus-container",
@@ -124,6 +126,12 @@ var sideCars = []ServiceOpts{
 			"/titus/container-tools": {},
 		},
 	},
+	{
+		ServiceName:  SidecarTrafficSteering,
+		UnitName:     "titus-sidecar-traffic-steering",
+		Required:     true,
+		EnabledCheck: shouldStartTitusTrafficSteering,
+	},
 }
 
 func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
@@ -135,7 +143,7 @@ func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartTitusSeccompAgent(cfg *config.Config, c Container) bool {
-	return c.SeccompAgentEnabledForPerfSyscalls() || c.SeccompAgentEnabledForNetSyscalls() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
+	return c.SeccompAgentEnabledForPerfSyscalls() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
 }
 
 func shouldStartServiceMesh(cfg *config.Config, c Container) bool {
@@ -200,6 +208,10 @@ func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
 
 func shouldStartContainerTools(cfg *config.Config, c Container) bool {
 	return cfg.ContainerToolsImage != ""
+}
+
+func shouldStartTitusTrafficSteering(cfg *config.Config, c Container) bool {
+	return c.TrafficSteeringEnabled()
 }
 
 // GetSidecarConfig is a helper to get a particular sidecar config out by name

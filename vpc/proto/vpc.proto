@@ -48,22 +48,9 @@ message InstanceIdentity {
     string instanceType = 6;
 }
 
-// ProvisionInstanceRequest is called when the instance is first initialized, in order to configure its interfaces,
+// ProvisionInstanceRequestV3 is called when the instance is first initialized, in order to configure its interfaces,
 // and other network capabilities.
 // The provisioning service decides which account / subnet / VPC the interface will live in.
-message ProvisionInstanceRequest {
-    InstanceIdentity instanceIdentity = 1;
-    // If accountID and subnetID are not specified then the titusvpcservice will decide on their behalf
-    string accountID = 2;
-    string subnetID = 3;
-};
-
-message ProvisionInstanceResponse {
-    // In this, the deviceIndex, macAddress, and networkInterfaceId must be unique in this list.
-    repeated NetworkInterface networkInterfaces = 1;
-    CacheVersion cacheVersion = 2;
-};
-
 message ProvisionInstanceRequestV3 {
     InstanceIdentity instanceIdentity = 1;
 }
@@ -76,26 +63,6 @@ message UtilizedAddress {
     Address address = 1;
     google.protobuf.Timestamp lastUsedTime = 2;
 }
-
-message AssignIPRequest {
-    CacheVersion cacheVersion = 1;
-    NetworkInterfaceAttachment networkInterfaceAttachment = 3;
-    repeated string securityGroupIds = 4;
-    bool ipv6AddressRequested = 5;
-    repeated UtilizedAddress utilizedAddresses = 6;
-    InstanceIdentity instanceIdentity = 7;
-    bool allowSecurityGroupChange = 8;
-    // This is optional. If it is not specified then we will assign a "random" IP to the interface
-    repeated com.netflix.titus.SignedAddressAllocation signedAddressAllocations = 9;
-};
-
-message AssignIPResponse {
-    CacheVersion cacheVersion = 1;
-    // A batch of IPs may be given back. It is up to the client to figure out what IPs it can use.
-    repeated UsableAddress usableAddresses = 2;
-    NetworkInterface networkInterface = 3;
-    repeated string securityGroupIds = 4;
-};
 
 message elasticAddressSet {
     repeated string elasticAddresses = 1;
@@ -211,27 +178,6 @@ message UsableAddress {
     uint32 prefixLength = 2;
 };
 
-// AddressGCMetadata is sent when the instance requests that the IP Service GC it. It's basically a way to
-// indicate when the IP was last used, and we can GC it based on that metadata.
-message GCRequest {
-    CacheVersion cacheVersion = 1;
-    InstanceIdentity instanceIdentity = 2;
-    NetworkInterfaceAttachment networkInterfaceAttachment = 3;
-    // unallocatedAddresses are addresses we were able to take a lock on
-    repeated UtilizedAddress unallocatedAddresses = 4;
-    // nonviableAddresses are addresses which we found found in the store, but we decided not to nominate
-    // for GC, because they've been bumped recently
-    repeated UtilizedAddress nonviableAddresses = 5;
-    // allocatedAddresses are addresses currently in use.
-    repeated UtilizedAddress allocatedAddresses = 6;
-}
-
-message GCResponse {
-    CacheVersion cacheVersion = 1;
-    repeated Address addressToBump = 2;
-    repeated Address addressToDelete = 3;
-}
-
 message GCRequestV3 {
     InstanceIdentity instanceIdentity = 1;
     repeated string runningTaskIDs = 2;
@@ -242,31 +188,6 @@ message GCRequestV3 {
 message GCResponseV3 {
     // assignmentsToRemove returns which assignments *should be* removed.
     repeated string assignmentsToRemove = 1;
-}
-
-message RefreshIPRequest {
-    repeated UtilizedAddress utilizedAddress = 1;
-    NetworkInterface branchNetworkInterface = 2;
-}
-
-message RefreshIPResponse {
-    google.protobuf.Duration nextRefresh = 1;
-}
-
-message GCSetupRequest {
-    InstanceIdentity instanceIdentity = 1;
-}
-
-message GCSetupResponse {
-    repeated NetworkInterfaceAttachment networkInterfaceAttachment = 1;
-}
-
-message GCLegacySetupRequest {
-    InstanceIdentity instanceIdentity = 1;
-}
-
-message GCLegacySetupResponse {
-    repeated NetworkInterfaceAttachment networkInterfaceAttachment = 1;
 }
 
 message LockId {
@@ -374,12 +295,17 @@ message GetAssignmentResponse {
     AssignIPResponseV3 assignment = 1;
 }
 
+message ResetSecurityGroupRequest {
+    string sgId = 1;
+}
+
+message ResetSecurityGroupResponse {
+}
+
 service TitusAgentVPCService {
     // This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
-    rpc ProvisionInstance (ProvisionInstanceRequest) returns (ProvisionInstanceResponse);
     rpc ProvisionInstanceV3 (ProvisionInstanceRequestV3) returns (ProvisionInstanceResponseV3);
 
-    rpc AssignIP (AssignIPRequest) returns (AssignIPResponse);
     rpc AssignIPV3 (AssignIPRequestV3) returns (AssignIPResponseV3);
     rpc UnassignIPV3 (UnassignIPRequestV3) returns (UnassignIPResponseV3);
     rpc GetAssignment (GetAssignmentRequest) returns (GetAssignmentResponse);

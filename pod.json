@@ -7,7 +7,6 @@
     "resourceVersion": "3177086735",
     "creationTimestamp": "2021-02-12T07:20:00Z",
     "labels": {
-      "pod.titus.netflix.com/byteUnits": "true",
       "titus.netflix.com/capacity-group": "default",
       "v3.job.titus.netflix.com/job-id": "34fe318e-c7b6-4fee-a213-ab4f57bb03e6",
       "v3.job.titus.netflix.com/task-id": "843863f1-41a2-4a73-89bc-89c506bc1e14"

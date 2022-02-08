@@ -5,13 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/user"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (
@@ -106,9 +108,13 @@ func wrapTestStandalone(t *testing.T) {
 	t.Parallel()
 }
 
-func skipOnDarwin(t *testing.T) {
+func skipOnDarwinOrNoRoot(t *testing.T) {
 	if runtime.GOOS == "darwin" { //nolint:goconst
 		t.Skip("This test is not compatible with darwin or docker-for-mac")
+	}
+	currentUser, _ := user.Current()
+	if currentUser.Username != "root" {
+		t.Skip("This test must be run as root")
 	}
 }
 
@@ -126,7 +132,7 @@ func generateJobID(testName string) string {
 }
 
 func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, dockerCfg := GenerateConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -146,7 +152,7 @@ func dockerImageRemove(t *testing.T, imgName string) {
 }
 
 func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, dockerCfg := GenerateConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -238,7 +244,7 @@ func TestInvalidFlatStringAsCmd(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 127); err != nil {
 		t.Fatal(err)
@@ -275,7 +281,7 @@ func TestEntrypointAndCmdFromImage(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 123); err != nil {
 		t.Fatal(err)
@@ -295,7 +301,7 @@ func TestOverrideCmdFromImage(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 5); err != nil {
 		t.Fatal(err)
@@ -317,7 +323,7 @@ func TestResetEntrypointFromImage(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	if err := jobResponse.WaitForFailureWithStatus(ctx, 6); err != nil {
 		t.Fatal(err)
@@ -538,7 +544,7 @@ func TestCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	jobResponse, err := StartJob(t, ctx, &JobInput{
+	jobResponse, err := StartTestTask(t, ctx, &JobInput{
 		JobID:      generateJobID(t.Name()),
 		ImageName:  bigImage.name,
 		Version:    bigImage.tag,
@@ -641,7 +647,7 @@ func TestShutdown(t *testing.T) {
 		UsePodSpec:    UseV1PodspecInTest,
 	}
 
-	jobRunner, err := StartJob(t, ctx, ji)
+	jobRunner, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobRunner.StopExecutor()
 
@@ -677,7 +683,7 @@ func TestShutdown(t *testing.T) {
 func TestMetadataProxyInjection(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -693,7 +699,7 @@ func TestMetadataProxyInjection(t *testing.T) {
 func TestMetadataProxyFromLocalhost(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -709,7 +715,7 @@ func TestMetadataProxyFromLocalhost(t *testing.T) {
 func TestMetadataProxyOnIPv6(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -725,7 +731,7 @@ func TestMetadataProxyOnIPv6(t *testing.T) {
 func TestMetadataProxyPublicIP(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because we don't have systemd to launch the imds or any other system service
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -752,7 +758,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 		UsePodSpec:      UseV1PodspecInTest,
 	}
 	// Start the executor
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutorAsync()
 
@@ -813,7 +819,7 @@ func TestTerminateTimeoutNotTooSlow(t *testing.T) {
 func TestOOMAdj(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it assumes you can see /proc from the container
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
@@ -840,7 +846,7 @@ func TestOOMKill(t *testing.T) {
 	}
 
 	// Start the executor
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutorAsync()
 
@@ -961,7 +967,7 @@ func TestOldEnvironmentLocationNegative(t *testing.T) {
 func TestNoCPUBursting(t *testing.T) {
 	wrapTestStandalone(t)
 	// Not sure exactly why this doesn't work on darwin, cfs_quota_us isn't in there
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
@@ -978,7 +984,7 @@ func TestNoCPUBursting(t *testing.T) {
 func TestCPUBursting(t *testing.T) {
 	wrapTestStandalone(t)
 	// Not sure exactly why this doesn't work on darwin, cfs_quota_us isn't in there
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName: ubuntu.name,
 		Version:   ubuntu.tag,
@@ -996,7 +1002,7 @@ func TestCPUBursting(t *testing.T) {
 func TestTwoCPUs(t *testing.T) {
 	wrapTestStandalone(t)
 	// Not sure exactly why this doesn't work on darwin, cpus.shares isn't there
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	var cpuCount int64 = 2
 	ji := &JobInput{
 		ImageName: ubuntu.name,
@@ -1070,7 +1076,7 @@ func TestCachedDockerPull(t *testing.T) {
 func TestMetatron(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it need system stuff
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:       userSet.name,
 		Version:         userSet.tag,
@@ -1098,7 +1104,7 @@ func TestMetatron(t *testing.T) {
 func TestMetatronFailure(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it need systemd stuff
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
@@ -1116,7 +1122,7 @@ func TestMetatronFailure(t *testing.T) {
 		UsePodSpec: UseV1PodspecInTest,
 	}
 
-	jobResponse, err := StartJob(t, ctx, ji)
+	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
 	defer jobResponse.StopExecutor()
 
@@ -1199,7 +1205,7 @@ func TestShm(t *testing.T) {
 func TestContainerLogViewer(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin because it need systemd stuff
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	ji := &JobInput{
 		ImageName:        ubuntu.name,
 		Version:          ubuntu.tag,
@@ -1242,7 +1248,7 @@ func TestNegativeSeccomp(t *testing.T) {
 func TestGPUManager1GPU(t *testing.T) {
 	wrapTestStandalone(t)
 	// Doesn't work on darwin docker-for-mac won't accept alt docker runtimes
-	skipOnDarwin(t)
+	skipOnDarwinOrNoRoot(t)
 	g := &gpuManager{}
 	var gpu int64 = 1
 
@@ -1259,7 +1265,7 @@ func TestGPUManager1GPU(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
 	defer cancel()
 
-	jobResult, err := StartJob(t, ctx, ji)
+	jobResult, err := StartTestTask(t, ctx, ji)
 	assert.Nil(t, err)
 
 	require.True(t, jobResult.WaitForSuccess())
@@ -1306,6 +1312,118 @@ func TestBasicMultiContainer(t *testing.T) {
 	}
 }
 
+func TestBasicMultiContainerSharesCommonVolumes(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+
+	// And for the main container, we use pgrep to ensure that our sentinel container
+	// is in fact running along side us, and we can see shared files
+	testEntrypointOld := "if ! ls -l /logs/sentinel; then exit 2; fi; if ! ls -l /run-shared/sentinel; then exit 3; fi"
+	// The main container and the user-sentinel are both 'user' containers,
+	// So we want the main container to waid just a little bit for the touch-sentinel
+	testEntrypointOld = `/bin/sh -vxc "sleep 3;` + testEntrypointOld + `"`
+
+	ji := &JobInput{
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
+		UsePodSpec: UseV1PodspecInTest,
+		// This sentinel container is a second process we can look out
+		// for, in order to detect if multi-container workloads are setup
+		ExtraContainers: []corev1.Container{
+			{
+				Name:    "touch-sentinel",
+				Image:   busybox.name + `:` + busybox.tag,
+				Command: []string{"/bin/sh", "-vxc"},
+				Args:    []string{"touch /logs/sentinel && touch /run-shared/sentinel"},
+			},
+		},
+		EntrypointOld: testEntrypointOld,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}
+
+func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+
+	// In the main container, we expect to see a file created by our sentinel
+	testEntrypointOld := "stat /data2/sentinel"
+	testEntrypointOld = `/bin/sh -vxc "sleep 3;` + testEntrypointOld + `"`
+
+	sharedVolume := corev1.Volume{
+		Name: "shared-from-mains-data2",
+		VolumeSource: corev1.VolumeSource{
+			FlexVolume: &corev1.FlexVolumeSource{
+				Driver: "SharedContainerVolumeSource",
+				Options: map[string]string{
+					"sourcePath":      "/data2",
+					"sourceContainer": "main",
+				},
+			},
+		},
+	}
+	mountProp := corev1.MountPropagationNone
+	sharedVolumeMount := corev1.VolumeMount{
+		Name:             "shared-from-mains-data2",
+		MountPath:        "/mains-data2",
+		ReadOnly:         false,
+		MountPropagation: &mountProp,
+	}
+	ji := &JobInput{
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
+		UsePodSpec: UseV1PodspecInTest,
+		// This sentinel container touches a file, and the main container should
+		// see it if volumes are working
+		ExtraContainers: []corev1.Container{
+			{
+				Name:         "touch-sentinel",
+				Image:        busybox.name + `:` + busybox.tag,
+				Command:      []string{"/bin/sh", "-vxc"},
+				Args:         []string{"touch /mains-data2/sentinel"},
+				VolumeMounts: []corev1.VolumeMount{sharedVolumeMount},
+			},
+		},
+		Volumes:       []corev1.Volume{sharedVolume},
+		EntrypointOld: testEntrypointOld,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}
+func TestOtherUserContaintainerFailsTask(t *testing.T) {
+	wrapTestStandalone(t)
+	skipIfNotPod(t)
+	testEntrypointOld := `/bin/sh -c "sleep 5"`
+	ji := &JobInput{
+		ImageName:  busybox.name,
+		Version:    busybox.tag,
+		UsePodSpec: UseV1PodspecInTest,
+		ExtraContainers: []corev1.Container{
+			{
+				// This exit container is purposely designed to exit with a sentinel code, 42
+				// For user containers, if one dies, the whole task dies, and should not just go
+				// limping along with only the one container running.
+				Name:    "exit-sentinel",
+				Image:   busybox.name + `:` + busybox.tag,
+				Command: []string{"/bin/sh", "-c"},
+				Args:    []string{"sleep 1s; exit 42"},
+			},
+		},
+		EntrypointOld: testEntrypointOld,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
+	defer cancel()
+	jobResponse, err := StartTestTask(t, ctx, ji)
+	require.NoError(t, err)
+	// We need to look for 42, which is the exit code of the *other* container.
+	if err := jobResponse.WaitForFailureWithStatus(ctx, 42); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 	wrapTestStandalone(t)
 	skipIfNotPod(t)
@@ -1315,10 +1433,9 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 	// It will only work if the user sentinel sidecar is seen running by the time we start.
 	testEntrypointOld := "pgrep -fx '/bin/sleep 430'"
 	// The main container and the user-sentinel are both 'user' containers,
-	// So we want the main container to waid just a little bit for the user-sentinel
+	// So we want the main container to wait just a little bit for the user-sentinel
 	// to come up, report back if the platform-sentinel is running or not, and then continue
-	testEntrypointOld = `/bin/sh -c "sleep 3;` + testEntrypointOld + `"`
-
+	testEntrypointOld = `/bin/sh -c "sleep 6;` + testEntrypointOld + `"`
 	ji := &JobInput{
 		ImageName:  busybox.name,
 		Version:    busybox.tag,
@@ -1344,7 +1461,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 			},
 		},
 		ExtraAnnotations: map[string]string{
-			podCommon.AnnotationKeyPrefixContainerType + `platform-sentinel`: podCommon.AnnotationValueContainerTypePlatformSidecar,
+			podCommon.ContainerAnnotation("platform-sentinel", podCommon.AnnotationKeySuffixContainersSidecar): "foo",
 		},
 		EntrypointOld: testEntrypointOld,
 	}
@@ -1356,7 +1473,7 @@ func TestMultiContainerDoesPlatformFirst(t *testing.T) {
 func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
 	wrapTestStandalone(t)
 	skipIfNotPod(t)
-	testEntrypointOld := `/bin/sleep 21`
+	testEntrypointOld := `/bin/sleep 10`
 	badHealthcheckCommand := corev1.ExecAction{
 		Command: []string{"/bin/false"},
 	}

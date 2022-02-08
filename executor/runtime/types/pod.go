@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/Netflix/titus-executor/utils/maps"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
@@ -24,8 +24,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (
@@ -226,7 +227,7 @@ func (c *PodContainer) CombinedAppStackDetails() string {
 }
 
 func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
-	// TODO: this needs to be removed once Metatron supports pods
+	// TODO: this needs to be removed once Metatron supports the v2 identity endpoint (TITUS-5823)
 	userContainer := podCommon.GetUserContainer(c.pod)
 	appName := c.AppName()
 	stack := c.JobGroupStack()
@@ -249,6 +250,13 @@ func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
 	}
 
 	for _, env := range userContainer.Env {
+		if stringSliceContains(c.podConfig.InjectedEnvVarNames, env.Name) {
+			// If the env variable in question was injected, we must ignore it
+			// because it is outside of the scope of what metatron (which uses this synthetic cInfo)
+			// should consider. In other words, it is neither system-provided
+			// nor is it user-provided.
+			continue
+		}
 		if _, ok := systemEnvVarNames[env.Name]; ok {
 			titusProvidedEnv[env.Name] = env.Value
 		} else {
@@ -381,6 +389,20 @@ func (c *PodContainer) ImageName() *string {
 }
 
 func (c *PodContainer) ImageVersion() *string {
+	// The docker image tag (what cInfo calls "ImageVersion") is not normally
+	// in the pod v1 container `Image` field. Usually it is the digest, because
+	// the control-plane does tag->digest resolution.
+	// However, the control-plan saves the original tag in a special annotation for us
+	// so that we can look up the *original* tag the digest came from.
+	tagFromPodAnnotation, ok := c.pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+"main"]
+	if ok {
+		return &tagFromPodAnnotation
+	}
+
+	// If we don't have that original tag, we can fall-back to what we have in `Image`,
+	// but it may be bogus.
+	// (a docker Reference assumes a tag of "latest" on something that references a full digest,
+	// even though it has no idea if it came from the latest tag or not.)
 	tag, ok := c.containerImage.(reference.Tagged)
 	if !ok {
 		return nil
@@ -408,6 +430,21 @@ func (c *PodContainer) IPv4Address() *string {
 		if t.AssignIPResponseV3.Ipv4Address != nil {
 			return &t.AssignIPResponseV3.Ipv4Address.Address.Address
 		}
+		return nil
+	}
+	panic("Unxpected state")
+}
+
+func (c *PodContainer) IPv6Address() *string {
+	if c.vpcAllocation == nil {
+		return nil
+	}
+	switch t := c.vpcAllocation.Assignment.(type) {
+	case *vpcapi.Assignment_AssignIPResponseV3:
+		if t.AssignIPResponseV3.Ipv6Address != nil {
+			return &t.AssignIPResponseV3.Ipv6Address.Address.Address
+		}
+		return nil
 	}
 	panic("Unxpected state")
 }
@@ -518,7 +555,7 @@ func (c *PodContainer) EffectiveNetworkMode() string {
 	if c.podConfig != nil && c.podConfig.NetworkMode != nil {
 		mode = *c.podConfig.NetworkMode
 	}
-	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address(), c.SeccompAgentEnabledForNetSyscalls())
+	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address())
 }
 
 func (c *PodContainer) NFSMounts() []NFSMount {
@@ -562,16 +599,6 @@ func (c *PodContainer) Runtime() string {
 	return DefaultOciRuntime
 }
 
-// SeccompAgentEnabledForNetSyscalls only represents whether a user set the SeccompAgentEnabledForNetSyscalls
-// attribute, and does not represent the source of truth of whether TSA will
-// be activated or not (EffectiveNetworkMode is the source of truth for that)
-func (c *PodContainer) SeccompAgentEnabledForNetSyscalls() bool {
-	if c.podConfig.SeccompAgentNetEnabled != nil {
-		return *c.podConfig.SeccompAgentNetEnabled
-	}
-	return false
-}
-
 func (c *PodContainer) SeccompAgentEnabledForPerfSyscalls() bool {
 	if c.podConfig.SeccompAgentPerfEnabled != nil {
 		return *c.podConfig.SeccompAgentPerfEnabled
@@ -585,6 +612,13 @@ func (c *PodContainer) SecurityGroupIDs() *[]string {
 
 func (c *PodContainer) ServiceMeshEnabled() bool {
 	return c.serviceMeshEnabled
+}
+
+func (c *PodContainer) TrafficSteeringEnabled() bool {
+	if c.podConfig.TrafficSteeringEnabled != nil {
+		return *c.podConfig.TrafficSteeringEnabled
+	}
+	return false
 }
 
 func (c *PodContainer) SetEnv(key, value string) {
@@ -622,7 +656,7 @@ func (c *PodContainer) ShmSizeMiB() *uint32 {
 	return c.shmSizeMiB
 }
 
-func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
+func (c *PodContainer) SystemServices() ([]*ServiceOpts, error) {
 	svcMeshImage := ""
 	if c.ServiceMeshEnabled() {
 		svcMeshImage = c.serviceMeshImage
@@ -640,7 +674,7 @@ func (c *PodContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 	}
 
 	sideCarPtrs := []*ServiceOpts{}
-	for _, scOrig := range sideCars {
+	for _, scOrig := range systemServices {
 		// Make a copy to avoid mutating the original
 		sc := scOrig
 		imgName := imageMap[sc.ServiceName]
@@ -707,15 +741,32 @@ func NewExtraContainersFromPod(pod corev1.Pod) ([]*ExtraContainer, []*ExtraConta
 		otherContainersFromPod = pod.Spec.Containers[1:]
 	}
 	for _, c := range otherContainersFromPod {
+		initialStatus := corev1.ContainerStatus{
+			Name: c.Name,
+			State: corev1.ContainerState{
+				Waiting: &corev1.ContainerStateWaiting{
+					Reason:  c.Name + " has yet to be initialized by the runtime",
+					Message: "Not created yet",
+				},
+			},
+			Ready:        false,
+			RestartCount: 0,
+			Image:        c.Image,
+			ImageID:      "",
+			ContainerID:  "",
+			Started:      nil,
+		}
 		if podCommon.IsPlatformSidecarContainer(c.Name, &pod) {
-			extraPlatformContainers = append(extraUserContainers, &ExtraContainer{
+			extraPlatformContainers = append(extraPlatformContainers, &ExtraContainer{
 				Name:        c.Name,
 				V1Container: c,
+				Status:      initialStatus,
 			})
 		} else {
 			extraUserContainers = append(extraUserContainers, &ExtraContainer{
 				Name:        c.Name,
 				V1Container: c,
+				Status:      initialStatus,
 			})
 		}
 	}
@@ -739,7 +790,7 @@ func AddContainerInfoToPod(pod *corev1.Pod, cInfo *titus.ContainerInfo) error {
 
 func getContainerResources(userContainer *corev1.Container) (*Resources, error) {
 	gpus := int64(0)
-	if numGPUs, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameGpu]; ok {
+	if numGPUs, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameNvidiaGpu]; ok {
 		gpus = numGPUs.Value()
 	}
 	net, ok := userContainer.Resources.Limits[resourceCommon.ResourceNameNetwork]
@@ -795,7 +846,7 @@ func (c *PodContainer) parsePodVolumes() error {
 				MountPoint: filepath.Clean(vm.MountPath),
 				Server:     vol.NFS.Server,
 				ServerPath: filepath.Clean(vol.NFS.Path),
-				ReadOnly:   vol.NFS.ReadOnly,
+				ReadOnly:   vm.ReadOnly,
 			})
 		}
 
@@ -813,10 +864,7 @@ func (c *PodContainer) parsePodVolumes() error {
 				c.ebsInfo.MountPerm = "RO"
 			}
 		}
-
-		delete(nameToMount, vm.Name)
 	}
-
 	return nil
 }
 
@@ -933,4 +981,17 @@ func (c *PodContainer) parsePodCommandAndArgs() error {
 	c.command = nil
 
 	return nil
+}
+
+func BoolPtr(b bool) *bool {
+	return &b
+}
+
+func stringSliceContains(haystack []string, needle string) bool {
+	for _, a := range haystack {
+		if a == needle {
+			return true
+		}
+	}
+	return false
 }

@@ -10,7 +10,6 @@ import (
 	"go.opencensus.io/trace"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -21,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // Task contains all information for running a task
@@ -119,7 +120,6 @@ func (r *Runner) startRunner(ctx context.Context, startTime time.Time) {
 
 	var lastUpdate *update
 	for update := range updateChan {
-		logger.G(ctx).WithField("update", update).Debug("Processing update")
 		// This is okay, because it only gets references _after_ loop termination.
 		lastUpdate = &update // nolint:scopelint
 		if update.status.IsTerminalStatus() {
@@ -147,7 +147,7 @@ type update struct {
 }
 
 func (r *Runner) prepareContainer(ctx context.Context) update {
-	logger.G(ctx).Debug("Running prepare")
+	logger.G(ctx).Debug("Running prepare on main container")
 	prepareCtx, prepareCancel := context.WithCancel(ctx)
 	defer prepareCancel()
 	go func() {
@@ -160,16 +160,16 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 	}()
 	// When Create() returns the host may have been modified to create storage and pull the image.
 	// These steps may or may not have completed depending on if/where a failure occurred.
-	if err := r.runtime.Prepare(prepareCtx); err != nil {
+	if err := r.runtime.Prepare(prepareCtx, r.pod); err != nil {
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
-		logger.G(ctx).Error("Task failed to create container: ", err)
+		logger.G(ctx).WithError(err).Error("Task failed to create main container")
 		// Treat registry pull errors as LOST and non-existent images as FAILED.
 		switch err.(type) {
 		case *runtimeTypes.RegistryImageNotFoundError, *runtimeTypes.InvalidSecurityGroupError, *runtimeTypes.BadEntryPointError, *runtimeTypes.InvalidConfigurationError:
-			logger.G(ctx).Error("Returning TASK_FAILED for Task: ", err)
+			logger.G(ctx).WithError(err).Error("Returning TASK_FAILED for Task")
 			return update{status: titusdriver.Failed, msg: err.Error()}
 		}
-		logger.G(ctx).Error("Returning TASK_LOST for Task: ", err)
+		logger.G(ctx).WithError(err).Error("Returning TASK_LOST for Task")
 		return update{status: titusdriver.Lost, msg: err.Error()}
 	}
 
@@ -198,19 +198,19 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
-	updateChan <- update{status: titusdriver.Starting, msg: "preparing main container"}
+	containerNames := getContainerNames(r.pod)
+	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
+	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 
 	prepareUpdate := r.prepareContainer(ctx)
-	updateChan <- prepareUpdate
 	if prepareUpdate.status.IsTerminalStatus() {
+		updateChan <- prepareUpdate
 		logger.G(ctx).WithField("prepareUpdate", prepareUpdate).Debug("Prepare was terminal")
 		return
 	}
 
-	containerNames := getContainerNames(r.pod)
-	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
-	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
-	logDir, details, statusChan, err := r.runtime.Start(ctx, r.pod)
+	logger.G(ctx).Info(startingMsg)
+	logDir, details, statusMessageChan, err := r.runtime.Start(ctx, r.pod)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		logger.G(ctx).WithError(err).Error("error starting container")
@@ -224,9 +224,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
 		return
 	}
-	startedMsg := fmt.Sprintf("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
-	logger.G(ctx).Info(startedMsg)
-	updateChan <- update{status: titusdriver.Starting, msg: startedMsg, details: details}
+	logger.G(ctx).Infof("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
 
 	err = r.maybeSetupExternalLogger(ctx, logDir)
 	if err != nil {
@@ -240,7 +238,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
 
-	r.monitorMainContainer(ctx, startTime, statusChan, updateChan, details)
+	r.handleStatusMessageChanUpdates(ctx, startTime, statusMessageChan, updateChan, details)
 }
 
 func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
@@ -256,19 +254,22 @@ func (r *Runner) maybeSetDefaultTags(ctx context.Context) {
 	}
 }
 
-func (r *Runner) monitorMainContainer(ctx context.Context, startTime time.Time, statusChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
+// handleStatusMessageChanUpdates bridges two channels and returns when we get to any terminal states.
+// It responds to statusMessageChan updates from the executor *runner* (docker) and translates an pushes
+// them to the updateChan, for the *driver*.
+func (r *Runner) handleStatusMessageChanUpdates(ctx context.Context, startTime time.Time, statusMessageChan <-chan runtimeTypes.StatusMessage, updateChan chan update, details *runtimeTypes.Details) { // nolint: gocyclo
 	lastMessage := ""
 	runningSent := false
 
 	for {
 		select {
-		case statusMessage, ok := <-statusChan:
+		case statusMessage, ok := <-statusMessageChan:
 			if !ok {
 				updateChan <- update{status: titusdriver.Lost, msg: "Lost connection to runtime driver", details: details}
 				return
 			}
 			msg := statusMessage.Msg
-			logger.G(ctx).WithField("statusMessage", statusMessage).Infof("Processing msg from main conatiner: %q - %s", statusMessage.Status, statusMessage.Msg)
+			logger.G(ctx).WithField("statusMessage", statusMessage).Infof("Processing msg from a container: %q - %s", statusMessage.Status, statusMessage.Msg)
 
 			switch statusMessage.Status {
 			case runtimeTypes.StatusRunning:
@@ -334,7 +335,7 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 	if r.wasKilled() {
 		logger.G(ctx).Info("Killing and Shutting down main conatiner because of KillInitiated")
 	} else {
-		logger.G(ctx).Info("Shutting down main container because it finished or died")
+		logger.G(ctx).Info("Shutting down all containers because they finished or one died")
 	}
 	if err := r.runtime.Kill(ctx, r.wasKilled()); err != nil {
 		// TODO(Andrew L): There may be leaked resources that are not being
@@ -375,9 +376,17 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 		// Funnily enough, we can end up in KILLED and FINISHED -- if the Task exits, and then gets a KILL from the Titus / Mesos master
 		// while shutting down, it'll get stuck in weird world. Here, we will send a TASK_FINISHED result, over a TASK_KILLED.
 		// TODO(Sargun): Consider. Is this the right decision?
+		msg = "Pod killed on behalf of the control plane"
+		if err := errs.ErrorOrNil(); err != nil {
+			msg += fmt.Sprintf(" Errors: %+v", err)
+		}
 		r.updateStatusWithDetails(ctx, titusdriver.Killed, msg, lastUpdate.details)
 	} else if !lastUpdate.status.IsTerminalStatus() {
-		r.updateStatusWithDetails(ctx, titusdriver.Lost, "Container lost -- Unknown", lastUpdate.details)
+		msg = "Container lost -- Unknown"
+		if err := errs.ErrorOrNil(); err != nil {
+			msg += fmt.Sprintf(" Errors: %+v", err)
+		}
+		r.updateStatusWithDetails(ctx, titusdriver.Lost, msg, lastUpdate.details)
 		logger.G(ctx).Error("Container killed while non-terminal!")
 	} else {
 		r.updateStatusWithDetails(ctx, lastUpdate.status, lastUpdate.msg, lastUpdate.details)
@@ -435,10 +444,13 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 	l := logger.G(ctx).WithField("msg", msg).WithField("taskStatus", status)
 	select {
 	case r.UpdatesChan <- Update{
-		TaskID:  r.container.TaskID(),
-		State:   status,
-		Mesg:    msg,
-		Details: details,
+		ContainerID:             r.container.ID(),
+		TaskID:                  r.container.TaskID(),
+		State:                   status,
+		Mesg:                    msg,
+		Details:                 details,
+		ExtraContainerStatuses:  r.getExtraContainerStatuses(),
+		PlatformSidecarStatuses: r.getPlatformSidecarStatuses(),
 	}:
 		l.Info("Updating Task status")
 	case <-ctx.Done():
@@ -448,8 +460,27 @@ func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver
 
 // Update encapsulates information on the updatechan about Task status updates
 type Update struct {
-	TaskID  string
-	State   titusdriver.TitusTaskState
-	Mesg    string
-	Details *runtimeTypes.Details
+	ContainerID             string
+	TaskID                  string
+	State                   titusdriver.TitusTaskState
+	Mesg                    string
+	Details                 *runtimeTypes.Details
+	ExtraContainerStatuses  []v1.ContainerStatus
+	PlatformSidecarStatuses []v1.ContainerStatus
+}
+
+func (r *Runner) getExtraContainerStatuses() []corev1.ContainerStatus {
+	statuses := []corev1.ContainerStatus{}
+	for _, c := range r.container.ExtraUserContainers() {
+		statuses = append(statuses, c.Status)
+	}
+	return statuses
+}
+
+func (r *Runner) getPlatformSidecarStatuses() []corev1.ContainerStatus {
+	statuses := []corev1.ContainerStatus{}
+	for _, c := range r.container.ExtraPlatformContainers() {
+		statuses = append(statuses, c.Status)
+	}
+	return statuses
 }

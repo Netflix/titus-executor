@@ -76,7 +76,7 @@ PasswordAuthentication no
 #GSSAPIAuthentication no
 #GSSAPICleanupCredentials yes
 
-X11Forwarding no
+X11Forwarding yes
 X11DisplayOffset 10
 PrintMotd no
 PrintLastLog no
@@ -108,7 +108,7 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
 	}
 
 	sshConfigBytes := []byte(sshdConfig)

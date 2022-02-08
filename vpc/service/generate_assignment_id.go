@@ -69,7 +69,6 @@ type getENIRequest struct {
 	ceil      uint64
 
 	transitionAssignmentRequested bool
-	ipv6NotRequested              bool
 }
 
 type assignment struct {
@@ -518,11 +517,6 @@ func populateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRe
 	ctx, span := trace.StartSpan(ctx, "populateAssignmentUsingAlreadyAttachedENI")
 	defer span.End()
 
-	prefixedRequired := 1
-	if req.ipv6NotRequested {
-		prefixedRequired = 0
-	}
-	span.AddAttributes(trace.BoolAttribute("prefixRequired", !req.ipv6NotRequested))
 	row := fastTx.QueryRowContext(ctx, `
 SELECT valid_branch_enis.id,
        valid_branch_enis.branch_eni,
@@ -548,11 +542,11 @@ FROM
    WHERE subnet_id = $1
      AND trunk_eni = $2
      AND security_groups = $3
-     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) >= $4
+     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
      AND state = 'attached') valid_branch_enis
-WHERE c < $5
+WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
-LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), prefixedRequired, req.maxIPAddresses)
+LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxIPAddresses)
 
 	err := row.Scan(&ass.branch.intid, &ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx, &ass.assignmentChangedSecurityGroups)
 	if err == nil {
@@ -592,12 +586,10 @@ FROM
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
      AND trunk_eni = $2
-     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) >= $3
      AND state = 'attached') valid_branch_enis
 WHERE c = 0
 ORDER BY c DESC, branch_eni_attached_at ASC
-LIMIT 1`,
-		req.subnet.subnetID, req.trunkENI, prefixedRequired)
+LIMIT 1`, req.subnet.subnetID, req.trunkENI)
 	err = row.Scan(&ass.branch.intid, &ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx)
 	if err == sql.ErrNoRows {
 		err = newMethodNotPossibleError("populateAssignmentUsingAlreadyAttachedENI")

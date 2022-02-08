@@ -30,11 +30,12 @@ func LogHandler(w http.ResponseWriter, r *http.Request) {
 	if fileName == "" {
 		fileName = "stdout"
 	}
+	addDownloadHeader := r.URL.Query().Get("download") == "true"
 
-	logHandler(w, r, containerID, fileName)
+	logHandler(w, r, containerID, fileName, addDownloadHeader)
 }
 
-func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string) {
+func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName string, addDownloadHeader bool) {
 	containerLogsRoot := buildLogLocationBase(containerID)
 
 	filePath, err := securejoin.SecureJoin(containerLogsRoot, fileName)
@@ -57,6 +58,15 @@ func logHandler(w http.ResponseWriter, r *http.Request, containerID, fileName st
 		return
 	}
 	defer shouldClose(fout)
+
+	if addDownloadHeader {
+		basename := filepath.Base(fileName)
+		quoteEscapedBasename := strings.ReplaceAll(basename, `"`, `\"`)
+		// This Content-Disposition header tells a browser to pop up the "Save As" dialog
+		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition
+		w.Header().Set("Content-Disposition", `attachment; filename="`+quoteEscapedBasename+`"`)
+	}
+
 	// Logging the error should happen inside of the function itself
 	err = logHandlerWithFile(w, r, fout)
 	if err != nil {
@@ -72,8 +82,9 @@ type virtualFilemap struct {
 
 func buildVirtualFileMapping(containerID, uriFileName string) map[string]virtualFilemap {
 	virtualFilemapping := map[string]virtualFilemap{}
-	for potentialStdioName := range filesystems.PotentialStdioNames {
+	for _, potentialStdioName := range filesystems.PotentialStdioNames(path.Dir(uriFileName)) {
 		// Is the URL filename in this "hashset"?
+		// In other words, does the path we are looking at start with stdout/err ?
 		if !strings.HasPrefix(path.Base(uriFileName), potentialStdioName) {
 			continue
 		}
@@ -100,7 +111,7 @@ func maybeVirtualFileStdioLogHandler(w http.ResponseWriter, r *http.Request, con
 
 	mapping, ok := virtualFilemapping[path.Base(uriFileName)]
 	if !ok {
-		log.WithField("uriFileName", uriFileName).WithField("virtualFilemapping", virtualFilemapping).Debug("Virtaul File Not Found")
+		log.WithField("uriFileName", uriFileName).WithField("virtualFilemapping", virtualFilemapping).Debug("Virtual File Not Found")
 		return errors.New("Virtual Log file not found")
 	}
 

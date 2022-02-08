@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/services"
@@ -15,7 +16,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"go.opencensus.io/trace"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
@@ -43,6 +43,8 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -97,17 +99,17 @@ type vpcService struct {
 	trunkTracker              *trunkTrackerCache
 	invalidSecurityGroupCache *ccache.Cache
 
-	getSubnetCache *ccache.Cache
-	getSubnetLock  singleflight.Group
-
 	subnetCacheExpirationTime time.Duration
 	concurrentRequests        *semaphore.Weighted
+
+	routesCache sync.Map
 
 	// PB Services:
 	vpcapi.TitusAgentVPCServiceServer
 	titus.UserIPServiceServer
 	titus.ValidatorIPServiceServer
 	titus.TitusAgentVPCInformationServiceServer
+	titus.TitusAgentSecurityGroupServiceServer
 }
 
 // trunkTrackerCache keeps track of trunk ENIs, and at least locally (on-instance) tries to reduce contention for operations
@@ -185,6 +187,8 @@ type Config struct {
 	WorkerRole string
 
 	FixAllocations bool
+	// This is only used for testing.
+	disableRouteCache bool
 }
 
 func Run(ctx context.Context, config *Config) error {
@@ -238,7 +242,6 @@ func Run(ctx context.Context, config *Config) error {
 
 		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
-		getSubnetCache:            ccache.New(ccache.Configure()),
 
 		// Failures to find subnet (negative result) is never cached. Only positive results are cached.
 		// The reconcile interval drives how often the subnets change in the DB. Although they may be out of phase
@@ -325,6 +328,8 @@ func Run(ctx context.Context, config *Config) error {
 		titus.RegisterUserIPServiceServer(grpcServer, vpc)
 		titus.RegisterValidatorIPServiceServer(grpcServer, vpc)
 		titus.RegisterTitusAgentVPCInformationServiceServer(grpcServer, vpc)
+		titus.RegisterTitusAgentSecurityGroupServiceServer(grpcServer, vpc)
+
 		reflection.Register(grpcServer)
 		group.Go(func() error {
 			<-ctx.Done()
@@ -355,6 +360,12 @@ func Run(ctx context.Context, config *Config) error {
 	group.Go(func() error { return serve(anyListener, false) })
 	group.Go(func() error { return http.Serve(http1Listener, hc) })
 	group.Go(m.Serve)
+	if !config.disableRouteCache {
+		group.Go(func() error {
+			vpc.monitorRouteTableLoop(ctx)
+			return nil
+		})
+	}
 
 	taskLoops := vpc.getTaskLoops()
 	enabledTaskLoops := sets.NewString(config.EnabledTaskLoops...)
@@ -408,7 +419,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		vpcService.deleteExcessBranchesLongLivedTask(),
 		{
 			taskName:   "detach_unused_branch_eni",
-			itemLister: nilItemEnumerator,
+			itemLister: vpcService.getSubnets,
 			workFunc:   vpcService.detatchUnusedBranchENILoop,
 		},
 		{
@@ -416,12 +427,22 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 			itemLister: nilItemEnumerator,
 			workFunc:   vpcService.deleteFailedAssignments,
 		},
+		{
+			taskName:   "subnets",
+			itemLister: vpcService.getRegionAccounts,
+			workFunc:   vpcService.doReconcileSubnetsForRegionAccountLoop,
+		},
 		vpcService.reconcileBranchENIsLongLivedTask(),
 		vpcService.associateActionWorker().longLivedTask(),
 		vpcService.disassociateActionWorker().longLivedTask(),
 		vpcService.reconcileTrunkENIsLongLivedTask(),
 		vpcService.reconcileSecurityGroupsLongLivedTask(),
 		vpcService.reconcileSubnetCIDRReservationsLongLivedTask(),
+		{
+			taskName:   "delete_unused_static_enis",
+			itemLister: vpcService.getSubnets,
+			workFunc:   vpcService.deleteUnusedStaticENILoop,
+		},
 	}
 }
 
@@ -443,12 +464,6 @@ type taskLoop struct {
 
 func (vpcService *vpcService) getTaskLoops() []taskLoop {
 	return []taskLoop{
-		{
-			// This was bumped to subnets2 because the "new" version adds prefixes.
-			taskName:   "subnets2",
-			itemLister: vpcService.getRegionAccounts,
-			workFunc:   vpcService.reconcileSubnetsForRegionAccount,
-		},
 		{
 			taskName:   "elastic_ip",
 			itemLister: vpcService.getRegionAccounts,

@@ -40,8 +40,14 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	item := protoItem.(*subnet)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"subnet":    item.subnetID,
+		"accountID": item.accountID,
+		"az":        item.az,
+	})
 	for {
-		resetTime, err := vpcService.doDetatchUnusedBranchENI(ctx)
+		resetTime, err := vpcService.doDetatchUnusedBranchENI(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Unable to detach ENI")
 		} else {
@@ -54,7 +60,7 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 	}
 }
 
-func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context) (time.Duration, error) {
+func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context, subnet *subnet) (time.Duration, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -81,15 +87,15 @@ JOIN branch_enis ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
 JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
 JOIN availability_zones ON trunk_enis.account_id = availability_zones.account_id
 AND trunk_enis.az = availability_zones.zone_name
-WHERE branch_eni_attachments.association_id NOT IN
-    (SELECT branch_eni_association FROM assignments)
+WHERE branch_eni_attachments.association_id NOT IN (SELECT branch_eni_association FROM assignments)
 	AND branch_eni_attachments.attachment_completed_at < now() - ($1 * interval '1 sec')
     AND branch_eni_attachments.state = 'attached'
     AND branch_enis.last_assigned_to < now() - ($2 * interval '1 sec')
 	AND branch_enis.last_used < now() - ($2 * interval '1 sec')
+	AND branch_enis.subnet_id = $3
 ORDER BY COALESCE(branch_enis.last_assigned_to, TIMESTAMP 'EPOCH') ASC
 LIMIT 1
-`, minTimeAttached.Seconds(), minTimeUnused.Seconds())
+`, minTimeAttached.Seconds(), minTimeUnused.Seconds(), subnet.subnetID)
 	var branchENI, associationID, region, accountID string
 	err = row.Scan(&branchENI, &associationID, &region, &accountID)
 	if err == sql.ErrNoRows {

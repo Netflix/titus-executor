@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
@@ -17,6 +16,8 @@ import (
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 type Arguments struct {
@@ -182,7 +183,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 		}
 	} else if shouldAssignV4 {
 		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true}
-	} else if args.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+	} else if args.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() || args.NetworkMode == titus.NetworkConfiguration_HighScale.String() {
 		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_TransitionRequested{}
 	} else {
 		logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Experimental: Not assigning IPv4")
@@ -207,9 +208,11 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 
 func shouldAssignV6(args Arguments) bool {
 	switch args.NetworkMode {
+	case titus.NetworkConfiguration_Ipv6Only.String():
+		return true
 	case titus.NetworkConfiguration_Ipv6AndIpv4.String():
 		return true
-	case titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String():
+	case titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String(), titus.NetworkConfiguration_HighScale.String():
 		return true
 	default:
 		return false

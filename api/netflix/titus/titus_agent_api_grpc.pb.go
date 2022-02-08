@@ -20,27 +20,30 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AgentManagementServiceClient interface {
-	/// Return all known Titus agent server groups.
+	// Return all known Titus agent server groups.
 	GetInstanceGroups(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*AgentInstanceGroups, error)
-	/// Return an agent server group with the given id.
+	// Return an agent server group with the given id.
 	GetInstanceGroup(ctx context.Context, in *Id, opts ...grpc.CallOption) (*AgentInstanceGroup, error)
-	/// Return an agent instance with the given id.
+	// Return an agent instance with the given id.
 	GetAgentInstance(ctx context.Context, in *Id, opts ...grpc.CallOption) (*AgentInstance, error)
-	/// Return all agents matching the provided query criteria.
+	// Return all agents matching the provided query criteria.
 	FindAgentInstances(ctx context.Context, in *AgentQuery, opts ...grpc.CallOption) (*AgentInstances, error)
-	/// Update tier assignment of an agent instance group.
+	// Update tier assignment of an agent instance group.
 	UpdateInstanceGroupTier(ctx context.Context, in *TierUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Change lifecycle state of an agent instance group.
+	// Change lifecycle state of an agent instance group.
 	UpdateInstanceGroupLifecycleState(ctx context.Context, in *InstanceGroupLifecycleStateUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Update the attributes of an instance group. This will either create new attributes or replacing existing ones with the same key.
+	// Update the attributes of an instance group. This will either create new
+	// attributes or replacing existing ones with the same key.
 	UpdateInstanceGroupAttributes(ctx context.Context, in *InstanceGroupAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Delete the attributes of an instance group.
+	// Delete the attributes of an instance group.
 	DeleteInstanceGroupAttributes(ctx context.Context, in *DeleteInstanceGroupAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Update the attributes of an agent instance. This will either create new attributes or replacing existing ones with the same key.
+	// Update the attributes of an agent instance. This will either create new
+	// attributes or replacing existing ones with the same key.
 	UpdateAgentInstanceAttributes(ctx context.Context, in *AgentInstanceAttributesUpdate, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Delete the attributes of an agent instance.
+	// Delete the attributes of an agent instance.
 	DeleteAgentInstanceAttributes(ctx context.Context, in *DeleteAgentInstanceAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	/// Sends first current snapshot of the agent topology, and next an event for each topology change.
+	// Sends first current snapshot of the agent topology, and next an event for
+	// each topology change.
 	ObserveAgents(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (AgentManagementService_ObserveAgentsClient, error)
 }
 
@@ -178,27 +181,30 @@ func (x *agentManagementServiceObserveAgentsClient) Recv() (*AgentChangeEvent, e
 // All implementations must embed UnimplementedAgentManagementServiceServer
 // for forward compatibility
 type AgentManagementServiceServer interface {
-	/// Return all known Titus agent server groups.
+	// Return all known Titus agent server groups.
 	GetInstanceGroups(context.Context, *emptypb.Empty) (*AgentInstanceGroups, error)
-	/// Return an agent server group with the given id.
+	// Return an agent server group with the given id.
 	GetInstanceGroup(context.Context, *Id) (*AgentInstanceGroup, error)
-	/// Return an agent instance with the given id.
+	// Return an agent instance with the given id.
 	GetAgentInstance(context.Context, *Id) (*AgentInstance, error)
-	/// Return all agents matching the provided query criteria.
+	// Return all agents matching the provided query criteria.
 	FindAgentInstances(context.Context, *AgentQuery) (*AgentInstances, error)
-	/// Update tier assignment of an agent instance group.
+	// Update tier assignment of an agent instance group.
 	UpdateInstanceGroupTier(context.Context, *TierUpdate) (*emptypb.Empty, error)
-	/// Change lifecycle state of an agent instance group.
+	// Change lifecycle state of an agent instance group.
 	UpdateInstanceGroupLifecycleState(context.Context, *InstanceGroupLifecycleStateUpdate) (*emptypb.Empty, error)
-	/// Update the attributes of an instance group. This will either create new attributes or replacing existing ones with the same key.
+	// Update the attributes of an instance group. This will either create new
+	// attributes or replacing existing ones with the same key.
 	UpdateInstanceGroupAttributes(context.Context, *InstanceGroupAttributesUpdate) (*emptypb.Empty, error)
-	/// Delete the attributes of an instance group.
+	// Delete the attributes of an instance group.
 	DeleteInstanceGroupAttributes(context.Context, *DeleteInstanceGroupAttributesRequest) (*emptypb.Empty, error)
-	/// Update the attributes of an agent instance. This will either create new attributes or replacing existing ones with the same key.
+	// Update the attributes of an agent instance. This will either create new
+	// attributes or replacing existing ones with the same key.
 	UpdateAgentInstanceAttributes(context.Context, *AgentInstanceAttributesUpdate) (*emptypb.Empty, error)
-	/// Delete the attributes of an agent instance.
+	// Delete the attributes of an agent instance.
 	DeleteAgentInstanceAttributes(context.Context, *DeleteAgentInstanceAttributesRequest) (*emptypb.Empty, error)
-	/// Sends first current snapshot of the agent topology, and next an event for each topology change.
+	// Sends first current snapshot of the agent topology, and next an event for
+	// each topology change.
 	ObserveAgents(*emptypb.Empty, AgentManagementService_ObserveAgentsServer) error
 	mustEmbedUnimplementedAgentManagementServiceServer()
 }

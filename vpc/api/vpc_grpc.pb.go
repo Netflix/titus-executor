@@ -21,9 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TitusAgentVPCServiceClient interface {
 	// This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
-	ProvisionInstance(ctx context.Context, in *ProvisionInstanceRequest, opts ...grpc.CallOption) (*ProvisionInstanceResponse, error)
 	ProvisionInstanceV3(ctx context.Context, in *ProvisionInstanceRequestV3, opts ...grpc.CallOption) (*ProvisionInstanceResponseV3, error)
-	AssignIP(ctx context.Context, in *AssignIPRequest, opts ...grpc.CallOption) (*AssignIPResponse, error)
 	AssignIPV3(ctx context.Context, in *AssignIPRequestV3, opts ...grpc.CallOption) (*AssignIPResponseV3, error)
 	UnassignIPV3(ctx context.Context, in *UnassignIPRequestV3, opts ...grpc.CallOption) (*UnassignIPResponseV3, error)
 	GetAssignment(ctx context.Context, in *GetAssignmentRequest, opts ...grpc.CallOption) (*GetAssignmentResponse, error)
@@ -48,27 +46,9 @@ func NewTitusAgentVPCServiceClient(cc grpc.ClientConnInterface) TitusAgentVPCSer
 	return &titusAgentVPCServiceClient{cc}
 }
 
-func (c *titusAgentVPCServiceClient) ProvisionInstance(ctx context.Context, in *ProvisionInstanceRequest, opts ...grpc.CallOption) (*ProvisionInstanceResponse, error) {
-	out := new(ProvisionInstanceResponse)
-	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ProvisionInstance", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *titusAgentVPCServiceClient) ProvisionInstanceV3(ctx context.Context, in *ProvisionInstanceRequestV3, opts ...grpc.CallOption) (*ProvisionInstanceResponseV3, error) {
 	out := new(ProvisionInstanceResponseV3)
 	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ProvisionInstanceV3", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *titusAgentVPCServiceClient) AssignIP(ctx context.Context, in *AssignIPRequest, opts ...grpc.CallOption) (*AssignIPResponse, error) {
-	out := new(AssignIPResponse)
-	err := c.cc.Invoke(ctx, "/com.netflix.titus.executor.vpc.TitusAgentVPCService/AssignIP", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -188,9 +168,7 @@ func (c *titusAgentVPCServiceClient) DetachBranchNetworkInterface(ctx context.Co
 // for forward compatibility
 type TitusAgentVPCServiceServer interface {
 	// This ProvisionInstance function has to be called at startup of the instance, and it is idempotent.
-	ProvisionInstance(context.Context, *ProvisionInstanceRequest) (*ProvisionInstanceResponse, error)
 	ProvisionInstanceV3(context.Context, *ProvisionInstanceRequestV3) (*ProvisionInstanceResponseV3, error)
-	AssignIP(context.Context, *AssignIPRequest) (*AssignIPResponse, error)
 	AssignIPV3(context.Context, *AssignIPRequestV3) (*AssignIPResponseV3, error)
 	UnassignIPV3(context.Context, *UnassignIPRequestV3) (*UnassignIPResponseV3, error)
 	GetAssignment(context.Context, *GetAssignmentRequest) (*GetAssignmentResponse, error)
@@ -212,14 +190,8 @@ type TitusAgentVPCServiceServer interface {
 type UnimplementedTitusAgentVPCServiceServer struct {
 }
 
-func (UnimplementedTitusAgentVPCServiceServer) ProvisionInstance(context.Context, *ProvisionInstanceRequest) (*ProvisionInstanceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ProvisionInstance not implemented")
-}
 func (UnimplementedTitusAgentVPCServiceServer) ProvisionInstanceV3(context.Context, *ProvisionInstanceRequestV3) (*ProvisionInstanceResponseV3, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionInstanceV3 not implemented")
-}
-func (UnimplementedTitusAgentVPCServiceServer) AssignIP(context.Context, *AssignIPRequest) (*AssignIPResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AssignIP not implemented")
 }
 func (UnimplementedTitusAgentVPCServiceServer) AssignIPV3(context.Context, *AssignIPRequestV3) (*AssignIPResponseV3, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssignIPV3 not implemented")
@@ -270,24 +242,6 @@ func RegisterTitusAgentVPCServiceServer(s grpc.ServiceRegistrar, srv TitusAgentV
 	s.RegisterService(&TitusAgentVPCService_ServiceDesc, srv)
 }
 
-func _TitusAgentVPCService_ProvisionInstance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ProvisionInstanceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TitusAgentVPCServiceServer).ProvisionInstance(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/ProvisionInstance",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TitusAgentVPCServiceServer).ProvisionInstance(ctx, req.(*ProvisionInstanceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _TitusAgentVPCService_ProvisionInstanceV3_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ProvisionInstanceRequestV3)
 	if err := dec(in); err != nil {
@@ -302,24 +256,6 @@ func _TitusAgentVPCService_ProvisionInstanceV3_Handler(srv interface{}, ctx cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TitusAgentVPCServiceServer).ProvisionInstanceV3(ctx, req.(*ProvisionInstanceRequestV3))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TitusAgentVPCService_AssignIP_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AssignIPRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TitusAgentVPCServiceServer).AssignIP(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/com.netflix.titus.executor.vpc.TitusAgentVPCService/AssignIP",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TitusAgentVPCServiceServer).AssignIP(ctx, req.(*AssignIPRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -548,16 +484,8 @@ var TitusAgentVPCService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*TitusAgentVPCServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "ProvisionInstance",
-			Handler:    _TitusAgentVPCService_ProvisionInstance_Handler,
-		},
-		{
 			MethodName: "ProvisionInstanceV3",
 			Handler:    _TitusAgentVPCService_ProvisionInstanceV3_Handler,
-		},
-		{
-			MethodName: "AssignIP",
-			Handler:    _TitusAgentVPCService_AssignIP_Handler,
 		},
 		{
 			MethodName: "AssignIPV3",

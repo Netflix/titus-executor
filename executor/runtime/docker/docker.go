@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -24,7 +25,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
@@ -49,6 +49,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -80,8 +83,11 @@ const (
 	trueString              = "true"
 	systemdImageLabel       = "com.netflix.titus.systemd"
 	// MS_RDONLY indicates that mount is read-only
-	MS_RDONLY    = 1 // nolint: golint
-	mountTimeout = 5 * time.Minute
+	MS_RDONLY              = 1 // nolint: golint
+	mountTimeout           = 5 * time.Minute
+	mainContainerName      = "main"
+	isTerminalDockerEvent  = true
+	nonTerminalDockerEvent = false
 )
 
 // cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
@@ -127,9 +133,10 @@ type DockerRuntime struct { // nolint: golint
 	cleanup         []cleanupFunc
 
 	// To be set when initializing a specific instance of the runtime provider
-	c          runtimeTypes.Container
-	startTime  time.Time
-	gpuManager runtimeTypes.GPUManager
+	c                runtimeTypes.Container
+	startTime        time.Time
+	gpuManager       runtimeTypes.GPUManager
+	volumeContainers []string
 }
 
 type Opt func(ctx context.Context, runtime *DockerRuntime) error
@@ -164,6 +171,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 	// We bind-mount tini in as /sbin/docker-init to ensure we can always
 	// depend on it being there, regardless of the host docker configuration.
 	defaultBindMounts := []string{dockerCfg.tiniPath + ":/sbin/docker-init:ro"}
+	defaultBindMounts = append(defaultBindMounts, filepath.Join(cfg.RuntimeDir, "pod.json")+":/titus/run/pod.json:ro")
 
 	pidCgroupPath, err := getOwnCgroup("pids")
 	if err != nil {
@@ -407,6 +415,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 			"net.ipv6.conf.default.stable_secret": stableSecret(), // This is to ensure each container sets their addresses differently
 			"net.ipv6.conf.all.use_tempaddr":      "0",
 			"net.ipv6.conf.default.use_tempaddr":  "0",
+
+			"net.ipv6.conf.default.accept_ra_pinfo": "0",
 		},
 		Init:    &useInit,
 		Runtime: c.Runtime(),
@@ -414,10 +424,16 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 	maybeAddOptimisticDad(hostCfg.Sysctls)
 
-	// TODO(Sargun): Add IPv6 address
 	ipv4Addr := c.IPv4Address()
 	if ipv4Addr != nil {
 		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv4Addr))
+	}
+	// Only in IPv6-Only modes do we set the extra hosts entry for our v6 address
+	if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6Only.String() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		ipv6Addr := c.IPv6Address()
+		if ipv6Addr != nil {
+			hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv6Addr))
+		}
 	}
 
 	for _, containerName := range volumeContainers {
@@ -450,6 +466,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 	if c.IsSystemD() {
 		// systemd requires `/run/lock` to be a separate mount from `/run`
 		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
+		// Systemd *must* be pid1. Setting this variable instructs tini to exec into systemd so it can be pid 1
+		c.SetEnv("TINI_HANDOFF", trueString)
 	}
 
 	if shmSize := c.ShmSizeMiB(); shmSize != nil {
@@ -701,7 +719,7 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		"--security-groups", strings.Join(*sgIDs, ","),
 		"--task-id", c.TaskID(),
 		"--bandwidth", strconv.FormatInt(bw, 10),
-		"--network-mode", c.EffectiveNetworkMode(),
+		"--network-mode", c.EffectiveNetworkMode(), // TODO: Deal with HighScale mode either here, or use the effective mode (which is fallback)
 	}
 
 	if c.SignedAddressAllocationUUID() != nil {
@@ -927,9 +945,10 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 	}
 }
 
-// Prepare host state (pull image, create fs, create container, etc...) for the main container
-func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
+// Prepare host state (pull images, create fs, create container, etc...)
+func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nolint: gocyclo
 	var volumeContainers []string
+	var sharedMountDirs []string
 
 	ctx, cancel := context.WithTimeout(ctx, r.dockerCfg.prepareTimeout)
 	defer cancel()
@@ -944,7 +963,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		myImageInfo         *types.ImageInspect
 		dockerCfg           *container.Config
 		hostCfg             *container.HostConfig
-		sidecarConfigs      []*runtimeTypes.ServiceOpts
+		systemServices      []*runtimeTypes.ServiceOpts
 		size                int64
 		runTmpfs            string
 		err                 error
@@ -952,6 +971,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 	dockerCreateStartTime := time.Now()
 	group := groupWithContext(ctx)
 	bindMounts := r.defaultBindMounts
+	totalExtraContainerCount := len(r.c.ExtraUserContainers()) + len(r.c.ExtraPlatformContainers())
 
 	// In the case where we have multiple containers, we must create a tmps on disk
 	// for *all* of them to share. Otherwise, in the simple case where there is only
@@ -965,7 +985,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		bindMounts = append(bindMounts, runTmpfs)
 	}
 
-	sidecarConfigs, err = r.c.SidecarConfigs()
+	systemServices, err = r.c.SystemServices()
 	if err != nil {
 		goto error
 	}
@@ -994,14 +1014,21 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		return nil
 	})
 
-	for _, sidecarConfig := range sidecarConfigs {
+	if totalExtraContainerCount > 0 {
+		group.Go(func(ctx context.Context) error {
+			logger.G(ctx).Infof("Pulling %d other user/platform containers", totalExtraContainerCount)
+			return r.pullAllExtraContainers(ctx, pod)
+		})
+	}
+
+	for _, sidecarConfig := range systemServices {
 		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
 			sidecarConfig.ContainerName = sidecarConfig.ServiceName
 			group.Go(r.createVolumeContainerFunc(sidecarConfig))
 		}
 	}
 
-	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
 			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
 			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
@@ -1018,7 +1045,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		}
 	}
 
-	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
 		v := r.c.EBSInfo()
 		r.c.SetEnvs(map[string]string{
 			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
@@ -1026,6 +1053,14 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 			"TITUS_EBS_MOUNT_PERM":  v.MountPerm,
 			"TITUS_EBS_FSTYPE":      v.FSType,
 		})
+	}
+
+	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarTrafficSteering).EnabledCheck(&r.cfg, r.c) {
+		if r.c.TrafficSteeringEnabled() {
+			r.c.SetEnvs(map[string]string{
+				"TITUS_SECCOMP_AGENT_HANDLE_TRAFFIC_STEERING": "true",
+			})
+		}
 	}
 
 	if r.cfg.UseNewNetworkDriver {
@@ -1080,13 +1115,34 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		goto error
 	}
 
-	for _, sidecarConfig := range sidecarConfigs {
-		if sidecarConfig.ContainerName != "" {
+	for _, sidecarConfig := range systemServices {
+		if sidecarConfig.ContainerName == "" {
+			// This indicates that the systemService doesn't have a container at all,
+			// and should not assume it has a volume container
+			continue
+		} else if sidecarConfig.ContainerName == sidecarConfig.ServiceName {
+			// If the ContainerName is still just ServiceName, that indicates it has not be initialized yet,
+			// probably because if failed to be pulled, potentically indicating that the image doesn't exist,
+			// or a bad deploy, or heck just a typo in the name or something
+			if sidecarConfig.Required {
+				err = fmt.Errorf("Unable to get volume container of required sidecar %s", sidecarConfig.ServiceName)
+				goto error
+			} else {
+				// If the ContainerName is still uninitialized, but this service is not required, then it is
+				// ok to just log about it, but it should not be included on the list of volume containers to use
+				// (because it doesn't exist)
+				logger.G(ctx).Warnf("Skipping volume container of optional sidecar %s", sidecarConfig.ServiceName)
+			}
+		} else {
 			volumeContainers = append(volumeContainers, sidecarConfig.ContainerName)
 		}
 	}
+	r.volumeContainers = volumeContainers
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)
+	if r.c.SeccompAgentEnabledForPerfSyscalls() {
+		bindMounts = append(bindMounts, getKernelBindMounts()...)
+	}
 
 	dockerCfg, hostCfg, err = r.mainContainerDockerConfig(r.c, bindMounts, size, volumeContainers)
 	if err != nil {
@@ -1123,7 +1179,8 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 	}
 	logger.G(ctx).Info("Titus Configuration pushed")
 
-	err = r.pushEnvironment(ctx, r.c, myImageInfo)
+	sharedMountDirs = getSharedMountDirsFromPod(pod)
+	err = r.pushEnvironment(ctx, r.c, myImageInfo, sharedMountDirs)
 	if err != nil {
 		goto error
 	}
@@ -1136,6 +1193,22 @@ error:
 		r.metrics.Counter("titus.executor.dockerCreateContainerError", 1, nil)
 	}
 	return err
+}
+
+// getSharedMountDirsFromPod takes a pod and looks for special SharedVolumeMounts for the main container.
+// We must get this list first, and ensure these directories exists for inside the container so that the
+// actual bind mount will work.
+// Note that this does not support sharing volumes from a source other than the 'main' container.
+func getSharedMountDirsFromPod(pod *v1.Pod) []string {
+	sharedMountDirs := []string{}
+	for _, v := range pod.Spec.Volumes {
+		if v.FlexVolume != nil && v.FlexVolume.Driver == "SharedContainerVolumeSource" && v.FlexVolume.Options != nil {
+			if v.FlexVolume.Options["sourceContainer"] == "main" {
+				sharedMountDirs = append(sharedMountDirs, v.FlexVolume.Options["sourcePath"])
+			}
+		}
+	}
+	return sharedMountDirs
 }
 
 // Creates the file $titusEnvironments/ContainerID.json as a serialized version of the ContainerInfo protobuf struct
@@ -1175,6 +1248,32 @@ func (r *DockerRuntime) createTitusEnvironmentFile(c runtimeTypes.Container) err
 
 	/* writeTitusEnvironmentFile closes the file for us */
 	return writeTitusEnvironmentFile(c.Env(), f)
+}
+
+func getUnameR() (string, error) {
+	var uts unix.Utsname
+	err := unix.Uname(&uts)
+	if err != nil {
+		return "", err
+	}
+	// Calling the syscall gives us a very raw null-terminated
+	// byte array. We need to find the null and only slice up
+	// that part
+	n := bytes.IndexByte(uts.Release[:], 0)
+	return string(uts.Release[:n]), nil
+}
+
+func getKernelBindMounts() []string {
+	mounts := []string{
+		"/boot:/boot:ro",
+		"/lib/modules:/lib/modules:ro",
+	}
+	unameR, err := getUnameR()
+	if err == nil {
+		kernelHeaders := fmt.Sprintf("/usr/src/linux-headers-%s:/usr/src/linux-headers-%s:ro", unameR, unameR)
+		mounts = append(mounts, kernelHeaders)
+	}
+	return mounts
 }
 
 func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
@@ -1229,7 +1328,7 @@ func (r *DockerRuntime) getPodMetatronFsHostPath() (string, error) {
 	if r.cfg.RuntimeDir == "" {
 		return "", fmt.Errorf("RuntimeDir not set, unable to create tmpfs for /run/metatron")
 	}
-	hostPath := r.cfg.RuntimeDir + "/mounts/run/metatron"
+	hostPath := path.Join(r.cfg.RuntimeDir, "/mounts/run/metatron")
 	return hostPath, nil
 }
 
@@ -1237,10 +1336,8 @@ func (r *DockerRuntime) logDir(c runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
 
-func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
+func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Container, imageInfo *types.ImageInspect, sharedMountDirs []string) error { // nolint: gocyclo
 	var envTemplateBuf, tarBuf bytes.Buffer
-
-	//myImageInfo.Config.Env
 
 	if err := executeEnvFileTemplate(c.Env(), imageInfo, &envTemplateBuf); err != nil {
 		return err
@@ -1254,7 +1351,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
 	}
 
 	if err := tw.WriteHeader(&tar.Header{
@@ -1262,7 +1359,25 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0777,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "/run-shared",
+		Mode:     0777,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.WithError(err).Fatal()
+	}
+
+	for _, d := range sharedMountDirs {
+		if err := tw.WriteHeader(&tar.Header{
+			Name:     d,
+			Mode:     0777,
+			Typeflag: tar.TypeDir,
+		}); err != nil {
+			log.WithError(err).Fatal()
+		}
 	}
 
 	if err := tw.WriteHeader(&tar.Header{
@@ -1270,7 +1385,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
 	}
 
 	if err := tw.WriteHeader(&tar.Header{
@@ -1278,7 +1393,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal()
 	}
 
 	if r.cfg.MetatronEnabled {
@@ -1289,7 +1404,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 			Mode:     0755,
 			Typeflag: tar.TypeDir,
 		}); err != nil {
-			log.Fatal(err)
+			log.WithError(err).Fatal()
 		}
 	}
 
@@ -1306,7 +1421,7 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 			Mode:     0777,
 			Typeflag: tar.TypeDir,
 		}); err != nil {
-			log.Fatal(err)
+			log.WithError(err).Fatal()
 		}
 	}
 
@@ -1322,10 +1437,10 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 	}
 
 	if err := tw.WriteHeader(hdr); err != nil {
-		log.Fatalln(err)
+		log.WithError(err).Fatal()
 	}
 	if _, err := tw.Write(envTemplateBuf.Bytes()); err != nil {
-		log.Fatalln(err)
+		log.WithError(err).Fatal()
 	}
 	// Make sure to check the error on Close.
 
@@ -1399,16 +1514,9 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 
 	eventCtx, eventCancel := context.WithCancel(context.Background())
 	eventCtx = trace.NewContext(eventCtx, span)
-	filters := filters.NewArgs()
-	filters.Add("container", r.c.ID())
-	filters.Add("type", "container")
 
-	eventOptions := types.EventsOptions{
-		Filters: filters,
-	}
-
-	// 1. We need to establish a event channel
-	eventChan, eventErrChan := r.client.Events(eventCtx, eventOptions)
+	// 1. We need to establish a docker events channel, one for the whole, but it monitors the main container.
+	eventChan, eventErrChan := r.getDockerEventsChannelsForContainers(eventCtx, []string{r.c.ID()})
 
 	err = r.client.ContainerStart(ctx, r.c.ID(), types.ContainerStartOptions{})
 	if err != nil {
@@ -1424,15 +1532,11 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), r.c.ImageTagForMetrics())
 
 	allocation := r.c.VPCAllocation()
-	ipv4addr := allocation.IPV4Address()
 	eni := allocation.ContainerENI()
-	if allocation == nil || ipv4addr == nil || eni == nil {
+	if allocation == nil || eni == nil {
 		eventCancel()
 		if allocation == nil {
 			return "", nil, statusMessageChan, errors.New("allocation unset")
-		}
-		if ipv4addr == nil {
-			return "", nil, statusMessageChan, errors.New("VPC IPv4 allocation unset")
 		}
 		if eni == nil {
 			return "", nil, statusMessageChan, errors.New("ENI in allocation unset")
@@ -1440,16 +1544,17 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	details = &runtimeTypes.Details{
-		IPAddresses: map[string]string{
-			"nfvpc": ipv4addr.Address.Address,
-		},
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: true,
-			IPAddress:    ipv4addr.Address.Address,
-			EniIPAddress: ipv4addr.Address.Address,
+			NetworkMode:  r.c.EffectiveNetworkMode(),
 			ResourceID:   fmt.Sprintf("resource-eni-%d", allocation.DeviceIndex()-1),
 			EniID:        eni.NetworkInterfaceId,
 		},
+	}
+
+	if a := allocation.IPV4Address(); a != nil {
+		details.NetworkConfiguration.IPAddress = a.Address.Address
+		details.NetworkConfiguration.EniIPAddress = a.Address.Address
 	}
 
 	if a := allocation.IPV6Address(); a != nil {
@@ -1466,7 +1571,8 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		err = fmt.Errorf("container prestart error: %w", err)
 		return "", nil, statusMessageChan, err
 	}
-	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
+	entry.Debugf("Adding status monitor for main container (cid %s)", r.c.ID())
+	go r.statusMonitor(eventCancel, r.c.ID(), eventChan, eventErrChan, statusMessageChan)
 
 	inspectOutput, err := r.client.ContainerInspect(ctx, r.c.ID())
 	if err != nil {
@@ -1475,13 +1581,58 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		return "", nil, statusMessageChan, err
 	}
 	mainContainerRoot := getMainContainerRoot(inspectOutput)
-	err = r.startUserContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
+
+	allOtherContainerIDs := r.getExtraContainerIDs()
+	if len(allOtherContainerIDs) > 0 {
+		err = r.createOtherContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
+		if err != nil {
+			eventCancel()
+			return "", nil, statusMessageChan, err
+		}
+		// This second docker events channel is for the extra containers, and only exists if we have other containers
+		// to work with. This allows the main container channed (created way earliar) to start and watch way before
+		// the sidecar containers even exist.
+		eventChanExtra, eventErrChanExtra := r.getDockerEventsChannelsForContainers(eventCtx, allOtherContainerIDs)
+		for _, c := range r.c.ExtraPlatformContainers() {
+			entry.Debugf("Adding status monitor for %s container (cid %s)", c.Name, c.Status.ContainerID)
+			go r.statusMonitor(eventCancel, c.Status.ContainerID, eventChanExtra, eventErrChanExtra, statusMessageChan)
+		}
+		entry.Infof("Starting %d platform sidecars: %v", len(r.getPlaformContainerNames()), r.getPlaformContainerNames())
+		err = r.startPlatformDefinedContainers(ctx)
+		if err != nil {
+			eventCancel()
+			return "", nil, statusMessageChan, fmt.Errorf("Failed to start a platform-sidecar container: %s", err)
+		}
+		entry.Infof("Starting %d user-defined containers: %v", len(r.getUserContainerNames()), r.getUserContainerNames())
+		for _, c := range r.c.ExtraUserContainers() {
+			entry.Debugf("Adding status monitor for %s container (cid %s)", c.Name, c.Status.ContainerID)
+			go r.statusMonitor(eventCancel, c.Status.ContainerID, eventChanExtra, eventErrChanExtra, statusMessageChan)
+		}
+	}
+
+	// Last, we actually start the containers. And by start we mean:
+	// platform sidecars first (via docker start)
+	// user extra containers second (via docker start)
+	// main container (via tini)
+	err = r.startUserDefinedContainers(ctx, tiniConn)
 	if err != nil {
 		eventCancel()
-		return "", nil, statusMessageChan, err
+		return "", nil, statusMessageChan, fmt.Errorf("Failed to start a user-defined container: %s", err)
 	}
 
 	return logDir, details, statusMessageChan, err
+}
+
+func (r *DockerRuntime) getDockerEventsChannelsForContainers(eventCtx context.Context, containerIDs []string) (<-chan events.Message, <-chan error) {
+	filters := filters.NewArgs()
+	filters.Add("type", "container")
+	for _, containerID := range containerIDs {
+		filters.Add("container", containerID)
+	}
+	eventOptions := types.EventsOptions{
+		Filters: filters,
+	}
+	return r.client.Events(eventCtx, eventOptions)
 }
 
 // getMainContainerRoot returns the absolute path of the root of the filesystem of the
@@ -1497,74 +1648,86 @@ func getMainContainerRoot(inspectOutput types.ContainerJSON) string {
 	return inspectOutput.GraphDriver.Data["MergedDir"]
 }
 
-func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.Container, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
-	defer close(statusMessageChan)
-	defer cancel()
+func (r *DockerRuntime) getExtraContainerIDs() []string {
+	ids := []string{}
+	for _, c := range r.c.ExtraPlatformContainers() {
+		ids = append(ids, c.Status.ContainerID)
+	}
+	for _, c := range r.c.ExtraUserContainers() {
+		ids = append(ids, c.Status.ContainerID)
+	}
+	return ids
+}
 
-	// This context should be tied to the lifetime of the container -- it will get significantly less broken
-	// when we tear out the launchguard code
-
+func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID string, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {
 	for {
 		// 3. If the current state of the container is terminal, send it, and bail
 		// 4. Else, keep sending messages until we bail
 		select {
 		case err := <-errChan:
-			log.Fatal("Got error while listening for docker events, bailing: ", err)
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			log.WithError(err).Errorf("Got unexpected error while listening for docker events for %s, bailing: %s", containerID, err)
+			return
 		case event := <-eventChan:
-			log.Info("Got docker event: ", event)
-			if handleDockerEvent(c, event, statusMessageChan) {
-				log.Info("Terminating docker status monitor because terminal docker event received")
+			log.Debug("Got docker event: ", event)
+			isTerminalEvent := r.handleDockerEvent(event, statusMessageChan)
+			if isTerminalEvent {
+				cName, err := r.getContainerNameFromID(containerID)
+				if err == nil {
+					log.WithField("container_name", cName).Infof("Closing docker status monitor for %s because terminal docker event received", cName)
+				} else {
+					log.WithError(err).Error("Closing docker status monitor, encountered an error looking up the container name")
+				}
 				return
 			}
 		}
 	}
 }
 
-// startOtherUserContainers launches the other user containers, only looking
+// createOtherContainers launches the other user containers, only looking
 // any container objects in the pod *after* the first one, converting the
 // v1.Container spec into something docker can understand, and then
 // running that container.
-func (r *DockerRuntime) startUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
-
+func (r *DockerRuntime) createOtherContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn, mainContainerRoot string) error {
 	l := log.WithField("taskID", r.c.TaskID())
-
-	// For speed, we pull and create other containers in parallel
+	// For speed, we create other containers in parallel
 	totalExtraContainerCount := len(r.c.ExtraUserContainers()) + len(r.c.ExtraPlatformContainers())
 	if totalExtraContainerCount > 0 {
-		l.Infof("Pulling %d other user/platform containers", totalExtraContainerCount)
-		err := r.pullAllExtraContainers(ctx, pod)
-		if err != nil {
-			return fmt.Errorf("Failed to pull an image for user/platform container: %s", err)
-		}
 		l.Infof("Creating %d other user/platform containers", totalExtraContainerCount)
-		err = r.createAllExtraContainers(ctx, pod, r.c.ID(), mainContainerRoot)
+		err := r.createAllExtraContainers(ctx, pod, r.c.ID(), mainContainerRoot)
 		if err != nil {
 			return fmt.Errorf("Failed to create a user/platform container: %s", err)
 		}
 	}
-
-	// Starting, however, has its own logic
-	l.Infof("Starting %d user/platform containers", totalExtraContainerCount)
-	err := r.startAllUserContainers(ctx, pod, r.c.ID(), tiniConn)
-	if err != nil {
-		return fmt.Errorf("Failed to start a user/platform container: %s", err)
-	}
-
-	l.Info("Finished launching user/platform containers")
+	l.Debug("Finished creating (but not starting yet) user/platform containers")
 	return nil
 }
 
 func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod) error {
 	l := log.WithField("taskID", r.c.TaskID())
-	// In this design, the first container has already been pulled and started, so we only look
+	// In this design, the first container has already been pulled, so we only look
 	// at the other containers here.
+	// It is important to not only pull, but also save a `docker image inspect` on the image
+	// we just pulled for later use.
 	otherUserContainers := append(r.c.ExtraUserContainers(), r.c.ExtraPlatformContainers()...)
 	group := groupWithContext(ctx)
 	for _, c := range otherUserContainers {
-		image := c.V1Container.Image
+		c2 := c
 		group.Go(func(ctx context.Context) error {
+			image := c2.V1Container.Image
 			l.Debugf("pulling other container image %s", image)
-			return pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
+			if err != nil {
+				return err
+			}
+			imageInspect, err2 := imageExists(ctx, r.client, image)
+			if err2 != nil {
+				return fmt.Errorf("Failed to inspect %s after pull: %w", image, err2)
+			}
+			c2.ImageInspect = imageInspect
+			return nil
 		})
 	}
 	return group.Wait()
@@ -1582,11 +1745,12 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	for idx := range r.c.ExtraUserContainers() {
 		c := r.c.ExtraUserContainers()[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot)
+			cid, err := r.createExtraContainerInDocker(ctx, c, mainContainerID, mainContainerRoot, pod)
 			if err != nil {
 				return fmt.Errorf("Failed to create %s user container: %w", c.Name, err)
 			}
-			c.ID = cid
+			c.Status.ContainerID = cid
+			c.Status.State = v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "User Container created. Waiting to start."}}
 			l.Debugf("Created %s, CID: %s", c.Name, cid)
 			return nil
 		})
@@ -1594,11 +1758,12 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	for idx := range r.c.ExtraPlatformContainers() {
 		c := r.c.ExtraPlatformContainers()[idx]
 		group.Go(func(ctx context.Context) error {
-			cid, err := r.createExtraContainerInDocker(ctx, c.V1Container, mainContainerID, mainContainerRoot)
+			cid, err := r.createExtraContainerInDocker(ctx, c, mainContainerID, mainContainerRoot, pod)
 			if err != nil {
 				return fmt.Errorf("Failed to create %s platform container: %w", c.Name, err)
 			}
-			c.ID = cid
+			c.Status.ContainerID = cid
+			c.Status.State = v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "Platform Container created. Waiting to start."}}
 			l.Debugf("Created %s, CID: %s", c.Name, cid)
 			return nil
 		})
@@ -1606,67 +1771,48 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 	return group.Wait()
 }
 
-// startAllUserContainers actually launches all containers,
-// and requires all containers to be created and ready
-// The current implementation of multi-container workloads does
-// ordering in 2 phases:
-// Phase 1: Launch all platform containers (service mesh, gandalf, etc)
-// Phase 2: Launch all user-defined conatiners (main, nginx, etc)
-func (r *DockerRuntime) startAllUserContainers(ctx context.Context, pod *v1.Pod, mainContainerID string, tiniConn *net.UnixConn) error {
-	l := log.WithField("taskID", r.c.TaskID())
-
-	platformContainerNames := r.getPlaformContainerNames()
-	l.Debugf("Starting %d platform sidecars: %s", len(platformContainerNames), platformContainerNames)
-	err := r.startPlatformDefinedContainers(ctx)
-	if err != nil {
-		return err
-	}
-
-	userContainerNames := r.getUserContainerNames()
-	l.Debugf("Starting %d user containers: %s", len(userContainerNames), userContainerNames)
-	err = r.startUserDefinedContainers(ctx, tiniConn)
-
-	return err
-}
-
 func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
 	for _, c := range r.c.ExtraPlatformContainers() {
-		cName := c.Name
-		cid := c.ID
+		container := c
 		group.Go(func(ctx context.Context) error {
-			l.Debugf("Starting up platform-defined container %s, container id %s", cName, cid)
-			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
+			l.Debugf("Starting up platform-defined container %s, container id %s", container.Name, container.Status.ContainerID)
+			err := r.client.ContainerStart(ctx, container.Status.ContainerID, types.ContainerStartOptions{})
 			if err != nil {
-				return fmt.Errorf("Failed to start %s platform container: %w", cName, err)
+				return fmt.Errorf("Failed to start %s platform container: %w", container.Status.ContainerID, err)
 			}
+			// TODO: Only set this as started once the healthcheck passes
+			container.Status.Started = runtimeTypes.BoolPtr(true)
+			// TODO: Only set this as started once the healthcheck passes, even though we don't have a concept of readiness probes
+			container.Status.Ready = true
+			container.Status.State = v1.ContainerState{Running: &v1.ContainerStateRunning{StartedAt: metav1.Time{Time: time.Now()}}}
 			return nil
 		})
 	}
 	return group.Wait()
 }
 
+// startUserDefinedContainers starts all existing (pre-created) containers, even the 'main' one (via tini)
 func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn *net.UnixConn) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
 	for _, c := range r.c.ExtraUserContainers() {
-		cName := c.Name
-		if cName == r.c.TaskID() {
-			// Special case, the main container here is already running, it just needs
-			// to be told to run its own process via tini, we'll handle that in a different case
-			continue
-		}
-		cid := c.ID
-		if cid == "" {
+		container := c
+		if container.Status.ContainerID == "" {
 			return fmt.Errorf("No container id availble. Did it get created in docker?")
 		}
 		group.Go(func(ctx context.Context) error {
-			l.Debugf("Starting up user-defined container %s, container id %s", cName, cid)
-			err := r.client.ContainerStart(ctx, cid, types.ContainerStartOptions{})
+			l.Debugf("Starting up user-defined container %s, container id %s", container.Name, container.Status.ContainerID)
+			err := r.client.ContainerStart(ctx, container.Status.ContainerID, types.ContainerStartOptions{})
 			if err != nil {
-				return fmt.Errorf("Failed to start %s user container: %w", cName, err)
+				return fmt.Errorf("Failed to start %s user container: %w", container.Name, err)
 			}
+			// TODO: Only set this as started once the healthcheck passes
+			container.Status.Started = runtimeTypes.BoolPtr(true)
+			// TODO: Only set this as started once the healthcheck passes, even though we don't have a concept of readiness probes
+			container.Status.Ready = true
+			container.Status.State = v1.ContainerState{Running: &v1.ContainerStateRunning{StartedAt: metav1.Time{Time: time.Now()}}}
 			return nil
 		})
 	}
@@ -1684,24 +1830,28 @@ func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn
 	return group.Wait()
 }
 
-func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, v1Container v1.Container, mainContainerID string, mainContainerRoot string) (string, error) {
+func (r *DockerRuntime) createExtraContainerInDocker(ctx context.Context, c *runtimeTypes.ExtraContainer, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (string, error) {
 	l := log.WithField("taskID", r.c.TaskID())
-	containerName := r.c.TaskID() + "-" + v1Container.Name
-	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig := r.k8sContainerToDockerConfigs(v1Container, mainContainerID, mainContainerRoot)
+	containerName := r.c.TaskID() + "-" + c.Name
+	dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, err := r.k8sContainerToDockerConfigs(c, mainContainerID, mainContainerRoot, pod)
+	if err != nil {
+		return "", fmt.Errorf("error creating the %s container: %s", containerName, err)
+	}
 	l.WithFields(map[string]interface{}{
 		"dockerCfg": logger.ShouldJSON(ctx, *dockerContainerConfig),
 		"hostCfg":   logger.ShouldJSON(ctx, *dockerHostConfig),
-	}).Infof("Creating other container in docker: %s", v1Container.Name)
+	}).Infof("Creating other container in docker: %s", c.Name)
 	containerCreateBody, err := r.client.ContainerCreate(ctx, dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, containerName)
 	if err != nil {
 		return "", err
 	}
-	l.Debugf("Finished creating container %s, CID: %s, Env: %+v", v1Container.Name, containerCreateBody.ID, dockerContainerConfig.Env)
+	l.Debugf("Finished creating container %s, CID: %s, Env: %+v", c.Name, containerCreateBody.ID, dockerContainerConfig.Env)
 	return containerCreateBody.ID, nil
 }
 
-func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, mainContainerID string, mainContainerRoot string) (*container.Config, *container.HostConfig, *network.NetworkingConfig) {
-	// These labels are needed for titus-node-problem-detector
+func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContainer, mainContainerID string, mainContainerRoot string, pod *v1.Pod) (*container.Config, *container.HostConfig, *network.NetworkingConfig, error) {
+	v1Container := c.V1Container
+	// These labels are needed for titus-node-problem-detector and titus-isolate
 	// to know that this container is actually part of the "main" one.
 	labels := map[string]string{
 		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
@@ -1714,14 +1864,33 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 			ReadOnly: true,
 			Target:   "/sbin/docker-init",
 		},
+		{
+			Type:     "bind",
+			Source:   path.Join(r.cfg.RuntimeDir, "pod.json"),
+			ReadOnly: true,
+			Target:   "/titus/run/pod.json",
+		},
 	}
 	if mainContainerRoot != "" {
-		mounts = append(mounts, mount.Mount{
-			Type:     "bind",
-			Source:   mainContainerRoot + "/logs",
-			Target:   "/logs",
-			ReadOnly: false,
-		})
+		mounts = append(
+			mounts, mount.Mount{
+				Type:     "bind",
+				Source:   path.Join(mainContainerRoot, "/logs"),
+				Target:   "/logs",
+				ReadOnly: false,
+			},
+			mount.Mount{
+				Type:     "bind",
+				Source:   path.Join(mainContainerRoot, "/run-shared"),
+				Target:   "/run-shared",
+				ReadOnly: false,
+			},
+		)
+		volumeMounts, err := r.getContainerSharedVolumeSourceMounts(mainContainerRoot, v1Container, pod)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		mounts = append(mounts, volumeMounts...)
 	}
 	if r.cfg.MetatronEnabled {
 		podMetaronHostPath, _ := r.getPodMetatronFsHostPath()
@@ -1729,17 +1898,18 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		if podMetaronHostPath != "" {
 			mounts = append(mounts,
 				mount.Mount{
-					Type:     "bind",
-					Source:   podMetaronHostPath,
-					Target:   "/run/metatron",
-					ReadOnly: true,
+					Type:   "bind",
+					Source: podMetaronHostPath,
+					Target: "/run/metatron",
+					// Allow sidecars to write to metatron folder so it can change cert files if necessary
+					ReadOnly: false,
 				})
 			// These are static certs that the metatron service will create, but we also share them
 			// between all containers in the pod.
 			if mainContainerRoot != "" {
 				mounts = append(mounts, mount.Mount{
 					Type:     "bind",
-					Source:   mainContainerRoot + "/metatron",
+					Source:   path.Join(mainContainerRoot, "/metatron"),
 					Target:   "/metatron",
 					ReadOnly: false,
 				})
@@ -1758,26 +1928,15 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		}...)
 	}
 	b := true
-	// What docker calls "command", is what k8s calls "Args"
-	dockerCmd := v1Container.Args
-	// What docker calls "entrypoint", k8s calls "command", but in addition, we prepend tini
-	// The reason we do this is because, even with init=true, docker will only inject tini
-	// on containers running in a private pid namespace.
-	// On titus, we want tini on *every* container, because it gives us features like stdout/err
-	// TODO: get the entrypoint that comes from the *image* and use it here if `v1Container.Command` is null
-	// Because as is, we are *setting* the entrypoint all the time here, which means docker is going
-	// to ignore whatever entrypoing is on the *image*. We want the normal docker behavior here,
-	// but we *also* want tini.
-	dockerEntrypoint := append([]string{"/sbin/docker-init", "-s", "--"}, v1Container.Command...)
 	healthcheck := v1ContainerHealthcheckToDockerHealthcheck(v1Container.LivenessProbe)
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
 		Hostname:    "",
-		Cmd:         dockerCmd,
+		Cmd:         v1Container.Args,
 		Image:       v1Container.Image,
 		WorkingDir:  v1Container.WorkingDir,
-		Entrypoint:  dockerEntrypoint,
+		Entrypoint:  computeExtraContainersDockerEntrypoint(c),
 		Labels:      labels,
 		Env:         append(baseEnv, v1ConatinerEnvToList(v1Container.Env)...),
 		Healthcheck: healthcheck,
@@ -1798,13 +1957,51 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(v1Container v1.Container, ma
 		// ensures the other user containers die automatically whe the main one dies.
 		PidMode:     container.PidMode("container:" + mainContainerID),
 		Privileged:  false,
-		VolumesFrom: []string{mainContainerID},
+		VolumesFrom: r.volumeContainers,
 		Mounts:      mounts,
 		Init:        &b,
+		Tmpfs: map[string]string{
+			"/run": "rw,exec,size=" + defaultRunTmpFsSize,
+		},
 	}
+
+	// Security options are inherited from the main container's configuration
+	err := setupAdditionalCapabilities(r.c, dockerHostConfig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	// Nothing extra is needed here, because networking is defined in the HostConfig referencing the main container
 	dockerNetworkConfig := &network.NetworkingConfig{}
-	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig
+	return dockerContainerConfig, dockerHostConfig, dockerNetworkConfig, nil
+}
+
+// computeExtraContainersDockerEntrypoint takes an extra container, and tries our best to take multiple
+// inputs, and computing the most sane entrypoint we can come up with given our requirements. That is:
+// 1. We have input k8s container "Command" (docker entrypoint)
+// 2. We have the original docker entrypoint on the image
+// 3. We have tini, which we need to inject ourselves because we want tini goodness (stdout/err, seccomp, etc)
+//
+// Given those 3 things, we must return *something* that docker can actually run.
+func computeExtraContainersDockerEntrypoint(c *runtimeTypes.ExtraContainer) []string {
+	// What docker calls "entrypoint", k8s calls "command", but in addition, we prepend tini
+	// The reason we do this is because, even with init=true, docker will only inject tini
+	// on containers running in a private pid namespace.
+	// On titus, we want tini on *every* container, because it gives us features like stdout/err
+	originalEntrypoint := getExtraContainerEntrypoint(c)
+	return append([]string{"/sbin/docker-init", "-s", "--"}, originalEntrypoint...)
+}
+
+// getExtraContainerEntrypoint computes the original entrypoint that the user
+// wants to run, given two sources:
+// 1. the input k8s pod "command" (takes precedence)
+// 2. the input ENTRYPOINT on the image (should be used if no command is specified on the container spec)
+func getExtraContainerEntrypoint(c *runtimeTypes.ExtraContainer) []string {
+	if len(c.V1Container.Command) > 0 {
+		return c.V1Container.Command
+	}
+	// Otherwise we provide whatever the original image had, even if it is an empty array
+	return c.ImageInspect.ContainerConfig.Entrypoint
 }
 
 func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
@@ -1836,6 +2033,30 @@ func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) *container.Healt
 	return &hc
 }
 
+// v1MountPropToDockerProp converts the incoming pod mount propagation configuration
+// into something that docker can understand, using the documentation for what each means:
+// https://kubernetes.io/docs/concepts/storage/volumes/#mount-propagation
+func v1MountPropToDockerProp(vm v1.VolumeMount) mount.Propagation {
+	// Currently only supporting RShared and RSlave because we are mostly mounting
+	// paths in the docker daemon root.
+	// Otherwise we get "invalid mount config: must use either propagation mode "rslave" or "rshared" when mount source is within the daemon root"
+	// This will need to change if we ever try to support different mount propagations elsewhere.
+	if vm.MountPropagation == nil {
+		return ""
+	}
+	mp := *vm.MountPropagation
+	switch mp {
+	case v1.MountPropagationBidirectional:
+		return mount.PropagationRShared
+	case v1.MountPropagationHostToContainer:
+		return mount.PropagationRSlave
+	case v1.MountPropagationNone:
+		return ""
+	default:
+		return ""
+	}
+}
+
 func (r *DockerRuntime) getUserContainerNames() []string {
 	userContainerNames := []string{}
 	for _, c := range r.c.ExtraUserContainers() {
@@ -1852,9 +2073,49 @@ func (r *DockerRuntime) getPlaformContainerNames() []string {
 	return platformContainerNames
 }
 
-// return true to exit
-func handleDockerEvent(c runtimeTypes.Container, message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
-	validateMessage(c, message)
+// getContainerSharedVolumeSourceMounts returns a docker mount object
+// for every "SharedContainerVolumeSource", which is a special volume/VolumeMount
+// combo in a k8s pod spec that indicates that we should bind-mount one
+// directory in one container into another
+func (r *DockerRuntime) getContainerSharedVolumeSourceMounts(mainContainerRoot string, c v1.Container, pod *v1.Pod) ([]mount.Mount, error) {
+	mounts := []mount.Mount{}
+	volumes := pod.Spec.Volumes
+	for _, volumeMount := range c.VolumeMounts {
+		v := getVolumeByName(volumes, volumeMount.Name)
+		if v.Name == "" {
+			return nil, fmt.Errorf("couldn't find the corresponding volume for volumeMount %+v", volumeMount)
+		}
+		if v.FlexVolume != nil && v.FlexVolume.Driver == "SharedContainerVolumeSource" && v.FlexVolume.Options != nil {
+			if v.FlexVolume.Options["sourceContainer"] != "main" && v.FlexVolume.Options["sourceContainer"] != "" {
+				return nil, fmt.Errorf("only 'main' SharedContainerVolume volumes are supported. Volume: %+v", v)
+			}
+			m := mount.Mount{
+				Type:        "bind",
+				Source:      filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]),
+				Target:      volumeMount.MountPath,
+				ReadOnly:    volumeMount.ReadOnly,
+				BindOptions: &mount.BindOptions{Propagation: v1MountPropToDockerProp(volumeMount)},
+			}
+			mounts = append(mounts, m)
+		}
+	}
+	return mounts, nil
+}
+
+func getVolumeByName(volumes []v1.Volume, name string) v1.Volume {
+	for _, v := range volumes {
+		if v.Name == name {
+			return v
+		}
+	}
+	return v1.Volume{}
+}
+
+// handleDockerEvent takes in docker event messages and may put Task Status updates
+// onto the update channel if they are noteworthy.
+// This function returns true if the handling of docker events
+// should stop.
+func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageChan chan runtimeTypes.StatusMessage) bool {
 	action := strings.Split(message.Action, " ")[0]
 	action = strings.TrimRight(action, ":")
 	l := log.WithFields(
@@ -1870,61 +2131,120 @@ func handleDockerEvent(c runtimeTypes.Container, message events.Message, statusM
 	for k, v := range message.Actor.Attributes {
 		l = l.WithField(fmt.Sprintf("actor.attributes.%s", k), v)
 	}
-	l.Infof("Processing docker event: %s", action)
+	cName, err := r.getContainerNameFromDockerEvent(message)
+	if err == nil {
+		l.Infof("Processing docker event on %s container: %s", cName, action)
+	} else {
+		l.WithError(err).WithField("message", message).Error("Error looking up the container name for the message, ignoring docker event")
+		return nonTerminalDockerEvent
+	}
 	switch action {
 	case "start":
-		statusMessageChan <- runtimeTypes.StatusMessage{
-			Status: runtimeTypes.StatusRunning,
-			Msg:    "main container is now running",
+		// Updating the pod is relativly expensive, so we only send the update and consider the pod "running"
+		// if the the docker event came from the main container
+		if cName == mainContainerName {
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusRunning,
+				Msg:    cName + " container is now running",
+			}
+			return nonTerminalDockerEvent
 		}
-		return false
+		l.Debugf("Skipping docker start event for %s, no need to update the pod", cName)
+		return nonTerminalDockerEvent
 	case "die":
-		if exitCode := message.Actor.Attributes["exitCode"]; exitCode == "0" {
+		exitCode := message.Actor.Attributes["exitCode"]
+		if exitCode == "0" {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFinished,
-				Msg:    "main container successfully exited with 0",
+				Msg:    cName + " container successfully exited with 0",
 			}
+			return isTerminalDockerEvent
+		} else if exitCode == "137" && cName != mainContainerName {
+			// An exit code of 137 means it was killed.
+			// If we are not on the 'main' container, and docker doesn't have us in the 'oom' case,
+			// then it *probably* means that a sidecar container got killed while we were tearing down the pod
+			// In this case, we should not update the task status, and let the "real" docker event do that for us.
+			l.Infof("Ignoring %s container dying with exit code 137, probably meaning that it was killed while the main container was exiting", cName)
+			return nonTerminalDockerEvent
 		} else {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFailed,
-				Msg:    fmt.Sprintf("main container exited with code %s", exitCode),
+				Msg:    fmt.Sprintf("%s container exited with code %s", cName, exitCode),
 			}
+			return isTerminalDockerEvent
 		}
 	case "health_status":
+		// TODO: Update the actual health state of the container
+		// so that ContainerStatus reflects what docker knows
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusRunning,
-			Msg:    fmt.Sprintf("Docker health status: %s", message.Status),
+			Msg:    fmt.Sprintf("%s Docker health status: %s", cName, message.Status),
 		}
-		return false
+		return nonTerminalDockerEvent
 	case "kill":
-		statusMessageChan <- runtimeTypes.StatusMessage{
-			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("main container killed with signal %s", message.Actor.Attributes["signal"]),
+		// TODO: Handle the difference between platform/user sidecar, not all
+		// "kills"s should result in a Failed
+		if cName == mainContainerName {
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusFailed,
+				Msg:    fmt.Sprintf("%s container killed with signal %s", cName, message.Actor.Attributes["signal"]),
+			}
+			return isTerminalDockerEvent
 		}
+		l.Debugf("Skipping docker kill event for %s, no need to update the pod", cName)
+		return nonTerminalDockerEvent
 	case "oom":
+		// TODO: Handle the difference between platform/user sidecar, not all
+		// "oom"s should result in a Failed
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusFailed,
-			Msg:    fmt.Sprintf("main container %s exited due to OOMKilled", c.TaskID()),
+			Msg:    fmt.Sprintf("%s container %s exited due to OOMKilled", cName, r.c.TaskID()),
 		}
+		return isTerminalDockerEvent
 	// Ignore exec events entirely
 	case "exec_create", "exec_start", "exec_die":
-		return false
+		return nonTerminalDockerEvent
 	default:
-		log.WithField("taskID", c.ID()).Info("Received unexpected docker event: ", message)
-		return false
+		log.WithField("taskID", r.c.ID()).Info("Received unexpected docker event: ", message)
+		return nonTerminalDockerEvent
 	}
-
-	return true
 }
 
-// The only purpose of this is to test the sanity of our filters, and Docker
-func validateMessage(c runtimeTypes.Container, message events.Message) {
-	if c.ID() != message.ID {
-		panic(fmt.Sprint("c.ID() != message.ID: ", message))
+// getContainerNameFromDockerEvent pulls out the titus-friendly container name (whatever the user specified)
+// out of a docker event. Docker events look like this:
+//
+// {"status":"exec_die","id":"408563a253eb82bf0e76e3cd32594dc55a968a16dc494c45d8d46c7da465ce82",
+//  "from":"busybox","Type":"container","Action":"exec_die",
+//  "Actor":{
+//    "ID":"408563a253eb82bf0e76e3cd32594dc55a968a16dc494c45d8d46c7da465ce82",
+//    "Attributes":{
+//      "execID":"3514a0192401ad20c1bbf693d38d64e036b8ca2b700894cb1cea9df43dcfa34f","exitCode":"1","image":"busybox","name":"123-foobar"}
+//     },
+//   "scope":"local","time":1626119653,"timeNano":1626119653617364285
+// }
+//
+// For Titus, the id (container id) is the best way to correlate where this
+// event is coming from.
+func (r *DockerRuntime) getContainerNameFromDockerEvent(m events.Message) (string, error) {
+	return r.getContainerNameFromID(m.ID)
+}
+
+func (r *DockerRuntime) getContainerNameFromID(id string) (string, error) {
+	// Most common case, just the main container, we return the string "main"
+	if id == r.c.ID() {
+		return mainContainerName, nil
 	}
-	if message.Type != "container" {
-		panic(fmt.Sprint("message.Type != container: ", message))
+	for _, c := range r.c.ExtraPlatformContainers() {
+		if id == c.Status.ContainerID {
+			return c.Name, nil
+		}
 	}
+	for _, c := range r.c.ExtraUserContainers() {
+		if id == c.Status.ContainerID {
+			return c.Name, nil
+		}
+	}
+	return "", fmt.Errorf("Unknown container couldn't find the container name for cid " + id)
 }
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {
@@ -2308,11 +2628,11 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 
 	if wasKilled {
 		// We're being told by the API to stop, so use the configured stop timeout
-		logger.G(ctx).WithField("stopTimeout", containerStopTimeout.Seconds()).Info("Shutting down main container because we were asked to stop from the API")
+		logger.G(ctx).WithField("stopTimeout", containerStopTimeout.Seconds()).Info("Shutting down containers because we were asked to stop from the API")
 	} else {
 		// The container either finished or died, so the user's workload isn't running. There's no point in delaying the stop.
 		cStopPtr = nil
-		logger.G(ctx).Info("Shutting down main container because it finished or died")
+		logger.G(ctx).Info("Stopping+Cleaning up containers because they finished or died")
 	}
 
 	if containerJSON, err := r.client.ContainerInspect(context.TODO(), r.c.ID()); docker.IsErrNotFound(err) {
@@ -2341,14 +2661,15 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 		errs = multierror.Append(errs, err)
 	}
 
+	// NOTE: We don't stop or kill the sidecar containers here, because they have `autoremove: true`,
+	// and die naturally when the main container dies due to a shared pid namespace.
+
 stopped:
 
 	logger.G(ctx).Debug("Main container stop completed")
 	if gpuInfo := r.c.GPUInfo(); gpuInfo != nil {
 		numDealloc := gpuInfo.Deallocate()
 		logger.G(ctx).WithField("numDealloc", numDealloc).Info("Deallocated GPU devices for task")
-	} else {
-		logger.G(ctx).Debug("No GPU devices deallocated")
 	}
 
 	err := errs.ErrorOrNil()

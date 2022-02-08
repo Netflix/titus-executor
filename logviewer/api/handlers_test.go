@@ -24,7 +24,6 @@ func init() {
 	if err := xattr.SetXattr("testdata/Titus-fake-container/logs/subdir/otherlogfile", filesystems.VirtualFilePrefixWithSeparator+"testsuffix", []byte("0,638")); err != nil {
 		panic(err)
 	}
-	filesystems.PotentialStdioNames["otherlogfile"] = struct{}{}
 }
 
 func TestListLogs(t *testing.T) {
@@ -44,6 +43,12 @@ func TestListLogs(t *testing.T) {
 		}
 		if !strings.Contains(dataStr, "stdout") {
 			t.Fatal("stdout not found")
+		}
+		if !strings.Contains(dataStr, "stderr-othercontainer") {
+			t.Fatal("stderr-othercontainer not found")
+		}
+		if !strings.Contains(dataStr, "stdout-othercontainer") {
+			t.Fatal("stdout-othercontainer not found")
 		}
 		if !strings.Contains(dataStr, `<a href="/logs/Titus-fake-container?f=subdir/otherlogfile">subdir/otherlogfile</a>`) {
 			t.Fatal("base virtual file not found")
@@ -117,40 +122,6 @@ func TestReadBaseVirtualFileLogsRange(t *testing.T) {
 	testReadLogsRange(verifyFunc, "/logs/Titus-fake-container?f=subdir/otherlogfile", "bytes=200-", t)
 }
 
-func TestReadVirtualFileLogs(t *testing.T) {
-	verifyFunc := func(resp *http.Response, t *testing.T) {
-		dataStr := verifyHelper(resp, t)
-		if !strings.HasSuffix(dataStr, "\n") {
-			t.Fatal("Output truncated")
-		}
-		if len(dataStr) < 638 {
-			t.Fatal("Output truncated")
-		}
-		if strings.Count(dataStr, "a") != 637 {
-			t.Fatal("Unexpected number of bs found")
-		}
-	}
-
-	testReadLogs(verifyFunc, "/logs/Titus-fake-container?f=subdir/otherlogfile.testsuffix", t)
-}
-
-func TestReadVirtualFileLogsRange(t *testing.T) {
-	verifyFunc := func(resp *http.Response, t *testing.T) {
-		dataStr := verifyHelper(resp, t)
-		if !strings.HasSuffix(dataStr, "\n") {
-			t.Fatal("Output truncated")
-		}
-		if len(dataStr) < 437 {
-			t.Fatal("Output truncated")
-		}
-		if strings.Count(dataStr, "a") != 437 {
-			t.Fatal("Unexpected number of as found")
-		}
-	}
-
-	testReadLogsRange(verifyFunc, "/logs/Titus-fake-container?f=subdir/otherlogfile.testsuffix", "bytes=200-", t)
-}
-
 func TestReadMissingVirtualFileLogs(t *testing.T) {
 	verifyFunc := func(resp *http.Response, t *testing.T) {
 		data, err := ioutil.ReadAll(resp.Body)
@@ -173,6 +144,10 @@ func TestReadMissingVirtualFileLogs(t *testing.T) {
 
 func TestReadLogs(t *testing.T) {
 	testReadLogs(verifyStdout, "/logs/Titus-fake-container?f=stdout", t)
+}
+
+func TestReadLogsOtherContainer(t *testing.T) {
+	testReadLogs(verifyStdout, "/logs/Titus-fake-container?f=stdout-othercontainer", t)
 }
 
 func TestReadLogsRange(t *testing.T) {

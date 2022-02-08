@@ -133,10 +133,10 @@ push-titus-agent: titus-agent
 ## Protobuf and source code generation
 
 PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
-PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto
+PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto $(PROTO_DIR)/netflix/titus/titus_volumes.proto $(PROTO_DIR)/netflix/titus/titus_containers.proto
 PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
 GRPC_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%_grpc.pb.go,$(PROTOS))
-PROTO_MAP	:= Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_job_api.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_agent_api.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/agent.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_vpc_api.proto=github.com/Netflix/titus-executor/api/netflix/titus
+PROTO_MAP	:= Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_job_api.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_agent_api.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/agent.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_vpc_api.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_volumes.proto=github.com/Netflix/titus-executor/api/netflix/titus,Mnetflix/titus/titus_containers.proto=github.com/Netflix/titus-executor/api/netflix/titus
 .PHONY: protogen
 protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
 

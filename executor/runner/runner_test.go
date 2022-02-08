@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -17,6 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -52,7 +53,7 @@ type runtimeMock struct {
 	killCallback    func(c runtimeTypes.Container) error
 }
 
-func (r *runtimeMock) Prepare(ctx context.Context) error {
+func (r *runtimeMock) Prepare(ctx context.Context, pod *v1.Pod) error {
 	if r.c == nil {
 		panic("Container is nil")
 	}
@@ -70,7 +71,6 @@ func (r *runtimeMock) Start(ctx context.Context, pod *v1.Pod) (string, *runtimeT
 	close(r.startCalled)
 	r.startCalled = make(chan<- struct{}) // reset subscription
 	details := &runtimeTypes.Details{
-		IPAddresses: make(map[string]string),
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: false,
 		},

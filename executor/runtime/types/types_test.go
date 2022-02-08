@@ -6,8 +6,9 @@ import (
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 func TestFlatStringEntrypointIsParsedWithCinfo(t *testing.T) {
@@ -156,7 +157,7 @@ func TestDefaultNetworkMode(t *testing.T) {
 
 	c, err := NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
-	assert.Equal(t, titus.NetworkConfiguration_UnknownNetworkMode.String(), c.EffectiveNetworkMode())
+	assert.Equal(t, titus.NetworkConfiguration_Ipv4Only.String(), c.EffectiveNetworkMode())
 }
 
 func TestIPv6NetworkModeRespectsThePassthroughBool(t *testing.T) {

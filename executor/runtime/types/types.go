@@ -8,17 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
+	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
@@ -129,9 +131,10 @@ type SidecarContainerConfig struct {
 // ExtraContainer stores data about the other containers running alongside the
 // main container in the C&W implementation of pods
 type ExtraContainer struct {
-	Name        string           // Name of the container from the pod spec
-	ID          string           // Docker container id
-	V1Container corev1.Container // The k8s definition of the container from the pod object
+	Name         string                    // Name of the container from the pod spec
+	V1Container  corev1.Container          // The k8s definition of the container from the pod object
+	Status       corev1.ContainerStatus    // Status of the container, shows up in podstatus
+	ImageInspect *dockerTypes.ImageInspect // Inspect of the image that the extra container will run
 }
 
 type NFSMount struct {
@@ -170,6 +173,7 @@ type Container interface {
 	ImageVersion() *string
 	ImageTagForMetrics() map[string]string
 	IPv4Address() *string
+	IPv6Address() *string
 	IsSystemD() bool
 	JobGroupDetail() string
 	JobGroupStack() string
@@ -196,7 +200,6 @@ type Container interface {
 	Resources() *Resources
 	RequireIMDSToken() *string
 	Runtime() string
-	SeccompAgentEnabledForNetSyscalls() bool
 	SeccompAgentEnabledForPerfSyscalls() bool
 	SecurityGroupIDs() *[]string
 	ServiceMeshEnabled() bool
@@ -207,7 +210,7 @@ type Container interface {
 	SetSystemD(bool)
 	SetVPCAllocation(*vpcapi.Assignment)
 	ShmSizeMiB() *uint32
-	SidecarConfigs() ([]*ServiceOpts, error)
+	SystemServices() ([]*ServiceOpts, error)
 	SignedAddressAllocationUUID() *string
 	SortedEnvArray() []string
 	SubnetIDs() *[]string
@@ -217,6 +220,7 @@ type Container interface {
 	UseJumboFrames() bool
 	VPCAllocation() *vpcapi.Assignment
 	VPCAccountID() *string
+	TrafficSteeringEnabled() bool
 }
 
 func validateHostnameStyle(style string) error {
@@ -245,9 +249,8 @@ func ComputeHostname(c Container) (string, error) {
 	case ec2HostnameStyle:
 		ipAddr := c.IPv4Address()
 		if ipAddr == nil {
-			return "", &InvalidConfigurationError{Reason: errors.New("Unable to get container IP address")}
+			return "ip-127-0-0-1", nil
 		}
-
 		hostname := fmt.Sprintf("ip-%s", strings.Replace(*ipAddr, ".", "-", 3))
 		return hostname, nil
 	default:
@@ -315,18 +318,18 @@ func ResourcesToPodResourceRequirements(resources *Resources) corev1.ResourceReq
 
 	return corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:                 *cpu,
-			corev1.ResourceMemory:              *mem,
-			corev1.ResourceEphemeralStorage:    *disk,
-			resourceCommon.ResourceNameNetwork: *net,
-			resourceCommon.ResourceNameGpu:     *gpu,
+			corev1.ResourceCPU:                   *cpu,
+			corev1.ResourceMemory:                *mem,
+			corev1.ResourceEphemeralStorage:      *disk,
+			resourceCommon.ResourceNameNetwork:   *net,
+			resourceCommon.ResourceNameNvidiaGpu: *gpu,
 		},
 		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:                 *cpu,
-			corev1.ResourceMemory:              *mem,
-			corev1.ResourceEphemeralStorage:    *disk,
-			resourceCommon.ResourceNameNetwork: *net,
-			resourceCommon.ResourceNameGpu:     *gpu,
+			corev1.ResourceCPU:                   *cpu,
+			corev1.ResourceMemory:                *mem,
+			corev1.ResourceEphemeralStorage:      *disk,
+			resourceCommon.ResourceNameNetwork:   *net,
+			resourceCommon.ResourceNameNvidiaGpu: *gpu,
 		},
 	}
 }
@@ -403,14 +406,16 @@ func GenerateV0TestPod(taskID string, resources *Resources, cfg *config.Config) 
 // Someday when network mode is set across the board, we can drop this function and just fail
 // fast when network mode is Unknown, but till then, this function encpasulates the busines logic
 // of interpretting the legacy attributes and computing what the effective network mode "should" be
-func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address bool, seccompAgentEnabledForNetSyscalls bool) string {
+func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address bool) string {
 	if originalNetworkMode == titus.NetworkConfiguration_UnknownNetworkMode.String() {
 		if assignIPv6Address {
-			if seccompAgentEnabledForNetSyscalls {
-				return titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
-			}
 			return titus.NetworkConfiguration_Ipv6AndIpv4.String()
 		}
+		return titus.NetworkConfiguration_Ipv4Only.String()
+	}
+	if originalNetworkMode == titus.NetworkConfiguration_HighScale.String() {
+		// HighScale is really an alias for the Transition Mode today
+		return titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
 	}
 	return originalNetworkMode
 }
@@ -473,6 +478,7 @@ type NetworkConfigurationDetails struct {
 	ElasticIPAddress string
 	EniIPAddress     string
 	EniIPv6Address   string
+	NetworkMode      string
 	EniID            string
 	ResourceID       string
 }
@@ -480,8 +486,12 @@ type NetworkConfigurationDetails struct {
 func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 	m := make(map[string]string)
 	m["IsRoutableIp"] = strconv.FormatBool(n.IsRoutableIP)
-	m["IpAddress"] = n.IPAddress
-	m["EniIpAddress"] = n.EniIPAddress
+	if n.IPAddress != "" {
+		m["IpAddress"] = n.IPAddress
+	}
+	if n.EniIPAddress != "" {
+		m["EniIpAddress"] = n.EniIPAddress
+	}
 	m["EniId"] = n.EniID
 	m["ResourceId"] = n.ResourceID
 	if n.EniIPv6Address != "" {
@@ -490,14 +500,13 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 	if n.ElasticIPAddress != "" {
 		m["ElasticIPAddress"] = n.ElasticIPAddress
 	}
-
+	m["NetworkMode"] = n.NetworkMode
 	return m
 }
 
 // Details contains additional details about a container that are
 // not returned by normal container start calls.
 type Details struct {
-	IPAddresses          map[string]string `json:"ipAddresses,omitempty"`
 	NetworkConfiguration *NetworkConfigurationDetails
 }
 
@@ -511,7 +520,7 @@ type Runtime interface {
 	// TODO(fabio): better (non-Docker specific) abstraction for binds
 	// The context passed to the Prepare, and Start function is valid over the lifetime of the container,
 	// NOT per-operation
-	Prepare(containerCtx context.Context) error
+	Prepare(containerCtx context.Context, pod *corev1.Pod) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
 	Start(containerCtx context.Context, pod *corev1.Pod) (string, *Details, <-chan StatusMessage, error)
 	// Kill a container. MUST be idempotent.

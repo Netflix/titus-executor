@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
@@ -21,6 +20,8 @@ import (
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (
@@ -1137,7 +1138,6 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 	defer span.End()
 
 	// TODO: Use idempotency token
-	// TODO: Get rid of ENI Backfill
 	row := tx.QueryRowContext(ctx, `
 SELECT subnet_usable_prefix.prefix
 FROM subnet_usable_prefix
@@ -1181,23 +1181,6 @@ WHERE subnets.subnet_id = $1
 	}
 	iface := output.NetworkInterface
 	span.AddAttributes(trace.StringAttribute("eni", aws.StringValue(iface.NetworkInterfaceId)))
-
-	ip, err := assignNextIPv6Address(ctx, tx, subnetID)
-	if err != nil {
-		err = fmt.Errorf("Could not get IPv6 address to assign: %w", err)
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-	span.AddAttributes(trace.StringAttribute("ip", ip.String()))
-
-	_, err = session.AssignIPv6Addresses(ctx, ec2.AssignIpv6AddressesInput{
-		Ipv6Addresses:      aws.StringSlice([]string{ip.String()}),
-		NetworkInterfaceId: output.NetworkInterface.NetworkInterfaceId,
-	})
-	if err != nil {
-		err = fmt.Errorf("Could not assign (single) IPv6 address to interface: %w", err)
-		return nil, ec2wrapper.HandleEC2Error(err, span)
-	}
 
 	// TODO: verify nothing bad happened and the primary IP of the interface isn't a static addr
 

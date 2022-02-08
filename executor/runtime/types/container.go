@@ -14,19 +14,20 @@ import (
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
+	"github.com/Netflix/titus-executor/utils/maps"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/apex/log"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 const (
@@ -58,7 +59,6 @@ const (
 	LogKeepLocalFileAfterUploadParam        = "titusParameter.agent.log.keepLocalFileAfterUpload"
 	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
 	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
-	SeccompAgentEnabledForNetSyscallsParam  = "titusParameter.agent.seccompAgentEnabledForNetSyscalls"
 	SeccompAgentEnabledForPerfSyscallsParam = "titusParameter.agent.seccompAgentEnabledForPerfSyscalls"
 	assignIPv6AddressParam                  = "titusParameter.agent.assignIPv6Address"
 	batchPriorityParam                      = "titusParameter.agent.batchPriority"
@@ -71,6 +71,7 @@ const (
 	subnetsParam                            = "titusParameter.agent.subnets"
 	elasticIPPoolParam                      = "titusParameter.agent.elasticIPPool"
 	elasticIPsParam                         = "titusParameter.agent.elasticIPs"
+	TrafficSteeringEnabledParam             = "titusParameter.agent.trafficSteeringEnabled"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
@@ -174,11 +175,11 @@ type TitusInfoContainer struct {
 	kvmEnabled                         bool
 	nfsMounts                          []NFSMount
 	requireIMDSToken                   string
-	seccompAgentEnabledForNetSyscalls  bool
 	seccompAgentEnabledForPerfSyscalls bool
 	serviceMeshEnabled                 *bool
 	serviceMeshImage                   string
 	ttyEnabled                         bool
+	trafficSteeringEnabled             bool
 
 	config config.Config
 }
@@ -314,10 +315,6 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 			containerAttr: &c.kvmEnabled,
 		},
 		{
-			paramName:     SeccompAgentEnabledForNetSyscallsParam,
-			containerAttr: &c.seccompAgentEnabledForNetSyscalls,
-		},
-		{
 			paramName:     SeccompAgentEnabledForPerfSyscallsParam,
 			containerAttr: &c.seccompAgentEnabledForPerfSyscalls,
 		},
@@ -332,6 +329,10 @@ func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resour
 		{
 			paramName:     jumboFrameParam,
 			containerAttr: &c.useJumboFrames,
+		},
+		{
+			paramName:     TrafficSteeringEnabledParam,
+			containerAttr: &c.trafficSteeringEnabled,
 		},
 	}
 
@@ -728,6 +729,17 @@ func (c *TitusInfoContainer) IPv4Address() *string {
 	return &addr.Address.Address
 }
 
+func (c *TitusInfoContainer) IPv6Address() *string {
+	if c.vpcAllocation == nil {
+		return nil
+	}
+	addr := c.vpcAllocation.IPV6Address()
+	if addr == nil {
+		return nil
+	}
+	return &addr.Address.Address
+}
+
 func (c *TitusInfoContainer) IsSystemD() bool {
 	return c.isSystemD
 }
@@ -832,7 +844,7 @@ func (c *TitusInfoContainer) EffectiveNetworkMode() string {
 	if c.podConfig != nil && c.podConfig.NetworkMode != nil {
 		mode = *c.podConfig.NetworkMode
 	}
-	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address(), c.SeccompAgentEnabledForNetSyscalls())
+	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address())
 }
 
 func (c *TitusInfoContainer) NFSMounts() []NFSMount {
@@ -904,10 +916,6 @@ func (c *TitusInfoContainer) SeccompAgentEnabledForPerfSyscalls() bool {
 	return c.seccompAgentEnabledForPerfSyscalls
 }
 
-func (c *TitusInfoContainer) SeccompAgentEnabledForNetSyscalls() bool {
-	return c.seccompAgentEnabledForNetSyscalls
-}
-
 func (c *TitusInfoContainer) SecurityGroupIDs() *[]string {
 	networkCfgParams := c.titusInfo.GetNetworkConfigInfo()
 	secGroups := networkCfgParams.GetSecurityGroups()
@@ -925,6 +933,10 @@ func (c *TitusInfoContainer) ServiceMeshEnabled() bool {
 	}
 	_, err := c.serviceMeshImageName()
 	return err == nil
+}
+
+func (c *TitusInfoContainer) TrafficSteeringEnabled() bool {
+	return c.trafficSteeringEnabled
 }
 
 func (c *TitusInfoContainer) serviceMeshImageName() (string, error) {
@@ -986,7 +998,7 @@ func (c *TitusInfoContainer) ShmSizeMiB() *uint32 {
 	return nil
 }
 
-func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
+func (c *TitusInfoContainer) SystemServices() ([]*ServiceOpts, error) {
 	svcMeshImage := ""
 	sideCarPtrs := []*ServiceOpts{}
 	if c.ServiceMeshEnabled() {
@@ -1008,7 +1020,7 @@ func (c *TitusInfoContainer) SidecarConfigs() ([]*ServiceOpts, error) {
 		SidecarContainerTools:     c.config.ContainerToolsImage,
 	}
 
-	for _, scOrig := range sideCars {
+	for _, scOrig := range systemServices {
 		// Make a copy to avoid mutating the original
 		sc := scOrig
 		image, ok := imageMap[sc.ServiceName]
@@ -1152,6 +1164,14 @@ func (c *TitusInfoContainer) parseLogStdioCheckInterval(logStdioCheckIntervalStr
 	return duration, nil
 }
 
+func isNetworkModeIPv6Only(c Container) bool {
+	if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6Only.String() ||
+		c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		return true
+	}
+	return false
+}
+
 func populateContainerEnv(c Container, config config.Config, userEnv map[string]string) map[string]string {
 	// Order goes (least priority, to highest priority:
 	// -Hard coded environment variables
@@ -1233,7 +1253,10 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 		env["NETFLIX_NETWORK_MODE"] = netMode
 	}
 	vpcAllocation := c.VPCAllocation()
-	if a := vpcAllocation.IPV4Address(); a != nil {
+	if isNetworkModeIPv6Only(c) {
+		//Maintain 127.0.0.1 for EC2_LOCAL_IPV4 even for IPv6 only lest something breaks
+		env[metadataserverTypes.EC2IPv4EnvVarName] = "127.0.0.1"
+	} else if a := vpcAllocation.IPV4Address(); a != nil {
 		env[metadataserverTypes.EC2IPv4EnvVarName] = a.Address.Address
 	}
 
@@ -1241,6 +1264,7 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 		env[metadataserverTypes.EC2IPv6sEnvVarName] = a.Address.Address
 		env[metadataserverTypes.NetflixIPv6EnvVarName] = a.Address.Address
 		env[metadataserverTypes.NetflixIPv6sEnvVarName] = a.Address.Address
+		env[metadataserverTypes.NetflixIPv6HostnameEnvVar] = computeNetflixIPv6Hostname(a.Address.Address)
 	}
 
 	if a := vpcAllocation.ElasticAddress(); a != nil {
@@ -1389,4 +1413,9 @@ func GetHumanFriendlyNetworkMode(mode string) string {
 	default:
 		return ""
 	}
+}
+
+func computeNetflixIPv6Hostname(ipv6 string) string {
+	sanitizedv6 := strings.ReplaceAll(ipv6, ":", "-")
+	return fmt.Sprintf("ip-%s.node.netflix.net", sanitizedv6)
 }

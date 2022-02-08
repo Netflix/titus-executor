@@ -8,7 +8,6 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
@@ -21,6 +20,8 @@ import (
 	"golang.org/x/crypto/ed25519"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // this is the maximum number of IP addresses you are allowed to assign to an interface in EC2.
@@ -181,7 +182,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 
 	iface, err := vpcService.getStaticInterface(ctx, tx, session, rq.AddressAllocation.AddressLocation.SubnetId)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot get AWS session")
+		err = errors.Wrap(err, "Cannot get static interface")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
@@ -191,6 +192,11 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 		if !aws.BoolValue(addr.Primary) {
 			knownAddresses = append(knownAddresses, aws.StringValue(addr.PrivateIpAddress))
 		}
+	}
+
+	knownIPv6Addresses := []string{}
+	for _, addr := range iface.Ipv6Addresses {
+		knownIPv6Addresses = append(knownIPv6Addresses, aws.StringValue(addr.Ipv6Address))
 	}
 
 	row = tx.QueryRowContext(ctx, `
@@ -216,7 +222,30 @@ LIMIT 1
 		return nil, err
 	}
 
-	allocation := &titus.AddressAllocation{
+	row = tx.QueryRowContext(ctx, `
+WITH interface_ipv6_addresses AS
+  (SELECT unnest($1::text[])::INET AS ipv6_address)
+SELECT ipv6_address
+FROM interface_ipv6_addresses
+WHERE interface_ipv6_addresses.ipv6_address NOT IN
+    (SELECT ipv6address
+     FROM ip_addresses
+     WHERE subnet_id = $2)
+LIMIT 1
+`, pq.Array(knownIPv6Addresses), aws.StringValue(iface.SubnetId))
+	var ipv6Address string
+	err = row.Scan(&ipv6Address)
+	if err == sql.ErrNoRows {
+		span.SetStatus(traceStatusFromError(errConsistencyIssue))
+		return nil, err
+	}
+	if err != nil {
+		err = errors.Wrap(err, "Unable to get free IP address")
+		span.SetStatus(traceStatusFromError(err))
+		return nil, err
+	}
+
+	addressAllocation := &titus.AddressAllocation{
 		AddressLocation: &titus.AddressLocation{
 			Region:           region,
 			AvailabilityZone: az,
@@ -226,7 +255,7 @@ LIMIT 1
 		Address: ipAddress,
 	}
 
-	bytes, err := proto.Marshal(allocation)
+	bytes, err := proto.Marshal(addressAllocation)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot serialize allocation")
 	}
@@ -240,18 +269,20 @@ UPDATE ip_addresses SET
                         region = $3, 
                         subnet_id = $4,
                         ip_address = $5,
-                        home_eni = $6,
-                        host_public_key = $7,
-                        host_public_key_signature = $8,
-                        message = $9,
-                        message_signature = $10,
-                        account = $11
+						ipv6address = $6,
+                        home_eni = $7,
+                        host_public_key = $8,
+                        host_public_key_signature = $9,
+                        message = $10,
+                        message_signature = $11,
+                        account = $12
 WHERE id = $1`,
 		allocationUUID,
 		az,
 		region,
 		aws.StringValue(iface.SubnetId),
 		ipAddress,
+		ipv6Address,
 		aws.StringValue(iface.NetworkInterfaceId),
 		vpcService.hostPublicKey,
 		vpcService.hostPublicKeySignature,
@@ -266,9 +297,27 @@ WHERE id = $1`,
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not commit transaction")
 	}
+
+	err = vpcService.fixAllocation(ctx, allocation{
+		id:      allocationUUID,
+		region:  region,
+		subnet:  aws.StringValue(iface.SubnetId),
+		account: accountID,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not create subnet cidr reservations")
+	}
+
+	_, err = session.DeleteNetworkInterface(ctx, ec2.DeleteNetworkInterfaceInput{
+		NetworkInterfaceId: iface.NetworkInterfaceId,
+	})
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Could not delete static network interface")
+	}
+
 	resp := &titus.AllocateAddressResponse{
 		SignedAddressAllocation: &titus.SignedAddressAllocation{
-			AddressAllocation:      allocation,
+			AddressAllocation:      addressAllocation,
 			AuthoritativePublicKey: vpcService.authoritativePublicKey,
 			HostPublicKey:          vpcService.hostPublicKey,
 			HostPublicKeySignature: vpcService.hostPublicKeySignature,
@@ -507,17 +556,17 @@ func (vpcService *vpcService) fixAllocation(ctx context.Context, alloc allocatio
 	}
 	v4addr := net.ParseIP(ipv4addr)
 	v6addr := net.ParseIP(ipv6addr.String)
-	if !ipv6addr.Valid {
-		// We need to backfill the IPv6 address
-		v6addr, err = assignNextIPv6Address(ctx, tx, alloc.subnet)
-		if err != nil {
-			return fmt.Errorf("Could not assign next IPv6 address: %w", err)
-		}
-		_, err = tx.ExecContext(ctx, "UPDATE ip_addresses SET ipv6address = $1 WHERE id = $2", v6addr.String(), alloc.id)
-		if err != nil {
-			return fmt.Errorf("Could not update ipv6addr: %w", err)
-		}
-	}
+	// if !ipv6addr.Valid {
+	// 	// We need to backfill the IPv6 address
+	// 	v6addr, err = assignNextIPv6Address(ctx, tx, alloc.subnet)
+	// 	if err != nil {
+	// 		return fmt.Errorf("Could not assign next IPv6 address: %w", err)
+	// 	}
+	// 	_, err = tx.ExecContext(ctx, "UPDATE ip_addresses SET ipv6address = $1 WHERE id = $2", v6addr.String(), alloc.id)
+	// 	if err != nil {
+	// 		return fmt.Errorf("Could not update ipv6addr: %w", err)
+	// 	}
+	// }
 
 	v6output, err := session.CreateSubnetCidrReservation(ctx, ec2.CreateSubnetCidrReservationInput{
 		Cidr:            aws.String(fmt.Sprintf("%s/128", v6addr.String())),
@@ -572,7 +621,7 @@ func (vpcService *vpcService) fixAllocation(ctx context.Context, alloc allocatio
 
 	err = tx.Commit()
 	if err != nil {
-		return fmt.Errorf("Could not commit transaction: %w")
+		// return fmt.Errorf("Could not commit transaction: %w")
 	}
 
 	return nil
