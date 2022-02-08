@@ -586,6 +586,7 @@ FROM
    JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
    WHERE subnet_id = $1
      AND trunk_eni = $2
+     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
      AND state = 'attached') valid_branch_enis
 WHERE c = 0
 ORDER BY c DESC, branch_eni_attached_at ASC
