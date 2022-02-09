@@ -2,6 +2,9 @@
 
 all: seccomp.go
 
+test:
+	go test -v github.com/Netflix/titus-executor/executor/runtime/docker/seccomp
+
 seccomp.go: default.json fuse-container.json allow-perf-syscalls.json
 	python3 -m json.tool default.json >/dev/null
 	python3 -m json.tool fuse-container.json >/dev/null
