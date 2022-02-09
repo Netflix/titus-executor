@@ -83,6 +83,8 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 	v4reservations := make([]*ec2.SubnetCidrReservation, 0, len(reservations))
 	v6scrIDs := sets.NewString()
 	v4scrIDs := sets.NewString()
+	v6staticSCRIDs := sets.NewString()
+	v4staticSCRIDs := sets.NewString()
 
 	for idx := range reservations {
 		reservation := reservations[idx]
@@ -95,9 +97,15 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 
 		if ip.To4() == nil {
 			v6scrIDs.Insert(aws.StringValue(reservation.SubnetCidrReservationId))
+			if aws.StringValue(reservation.Description) == staticReservationDescription {
+				v6staticSCRIDs.Insert(aws.StringValue(reservation.SubnetCidrReservationId))
+			}
 			v6reservations = append(v6reservations, reservation)
 		} else {
 			v4scrIDs.Insert(aws.StringValue(reservation.SubnetCidrReservationId))
+			if aws.StringValue(reservation.Description) == staticReservationDescription {
+				v4staticSCRIDs.Insert(aws.StringValue(reservation.SubnetCidrReservationId))
+			}
 			v4reservations = append(v4reservations, reservation)
 		}
 	}
@@ -219,6 +227,70 @@ INSERT INTO subnet_cidr_reservations_v4 (reservation_id, subnet_id, prefix, type
 			err = fmt.Errorf("Cannot insert v4 reservation %s into database: %w", reservation.String(), err)
 			tracehelpers.SetStatus(err, span)
 			return err
+		}
+	}
+
+	v6StaticReservationsIDsNotInDB := sets.NewString()
+	rows, err = tx.QueryContext(ctx, "SELECT v6prefix FROM ip_addresses WHERE v6prefix not in ($1)", pq.Array(v6staticSCRIDs.UnsortedList()))
+	if err != nil {
+		err = fmt.Errorf("Cannot query ip_addresses: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	defer func(r *sql.Rows) {
+		_ = r.Close()
+	}(rows)
+
+	for rows.Next() {
+		var reservationID string
+		err = rows.Scan(&reservationID)
+		if err != nil {
+			err = fmt.Errorf("Cannot scan row: %w", err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		v6StaticReservationsIDsNotInDB.Insert(reservationID)
+	}
+
+	for _, reservation := range v6StaticReservationsIDsNotInDB.UnsortedList() {
+		_, err = session.DeleteSubnetCidrReservation(ctx, ec2.DeleteSubnetCidrReservationInput{
+			SubnetCidrReservationId: aws.String(reservation),
+		})
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Cannot delete unused subnet cird reservation")
+		}
+	}
+
+	v4StaticReservationsNotInDB := sets.NewString()
+	rows, err = tx.QueryContext(ctx, "SELECT v4prefix FROM ip_addresses WHERE v4prefix not in ($1)", pq.Array(v4staticSCRIDs.UnsortedList()))
+	if err != nil {
+		err = fmt.Errorf("Cannot query ip_addresses: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	defer func(r *sql.Rows) {
+		_ = r.Close()
+	}(rows)
+
+	for rows.Next() {
+		var reservationID string
+		err = rows.Scan(&reservationID)
+		if err != nil {
+			err = fmt.Errorf("Cannot scan row: %w", err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		v4StaticReservationsNotInDB.Insert(reservationID)
+	}
+
+	for _, reservation := range v4StaticReservationsNotInDB.UnsortedList() {
+		_, err = session.DeleteSubnetCidrReservation(ctx, ec2.DeleteSubnetCidrReservationInput{
+			SubnetCidrReservationId: aws.String(reservation),
+		})
+		if err != nil {
+			logger.G(ctx).WithError(err).Error("Cannot delete unused subnet cird reservation")
 		}
 	}
 

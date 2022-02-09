@@ -422,6 +422,11 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		vpcService.reconcileTrunkENIsLongLivedTask(),
 		vpcService.reconcileSecurityGroupsLongLivedTask(),
 		vpcService.reconcileSubnetCIDRReservationsLongLivedTask(),
+		{
+			taskName:   "delete_unused_static_enis",
+			itemLister: vpcService.getSubnets,
+			workFunc:   vpcService.deleteUnusedStaticENILoop,
+		},
 	}
 }
 
