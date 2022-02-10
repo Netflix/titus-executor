@@ -13,6 +13,7 @@ type limits struct {
 	branchENIs        int
 }
 
+// Interfaces, and IPs per interface comes from https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html#AvailableIpPerENI
 var interfaceLimits = map[string]map[string]limits{
 	"p4d": {
 		"24xlarge": limits{
@@ -60,6 +61,14 @@ var interfaceLimits = map[string]map[string]limits{
 			branchENIs:              120,
 		},
 		"metal": limits{
+			interfaces:              15,
+			ipAddressesPerInterface: 50,
+			networkThroughput:       100000,
+			branchENIs:              120,
+		},
+	},
+	"g5": {
+		"48xlarge": limits{
 			interfaces:              15,
 			ipAddressesPerInterface: 50,
 			networkThroughput:       100000,
