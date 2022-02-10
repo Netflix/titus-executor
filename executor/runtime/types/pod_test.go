@@ -235,15 +235,6 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	uc.Image = expectedImage
 	pod.Spec.TerminationGracePeriodSeconds = ptr.Int64Ptr(11)
 
-	cInfo := &titus.ContainerInfo{
-		Process: &titus.ContainerInfo_Process{
-			Command:    expectedCommand,
-			Entrypoint: expectedEntrypoint,
-		},
-	}
-	err = AddContainerInfoToPod(pod, cInfo)
-	assert.NilError(t, err)
-
 	// Add EFS, NFS, SHM mounts
 	uc.VolumeMounts = []corev1.VolumeMount{
 		{
@@ -1556,5 +1547,10 @@ func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
 	assert.DeepEqual(t, cInfo.UserProvidedEnv, map[string]string{})
 }
 
-// TODO:
-// - log uploading durations
+func TestDefaultNetworkMode(t *testing.T) {
+	pod, conf, err := PodContainerTestArgs()
+	assert.NilError(t, err)
+	c, err := NewPodContainer(pod, *conf)
+	assert.NilError(t, err)
+	assert.Equal(t, titus.NetworkConfiguration_Ipv4Only.String(), c.EffectiveNetworkMode())
+}

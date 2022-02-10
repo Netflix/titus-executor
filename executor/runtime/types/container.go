@@ -15,14 +15,12 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/models"
 	"github.com/Netflix/titus-executor/uploader"
 	"github.com/Netflix/titus-executor/utils/maps"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/apex/log"
-	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	ptr "k8s.io/utils/pointer"
@@ -45,32 +43,13 @@ const (
 	jobTypeLabelKey          = "com.netflix.titus.job.type"
 	jobTypePassThroughKey    = "titus.agent.jobType"
 	TitusTaskInstanceIDKey   = "TITUS_TASK_INSTANCE_ID"
-	titusJobIDKey            = "TITUS_JOB_ID"
 
 	// Passthrough params
-	disableUploadsParam                     = "titusParameter.agent.log.disableUploads"
-	s3WriterRoleParam                       = "titusParameter.agent.log.s3WriterRole"
-	s3BucketNameParam                       = "titusParameter.agent.log.s3BucketName"
-	s3PathPrefixParam                       = "titusParameter.agent.log.s3PathPrefix"
-	hostnameStyleParam                      = "titusParameter.agent.hostnameStyle"
-	logUploadThresholdTimeParam             = "titusParameter.agent.log.uploadThresholdTime"
-	logUploadCheckIntervalParam             = "titusParameter.agent.log.uploadCheckInterval"
-	logStdioCheckIntervalParam              = "titusParameter.agent.log.stdioCheckInterval"
 	LogKeepLocalFileAfterUploadParam        = "titusParameter.agent.log.keepLocalFileAfterUpload"
 	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
 	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
 	SeccompAgentEnabledForPerfSyscallsParam = "titusParameter.agent.seccompAgentEnabledForPerfSyscalls"
-	assignIPv6AddressParam                  = "titusParameter.agent.assignIPv6Address"
-	batchPriorityParam                      = "titusParameter.agent.batchPriority"
-	serviceMeshEnabledParam                 = "titusParameter.agent.service.serviceMesh.enabled"
-	serviceMeshContainerParam               = "titusParameter.agent.service.serviceMesh.container"
-	ttyEnabledParam                         = "titusParameter.agent.ttyEnabled"
-	jumboFrameParam                         = "titusParameter.agent.allowNetworkJumbo"
 	AccountIDParam                          = "titusParameter.agent.accountId"
-	imdsRequireTokenParam                   = "titusParameter.agent.imds.requireToken"
-	subnetsParam                            = "titusParameter.agent.subnets"
-	elasticIPPoolParam                      = "titusParameter.agent.elasticIPPool"
-	elasticIPsParam                         = "titusParameter.agent.elasticIPs"
 	TrafficSteeringEnabledParam             = "titusParameter.agent.trafficSteeringEnabled"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
@@ -184,191 +163,6 @@ type TitusInfoContainer struct {
 	config config.Config
 }
 
-// NewContainerWithPod allocates and initializes a new container struct object. Pod can be optionally passed. If nil, ignored
-func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (Container, error) {
-	schemaVer, err := podCommon.PodSchemaVersion(pod)
-	if err != nil {
-		return nil, err
-	}
-
-	if schemaVer > 0 {
-		return NewPodContainer(pod, cfg)
-	}
-
-	return NewTitusInfoContainer(taskID, titusInfo, resources, cfg, pod)
-}
-
-// NewTitusInfoContainer creates a new container backed by a pod with a ContainerInfo annotation
-func NewTitusInfoContainer(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (*TitusInfoContainer, error) {
-	networkCfgParams := titusInfo.GetNetworkConfigInfo()
-
-	c := &TitusInfoContainer{
-		taskID:       taskID,
-		titusInfo:    titusInfo,
-		resources:    resources,
-		envOverrides: map[string]string{},
-		config:       cfg,
-	}
-
-	c.pod = pod.DeepCopy()
-
-	c.extraUserContainers, c.extraPlatformContainers = NewExtraContainersFromPod(*c.pod)
-
-	c.podConfig = &podCommon.Config{}
-	pConf, err := podCommon.PodToConfig(pod)
-	if err != nil {
-		return nil, err
-	}
-	c.podConfig = pConf
-
-	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
-		titusENIIndex, err := strconv.Atoi(networkCfgParams.GetEniLabel())
-		if err != nil {
-			panic(err)
-		}
-		// Titus uses the same indexes as the EC2 device id
-		// Titus Index 1 = ENI index 0
-		c.normalizedENIIndex = titusENIIndex + 1
-	}
-
-	if err := validateIamRole(c.IamRole()); err != nil {
-		return nil, err
-	}
-
-	if err := c.updateLogAttributes(titusInfo); err != nil {
-		return nil, err
-	}
-
-	entrypoint, command, err := parseEntryPointAndCommand(titusInfo)
-	if err != nil {
-		return nil, err
-	}
-	if entrypoint != nil {
-		c.entrypoint = entrypoint
-	}
-	if command != nil {
-		c.command = command
-	}
-
-	stringPassthroughs := []struct {
-		paramName     string
-		containerAttr *string
-	}{
-		{
-			paramName:     AccountIDParam,
-			containerAttr: &c.vpcAccountID,
-		},
-		{
-			paramName:     subnetsParam,
-			containerAttr: &c.subnetIDs,
-		},
-		{
-			paramName:     elasticIPPoolParam,
-			containerAttr: &c.elasticIPPool,
-		},
-		{
-			paramName:     elasticIPsParam,
-			containerAttr: &c.elasticIPs,
-		},
-		{
-			paramName:     serviceMeshContainerParam,
-			containerAttr: &c.serviceMeshImage,
-		},
-		{
-			paramName:     batchPriorityParam,
-			containerAttr: &c.batchPriority,
-		},
-		{
-			paramName:     imdsRequireTokenParam,
-			containerAttr: &c.requireIMDSToken,
-		},
-		{
-			paramName:     hostnameStyleParam,
-			containerAttr: &c.hostnameStyle,
-		},
-	}
-
-	for _, pt := range stringPassthroughs {
-		if val, ok := titusInfo.GetPassthroughAttributes()[pt.paramName]; ok {
-			*pt.containerAttr = val
-		}
-	}
-
-	if err := validateHostnameStyle(c.hostnameStyle); err != nil {
-		return nil, err
-	}
-
-	boolPassthroughs := []struct {
-		paramName     string
-		containerAttr *bool
-	}{
-		{
-			paramName:     FuseEnabledParam,
-			containerAttr: &c.fuseEnabled,
-		},
-		{
-			paramName:     LogKeepLocalFileAfterUploadParam,
-			containerAttr: &c.logKeepLocalFileAfterUpload,
-		},
-		{
-			paramName:     KvmEnabledParam,
-			containerAttr: &c.kvmEnabled,
-		},
-		{
-			paramName:     SeccompAgentEnabledForPerfSyscallsParam,
-			containerAttr: &c.seccompAgentEnabledForPerfSyscalls,
-		},
-		{
-			paramName:     ttyEnabledParam,
-			containerAttr: &c.ttyEnabled,
-		},
-		{
-			paramName:     assignIPv6AddressParam,
-			containerAttr: &c.assignIPv6Address,
-		},
-		{
-			paramName:     jumboFrameParam,
-			containerAttr: &c.useJumboFrames,
-		},
-		{
-			paramName:     TrafficSteeringEnabledParam,
-			containerAttr: &c.trafficSteeringEnabled,
-		},
-	}
-
-	for _, pt := range boolPassthroughs {
-		enabled, ok, err := getPassthroughBool(titusInfo, pt.paramName)
-		if err != nil {
-			return c, err
-		}
-		if ok {
-			*pt.containerAttr = enabled
-		}
-	}
-
-	// c.serviceMeshEnabled is a bool pointer so that we can distinguish between the
-	// passthrough param deliberately setting it to false versus it being unset
-	svcMeshEnabled, ok, err := getPassthroughBool(titusInfo, serviceMeshEnabledParam)
-	if err != nil {
-		return c, err
-	}
-	if ok {
-		c.serviceMeshEnabled = &svcMeshEnabled
-	}
-
-	err = c.parseContainerInfoNfsMounts()
-	if err != nil {
-		return c, fmt.Errorf("error parsing NFS mounts: %w", err)
-	}
-
-	// This depends on a number of the other fields being populated, so run it last
-	cEnv := c.Env()
-	c.labels = addLabels(taskID, c, &resources)
-	c.jobID = cEnv[titusJobIDKey]
-
-	return c, nil
-}
-
 func addLabels(taskID string, c Container, resources *Resources) map[string]string {
 	labels := map[string]string{
 		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
@@ -437,77 +231,6 @@ func addProcessLabels(c Container, labels map[string]string) map[string]string {
 	}
 
 	return labels
-}
-
-func (c *TitusInfoContainer) updateLogAttributes(titusInfo *titus.ContainerInfo) error {
-	logUploadCheckIntervalStr, ok := titusInfo.GetPassthroughAttributes()[logUploadCheckIntervalParam]
-	if ok {
-		dur, err := c.parseLogUploadCheckInterval(logUploadCheckIntervalStr)
-		if err != nil {
-			return err
-		}
-		c.logUploadCheckInterval = &dur
-	}
-
-	logStdioCheckIntervalStr, ok := titusInfo.GetPassthroughAttributes()[logStdioCheckIntervalParam]
-	if ok {
-		dur, err := c.parseLogStdioCheckInterval(logStdioCheckIntervalStr)
-		if err != nil {
-			return err
-		}
-		c.logStdioCheckInterval = &dur
-	}
-
-	logUploadThresholdTimeStr, ok := titusInfo.GetPassthroughAttributes()[logUploadThresholdTimeParam]
-	if ok {
-		dur, err := c.parseLogUploadThresholdTime(logUploadThresholdTimeStr)
-		if err != nil {
-			return err
-		}
-		c.logUploadThresholdTime = &dur
-	}
-
-	uploadRegexpStr := titusInfo.GetLogUploadRegexp()
-	if uploadRegexpStr != "" {
-		uploadRegexp, err := regexp.Compile(uploadRegexpStr)
-		if err != nil {
-			return err
-		}
-		c.logUploadRegexp = uploadRegexp
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[disableUploadsParam]; ok {
-		val, err := strconv.ParseBool(param)
-		if err != nil {
-			c.logUploaderConfig.DisableUpload = val
-		}
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3WriterRoleParam]; ok {
-		c.logUploaderConfig.S3WriterRole = param
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3BucketNameParam]; ok {
-		c.logUploaderConfig.S3BucketName = param
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3PathPrefixParam]; ok {
-		c.logUploaderConfig.S3PathPrefix = param
-	}
-
-	return nil
-}
-
-func validateIamRole(iamRole *string) error {
-	if iamRole == nil || *iamRole == "" {
-		return ErrMissingIAMRole
-	}
-
-	if _, err := arn.Parse(*iamRole); err != nil {
-		return fmt.Errorf("Could not parse iam profile %q, due to %w", *iamRole, err)
-	}
-
-	return nil
 }
 
 func (c *TitusInfoContainer) AllowCPUBursting() bool {
@@ -1083,87 +806,6 @@ func (c *TitusInfoContainer) VPCAllocation() *vpcapi.Assignment {
 	return c.vpcAllocation
 }
 
-// Get a boolean passthrough attribute and whether it was present
-func getPassthroughBool(titusInfo *titus.ContainerInfo, key string) (bool, bool, error) {
-	value, ok := titusInfo.GetPassthroughAttributes()[key]
-
-	if !ok {
-		return false, false, nil
-	}
-	val, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, true, err
-	}
-
-	return val, true, nil
-}
-
-// parseEntryPointAndCommand extracts Entrypoint and Cmd from TitusInfo expecting that only one of the below will be present:
-//
-// - TitusInfo.EntrypointStr, the old code path being deprecated. The flat string will be parsed according to shell
-//   rules and be returned as entrypoint, while cmd will be nil
-// - TitusInfo.Process, the new code path where both entrypoint and cmd are lists. Docker rules on how they interact
-//   apply
-//
-// If both are set, EntrypointStr has precedence to allow for smoother transition.
-func parseEntryPointAndCommand(titusInfo *titus.ContainerInfo) ([]string, []string, error) {
-	if titusInfo.EntrypointStr != nil { // nolint: staticcheck
-		// deprecated (old) way of passing entrypoints as a flat string. We need to parse it
-		entrypoint, err := dockershellparser.ProcessWords(titusInfo.GetEntrypointStr(), []string{}) // nolint: megacheck
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// nil cmd because everything is in the entrypoint
-		return entrypoint, nil, nil
-	}
-
-	process := titusInfo.GetProcess()
-	command := process.GetCommand()
-	entrypoint := process.GetEntrypoint()
-	return entrypoint, command, nil
-}
-
-func (c *TitusInfoContainer) parseLogUploadThresholdTime(logUploadThresholdTimeStr string) (time.Duration, error) {
-	duration, err := time.ParseDuration(logUploadThresholdTimeStr)
-	if err != nil {
-		return 0, errors.Wrap(err, "Cannot parse log upload threshold time")
-	}
-
-	logUploadCheckInterval := c.LogUploadCheckInterval()
-	logStdioCheckInterval := c.LogStdioCheckInterval()
-
-	// Must be at least 2 * logUploadCheckInterval
-	if duration <= *logUploadCheckInterval*2 {
-		return 0, fmt.Errorf("Log upload threshold time %s must be at least 2 * %s, the log upload check interval", duration, logUploadCheckInterval)
-	}
-
-	if duration <= *logStdioCheckInterval*2 {
-		return 0, fmt.Errorf("Log upload threshold time %s must be at least 2 * %s, the stdio check interval", duration, logUploadCheckInterval)
-	}
-
-	return duration, nil
-}
-
-func (c *TitusInfoContainer) parseLogUploadCheckInterval(logUploadCheckIntervalStr string) (time.Duration, error) {
-	duration, err := time.ParseDuration(logUploadCheckIntervalStr)
-	if err != nil {
-		return 0, errors.Wrap(err, "Cannot parse log upload check interval")
-	}
-	if duration < time.Minute {
-		return 0, fmt.Errorf("Log upload check interval '%s' must be at least 1 minute", duration)
-	}
-	return duration, nil
-}
-
-func (c *TitusInfoContainer) parseLogStdioCheckInterval(logStdioCheckIntervalStr string) (time.Duration, error) {
-	duration, err := time.ParseDuration(logStdioCheckIntervalStr)
-	if err != nil {
-		return 0, errors.Wrap(err, "Cannot parse log stdio check interval")
-	}
-	return duration, nil
-}
-
 func isNetworkModeIPv6Only(c Container) bool {
 	if c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6Only.String() ||
 		c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
@@ -1325,63 +967,6 @@ func combinedAppStackDetails(c Container) string {
 		return fmt.Sprintf("%s-%s", c.AppName(), c.JobGroupStack())
 	}
 	return c.AppName()
-}
-
-func (c *TitusInfoContainer) parseContainerInfoNfsMounts() error {
-	efsConfigs := c.titusInfo.GetEfsConfigInfo()
-	c.nfsMounts = []NFSMount{}
-	if efsConfigs == nil {
-		return nil
-	}
-
-	for _, efs := range efsConfigs {
-		var readOnly bool
-		switch efs.GetMntPerms() {
-		case titus.ContainerInfo_EfsConfigInfo_RW:
-			readOnly = false
-		case titus.ContainerInfo_EfsConfigInfo_RO:
-			readOnly = true
-		case titus.ContainerInfo_EfsConfigInfo_WO:
-			readOnly = false
-		default:
-			return fmt.Errorf("Invalid EFS mount (read/write flag): %+v", efs)
-		}
-
-		efsFsID := efs.GetEfsFsId()
-		if efsFsID == "" {
-			return fmt.Errorf("Invalid EFS mount (empty FS ID): %+v", efs)
-		}
-
-		isRealEfsID, err := isEFSID(efsFsID)
-		if err != nil {
-			return err
-		}
-
-		if c.config.AwsRegion == "" {
-			return errors.New("AWS region unset")
-		}
-
-		nm := NFSMount{
-			ServerPath: filepath.Clean(efs.GetEfsFsRelativeMntPoint()),
-			MountPoint: filepath.Clean(efs.GetMountPoint()),
-			ReadOnly:   readOnly,
-		}
-		if isRealEfsID {
-			nm.Server = fmt.Sprintf("%s.efs.%s.amazonaws.com", efsFsID, c.config.AwsRegion)
-		} else {
-			// Non-EFS ID: pass in the hostname for the NFS server right on through
-			// We are just abusing the "efsID" field to just be the hostname.
-			nm.Server = efsFsID
-		}
-
-		if nm.ServerPath == "" {
-			nm.ServerPath = "/"
-		}
-
-		c.nfsMounts = append(c.nfsMounts, nm)
-	}
-
-	return nil
 }
 
 func isEFSID(FsID string) (bool, error) {

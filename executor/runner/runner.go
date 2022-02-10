@@ -58,23 +58,12 @@ type Runner struct {
 // StartTaskWithRuntime builds an Executor using the provided Runtime factory func, and starts the task
 func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp runtimeTypes.ContainerRuntimeProvider, cfg config.Config) (*Runner, error) {
 	ctx = logger.WithField(ctx, "taskID", task.TaskID)
-
 	metricsTagger, _ := m.(tagger) // metrics.Reporter may or may not implement tagger interface.  OK to be nil
-	resources := runtimeTypes.Resources{
-		Mem:     task.Mem,
-		CPU:     task.CPU,
-		GPU:     task.Gpu,
-		Disk:    task.Disk,
-		Network: task.Network,
-	}
-
 	startTime := time.Now()
-
-	container, err := runtimeTypes.NewContainerWithPod(task.TaskID, task.TitusInfo, resources, cfg, task.Pod)
+	container, err := runtimeTypes.NewPodContainer(task.Pod, cfg)
 	if err != nil {
 		return nil, err
 	}
-	pod := task.Pod
 	runner := &Runner{
 		metrics:       m,
 		metricsTagger: metricsTagger,
@@ -83,7 +72,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
 		container:     container,
-		pod:           pod,
+		pod:           task.Pod,
 	}
 
 	rt, err := rp(ctx, runner.container, startTime)

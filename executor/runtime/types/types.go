@@ -13,8 +13,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
-	dockerTypes "github.com/docker/docker/api/types"
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	dockerTypes "github.com/docker/docker/api/types" // nolint: staticcheck
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -364,42 +363,6 @@ func GenerateV1TestPod(taskID string, resources *Resources, cfg *config.Config) 
 	}
 }
 
-func GenerateV0TestPod(taskID string, resources *Resources, cfg *config.Config) *corev1.Pod {
-	if resources == nil {
-		resources = &Resources{}
-	}
-	if cfg == nil {
-		cfg = &config.Config{}
-	}
-	resourceReqs := ResourcesToPodResourceRequirements(resources)
-	bandwidth := resourceReqs.Limits[resourceCommon.ResourceNameNetwork]
-	image := cfg.DockerRegistry + "/" + testImageWithTag
-
-	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      taskID,
-			Namespace: "default",
-			Annotations: map[string]string{
-				podCommon.AnnotationKeyPodSchemaVersion:          "0",
-				podCommon.AnnotationKeyIAMRole:                   testIamRole,
-				podCommon.AnnotationKeyEgressBandwidth:           bandwidth.String(),
-				podCommon.AnnotationKeyIngressBandwidth:          bandwidth.String(),
-				podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "",
-			},
-			Labels: map[string]string{},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:      taskID,
-					Image:     image,
-					Resources: resourceReqs,
-				},
-			},
-		},
-	}
-}
-
 // computeEffectiveNetworkMode takes in the original Network mode and the surrounding context.
 // If the original network mode is Unset, then we look at other parameters to compute what
 // as user *effectively* meant.
@@ -420,21 +383,9 @@ func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address b
 	return originalNetworkMode
 }
 
-// ContainerTestArgs generates test arguments appropriate for passing to NewContainerWithPod()
-func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *corev1.Pod, *config.Config, error) {
-	cfg, err := config.GenerateConfiguration(nil)
-	if err != nil {
-		return "", nil, nil, nil, nil, err
-	}
-
-	titusInfo := &titus.ContainerInfo{
-		IamProfile: proto.String(testIamRole),
-		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
-			EniLabel:  proto.String("1"),
-			EniLablel: proto.String("1"), // deprecated, but protobuf marshaling raises an error if it's not present
-		},
-		PassthroughAttributes: map[string]string{},
-	}
+// ContainerTestArgs generates test arguments appropriate for passing to NewPodContainer()
+func ContainerTestArgs() (*corev1.Pod, *config.Config) {
+	cfg, _ := config.GenerateConfiguration(nil)
 	resources := &Resources{
 		Mem:     512,
 		CPU:     2,
@@ -444,21 +395,12 @@ func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *corev1.Pod,
 	}
 	taskID := "taskid"
 	pod := GenerateV1TestPod(taskID, resources, cfg)
-
-	return taskID, titusInfo, resources, pod, cfg, nil
+	return pod, cfg
 }
 
 // PodContainerTestArgs returns a pod and config that a test can call NewPodContainer() with
 func PodContainerTestArgs() (*corev1.Pod, *config.Config, error) {
-	_, _, _, pod, conf, err := ContainerTestArgs()
-	if err != nil {
-		return nil, nil, err
-	}
-	err = AddContainerInfoToPod(pod, &titus.ContainerInfo{})
-	if err != nil {
-		return nil, nil, err
-	}
-
+	pod, conf := ContainerTestArgs()
 	return pod, conf, nil
 }
 

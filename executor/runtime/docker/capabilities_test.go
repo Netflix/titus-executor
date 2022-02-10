@@ -13,21 +13,6 @@ const (
 	True = "true"
 )
 
-func TestDefaultProfileContainerInfo(t *testing.T) {
-	taskID, titusInfo, resources, pod, conf, err := runtimeTypes.ContainerTestArgs()
-	assert.NoError(t, err)
-	c, err := runtimeTypes.NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
-	assert.NoError(t, err)
-	hostConfig := container.HostConfig{}
-
-	assert.NoError(t, setupAdditionalCapabilities(c, &hostConfig))
-
-	assert.Len(t, hostConfig.CapAdd, 0)
-	assert.Len(t, hostConfig.CapDrop, 0)
-	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker_titus")
-	assert.Len(t, hostConfig.SecurityOpt, 2)
-}
-
 func TestDefaultProfile(t *testing.T) {
 	pod, conf, err := runtimeTypes.PodContainerTestArgs()
 	assert.NoError(t, err)
@@ -41,23 +26,6 @@ func TestDefaultProfile(t *testing.T) {
 	assert.Len(t, hostConfig.CapDrop, 0)
 	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker_titus")
 	assert.Len(t, hostConfig.SecurityOpt, 2)
-}
-
-func TestFuseProfileContainerInfo(t *testing.T) {
-	taskID, titusInfo, resources, _, conf, err := runtimeTypes.ContainerTestArgs()
-	assert.NoError(t, err)
-	titusInfo.PassthroughAttributes[runtimeTypes.FuseEnabledParam] = True
-	pod := runtimeTypes.GenerateV0TestPod(taskID, resources, conf)
-	c, err := runtimeTypes.NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
-	assert.NoError(t, err)
-	hostConfig := container.HostConfig{}
-
-	assert.NoError(t, setupAdditionalCapabilities(c, &hostConfig))
-
-	assert.Contains(t, hostConfig.CapAdd, "SYS_ADMIN")
-	assert.Len(t, hostConfig.CapDrop, 0)
-	assert.Len(t, hostConfig.SecurityOpt, 2)
-	assert.Contains(t, hostConfig.SecurityOpt, "apparmor:docker_fuse")
 }
 
 func TestFuseProfile(t *testing.T) {
