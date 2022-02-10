@@ -74,6 +74,7 @@ test-standalone: titus-agent | $(clean) $(builder)
 .PHONY: test-misc
 test-misc:
 	shellcheck --shell=sh --exclude=SC1008 ./hack/images/titus-sshd/run-titus-sshd
+	make -C executor/runtime/docker/seccomp/ test
 
 ## Source code
 
