@@ -10,7 +10,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get -y install curl && 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
     apt-get install -y build-essential make cmake g++ gcc libc6-dev pkg-config \
         libattr1-dev git curl wget jq ruby ruby-dev rubygems lintian unzip bison flex clang llvm musl-tools \
-        linux-libc-dev=5.9~rc4-1~exp1 libcap-dev && \
+        linux-libc-dev=5.9~rc4-1~exp1 libcap-dev libseccomp-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN gem install --no-ri --no-rdoc fpm
