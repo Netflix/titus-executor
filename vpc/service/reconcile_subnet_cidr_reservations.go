@@ -80,7 +80,9 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 	}
 
 	v6reservations := make([]*ec2.SubnetCidrReservation, 0, len(reservations))
-	scrIDs := sets.NewString()
+	v4reservations := make([]*ec2.SubnetCidrReservation, 0, len(reservations))
+	v6scrIDs := sets.NewString()
+	v4scrIDs := sets.NewString()
 	for idx := range reservations {
 		reservation := reservations[idx]
 		ip, _, err := net.ParseCIDR(aws.StringValue(reservation.Cidr))
@@ -92,11 +94,14 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 
 		if ip.To4() == nil {
 			v6reservations = append(v6reservations, reservation)
-			scrIDs.Insert(aws.StringValue(reservation.SubnetCidrReservationId))
+			v6scrIDs.Insert(aws.StringValue(reservation.SubnetCidrReservationId))
+		} else {
+			v4reservations = append(v4reservations, reservation)
+			v4scrIDs.Insert(aws.StringValue(reservation.SubnetCidrReservationId))
 		}
 	}
 
-	reservationsInDB := sets.NewString()
+	v6reservationsInDB := sets.NewString()
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = fmt.Errorf("Could not start database transaction: %w", err)
@@ -126,12 +131,12 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
-		reservationsInDB.Insert(reservationID)
+		v6reservationsInDB.Insert(reservationID)
 	}
 
-	reservationsToDelete := reservationsInDB.Difference(scrIDs)
-	if reservationsToDelete.Len() > 0 {
-		_, err = tx.ExecContext(ctx, "DELETE FROM subnet_cidr_reservations_v6 WHERE reservation_id = any($1)", pq.Array(reservationsToDelete.UnsortedList()))
+	v6reservationsToDelete := v6reservationsInDB.Difference(v6scrIDs)
+	if v6reservationsToDelete.Len() > 0 {
+		_, err = tx.ExecContext(ctx, "DELETE FROM subnet_cidr_reservations_v6 WHERE reservation_id = any($1)", pq.Array(v6reservationsToDelete.UnsortedList()))
 		if err != nil {
 			if err != nil {
 				err = fmt.Errorf("Unable to delete non-existent subnet CIDR Reservation groups: %w", err)
@@ -142,13 +147,70 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 	}
 
 	for _, reservation := range v6reservations {
-		if reservationsInDB.Has(aws.StringValue(reservation.SubnetCidrReservationId)) {
+		if v6reservationsInDB.Has(aws.StringValue(reservation.SubnetCidrReservationId)) {
 			continue
 		}
 
 		// Try inserting this into the DB.
 		_, err = tx.ExecContext(ctx, `
 INSERT INTO subnet_cidr_reservations_v6 (reservation_id, subnet_id, prefix, type, description) VALUES ($1, $2, $3, $4, $5)
+`,
+			aws.StringValue(reservation.SubnetCidrReservationId),
+			subnet.id,
+			aws.StringValue(reservation.Cidr),
+			aws.StringValue(reservation.ReservationType),
+			aws.StringValue(reservation.Description),
+		)
+		if err != nil {
+			err = fmt.Errorf("Cannot insert reservation %s into database: %w", reservation.String(), err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+	}
+
+	v4reservationsInDB := sets.NewString()
+	rows, err = tx.QueryContext(ctx, "SELECT reservation_id FROM subnet_cidr_reservations_v4 WHERE subnet_id = $1", subnet.id)
+	if err != nil {
+		err = fmt.Errorf("Cannot query subnet_cidr_reservations_v4: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	for rows.Next() {
+		var reservationID string
+		err = rows.Scan(&reservationID)
+		if err != nil {
+			err = fmt.Errorf("Cannot scan row: %w", err)
+			tracehelpers.SetStatus(err, span)
+			return err
+		}
+		v4reservationsInDB.Insert(reservationID)
+	}
+
+	v4reservationsToDelete := v4reservationsInDB.Difference(v4scrIDs)
+	if v4reservationsToDelete.Len() > 0 {
+		_, err = tx.ExecContext(ctx, "DELETE FROM subnet_cidr_reservations_v4 WHERE reservation_id = any($1)", pq.Array(v4reservationsToDelete.UnsortedList()))
+		if err != nil {
+			if err != nil {
+				err = fmt.Errorf("Unable to delete non-existent subnet CIDR Reservation groups: %w", err)
+				tracehelpers.SetStatus(err, span)
+				return err
+			}
+		}
+	}
+
+	for _, reservation := range v4reservations {
+		if v4reservationsInDB.Has(aws.StringValue(reservation.SubnetCidrReservationId)) {
+			continue
+		}
+
+		// Try inserting this into the DB.
+		_, err = tx.ExecContext(ctx, `
+INSERT INTO subnet_cidr_reservations_v4 (reservation_id, subnet_id, prefix, type, description) VALUES ($1, $2, $3, $4, $5)
 `,
 			aws.StringValue(reservation.SubnetCidrReservationId),
 			subnet.id,
