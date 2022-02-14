@@ -1,6 +1,6 @@
 START TRANSACTION ;
 
-create table subnet_cidr_reservations_v4
+create table if not exists subnet_cidr_reservations_v4
 (
     reservation_id text
         constraint subnet_cidr_reservations_v4_pk
@@ -14,7 +14,7 @@ create table subnet_cidr_reservations_v4
             on delete cascade
 );
 
-create unique index subnet_cidr_reservations_v4_subnet_id_prefix_uindex
+create unique index if not exists subnet_cidr_reservations_v4_subnet_id_prefix_uindex
     on subnet_cidr_reservations_v4 (subnet_id, prefix);
 
 COMMIT;
