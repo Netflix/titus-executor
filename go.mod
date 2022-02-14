@@ -23,8 +23,7 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
 	github.com/coreos/go-systemd/v22 v22.3.2
 	github.com/cyphar/filepath-securejoin v0.2.2
-	github.com/deckarep/golang-set v1.8.0
-	github.com/docker/distribution v2.7.1+incompatible
+	github.com/docker/distribution v2.8.0+incompatible
 	github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0
@@ -84,7 +83,6 @@ require (
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/ini.v1 v1.52.0 // indirect
-	gopkg.in/urfave/cli.v1 v1.20.0
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.20.9
