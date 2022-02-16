@@ -119,9 +119,9 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 		return err
 	}
 
-	defer func() {
-		_ = rows.Close()
-	}()
+	defer func(r *sql.Rows) {
+		_ = r.Close()
+	}(rows)
 
 	for rows.Next() {
 		var reservationID string
@@ -176,9 +176,9 @@ INSERT INTO subnet_cidr_reservations_v6 (reservation_id, subnet_id, prefix, type
 		return err
 	}
 
-	defer func() {
-		_ = rows.Close()
-	}()
+	defer func(r *sql.Rows) {
+		_ = r.Close()
+	}(rows)
 
 	for rows.Next() {
 		var reservationID string
