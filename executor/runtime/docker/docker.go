@@ -523,7 +523,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 	// This must go after all setup
 	containerCfg.Env = c.SortedEnvArray()
-	containerCfg.Env = append(containerCfg.Env, "TITUS_CONTAINER_NAME="+c.TaskID())
+	containerCfg.Env = append(containerCfg.Env, "TITUS_CONTAINER_NAME=main")
 
 	return containerCfg, hostCfg, nil
 }
