@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,22 +16,14 @@ import (
 	"github.com/Netflix/titus-executor/executor/runner"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
-	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
-	units "github.com/docker/go-units"
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	units "github.com/docker/go-units" // nolint: staticcheck
 	"github.com/google/renameio"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/Netflix/titus-executor/api/netflix/titus"
-)
-
-var (
-	errContainerInfo = errors.New("cannot find container info annotation")
 )
 
 func state2phase(state titusdriver.TitusTaskState) v1.PodPhase {
@@ -119,7 +110,6 @@ func state2containerState(prevState *v1.ContainerState, currState titusdriver.Ti
 type Backend struct {
 	network, disk, memory, gpu, cpu resource.Quantity
 	pod                             *v1.Pod
-	containerinfo                   *titus.ContainerInfo
 	readyErr                        error
 	readyLock                       sync.RWMutex
 	m                               metrics.Reporter
@@ -127,46 +117,7 @@ type Backend struct {
 	cfg                             *config.Config
 }
 
-func getContainerInfo(pod *v1.Pod) (string, error) {
-	containerInfoStr, ok := pod.GetAnnotations()["containerInfo"]
-	if ok {
-		return containerInfoStr, nil
-	}
-
-	containerInfoStr, ok = pod.GetAnnotations()[podCommon.AnnotationKeyPodTitusContainerInfo]
-	if !ok {
-		return "", errContainerInfo
-	}
-
-	return containerInfoStr, nil
-}
-
 func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, pod *v1.Pod, cfg *config.Config, m metrics.Reporter) (*Backend, error) {
-	var containerInfo titus.ContainerInfo
-
-	podSchemaVer, err := podCommon.PodSchemaVersion(pod)
-	if err != nil {
-		return nil, err
-	}
-
-	// As of pod schema v1, the containerInfo annotation is optional.
-	if podSchemaVer < 1 {
-		containerInfoStr, err := getContainerInfo(pod)
-		if err != nil {
-			return nil, err
-		}
-
-		data, err := base64.StdEncoding.DecodeString(containerInfoStr)
-		if err != nil {
-			return nil, errors.Wrap(err, "Could not decode containerInfo from base64")
-		}
-
-		err = proto.Unmarshal(data, &containerInfo)
-		if err != nil {
-			return nil, errors.Wrap(err, "Could not deserialize protobuf")
-		}
-	}
-
 	// All limits for the entire pod are encoded by the limits of the first container.
 	// We don't currently support per-container limits.
 	limits := pod.Spec.Containers[0].Resources.Limits
@@ -175,6 +126,7 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 	cpu := limits[v1.ResourceCPU]
 	memory := limits[v1.ResourceMemory]
 	network := limits[resourceCommon.ResourceNameNetwork]
+	var err error
 
 	// The control plane has passed resource values in bytes, but the runner takes
 	// MiB / MB, so we need to do the conversion.
@@ -194,16 +146,15 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 	}
 
 	be := &Backend{
-		network:       network,
-		disk:          disk,
-		memory:        memory,
-		gpu:           gpu,
-		cpu:           cpu,
-		pod:           pod,
-		containerinfo: &containerInfo,
-		m:             m,
-		rp:            rp,
-		cfg:           cfg,
+		network: network,
+		disk:    disk,
+		memory:  memory,
+		gpu:     gpu,
+		cpu:     cpu,
+		pod:     pod,
+		m:       m,
+		rp:      rp,
+		cfg:     cfg,
 	}
 	be.readyLock.Lock()
 
@@ -218,14 +169,13 @@ func (b *Backend) Ready(ctx context.Context) error {
 
 func (b *Backend) run(ctx context.Context) (*runner.Runner, error) {
 	r, err := runner.StartTaskWithRuntime(ctx, runner.Task{
-		TaskID:    b.pod.GetName(),
-		TitusInfo: b.containerinfo,
-		Pod:       b.pod,
-		Mem:       b.memory.Value(),
-		CPU:       b.cpu.Value(),
-		Gpu:       b.gpu.Value(),
-		Disk:      b.disk.Value(),
-		Network:   b.network.Value(),
+		TaskID:  b.pod.GetName(),
+		Pod:     b.pod,
+		Mem:     b.memory.Value(),
+		CPU:     b.cpu.Value(),
+		Gpu:     b.gpu.Value(),
+		Disk:    b.disk.Value(),
+		Network: b.network.Value(),
 	}, b.m, b.rp, *b.cfg)
 	b.readyErr = err
 
