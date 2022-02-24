@@ -750,9 +750,8 @@ func NewExtraContainersFromPod(pod corev1.Pod) ([]*ExtraContainer, []*ExtraConta
 			Ready:        false,
 			RestartCount: 0,
 			Image:        c.Image,
-			ImageID:      "",
 			ContainerID:  "",
-			Started:      nil,
+			Started:      BoolPtr(false),
 		}
 		if podCommon.IsPlatformSidecarContainer(c.Name, &pod) {
 			extraPlatformContainers = append(extraPlatformContainers, &ExtraContainer{

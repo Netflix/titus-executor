@@ -1751,6 +1751,7 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 			}
 			c.Status.ContainerID = cid
 			c.Status.State = v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "User Container created. Waiting to start."}}
+			c.Status.Image = c.ImageInspect.RepoDigests[0]
 			l.Debugf("Created %s, CID: %s", c.Name, cid)
 			return nil
 		})
@@ -1764,6 +1765,7 @@ func (r *DockerRuntime) createAllExtraContainers(ctx context.Context, pod *v1.Po
 			}
 			c.Status.ContainerID = cid
 			c.Status.State = v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "Platform Container created. Waiting to start."}}
+			c.Status.Image = c.ImageInspect.RepoDigests[0]
 			l.Debugf("Created %s, CID: %s", c.Name, cid)
 			return nil
 		})
