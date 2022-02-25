@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -45,6 +44,7 @@ const (
 	systemServiceStartTimeout = 90 * time.Second
 	umountNoFollow            = 0x8
 	sysFsCgroup               = "/sys/fs/cgroup"
+	hybridMountpoint          = "/sys/fs/cgroup/unified"
 	runcArgFormat             = "--root /var/run/docker/runtime-%s/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s %s"
 	defaultOomScore           = 1000
 )
@@ -80,6 +80,57 @@ func setupScheduler(cred ucred) error {
 	ret := int(tmpRet)
 	if ret == -1 {
 		return err
+	}
+
+	return nil
+}
+
+func isCgroup2HybridMode() bool {
+	var st unix.Statfs_t
+	err := unix.Statfs(hybridMountpoint, &st)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// ignore the "not found" error
+			return false
+		}
+		panic(fmt.Sprintf("cannot statfs cgroup root: %s", err))
+	}
+	return st.Type == unix.CGROUP2_SUPER_MAGIC
+}
+
+// move container's pid 1 to unified cgroup hierarchy to enable eBPF hooks
+func movePid1ToUnifiedController(cred ucred, c runtimeTypes.Container) error {
+	if !isCgroup2HybridMode() {
+		logrus.Warn("System not running in cgroup v2 hybrid mode")
+		return nil
+	}
+	cgroupPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "cgroup")
+	cgroupsInfo, err := cgroups.ParseCgroupFile(cgroupPath)
+	if err != nil {
+		logrus.WithError(err).Error("Could not read container cgroups")
+		return err
+	}
+	// Find path to the systemd owned cgroup
+	if controllerPath, ok := cgroupsInfo["name=systemd"]; ok {
+
+		fsPath := filepath.Join(sysFsCgroup, "unified", controllerPath)
+		parentCgroupPath := strings.TrimSuffix(strings.TrimSpace(fsPath), c.ID())
+		_, err := os.Stat(parentCgroupPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				logrus.WithError(err).Error("parent cgroup v2 path does not exist")
+				return nil
+			}
+			return err
+		}
+		if err := os.Mkdir(fsPath, 0755); err != nil { // nolint: gosec
+			return err
+		}
+
+		err = cgroups.WriteCgroupProc(fsPath, int(cred.pid))
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -287,29 +338,15 @@ func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cre
 	}
 
 	cgroupPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "cgroup")
-	cgroups, err := ioutil.ReadFile(cgroupPath) // nolint: gosec
+	cgroupsInfo, err := cgroups.ParseCgroupFile(cgroupPath)
 	if err != nil {
 		logrus.WithError(err).Error("Could not read container cgroups")
 		return err
 	}
-	for _, line := range strings.Split(string(cgroups), "\n") {
-		cgroupInfo := strings.Split(strings.TrimSpace(line), ":")
-		if len(cgroupInfo) != 3 {
-			continue
-		}
-		controllerType := cgroupInfo[1]
-		if len(controllerType) == 0 {
-			continue
-		}
-		// This is to handle the name=systemd cgroup, we should probably parse /proc/mounts, but this is a little bit easier
-		controllerType = strings.TrimPrefix(controllerType, "name=")
-		if controllerType != "systemd" {
-			continue
-		}
+	// Find path to the systemd owned cgroup
+	if controllerPath, ok := cgroupsInfo["name=systemd"]; ok {
 
-		// systemd needs to be the owner of its systemd cgroup in order to start up
-		controllerPath := cgroupInfo[2]
-		fsPath := filepath.Join(sysFsCgroup, controllerType, controllerPath)
+		fsPath := filepath.Join(sysFsCgroup, "systemd", controllerPath)
 		logrus.Infof("chowning systemd cgroup path: %s", fsPath)
 		err = os.Chown(fsPath, int(cred.uid), int(cred.gid))
 		if err != nil {
