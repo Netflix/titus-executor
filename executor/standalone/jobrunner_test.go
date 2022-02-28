@@ -97,6 +97,8 @@ type JobInput struct {
 	ExtraContainers  []corev1.Container
 	ExtraAnnotations map[string]string
 	Volumes          []corev1.Volume
+	// ExecAction to be added to the main container for testing preStop hooks
+	mainContainerPreStopHook *corev1.ExecAction
 }
 
 // JobRunResponse returned from RunJob
@@ -350,6 +352,13 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	}
 
 	mainContainer := &pod.Spec.Containers[0]
+	if jobInput.mainContainerPreStopHook != nil {
+		pod.Spec.Containers[0].Lifecycle = &corev1.Lifecycle{
+			PreStop: &corev1.Handler{
+				Exec: jobInput.mainContainerPreStopHook,
+			},
+		}
+	}
 
 	if p := jobInput.Process; p != nil {
 		mainContainer.Command = p.Entrypoint

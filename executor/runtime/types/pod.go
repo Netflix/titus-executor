@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	ptr "k8s.io/utils/pointer"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
@@ -573,6 +574,10 @@ func (c *PodContainer) OomScoreAdj() *int32 {
 
 func (c *PodContainer) OwnerEmail() *string {
 	return c.podConfig.WorkloadOwnerEmail
+}
+
+func (c *PodContainer) Pod() *v1.Pod {
+	return c.pod
 }
 
 func (c *PodContainer) Process() ([]string, []string) {
