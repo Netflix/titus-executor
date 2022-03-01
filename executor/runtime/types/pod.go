@@ -50,7 +50,6 @@ var virtualKubeletHardcodedEnvVars = []string{
 var _ Container = (*PodContainer)(nil)
 
 // PodContainer is an implementation of Container backed only by a kubernetes pod.
-// This is currently using the base64'ed ContainerInfo until all fields are ported over to annotations
 type PodContainer struct {
 	capabilities   *corev1.Capabilities
 	config         config.Config
@@ -224,7 +223,9 @@ func (c *PodContainer) CombinedAppStackDetails() string {
 	return combinedAppStackDetails(c)
 }
 
-func (c *PodContainer) ContainerInfo() (*titus.ContainerInfo, error) {
+// SyntheticContainerInfo returns an older style proto ContainerInfo object, for backwards compatibility
+// for the titus-imds, which uses it to serve the task-identity document.
+func (c *PodContainer) SyntheticContainerInfo() (*titus.ContainerInfo, error) {
 	// TODO: this needs to be removed once Metatron supports the v2 identity endpoint (TITUS-5823)
 	userContainer := podCommon.GetUserContainer(c.pod)
 	appName := c.AppName()

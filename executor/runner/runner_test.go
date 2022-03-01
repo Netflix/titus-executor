@@ -219,14 +219,14 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 
 	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
-		TaskID:    taskID,
-		TitusInfo: nil,
-		Mem:       1,
-		CPU:       1,
-		Gpu:       0,
-		Disk:      1,
-		Network:   1,
-		Pod:       pod,
+		TaskID:  taskID,
+		cInfo:   nil,
+		Mem:     1,
+		CPU:     1,
+		Gpu:     0,
+		Disk:    1,
+		Network: 1,
+		Pod:     pod,
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c

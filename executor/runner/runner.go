@@ -26,14 +26,14 @@ import (
 
 // Task contains all information for running a task
 type Task struct {
-	TaskID    string
-	TitusInfo *titus.ContainerInfo
-	Pod       *corev1.Pod
-	Mem       int64
-	CPU       int64
-	Gpu       int64
-	Disk      int64
-	Network   int64
+	TaskID  string
+	cInfo   *titus.ContainerInfo
+	Pod     *corev1.Pod
+	Mem     int64
+	CPU     int64
+	Gpu     int64
+	Disk    int64
+	Network int64
 }
 
 // Runner maintains in memory state for the Task runner

@@ -35,7 +35,7 @@ type MetadataServerConfiguration struct {
 	PublicIpv4Address          net.IP
 	Ipv6Address                *net.IP
 	Pod                        *corev1.Pod
-	Container                  *titus.ContainerInfo
+	ContainerInfo              *titus.ContainerInfo
 	Signer                     *identity.Signer
 	RequireToken               bool
 	TokenKey                   string

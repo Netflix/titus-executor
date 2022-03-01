@@ -717,7 +717,7 @@ func setupMetadataServer(t *testing.T, conf testServerConfig) *MetadataServer {
 			Host:   conf.ss.fakeEC2MetdataServiceListener.Addr().String(),
 		},
 		Pod:           fakePod,
-		Container:     fakeTaskIdent.Container,
+		ContainerInfo: fakeTaskIdent.Container,
 		RequireToken:  conf.requireToken,
 		Region:        "us-east-1",
 		STSEndpoint:   conf.ss.fakeSTSserver.URL,
