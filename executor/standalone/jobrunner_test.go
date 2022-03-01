@@ -117,7 +117,7 @@ func (jobRunResponse *JobRunResponse) WaitForSuccess() bool {
 	if err != nil {
 		return false
 	}
-	res := status == "TASK_FINISHED"
+	res := status == titusdriver.Finished.String()
 	if !res {
 		jobRunResponse.logContainerStdErrOut()
 	}
@@ -132,7 +132,7 @@ func (jobRunResponse *JobRunResponse) WaitForFailure() bool {
 	if err != nil {
 		return false
 	}
-	res := status == "TASK_FAILED"
+	res := status == titusdriver.Failed.String()
 	if !res {
 		jobRunResponse.logContainerStdErrOut()
 	}
@@ -188,12 +188,12 @@ func (jobRunResponse *JobRunResponse) WaitForFailureStatus(ctx context.Context) 
 // if it completed successfully.
 func (jobRunResponse *JobRunResponse) WaitForCompletion() (string, error) {
 	for status := range jobRunResponse.runner.UpdatesChan {
-		if status.State.String() == "TASK_RUNNING" || status.State.String() == "TASK_STARTING" {
+		if status.State.String() == titusdriver.Running.String() || status.State.String() == titusdriver.Starting.String() {
 			continue // Ignore non-terminal states
 		}
 		return status.State.String(), nil
 	}
-	return "TASK_LOST", errStatusChannelClosed
+	return titusdriver.Lost.String(), errStatusChannelClosed
 }
 
 // ListenForRunning sends true on the returned channel when the task is running, or false if it terminates

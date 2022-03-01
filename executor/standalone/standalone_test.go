@@ -27,10 +27,6 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
-const (
-	TASK_FAILED = "TASK_FAILED" // nolint:golint
-)
-
 func TestMain(m *testing.M) {
 	flag.Parse()
 	if testing.Verbose() {
@@ -466,7 +462,7 @@ func TestImageNonExistingDigestFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != TASK_FAILED {
+	if status != titusdriver.Failed.String() {
 		t.Fatalf("Expected status=FAILED, got: %s", status)
 	}
 }
@@ -483,7 +479,7 @@ func TestImagePullError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != TASK_FAILED {
+	if status != titusdriver.Failed.String() {
 		t.Fatalf("Expected status=FAILED, got: %s", status)
 	}
 }
@@ -503,7 +499,7 @@ func TestCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 
 	select {
 	case taskStatus := <-jobResponse.UpdateChan:
-		if taskStatus.State.String() != "TASK_STARTING" {
+		if taskStatus.State.String() != titusdriver.Starting.String() {
 			t.Fatal("Task never observed in TASK_STARTING, instead: ", taskStatus)
 		}
 	case <-time.After(15 * time.Second):
@@ -707,7 +703,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 			t.Fatal("Task exited prematurely (before becoming healthy)")
 		}
 		log.Infof("Received status update %+v", status)
-		if status.State.String() == "TASK_RUNNING" && strings.Contains(status.Mesg, "health_status: healthy") {
+		if status.State.String() == titusdriver.Running.String() && strings.Contains(status.Mesg, "health_status: healthy") {
 			break
 		}
 	}
@@ -790,7 +786,7 @@ func TestOOMKill(t *testing.T) {
 	// Wait until the task is running
 	for status := range jobResponse.UpdateChan {
 		if status.State.IsTerminalStatus() {
-			if status.State.String() != "TASK_FAILED" {
+			if status.State.String() != titusdriver.Failed.String() {
 				t.Fail()
 			}
 			if !strings.Contains(status.Mesg, "OOMKilled") {
@@ -1430,7 +1426,7 @@ func TestPreStopHookRunsFirst(t *testing.T) {
 
 	select {
 	case taskStatus := <-jobResponse.UpdateChan:
-		if taskStatus.State.String() != "TASK_STARTING" {
+		if taskStatus.State.String() != titusdriver.Starting.String() {
 			t.Fatal("Task never observed in TASK_STARTING, instead: ", taskStatus)
 		}
 	case <-time.After(15 * time.Second):
