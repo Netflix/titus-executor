@@ -78,7 +78,7 @@ PasswordAuthentication no
 
 X11Forwarding yes
 X11DisplayOffset 10
-PrintMotd no
+PrintMotd yes
 PrintLastLog no
 TCPKeepAlive yes
 #UseLogin no

@@ -96,6 +96,6 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
     /dev/{null,ptmx,tty,urandom,log} rwmlk,
     /dev/pts/* rwmlk,
 
-    /etc/{gai.conf,group,nsswitch.conf,passwd,shadow} rmkl,
+    /etc/{gai.conf,group,nsswitch.conf,passwd,shadow,motd} rmkl,
   }
 }
