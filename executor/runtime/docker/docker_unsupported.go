@@ -31,10 +31,6 @@ func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Con
 	return nil
 }
 
-func movePid1ToUnifiedController(cred ucred, c runtimeTypes.Container) error {
-	return nil
-}
-
 func getOwnCgroup(subsystem string) (string, error) {
 	return "", nil
 }

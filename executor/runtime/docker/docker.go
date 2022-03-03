@@ -2445,10 +2445,6 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 		return err
 	}
 
-	if err := movePid1ToUnifiedController(cred, c); err != nil {
-		return fmt.Errorf("error moving pid1 to unified controller: %w", err)
-	}
-
 	// This cannot be done concurrently, because it requires a call to c.RegisterRuntimeCleanup, which
 	// is not protected by a lock
 	pid := os.Getpid()
