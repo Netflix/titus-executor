@@ -22,11 +22,11 @@ func (ms *MetadataServer) generateTaskIdentity() *titus.TaskIdentity {
 	now := uint64(time.Now().Unix())
 	taskStatus := titus.TaskInfo_RUNNING
 	ti := &titus.TaskIdentity{
-		Container: ms.container,
+		Container: ms.containerInfo,
 		Task: &titus.TaskInfo{
-			ContainerId: ms.container.RunState.TaskId,
-			TaskId:      ms.container.RunState.TaskId,
-			HostName:    ms.container.RunState.HostName,
+			ContainerId: ms.containerInfo.RunState.TaskId,
+			TaskId:      ms.containerInfo.RunState.TaskId,
+			HostName:    ms.containerInfo.RunState.HostName,
 			Status:      &taskStatus,
 		},
 		UnixTimestampSec: &now,
@@ -58,9 +58,9 @@ func (ms *MetadataServer) generateTaskPodIdentity() (*titus.TaskPodIdentity, err
 	ti := &titus.TaskPodIdentity{
 		Pod: podData,
 		TaskInfo: &titus.TaskInfo{
-			ContainerId: ms.container.RunState.TaskId,
-			TaskId:      ms.container.RunState.TaskId,
-			HostName:    ms.container.RunState.HostName,
+			ContainerId: ms.containerInfo.RunState.TaskId,
+			TaskId:      ms.containerInfo.RunState.TaskId,
+			HostName:    ms.containerInfo.RunState.HostName,
 			Status:      &taskStatus,
 		},
 		RequestTimestamp: timestamppb.Now(),

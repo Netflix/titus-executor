@@ -598,7 +598,7 @@ func TestNewPodContainerMetatronDisabledWhenNoCreds(t *testing.T) {
 
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
-	cInfo, err := c.ContainerInfo()
+	cInfo, err := c.SyntheticContainerInfo()
 	assert.NilError(t, err)
 	creds := cInfo.GetMetatronCreds()
 	assert.Equal(t, creds == nil, true)
@@ -1389,7 +1389,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 
-	cInfo, err := c.ContainerInfo()
+	cInfo, err := c.SyntheticContainerInfo()
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Diff(cInfo, &titus.ContainerInfo{
 		AppName:          ptr.StringPtr(""),
@@ -1477,7 +1477,7 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 
-	cInfo, err := c.ContainerInfo()
+	cInfo, err := c.SyntheticContainerInfo()
 	assert.NilError(t, err)
 	expMetatronCreds := &titus.ContainerInfo_MetatronCreds{
 		AppMetadata: ptr.StringPtr("app-meta"),
@@ -1538,7 +1538,7 @@ func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
 
-	cInfo, err := c.ContainerInfo()
+	cInfo, err := c.SyntheticContainerInfo()
 	assert.NilError(t, err)
 	assert.DeepEqual(t, cInfo.TitusProvidedEnv, map[string]string{
 		"FROM_TITUS_1": "T1",

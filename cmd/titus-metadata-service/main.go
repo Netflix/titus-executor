@@ -73,15 +73,15 @@ func makeFDListener(fd int64) net.Listener {
 	return l
 }
 
-func readTaskConfigFile(taskID string) (*titus.ContainerInfo, error) {
+func readTaskContainerInfoFile(taskID string) (*titus.ContainerInfo, error) {
 	if taskID == "" {
-		log.Errorf("task ID is empty: can't read task config file")
+		log.Errorf("task ID is empty: can't read task cinfo file")
 		return nil, fmt.Errorf("task ID env var unset: %s", taskInstanceIDEnvVar)
 	}
 	confFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", taskID))
 	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
 	if err != nil {
-		log.WithError(err).Errorf("Error reading task config file %s", confFile)
+		log.WithError(err).Errorf("Error reading task cinfo file %s", confFile)
 		return nil, err
 	}
 
@@ -375,10 +375,10 @@ func main() {
 			} else {
 				mdscfg.Signer = signer
 			}
-			if container, err := readTaskConfigFile(titusTaskInstanceID); err != nil {
+			if cInfo, err := readTaskContainerInfoFile(titusTaskInstanceID); err != nil {
 				log.WithError(err).Fatal("Cannot read container config file")
 			} else {
-				mdscfg.Container = container
+				mdscfg.ContainerInfo = cInfo
 			}
 			if pod, err := readTaskPodFile(titusTaskInstanceID); err != nil {
 				// TOOD: Make this fatal once we depend on this functionality

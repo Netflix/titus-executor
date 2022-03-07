@@ -153,7 +153,7 @@ func populateContainerEnv(c Container, config config.Config, userEnv map[string]
 	// -Hard coded environment variables
 	// -Copied environment variables from the host
 	// -Resource env variables
-	// -User provided environment in POD (if pod unset, then fall back to containerinfo)
+	// -User provided environment in POD
 	// -Network Config
 	// -Executor overrides
 

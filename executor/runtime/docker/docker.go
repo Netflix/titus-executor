@@ -1171,13 +1171,13 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nol
 	if err != nil {
 		goto error
 	}
-	logger.G(ctx).Info("Titus environment pushed")
+	logger.G(ctx).Info("Titus environment file created")
 
-	err = r.createTitusContainerConfigFile(ctx, r.c, r.startTime)
+	err = r.createTitusContainerInfoFile(ctx, r.c, r.startTime)
 	if err != nil {
 		goto error
 	}
-	logger.G(ctx).Info("Titus Configuration pushed")
+	logger.G(ctx).Info("Titus cInfo file created")
 
 	sharedMountDirs = getSharedMountDirsFromPod(pod)
 	err = r.pushEnvironment(ctx, r.c, myImageInfo, sharedMountDirs)
@@ -1213,10 +1213,10 @@ func getSharedMountDirsFromPod(pod *v1.Pod) []string {
 
 // Creates the file $titusEnvironments/ContainerID.json as a serialized version of the ContainerInfo protobuf struct
 // so other systems can load it
-func (r *DockerRuntime) createTitusContainerConfigFile(ctx context.Context, c runtimeTypes.Container, startTime time.Time) error {
+func (r *DockerRuntime) createTitusContainerInfoFile(ctx context.Context, c runtimeTypes.Container, startTime time.Time) error {
 	containerConfigFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", c.TaskID()))
 
-	cfg, err := runtimeTypes.ContainerConfig(c, startTime)
+	cfg, err := runtimeTypes.GenerateSyntheticContainerInfoPass2(c, startTime)
 	if err != nil {
 		return err
 	}

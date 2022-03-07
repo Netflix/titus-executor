@@ -89,7 +89,7 @@ type MetadataServer struct {
 	accountID           string
 	launched            time.Time
 	pod                 *corev1.Pod
-	container           *titus.ContainerInfo
+	containerInfo       *titus.ContainerInfo
 	signer              *identity.Signer
 	// Need to hold `signLock` while accessing `signer`
 	signLock                  sync.RWMutex
@@ -141,7 +141,7 @@ func NewMetaDataServer(ctx context.Context, config types.MetadataServerConfigura
 		launched:                  time.Now(),
 		ec2metadatasvc:            svc,
 		pod:                       config.Pod,
-		container:                 config.Container,
+		containerInfo:             config.ContainerInfo,
 		signer:                    config.Signer,
 		tokenRequired:             config.RequireToken,
 		xForwardedForBlockingMode: config.XFordwardedForBlockingMode,

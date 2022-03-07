@@ -154,7 +154,7 @@ type Container interface {
 	BatchPriority() *string
 	Capabilities() *corev1.Capabilities
 	CombinedAppStackDetails() string
-	ContainerInfo() (*titus.ContainerInfo, error)
+	SyntheticContainerInfo() (*titus.ContainerInfo, error)
 	EBSInfo() EBSInfo
 	Env() map[string]string
 	EnvOverrides() map[string]string
@@ -257,10 +257,11 @@ func ComputeHostname(c Container) (string, error) {
 	}
 }
 
-// Generates a ContainerInfo config suitable for writing out to disk so the metadata proxy can use it
-func ContainerConfig(c Container, startTime time.Time) (*titus.ContainerInfo, error) {
+// Generates a synthetic ContainerInfo config suitable for writing out to disk so the metadata proxy can use it
+// This is a "second pass" mutation of the containerinfo that comes in from the Container interface
+func GenerateSyntheticContainerInfoPass2(c Container, startTime time.Time) (*titus.ContainerInfo, error) {
 	launchTime := uint64(startTime.Unix())
-	ti, err := c.ContainerInfo()
+	ti, err := c.SyntheticContainerInfo()
 	if err != nil {
 		return nil, err
 	}
