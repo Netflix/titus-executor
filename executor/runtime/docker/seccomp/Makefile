@@ -14,7 +14,7 @@ test: seccomp.go
 	go test -v github.com/Netflix/titus-executor/executor/runtime/docker/seccomp
 
 stock.docker.json:
-	wget https://raw.githubusercontent.com/moby/moby/master/profiles/seccomp/default.json -O $@
+	curl https://raw.githubusercontent.com/moby/moby/master/profiles/seccomp/default.json > $@
 
 # seccomp.go is machine-generated, and is a golang representation of the data
 # included in these json files

@@ -1,11 +1,8 @@
 //go:build cgo
 // +build cgo
 
-// These tests require CGO (unfortunately) because libseccomp does
-// These build flags mean that these tests are not normally run during
-// our normal test suites (which do not use CGO)
-// These are designed to be run from "make test" in the seccomp directory
-
+// These tests require CGO (unfortunately) because libseccomp requires it
+// They can be run manually with `make test-misc`, or via your IDE, or via CI.
 package seccomp
 
 import (
