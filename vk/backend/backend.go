@@ -321,11 +321,21 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 
 	b.pod.Status.ContainerStatuses = statuses
 
+	// Backwards compatibility, sets "un-adorned" annotations like "IpAddress" on the pod.
 	if update.Details != nil && update.Details.NetworkConfiguration != nil {
 		for k, v := range update.Details.NetworkConfiguration.ToMap() {
 			b.pod.Annotations[k] = v
 		}
 	}
+	b.setPodUpdateAnnotations(update)
+}
+
+// setPodUpdateAnnotations takes an update and then annotates a pod with special annotations representing
+// those updates, particularlly those based on network stuff.
+// These annotations allow us to get data "back out" from the executor up to the control-plane, without having
+// to depend on the limitations of the PodStatus structure.
+func (b *Backend) setPodUpdateAnnotations(update runner.Update) {
+	b.pod.SetAnnotations(update.Details.NetworkConfiguration.ToAnnotationMap())
 }
 
 func (b *Backend) RunWithStatusFile(ctx context.Context, statuses *os.File) error {

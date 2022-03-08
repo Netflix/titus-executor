@@ -447,6 +447,30 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 	return m
 }
 
+func (n *NetworkConfigurationDetails) ToAnnotationMap() map[string]string {
+	a := map[string]string{}
+	if n.NetworkMode != "" {
+		a[podCommon.AnnotationKeyEffectiveNetworkMode] = n.NetworkMode
+	}
+	if n.IPAddress != "" {
+		a[podCommon.AnnotationKeyIPAddress] = n.IPAddress
+	}
+	if n.EniIPAddress != "" {
+		a[podCommon.AnnotationKeyIPv4Address] = n.EniIPAddress
+	}
+	if n.EniIPv6Address != "" {
+		a[podCommon.AnnotationKeyIPv6Address] = n.EniIPv6Address
+	}
+	if n.EniID != "" {
+		a[podCommon.AnnotationKeyBranchEniID] = n.EniID
+	}
+	if n.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		// TODO: Use the transition IP when available from the vpc allocation object
+		a[podCommon.AnnotationKeyIPv4TransitionAddress] = n.EniIPAddress
+	}
+	return a
+}
+
 // Details contains additional details about a container that are
 // not returned by normal container start calls.
 type Details struct {
