@@ -5,7 +5,7 @@ log() {
     echo -e "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $1" >&2
 }
 
-apt-get -y install shellcheck libseccomp-dev pkg-config
+apt-get -y install shellcheck libseccomp-dev pkg-config jsonnet
 
 GO_VERSION=1.13.14
 GO_INSTALL_DIR=${HOME}/go_installs/${GO_VERSION}
