@@ -404,7 +404,6 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		memLabelKey:             strconv.Itoa(int(expResources.Mem)),
 		diskLabelKey:            strconv.Itoa(int(expResources.Disk)),
 		networkLabelKey:         strconv.Itoa(int(expResources.Network)),
-		TitusTaskInstanceIDKey:  taskID,
 		workloadTypeLabelKey:    string(BurstWorkloadType),
 		models.ExecutorPidLabel: strconv.Itoa(os.Getpid()),
 		models.TaskIDLabel:      taskID,
