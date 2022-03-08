@@ -5,7 +5,7 @@ log() {
     echo -e "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $1" >&2
 }
 
-apt-get -y install shellcheck libseccomp-dev pkg-config jsonnet
+apt-get -y install shellcheck libseccomp-dev pkg-config
 
 GO_VERSION=1.13.14
 GO_INSTALL_DIR=${HOME}/go_installs/${GO_VERSION}
@@ -31,5 +31,3 @@ log "Building executor"
 
 make clean
 make --output-sync -j16 builder all 2>&1 | redact_secrets | tee build.log
-
-
