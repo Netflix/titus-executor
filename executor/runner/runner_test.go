@@ -220,7 +220,6 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
 		TaskID:  taskID,
-		cInfo:   nil,
 		Mem:     1,
 		CPU:     1,
 		Gpu:     0,
