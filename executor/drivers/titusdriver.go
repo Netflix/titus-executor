@@ -2,10 +2,6 @@ package titusdriver
 
 import (
 	"strconv"
-
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // TitusTaskState represents the current state of a task
@@ -52,26 +48,4 @@ func (s TitusTaskState) IsTerminalStatus() bool {
 		return false
 	}
 	return true
-}
-
-// TitusDriver is the interface implemented by a generic Titus Executor Driver.
-type TitusDriver interface {
-	// ReportTitusTaskStatus is a callback function to notify the driver
-	// of a change in task state.
-	ReportTitusTaskStatus(taskID string, msg string, state TitusTaskState, details *runtimeTypes.Details)
-}
-
-// TitusExecutor is the interface implemented by a generic Titus executor.
-type TitusExecutor interface {
-	// SetTitusDriver sets callback driver to the executor to user
-	SetTitusDriver(titusDriver TitusDriver)
-	// Starts starts the executor. This is a blocking call.
-	Start()
-	// Stop stops the executor. This is a non-blocking call.
-	// When Stop returns the executor may still be shutting down.
-	Stop()
-	// StartTask starts a new task
-	StartTask(taskID string, titusInfo *titus.ContainerInfo, mem int64, cpu int64, disk uint64) error
-	// StopTask stops an existing task
-	StopTask(taskID string) error
 }
