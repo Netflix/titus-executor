@@ -451,13 +451,16 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 
 func (n *NetworkConfigurationDetails) ToAnnotationMap() map[string]string {
 	a := map[string]string{}
+	// This Network Mode is the "effective" one, which may not be the original specified
+	// network mode (which is often unset/unknown)
 	if n.NetworkMode != "" {
 		a[podCommon.AnnotationKeyEffectiveNetworkMode] = n.NetworkMode
 	}
-	if n.IPAddress != "" {
-		a[podCommon.AnnotationKeyIPAddress] = n.IPAddress
+	if p := pickPrimaryIP(n); p != "" {
+		a[podCommon.AnnotationKeyIPAddress] = p
 	}
-	if n.EniIPAddress != "" {
+	// In transition mode, we don't want to "leak" the v4 as the primary ip
+	if n.EniIPAddress != "" && n.NetworkMode != titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
 		a[podCommon.AnnotationKeyIPv4Address] = n.EniIPAddress
 	}
 	if n.EniIPv6Address != "" {
@@ -470,7 +473,33 @@ func (n *NetworkConfigurationDetails) ToAnnotationMap() map[string]string {
 		// TODO: Use the transition IP when available from the vpc allocation object
 		a[podCommon.AnnotationKeyIPv4TransitionAddress] = n.EniIPAddress
 	}
+	if n.ElasticIPAddress != "" {
+		a[podCommon.AnnotationKeyElasticIPv4Address] = n.ElasticIPAddress
+	}
 	return a
+}
+
+// pickPrimaryIP applies a series of heuristics to pick the "best" IP that should describe the task.
+// This IP is what ends up show in spinnaker or what gets sshd to, among other things.
+func pickPrimaryIP(n *NetworkConfigurationDetails) string {
+	// If we have an Elastic IP, we consider that to be the main one
+	if n.ElasticIPAddress != "" {
+		return n.ElasticIPAddress
+	}
+
+	// In transition mode, we don't want to "leak" the v4 as the primary ip
+	// But otherwise, for compatibility reasons, we consider this to be the "main" IP
+	if n.IPAddress != "" && n.NetworkMode != titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		return n.IPAddress
+	}
+
+	// If we have an v6 Address, we can use that
+	if n.ElasticIPAddress != "" {
+		return n.ElasticIPAddress
+	}
+
+	// Otherwise we don't have one to use
+	return ""
 }
 
 // Details contains additional details about a container that are
