@@ -20,14 +20,11 @@ import (
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
-
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 // Task contains all information for running a task
 type Task struct {
 	TaskID  string
-	cInfo   *titus.ContainerInfo
 	Pod     *corev1.Pod
 	Mem     int64
 	CPU     int64
