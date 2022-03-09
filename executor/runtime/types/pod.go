@@ -67,7 +67,7 @@ type PodContainer struct {
 	// ID is the container ID (in Docker). It is set by the container runtime after starting up.
 	id    string
 	image string
-	// Is this container meant to run SystemD?
+	// Is this container going to run SystemD?
 	isSystemD bool
 	// GPU devices
 	gpuInfo            GPUContainer
