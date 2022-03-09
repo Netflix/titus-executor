@@ -27,10 +27,6 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
-const (
-	TASK_FAILED = "TASK_FAILED" // nolint:golint
-)
-
 func TestMain(m *testing.M) {
 	flag.Parse()
 	if testing.Verbose() {
@@ -466,7 +462,7 @@ func TestImageNonExistingDigestFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != TASK_FAILED {
+	if status != titusdriver.Failed.String() {
 		t.Fatalf("Expected status=FAILED, got: %s", status)
 	}
 }
@@ -483,7 +479,7 @@ func TestImagePullError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != TASK_FAILED {
+	if status != titusdriver.Failed.String() {
 		t.Fatalf("Expected status=FAILED, got: %s", status)
 	}
 }
@@ -503,7 +499,7 @@ func TestCancelPullBigImage(t *testing.T) { // nolint: gocyclo
 
 	select {
 	case taskStatus := <-jobResponse.UpdateChan:
-		if taskStatus.State.String() != "TASK_STARTING" {
+		if taskStatus.State.String() != titusdriver.Starting.String() {
 			t.Fatal("Task never observed in TASK_STARTING, instead: ", taskStatus)
 		}
 	case <-time.After(15 * time.Second):
@@ -707,7 +703,7 @@ func testTerminateTimeoutWrapped(t *testing.T, jobID string, killWaitSeconds uin
 			t.Fatal("Task exited prematurely (before becoming healthy)")
 		}
 		log.Infof("Received status update %+v", status)
-		if status.State.String() == "TASK_RUNNING" && strings.Contains(status.Mesg, "health_status: healthy") {
+		if status.State.String() == titusdriver.Running.String() && strings.Contains(status.Mesg, "health_status: healthy") {
 			break
 		}
 	}
@@ -790,7 +786,7 @@ func TestOOMKill(t *testing.T) {
 	// Wait until the task is running
 	for status := range jobResponse.UpdateChan {
 		if status.State.IsTerminalStatus() {
-			if status.State.String() != "TASK_FAILED" {
+			if status.State.String() != titusdriver.Failed.String() {
 				t.Fail()
 			}
 			if !strings.Contains(status.Mesg, "OOMKilled") {
@@ -1409,4 +1405,54 @@ func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()
 	}
+}
+
+func TestPreStopHookRunsFirst(t *testing.T) {
+	wrapTestStandalone(t)
+	testEntrypointOld := `/bin/sleep 30`
+	preStopCommand := corev1.ExecAction{
+		Command: []string{"/bin/sh", "-c", "echo 'this should end up in the prestop output log'; exit 42"},
+	}
+	ji := &JobInput{
+		ImageName:                busybox.name,
+		Version:                  busybox.tag,
+		EntrypointOld:            testEntrypointOld,
+		mainContainerPreStopHook: &preStopCommand,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jobResponse, err := StartTestTask(t, ctx, ji)
+	require.NoError(t, err)
+
+	select {
+	case taskStatus := <-jobResponse.UpdateChan:
+		if taskStatus.State.String() != titusdriver.Starting.String() {
+			t.Fatal("Task never observed in TASK_STARTING, instead: ", taskStatus)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("Spent too long waiting for task starting")
+	}
+
+	timeOut := time.After(30 * time.Second)
+	select {
+	case taskStatus := <-jobResponse.UpdateChan:
+		if taskStatus.State == titusdriver.Running {
+			t.Log("Test task has started, ready to try issuing KillTask")
+			if err := jobResponse.KillTask(); err != nil {
+				t.Fatal("Could not stop task: ", err)
+			}
+		}
+		if taskStatus.State == titusdriver.Killed || taskStatus.State == titusdriver.Lost {
+			t.Logf("Task %s successfully terminated with status %s", jobResponse.TaskID, taskStatus.State.String())
+			break
+		}
+	case <-timeOut:
+		t.Fatal("Cancel failed to stop job in time")
+	}
+	jobResponse.StopExecutor()
+	// There is no great way to assert that the preStop hook actually ran (at least, it didn't crash titus-executor)
+	// If one needs proof, however, you can run this test in verbose mode, something like:
+	// go test -v -timeout 30s -tags noroot -run ^TestPreStopHookRunsFirst$ github.com/Netflix/titus-executor/executor/standalone
+	// And look to see the log message about its return code (should be 42), and you can
+	// see the prestart .err and .out files in /logs/
 }

@@ -97,6 +97,8 @@ type JobInput struct {
 	ExtraContainers  []corev1.Container
 	ExtraAnnotations map[string]string
 	Volumes          []corev1.Volume
+	// ExecAction to be added to the main container for testing preStop hooks
+	mainContainerPreStopHook *corev1.ExecAction
 }
 
 // JobRunResponse returned from RunJob
@@ -115,7 +117,7 @@ func (jobRunResponse *JobRunResponse) WaitForSuccess() bool {
 	if err != nil {
 		return false
 	}
-	res := status == "TASK_FINISHED"
+	res := status == titusdriver.Finished.String()
 	if !res {
 		jobRunResponse.logContainerStdErrOut()
 	}
@@ -130,7 +132,7 @@ func (jobRunResponse *JobRunResponse) WaitForFailure() bool {
 	if err != nil {
 		return false
 	}
-	res := status == "TASK_FAILED"
+	res := status == titusdriver.Failed.String()
 	if !res {
 		jobRunResponse.logContainerStdErrOut()
 	}
@@ -186,12 +188,12 @@ func (jobRunResponse *JobRunResponse) WaitForFailureStatus(ctx context.Context) 
 // if it completed successfully.
 func (jobRunResponse *JobRunResponse) WaitForCompletion() (string, error) {
 	for status := range jobRunResponse.runner.UpdatesChan {
-		if status.State.String() == "TASK_RUNNING" || status.State.String() == "TASK_STARTING" {
+		if status.State.String() == titusdriver.Running.String() || status.State.String() == titusdriver.Starting.String() {
 			continue // Ignore non-terminal states
 		}
 		return status.State.String(), nil
 	}
-	return "TASK_LOST", errStatusChannelClosed
+	return titusdriver.Lost.String(), errStatusChannelClosed
 }
 
 // ListenForRunning sends true on the returned channel when the task is running, or false if it terminates
@@ -350,6 +352,13 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	}
 
 	mainContainer := &pod.Spec.Containers[0]
+	if jobInput.mainContainerPreStopHook != nil {
+		pod.Spec.Containers[0].Lifecycle = &corev1.Lifecycle{
+			PreStop: &corev1.Handler{
+				Exec: jobInput.mainContainerPreStopHook,
+			},
+		}
+	}
 
 	if p := jobInput.Process; p != nil {
 		mainContainer.Command = p.Entrypoint

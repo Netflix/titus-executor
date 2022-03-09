@@ -34,6 +34,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/docker/docker/api/types"
+	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -1189,7 +1190,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nol
 error:
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
-		log.Error("Unable to create container: ", err)
+		log.Error("Unable to create main container: ", err)
 		r.metrics.Counter("titus.executor.dockerCreateContainerError", 1, nil)
 	}
 	return err
@@ -2647,6 +2648,10 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 		goto stopped
 	}
 
+	if err := r.runAllPreStopHooks(ctx); err.ErrorOrNil() != nil {
+		log.Error("Error encountered when running preStop hooks, continuing to shutdown regardless", err)
+	}
+
 	logger.G(ctx).Debug("Stopping main container")
 	if err := r.client.ContainerStop(context.TODO(), r.c.ID(), cStopPtr); err != nil {
 		r.metrics.Counter("titus.executor.dockerStopContainerError", 1, nil)
@@ -2677,6 +2682,88 @@ stopped:
 	err := errs.ErrorOrNil()
 	tracehelpers.SetStatus(err, span)
 	return err
+}
+
+// runAllPreStopHooks emulates k8s lifecycle preStop hook sequence
+// https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/#container-hooks
+// Hooks are blocking, and pods should not assume any particular order
+func (r *DockerRuntime) runAllPreStopHooks(ctx context.Context) *multierror.Error {
+	var errs *multierror.Error
+	for _, c := range r.c.ExtraPlatformContainers() {
+		err := r.runPreStopHookIfDefined(ctx, &c.V1Container, c.Status.ContainerID)
+		errs = multierror.Append(errs, err)
+	}
+	for _, c := range r.c.ExtraUserContainers() {
+		err := r.runPreStopHookIfDefined(ctx, &c.V1Container, c.Status.ContainerID)
+		errs = multierror.Append(errs, err)
+
+	}
+	err := r.runPreStopHookIfDefined(ctx, &r.c.Pod().Spec.Containers[0], r.c.ID())
+	errs = multierror.Append(errs, err)
+	return errs
+}
+
+func (r *DockerRuntime) runPreStopHookIfDefined(ctx context.Context, c *v1.Container, cid string) error {
+	if c.Lifecycle == nil {
+		return nil
+	}
+	if c.Lifecycle.PreStop == nil {
+		return nil
+	}
+	if cid == "" {
+		return fmt.Errorf("Unable to run any preStop hooks for %s container, cid is empty?", c.Name)
+	}
+	if c.Lifecycle.PreStop.HTTPGet != nil {
+		return fmt.Errorf("HTTP prestop hook on %s container not supported, ignoring", c.Name)
+	}
+	if c.Lifecycle.PreStop.TCPSocket != nil {
+		return fmt.Errorf("TCPSocket prestop hook on %s container not supported, ignoring", c.Name)
+	}
+	if c.Lifecycle.PreStop.Exec == nil {
+		return nil
+	}
+	if c.Lifecycle.PreStop.Exec.Command == nil {
+		return nil
+	}
+	return r.runBlockingPreStopExec(ctx, c.Lifecycle.PreStop.Exec.Command, cid, c.Name)
+}
+
+// runBlockingPreStopExec runs 'docker exec' in a container, for the purposes of running a preStop hook for a container
+// This is meant as a best effort sort of thing, where errors are reported, but callers of this function should just report
+// on them. Tini is also involved, because it difficult to debug these preStop hooks, so having the output automatically
+// redirected to a file in /logs allows users to see them after the fact.
+func (r *DockerRuntime) runBlockingPreStopExec(ctx context.Context, command []string, cid string, cName string) error {
+	logger.G(ctx).Debugf("About to run blocking prestop exec (%v) on container %s", command, cName)
+	// Tini is added here
+	env := []string{
+		"TITUS_REDIRECT_STDERR=/logs/prestop." + cName + ".err",
+		"TITUS_REDIRECT_STDOUT=/logs/prestop." + cName + ".out",
+	}
+	tiniCommand := []string{"/sbin/docker-init", "-s", "--"}
+	optionsCreate := dockerTypes.ExecConfig{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          append(tiniCommand, command...),
+		Env:          env,
+	}
+	createResponse, err := r.client.ContainerExecCreate(ctx, cid, optionsCreate)
+	if err != nil {
+		return fmt.Errorf("Error when creating exec (%v) for %s: %w", command, cName, err)
+	}
+	optionsStart := dockerTypes.ExecStartCheck{
+		Detach: false,
+		Tty:    false,
+	}
+	err = r.client.ContainerExecStart(ctx, createResponse.ID, optionsStart)
+	if err != nil {
+		return fmt.Errorf("Error when starting exec (%v) for %s: %w", command, cName, err)
+	}
+	inspectResponse, err := r.client.ContainerExecInspect(ctx, createResponse.ID)
+	if err != nil {
+		return fmt.Errorf("Error when inspecting exec attach (%v) for %s: %w", command, cName, ctx.Err())
+	}
+	logger.G(ctx).Infof("Exec on (cid %s) exited with %d", cid, inspectResponse.ExitCode)
+	return nil
 }
 
 // Cleanup runs the registered callbacks for a container

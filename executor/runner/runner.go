@@ -139,7 +139,7 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 	go func() {
 		select {
 		case <-r.killChan:
-			logger.G(ctx).Debug("Got cancel in prepare")
+			logger.G(ctx).Debug("Got request to stop while still in the prepare phase")
 			prepareCancel()
 		case <-prepareCtx.Done():
 		}
