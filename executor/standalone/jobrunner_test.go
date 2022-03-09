@@ -379,7 +379,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	systemEnvVars := []corev1.EnvVar{
 		{
 			// This needs to be set for the IMDS to start up
-			Name:  runtimeTypes.TitusTaskInstanceIDKey,
+			Name:  runtimeTypes.TitusTaskInstanceIDEnvVar,
 			Value: task.TaskID,
 		},
 		{

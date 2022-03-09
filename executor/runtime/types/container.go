@@ -18,26 +18,18 @@ import (
 )
 
 const (
-	appNameLabelKey        = "com.netflix.titus.appName"
-	commandLabelKey        = "com.netflix.titus.command"
-	entrypointLabelKey     = "com.netflix.titus.entrypoint"
-	cpuLabelKey            = "com.netflix.titus.cpu"
-	iamRoleLabelKey        = "ec2.iam.role"
-	memLabelKey            = "com.netflix.titus.mem"
-	diskLabelKey           = "com.netflix.titus.disk"
-	networkLabelKey        = "com.netflix.titus.network"
-	workloadTypeLabelKey   = "com.netflix.titus.workload.type"
-	ownerEmailLabelKey     = "com.netflix.titus.owner.email"
-	jobTypeLabelKey        = "com.netflix.titus.job.type"
-	TitusTaskInstanceIDKey = "TITUS_TASK_INSTANCE_ID"
-
-	// Passthrough params
-	LogKeepLocalFileAfterUploadParam        = "titusParameter.agent.log.keepLocalFileAfterUpload"
-	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
-	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
-	SeccompAgentEnabledForPerfSyscallsParam = "titusParameter.agent.seccompAgentEnabledForPerfSyscalls"
-	AccountIDParam                          = "titusParameter.agent.accountId"
-	TrafficSteeringEnabledParam             = "titusParameter.agent.trafficSteeringEnabled"
+	appNameLabelKey           = "com.netflix.titus.appName"
+	commandLabelKey           = "com.netflix.titus.command"
+	entrypointLabelKey        = "com.netflix.titus.entrypoint"
+	cpuLabelKey               = "com.netflix.titus.cpu"
+	iamRoleLabelKey           = "ec2.iam.role"
+	memLabelKey               = "com.netflix.titus.mem"
+	diskLabelKey              = "com.netflix.titus.disk"
+	networkLabelKey           = "com.netflix.titus.network"
+	workloadTypeLabelKey      = "com.netflix.titus.workload.type"
+	ownerEmailLabelKey        = "com.netflix.titus.owner.email"
+	jobTypeLabelKey           = "com.netflix.titus.job.type"
+	TitusTaskInstanceIDEnvVar = "TITUS_TASK_INSTANCE_ID"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
@@ -74,7 +66,6 @@ func addLabels(taskID string, c Container, resources *Resources) map[string]stri
 	labels := map[string]string{
 		models.ExecutorPidLabel: fmt.Sprintf("%d", os.Getpid()),
 		models.TaskIDLabel:      taskID,
-		TitusTaskInstanceIDKey:  taskID,
 	}
 
 	iamRole := c.IamRole()
