@@ -419,9 +419,8 @@ type Resources struct {
 // NetworkConfigurationDetails used to pass results back to master
 type NetworkConfigurationDetails struct {
 	IsRoutableIP        bool
-	IPAddress           string
 	ElasticIPAddress    string
-	EniIPAddress        string
+	EniIPv4Address      string
 	EniIPv6Address      string
 	NetworkMode         string
 	EniID               string
@@ -434,11 +433,8 @@ type NetworkConfigurationDetails struct {
 func (n *NetworkConfigurationDetails) ToLegacyAnnotationMap() map[string]string {
 	m := make(map[string]string)
 	m["IsRoutableIp"] = strconv.FormatBool(n.IsRoutableIP)
-	if n.IPAddress != "" {
-		m["IpAddress"] = n.IPAddress
-	}
-	if n.EniIPAddress != "" {
-		m["EniIpAddress"] = n.EniIPAddress
+	if n.EniIPv4Address != "" {
+		m["EniIpAddress"] = n.EniIPv4Address
 	}
 	m["EniId"] = n.EniID
 	m["ResourceId"] = n.ResourceID
@@ -465,12 +461,14 @@ func (n *NetworkConfigurationDetails) ToAnnotationMap() map[string]string {
 	if n.NetworkMode != "" {
 		a[podCommon.AnnotationKeyEffectiveNetworkMode] = n.NetworkMode
 	}
-	if p := pickPrimaryIP(n); p != "" {
+	if p := n.PickPrimaryIP(); p != "" {
 		a[podCommon.AnnotationKeyIPAddress] = p
 	}
-	// In transition mode, we don't want to "leak" the v4 as the primary ip
-	if n.EniIPAddress != "" && n.NetworkMode != titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
-		a[podCommon.AnnotationKeyIPv4Address] = n.EniIPAddress
+	if n.EniIPv4Address != "" {
+		// In transition mode, we don't want to "leak" the v4 as the primary ip
+		if n.NetworkMode != titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+			a[podCommon.AnnotationKeyIPv4Address] = n.EniIPv4Address
+		}
 	}
 	if n.EniIPv6Address != "" {
 		a[podCommon.AnnotationKeyIPv6Address] = n.EniIPv6Address
@@ -480,7 +478,7 @@ func (n *NetworkConfigurationDetails) ToAnnotationMap() map[string]string {
 	}
 	if n.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
 		// TODO: Use the transition IP when available from the vpc allocation object
-		a[podCommon.AnnotationKeyIPv4TransitionAddress] = n.EniIPAddress
+		a[podCommon.AnnotationKeyIPv4TransitionAddress] = n.EniIPv4Address
 	}
 	if n.ElasticIPAddress != "" {
 		a[podCommon.AnnotationKeyElasticIPv4Address] = n.ElasticIPAddress
@@ -488,23 +486,21 @@ func (n *NetworkConfigurationDetails) ToAnnotationMap() map[string]string {
 	return a
 }
 
-// pickPrimaryIP applies a series of heuristics to pick the "best" IP that should describe the task.
+// PickPrimaryIP applies a series of heuristics to pick the "best" IP that should describe the task.
 // This IP is what ends up show in spinnaker or what gets sshd to, among other things.
-func pickPrimaryIP(n *NetworkConfigurationDetails) string {
+func (n *NetworkConfigurationDetails) PickPrimaryIP() string {
+	// In transition mode, we don't want to "leak" the v4 as the primary ip
+	if n.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
+		return n.EniIPv6Address
+	}
 	// If we have an Elastic IP, we consider that to be the main one
 	if n.ElasticIPAddress != "" {
 		return n.ElasticIPAddress
 	}
 
-	// In transition mode, we don't want to "leak" the v4 as the primary ip
-	// But otherwise, for compatibility reasons, we consider this to be the "main" IP
-	if n.IPAddress != "" && n.NetworkMode != titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
-		return n.IPAddress
-	}
-
 	// If we have an v6 Address, we can use that
-	if n.ElasticIPAddress != "" {
-		return n.ElasticIPAddress
+	if n.EniIPv6Address != "" {
+		return n.EniIPv6Address
 	}
 
 	// Otherwise we don't have one to use

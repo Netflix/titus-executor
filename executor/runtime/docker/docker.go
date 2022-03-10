@@ -1556,8 +1556,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	if a := allocation.IPV4Address(); a != nil {
-		details.NetworkConfiguration.IPAddress = a.Address.Address
-		details.NetworkConfiguration.EniIPAddress = a.Address.Address
+		details.NetworkConfiguration.EniIPv4Address = a.Address.Address
 	}
 
 	if a := allocation.IPV6Address(); a != nil {
@@ -1566,6 +1565,10 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 
 	if e := allocation.ElasticAddress(); e != nil {
 		details.NetworkConfiguration.ElasticIPAddress = e.Ip
+	}
+
+	if a := allocation.TransitionAddress(); a != nil {
+		details.NetworkConfiguration.TransitionIPAddress = a.Address.Address
 	}
 
 	logDir, tiniConn, err := r.setupTini(ctx, listener, r.c)
