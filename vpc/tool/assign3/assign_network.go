@@ -186,7 +186,7 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 	} else if args.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() || args.NetworkMode == titus.NetworkConfiguration_HighScale.String() {
 		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_TransitionRequested{}
 	} else {
-		logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Experimental: Not assigning IPv4")
+		logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Warning("Experimental: Not assigning IPv4")
 	}
 
 	logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Debug("Making assign IP request")
