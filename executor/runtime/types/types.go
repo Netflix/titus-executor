@@ -429,7 +429,9 @@ type NetworkConfigurationDetails struct {
 	TransitionIPAddress string
 }
 
-func (n *NetworkConfigurationDetails) ToMap() map[string]string {
+// ToLegacyAnnotationMap builds up a map of "legacy" annotations that are a 1:1
+// reflection of the NetworkConfigurationDetails struct, in pod annotation form.
+func (n *NetworkConfigurationDetails) ToLegacyAnnotationMap() map[string]string {
 	m := make(map[string]string)
 	m["IsRoutableIp"] = strconv.FormatBool(n.IsRoutableIP)
 	if n.IPAddress != "" {
@@ -453,6 +455,9 @@ func (n *NetworkConfigurationDetails) ToMap() map[string]string {
 	return m
 }
 
+// ToAnnotationMap builds up a map of annotations that are a computed
+// reflection of the NetworkConfigurationDetails struct, using the newer style
+// pod annotation conventions from titus-kube-common
 func (n *NetworkConfigurationDetails) ToAnnotationMap() map[string]string {
 	a := map[string]string{}
 	// This Network Mode is the "effective" one, which may not be the original specified
