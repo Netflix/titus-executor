@@ -32,7 +32,6 @@ func addSharedFlags(flags *pflag.FlagSet) {
 	flags.String(sslCAFlagName, "", "SSL CA")
 	flags.String(sslKeyFlagName, "", "SSL Key")
 	flags.String(sslCertFlagName, "", "SSL Cert")
-
 }
 
 func getSecurityConfiguration(ctx context.Context, v *pkgviper.Viper) (grpc.DialOption, error) {

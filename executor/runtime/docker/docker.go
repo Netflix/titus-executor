@@ -461,7 +461,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 	// Always setup tmpfs: it's needed to ensure Metatron credentials don't persist across reboots and for SystemD to work
 	hostCfg.Tmpfs = map[string]string{
-		"/run": "rw,exec,size=" + defaultRunTmpFsSize,
+		"/run":       "rw,exec,size=" + defaultRunTmpFsSize,
+		"/run/netns": "rw,size=" + defaultRunTmpFsSize,
 	}
 
 	if c.IsSystemD() {
@@ -1533,6 +1534,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	r.metrics.Timer("titus.executor.dockerStartTime", time.Since(dockerStartStartTime), r.c.ImageTagForMetrics())
 
 	allocation := r.c.VPCAllocation()
+
 	eni := allocation.ContainerENI()
 	if allocation == nil || eni == nil {
 		eventCancel()
@@ -2484,14 +2486,14 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	log.Info("Setting up container network")
 	var result vpcTypes.WiringStatus
 
-	netnsPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "ns", "net")
-	netnsFile, err := os.Open(netnsPath)
+	pid1DirPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)))
+	pid1DirFile, err := os.Open(pid1DirPath)
 	if err != nil {
 		return nil, err
 	}
-	defer shouldClose(netnsFile)
+	defer shouldClose(pid1DirFile)
 
-	setupCommand := exec.CommandContext(ctx, vpcToolPath(), "setup-container", "--netns", "3") // nolint: gosec
+	setupCommand := exec.CommandContext(ctx, vpcToolPath(), "setup-container", "--pid-1-dir-fd", "3") // nolint: gosec
 	stdin, err := setupCommand.StdinPipe()
 	if err != nil {
 		return nil, err // nolint: vet
@@ -2502,7 +2504,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	}
 
 	setupCommand.Stderr = os.Stderr
-	setupCommand.ExtraFiles = []*os.File{netnsFile}
+	setupCommand.ExtraFiles = []*os.File{pid1DirFile}
 
 	err = setupCommand.Start()
 	if err != nil {
@@ -2531,6 +2533,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 		return nil, fmt.Errorf("Network setup error: %s", result.Error)
 	}
 
+	netnsPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "ns", "net")
 	f2, err := os.Open(netnsPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to open container network namespace file")

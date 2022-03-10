@@ -27,6 +27,7 @@ mv build/tini/tini-static build/bin/linux-amd64
     make V=1
 )
 mv build/inject/titus-nsenter build/bin/linux-amd64
+mv build/inject/titus-mnt build/bin/linux-amd64
 
 install -t root/apps/titus-executor/bin build/bin/linux-amd64/*
 

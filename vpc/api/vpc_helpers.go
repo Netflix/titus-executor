@@ -15,6 +15,22 @@ func (m *Assignment) IPV4Address() *UsableAddress {
 	}
 }
 
+func (m *Assignment) TransitionAddress() *UsableAddress {
+	if m == nil {
+		return nil
+	}
+	switch t := (m.Assignment).(type) {
+	case *Assignment_AssignIPResponseV3:
+		if t.AssignIPResponseV3.TransitionAssignment == nil {
+			return nil
+		}
+
+		return t.AssignIPResponseV3.TransitionAssignment.Ipv4Address
+	default:
+		panic(fmt.Sprintf("Found unexpected type: %T", t))
+	}
+}
+
 func (m *Assignment) IPV6Address() *UsableAddress {
 	if m == nil {
 		return nil

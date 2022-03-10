@@ -107,10 +107,11 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
    The function return value is a file descriptor from which the user-space
    notifications can be fetched. 
 */
+#define SOCK_TYPE_MASK ~(SOCK_NONBLOCK | SOCK_CLOEXEC)
 static int install_notify_filter(void) {
 	int notify_fd = -1;
 	struct sock_fprog prog = {0};
-	
+
 	struct sock_filter perf_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
@@ -141,7 +142,7 @@ static int install_notify_filter(void) {
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 	};
 
-struct sock_filter net_filter[] = {
+	struct sock_filter net_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 0, 2),
@@ -160,6 +161,22 @@ struct sock_filter net_filter[] = {
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 		/* Trap connect */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_connect, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+
+		/* Trap socket */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 1, 0),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),
+		/* Load the first argument */
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, args[0]))),
+
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET, 2, 0),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET6, 1, 0),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),
+
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, args[1]))),
+		BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, SOCK_TYPE_MASK & SOCK_DGRAM, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, SOCK_TYPE_MASK & SOCK_STREAM, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
 
 		/* Every other system call is allowed */

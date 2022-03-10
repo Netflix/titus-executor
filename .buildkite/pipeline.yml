@@ -8,6 +8,7 @@ steps:
     branches:
       - master
       - prefix-delegation
+      - transition-ns-5
     build:
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"

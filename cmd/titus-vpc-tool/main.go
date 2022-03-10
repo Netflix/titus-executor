@@ -30,13 +30,14 @@ const (
 	statsdAddrFlagName      = "statsd-addr"
 	zipkinURLFlagName       = "zipkin"
 	// which generation of titus-vpc-tool version to use, it must be set to 1 or 2
-	generationFlagName     = "generation"
-	generationDefaultValue = "v0"
-	interaceSubnet         = "interface-subnet"
-	interfaceAccount       = "interface-account"
-	sslCAFlagName          = "ssl-ca"
-	sslKeyFlagName         = "ssl-key"
-	sslCertFlagName        = "ssl-cert"
+	generationFlagName      = "generation"
+	generationDefaultValue  = "v0"
+	interaceSubnet          = "interface-subnet"
+	interfaceAccount        = "interface-account"
+	sslCAFlagName           = "ssl-ca"
+	sslKeyFlagName          = "ssl-key"
+	sslCertFlagName         = "ssl-cert"
+	transitionNSDirFlagName = "transition-namespace-dir"
 )
 
 type instanceProviderResolver struct {
