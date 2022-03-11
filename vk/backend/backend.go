@@ -271,7 +271,7 @@ func (b *Backend) RunWithOutputDir(ctx context.Context, dir string) error {
 func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	b.pod.Status.Message = update.Mesg
 	if update.Details != nil {
-		b.pod.Status.PodIP = update.Details.NetworkConfiguration.IPAddress
+		b.pod.Status.PodIP = update.Details.NetworkConfiguration.PickPrimaryIP()
 
 		podIPs := []v1.PodIP{}
 		// We only get to have 1 IPv4 and 1 IPv6 address in this array
@@ -282,18 +282,18 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 			podIPs = []v1.PodIP{
 				{IP: update.Details.NetworkConfiguration.ElasticIPAddress},
 			}
-		} else if update.Details.NetworkConfiguration.IPAddress != "" {
+		} else if update.Details.NetworkConfiguration.EniIPv4Address != "" {
 			podIPs = []v1.PodIP{
-				{IP: update.Details.NetworkConfiguration.IPAddress},
+				{IP: update.Details.NetworkConfiguration.EniIPv4Address},
 			}
 		}
 
 		// And now, V6, if we have one
 		// TODO: append a non-eip v6 if we can determine that we have one
 		if update.Details.NetworkConfiguration.EniIPv6Address != "" {
-			podIPs = append(b.pod.Status.PodIPs, v1.PodIP{
-				IP: update.Details.NetworkConfiguration.EniIPv6Address,
-			})
+			podIPs = []v1.PodIP{
+				{IP: update.Details.NetworkConfiguration.EniIPv6Address},
+			}
 		}
 		b.pod.Status.PodIPs = podIPs
 	}

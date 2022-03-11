@@ -182,10 +182,10 @@ func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.In
 				},
 			},
 		}
-	} else if shouldAssignV4 {
-		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true}
 	} else if args.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() || args.NetworkMode == titus.NetworkConfiguration_HighScale.String() {
 		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_TransitionRequested{}
+	} else if shouldAssignV4 {
+		assignIPRequest.Ipv4 = &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true}
 	} else {
 		logger.G(ctx).WithField("assignIPRequest", assignIPRequest).Warning("Experimental: Not assigning IPv4")
 	}
