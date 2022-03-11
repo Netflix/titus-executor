@@ -378,12 +378,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	// Now that the user env vars are added, the system ones come after
 	systemEnvVars := []corev1.EnvVar{
 		{
-			// This needs to be set for the IMDS to start up
-			Name:  runtimeTypes.TitusTaskInstanceIDEnvVar,
-			Value: task.TaskID,
-		},
-		{
-			// This needs to be set for the logviewer to work properly
+			// This needs to be set for the logviewer, imds, and many other things to work properly
 			Name:  "TITUS_TASK_ID",
 			Value: task.TaskID,
 		},
@@ -485,7 +480,6 @@ func StartTestTask(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobR
 
 	env := map[string]string{
 		"TITUS_TASK_ID":                       taskID,
-		"TITUS_TASK_INSTANCE_ID":              taskID,
 		metadataserverTypes.EC2IPv4EnvVarName: "192.0.2.1",
 	}
 

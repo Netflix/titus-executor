@@ -18,18 +18,17 @@ import (
 )
 
 const (
-	appNameLabelKey           = "com.netflix.titus.appName"
-	commandLabelKey           = "com.netflix.titus.command"
-	entrypointLabelKey        = "com.netflix.titus.entrypoint"
-	cpuLabelKey               = "com.netflix.titus.cpu"
-	iamRoleLabelKey           = "ec2.iam.role"
-	memLabelKey               = "com.netflix.titus.mem"
-	diskLabelKey              = "com.netflix.titus.disk"
-	networkLabelKey           = "com.netflix.titus.network"
-	workloadTypeLabelKey      = "com.netflix.titus.workload.type"
-	ownerEmailLabelKey        = "com.netflix.titus.owner.email"
-	jobTypeLabelKey           = "com.netflix.titus.job.type"
-	TitusTaskInstanceIDEnvVar = "TITUS_TASK_INSTANCE_ID"
+	appNameLabelKey      = "com.netflix.titus.appName"
+	commandLabelKey      = "com.netflix.titus.command"
+	entrypointLabelKey   = "com.netflix.titus.entrypoint"
+	cpuLabelKey          = "com.netflix.titus.cpu"
+	iamRoleLabelKey      = "ec2.iam.role"
+	memLabelKey          = "com.netflix.titus.mem"
+	diskLabelKey         = "com.netflix.titus.disk"
+	networkLabelKey      = "com.netflix.titus.network"
+	workloadTypeLabelKey = "com.netflix.titus.workload.type"
+	ownerEmailLabelKey   = "com.netflix.titus.owner.email"
+	jobTypeLabelKey      = "com.netflix.titus.job.type"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
