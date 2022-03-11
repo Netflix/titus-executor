@@ -75,7 +75,7 @@ func makeFDListener(fd int64) net.Listener {
 func readTaskContainerInfoFile(taskID string) (*titus.ContainerInfo, error) {
 	if taskID == "" {
 		log.Errorf("task ID is empty: can't read task cinfo file")
-		return nil, fmt.Errorf("task ID env var unset: %s", runtimeTypes.TitusTaskInstanceIDEnvVar)
+		return nil, fmt.Errorf("TITUS_TASK_ID env var unset?")
 	}
 	confFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", taskID))
 	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
@@ -96,7 +96,7 @@ func readTaskContainerInfoFile(taskID string) (*titus.ContainerInfo, error) {
 func readTaskPodFile(taskID string) (*corev1.Pod, error) {
 	if taskID == "" {
 		log.Errorf("task ID is empty: can't read pod config file")
-		return nil, fmt.Errorf("task ID env var unset: %s", runtimeTypes.TitusTaskInstanceIDEnvVar)
+		return nil, fmt.Errorf("TITUS_TASK_ID env var unset?")
 	}
 
 	// This filename is from VK, which is /run/titus-executor/$namespace__$podname/pod.json
@@ -220,7 +220,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:        "titus-task-instance-id",
-			EnvVar:      runtimeTypes.TitusTaskInstanceIDEnvVar,
+			EnvVar:      "TITUS_TASK_ID",
 			Destination: &titusTaskInstanceID,
 		},
 		cli.StringFlag{

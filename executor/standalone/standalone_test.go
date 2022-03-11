@@ -1129,7 +1129,7 @@ func TestContainerLogViewer(t *testing.T) {
 			"echo stdout-should-go-to-log;" +
 			"source /etc/profile.d/netflix_environment.sh;" +
 			"i=0;" +
-			"url=\"http://localhost:8004/logs/${TITUS_TASK_INSTANCE_ID}?f=stdout\"; " +
+			"url=\"http://localhost:8004/logs/${TITUS_TASK_ID}?f=stdout\"; " +
 			"while [[ $i -lt 10 ]] && ! curl -s $url | grep -q stdout-should-go-to-log ; do " +
 			"  sleep 1;" +
 			"  echo $i;" +
