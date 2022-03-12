@@ -448,6 +448,9 @@ func (n *NetworkConfigurationDetails) ToLegacyAnnotationMap() map[string]string 
 	if n.TransitionIPAddress != "" {
 		m["TransitionIPAddress"] = n.TransitionIPAddress
 	}
+	if p := n.PickPrimaryIP(); p != "" {
+		m["IpAddress"] = p
+	}
 	return m
 }
 
@@ -496,6 +499,11 @@ func (n *NetworkConfigurationDetails) PickPrimaryIP() string {
 	// If we have an Elastic IP, we consider that to be the main one
 	if n.ElasticIPAddress != "" {
 		return n.ElasticIPAddress
+	}
+
+	// We prefer IPv4 as our primary IP over IPv6.
+	if n.EniIPv4Address != "" {
+		return n.EniIPv4Address
 	}
 
 	// If we have an v6 Address, we can use that
