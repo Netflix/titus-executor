@@ -59,6 +59,11 @@ func main() {
 				return err
 			}
 			defer exclusiveLock.Unlock()
+			err = mntSharedRunner(ctx, command, mountConfig)
+			if err != nil {
+				l.WithError(err)
+				// TODO: eventually return error when this becomes important
+			}
 			if mountConfig.ebsVolumeID != "" {
 				err := ebsRunner(ctx, command, mountConfig)
 				if err != nil {

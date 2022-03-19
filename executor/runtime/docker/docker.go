@@ -987,6 +987,16 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nol
 		bindMounts = append(bindMounts, runTmpfs)
 	}
 
+	// In the case where we have multiple containers, we also create a mount tmpfs
+	// for *all* of them to share.
+	if len(append(r.c.ExtraPlatformContainers(), r.c.ExtraUserContainers()...)) > 0 {
+		err := r.createMntTmpfs()
+		r.registerRuntimeCleanup(r.cleanupMntTmpfs)
+		if err != nil {
+			goto error
+		}
+	}
+
 	systemServices, err = r.c.SystemServices()
 	if err != nil {
 		goto error
@@ -1318,6 +1328,27 @@ func (r *DockerRuntime) createMetatronTmpfs() (string, error) {
 	return v, err
 }
 
+// createMmtTmpfs creates a tmpfs directory outside of the container(s) for use for '/mnt-shared'
+func (r *DockerRuntime) createMntTmpfs() error {
+	podMountSharedFsHostPath, err := r.getPodMountSharedFsHostPath()
+	if err != nil {
+		return err
+	}
+	err = os.MkdirAll(podMountSharedFsHostPath, os.FileMode(0755))
+	if err != nil {
+		return err
+	}
+	err = os.Chmod(podMountSharedFsHostPath, os.FileMode(0755))
+	if err != nil {
+		return err
+	}
+	err = mountTmpfs(podMountSharedFsHostPath, defaultRunTmpFsSize)
+	// TODO:
+	// mount --make-rshared /run/titus-executor/default__c8ab3af7-2626-4ba2-8c05-1358810c052b/mounts/mnt-shared
+	// touch  /run/titus-executor/default__c8ab3af7-2626-4ba2-8c05-1358810c052b/mounts/mnt-shared/this-is-mnt-shared
+	return err
+}
+
 func (r *DockerRuntime) cleanupMetatronTmpfs() error {
 	podMetatronFsHostPath, err := r.getPodMetatronFsHostPath()
 	if err != nil {
@@ -1326,11 +1357,27 @@ func (r *DockerRuntime) cleanupMetatronTmpfs() error {
 	return unmountTmpfs(podMetatronFsHostPath)
 }
 
+func (r *DockerRuntime) cleanupMntTmpfs() error {
+	podMountSharedFsHostPath, err := r.getPodMountSharedFsHostPath()
+	if err != nil {
+		return err
+	}
+	return unmountTmpfs(podMountSharedFsHostPath)
+}
+
 func (r *DockerRuntime) getPodMetatronFsHostPath() (string, error) {
 	if r.cfg.RuntimeDir == "" {
 		return "", fmt.Errorf("RuntimeDir not set, unable to create tmpfs for /run/metatron")
 	}
 	hostPath := path.Join(r.cfg.RuntimeDir, "/mounts/run/metatron")
+	return hostPath, nil
+}
+
+func (r *DockerRuntime) getPodMountSharedFsHostPath() (string, error) {
+	if r.cfg.RuntimeDir == "" {
+		return "", fmt.Errorf("RuntimeDir not set, unable to create tmpfs for /mnt-shared")
+	}
+	hostPath := path.Join(r.cfg.RuntimeDir, "/mounts/mnt-shared")
 	return hostPath, nil
 }
 
@@ -1366,6 +1413,14 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 
 	if err := tw.WriteHeader(&tar.Header{
 		Name:     "/run-shared",
+		Mode:     0777,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.WithError(err).Fatal()
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "/mnt-shared",
 		Mode:     0777,
 		Typeflag: tar.TypeDir,
 	}); err != nil {
