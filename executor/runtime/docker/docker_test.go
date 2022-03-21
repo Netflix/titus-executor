@@ -13,12 +13,17 @@ import (
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/config"
+	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/properties"
+	commonResource "github.com/Netflix/titus-kube-common/resource"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	docker "github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestDockerPullRetries(t *testing.T) {
@@ -248,4 +253,68 @@ func TestValidEnvironmentKeys(t *testing.T) {
 func TestFlags(t *testing.T) {
 	_, flags := NewConfig()
 	properties.ConvertFlagsForAltSrc(flags)
+}
+
+func TestContainerStatusMetrics(t *testing.T) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"pod.titus.netflix.com/image-tag-main":       "latest",
+				"pod.titus.netflix.com/system-env-var-names": "",
+			},
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:  "main",
+					Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/echoservice@sha256:60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e",
+					Resources: v1.ResourceRequirements{
+						Limits: v1.ResourceList{
+							commonResource.ResourceNameNetwork: resource.MustParse("128M"),
+						},
+					},
+				},
+				{
+					Name: "fuse",
+					Env: []v1.EnvVar{
+						{
+							Name:  "NETFLIX_PROCESS_NAME",
+							Value: "foo",
+						},
+					},
+				},
+			},
+		},
+		Status: v1.PodStatus{
+			ContainerStatuses: []v1.ContainerStatus{
+				{
+					Name:  "main",
+					Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/echoservice@sha256:60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e",
+					Ready: true,
+					State: v1.ContainerState{
+						Running: &v1.ContainerStateRunning{},
+					},
+				},
+				{
+					Name:  "fuse",
+					Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/titus-test-fuse@sha256:f6ac1d3f204660792aef47b482fb43a34de23768727512868f428d18a90d4c48",
+					Ready: true,
+					State: v1.ContainerState{
+						Running: &v1.ContainerStateRunning{},
+					},
+				},
+			},
+		},
+	}
+	container, err := runtimeTypes.NewPodContainer(pod, config.Config{})
+	assert.NoError(t, err)
+	runtime := &DockerRuntime{
+		c: container,
+	}
+	actual := runtime.containerStatusMetrics()
+	expected := []string{
+		"g,2:titus.containers.status,nf.container=main,titus.image.name=titusops_echoservice_latest,titus.image.version=sha256_60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e,titus.state=healthy:1",
+		"g,2:titus.containers.status,nf.container=fuse,nf.process=foo,titus.image.name=titusops_titus-test-fuse,titus.image.version=sha256_f6ac1d3f204660792aef47b482fb43a34de23768727512868f428d18a90d4c48,titus.state=healthy:1",
+	}
+	assert.Equal(t, expected, actual)
 }

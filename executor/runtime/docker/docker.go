@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -108,6 +110,11 @@ var NoEntrypointError = &runtimeTypes.BadEntryPointError{Reason: errors.New("Ima
 // Portable Character Set and do not begin with a digit. Other characters may be permitted by an implementation;
 // applications shall tolerate the presence of such names.
 var environmentVariableKeyRegexp = regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_]*$")
+
+// Spectatord tag keys and values are only allowed to use characters in the set -._A-Za-z0-9.
+// Others will be converted to an _.
+// See https://github.com/Netflix-Skunkworks/spectatord#allowed-characters.
+var spectatordUnexpectedTagCharRegexp = regexp.MustCompile("[^-._A-Za-z0-9]")
 
 // possibleSystemdPaths is a list of paths that represent commands that end up running systemd.
 // We need this so that we can know if we should `exec` into them or not (TINI_HANDOFF)
@@ -1627,6 +1634,8 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		}
 	}
 
+	go r.reportContainerStatusMetrics(parentCtx)
+
 	// Last, we actually start the containers. And by start we mean:
 	// platform sidecars first (via docker start)
 	// user extra containers second (via docker start)
@@ -1638,6 +1647,137 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	return logDir, details, statusMessageChan, err
+}
+
+func (r *DockerRuntime) reportContainerStatusMetrics(ctx context.Context) {
+	l := log.WithField("taskID", r.c.TaskID())
+	defer func() {
+		if r := recover(); r != nil {
+			l.Warnf("Unexpected panic when reporting container status metrics: %#v", r)
+		}
+	}()
+	spectatordSocket := fmt.Sprintf("/var/lib/titus-inits/%s/root/run/spectatord/spectatord.unix", r.c.TaskID())
+	conn, err := connectToSpectatord(spectatordSocket, 3) // Retry 3 times before giving up.
+	if err != nil {
+		l.WithError(err).Warnf("Dial error with spectatord socket %s", spectatordSocket)
+		return
+	}
+	defer conn.Close()
+	reportTicker := time.NewTicker(1 * time.Minute)
+	defer reportTicker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			l.WithError(ctx.Err()).Debug("Stopping reporting container status metric")
+			return
+		case <-reportTicker.C:
+			metricLines := r.containerStatusMetrics()
+			for _, m := range metricLines {
+				if _, err := conn.Write([]byte(m)); err != nil {
+					l.WithError(err).Warnf("Error sending metric to spectatord, metric string: %s", m)
+				}
+			}
+		}
+	}
+}
+
+func connectToSpectatord(spectatordSocket string, retriesLeft int) (net.Conn, error) {
+	conn, err := net.Dial("unixgram", spectatordSocket)
+	if err != nil {
+		if retriesLeft--; retriesLeft > 0 {
+			time.Sleep(1 * time.Second)
+			return connectToSpectatord(spectatordSocket, retriesLeft)
+		}
+	}
+	return conn, err
+}
+
+func (r *DockerRuntime) containerStatusMetrics() []string {
+	l := log.WithField("taskID", r.c.TaskID())
+	var metricLines []string
+	// 1. Loop through all containers.
+	for _, c := range r.c.Pod().Status.ContainerStatuses {
+		// 2. Get container metadata and state.
+		metricTags := make(map[string]string)
+		metricTags["nf.container"] = c.Name
+		metricTags["nf.process"] = processNameForContainer(c.Name, r.c.Pod())
+		imageName, imageVersion, err := imageNameAndDigest(c.Image, c.Name)
+		if err != nil {
+			l.WithError(err).Warnf("Error getting image metric tags for container status metrics")
+		}
+		if imageTag := imageTagForContainer(c.Name, r.c); imageTag != "" && imageName != "" {
+			imageName = fmt.Sprintf("%s:%s", imageName, imageTag)
+		}
+		metricTags["titus.image.name"] = imageName
+		metricTags["titus.image.version"] = imageVersion
+		state := "unhealthy"
+		if c.State.Running != nil {
+			state = "healthy"
+		}
+		metricTags["titus.state"] = state
+		// 3. Create the metric line using the spectatord protocol.
+		// The metric is a gauge with a value of 1 and a TTL of 2m.
+		statusGauge := fmt.Sprintf("g,2:titus.containers.status,%s:1", spectatordTags(metricTags))
+		metricLines = append(metricLines, statusGauge)
+	}
+	return metricLines
+}
+
+func processNameForContainer(containerName string, pod *v1.Pod) string {
+	for _, c := range pod.Spec.Containers {
+		if c.Name != containerName {
+			continue
+		}
+		for _, env := range c.Env {
+			// It's up to the process owners to set the NETFLIX_PROCESS_NAME value,
+			// no default value should be set if it's not present.
+			if env.Name == "NETFLIX_PROCESS_NAME" {
+				return env.Value
+			}
+		}
+	}
+	return ""
+}
+
+func imageNameAndDigest(image, containerName string) (name, digest string, err error) {
+	ref, err := reference.Parse(image)
+	if err != nil {
+		return "", "", fmt.Errorf("error parsing docker image %q for container %q: %w", image, containerName, err)
+	}
+	if named, isNamed := ref.(reference.Named); isNamed {
+		name = reference.Path(named)
+	}
+	if digested, isDigested := ref.(reference.Digested); isDigested {
+		digest = digested.Digest().String()
+	}
+	return name, digest, nil
+}
+
+func imageTagForContainer(containerName string, c runtimeTypes.Container) string {
+	// TODO: add image tag support in all other containers.
+	if containerName == mainContainerName {
+		if imageTag := c.ImageVersion(); imageTag != nil {
+			return *imageTag
+		}
+	}
+	return ""
+}
+
+func spectatordTags(tags map[string]string) string {
+	var sTags []string
+	maxLen := 120
+	for k, v := range tags {
+		if v == "" {
+			continue
+		}
+		if len(v) > maxLen {
+			v = v[:maxLen]
+		}
+		v = spectatordUnexpectedTagCharRegexp.ReplaceAllLiteralString(v, "_")
+		sTags = append(sTags, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(sTags) // Sort so the sequence is predictable in unit tests.
+	return strings.Join(sTags, ",")
 }
 
 func (r *DockerRuntime) getDockerEventsChannelsForContainers(eventCtx context.Context, containerIDs []string) (<-chan events.Message, <-chan error) {
