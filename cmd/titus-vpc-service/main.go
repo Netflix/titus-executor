@@ -304,6 +304,7 @@ func main() {
 	rootCmd.PersistentFlags().Int64(maxConcurrentRefreshFlagName, 10, "The number of maximum concurrent refreshes to allow")
 	rootCmd.AddCommand(migrateCommand(ctx, v))
 	rootCmd.AddCommand(generateKeyCommand(ctx, v))
+	rootCmd.AddCommand(fixAllocations(ctx, v))
 
 	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
 		logger.G(ctx).WithError(err).Fatal("Unable to configure Viper")

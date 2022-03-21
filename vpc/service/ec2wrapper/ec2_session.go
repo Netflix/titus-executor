@@ -632,6 +632,27 @@ func (s *EC2Session) GetSubnetCidrReservations(ctx context.Context, subnet strin
 	return ret, nil
 }
 
+func (s *EC2Session) CreateSubnetCidrReservation(ctx context.Context, input ec2.CreateSubnetCidrReservationInput) (*ec2.CreateSubnetCidrReservationOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "CreateSubnetCidrReservation")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("cidr", aws.StringValue(input.Cidr)),
+		trace.StringAttribute("subnet", aws.StringValue(input.SubnetId)),
+		trace.StringAttribute("description", aws.StringValue(input.Description)),
+		trace.StringAttribute("type", aws.StringValue(input.ReservationType)),
+	)
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.CreateSubnetCidrReservationWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create subnet cidr reservation")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
 func (s *EC2Session) GetRouteTables(ctx context.Context) ([]*ec2.RouteTable, error) {
 	ctx, span := trace.StartSpan(ctx, "GetRouteTables")
 	defer span.End()
