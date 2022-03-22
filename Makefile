@@ -74,6 +74,7 @@ test-standalone: titus-agent | $(clean) $(builder)
 .PHONY: test-misc
 test-misc:
 	shellcheck --shell=sh --exclude=SC1008 ./hack/images/titus-sshd/run-titus-sshd
+	$(MAKE) -C executor/runtime/docker/seccomp/ test
 
 ## Source code
 
@@ -87,6 +88,7 @@ validate-docker: | $(builder)
 .PHONY: fmt
 fmt: $(GOBIN_TOOL)
 	$(GOIMPORT_TOOL) $(shell go list -f '{{.Dir}}' ./...)
+	$(MAKE) -C executor/runtime/docker/seccomp/ fmt
 
 .PHONY: golangci-lint
 golangci-lint: $(GOBIN_TOOL)
