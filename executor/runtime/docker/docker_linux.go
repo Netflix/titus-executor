@@ -125,7 +125,7 @@ func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
 	return nil
 }
 
-func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cfg config.Config, cred ucred) error { // nolint: gocyclo
+func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cfg config.Config) error { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 

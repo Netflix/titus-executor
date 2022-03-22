@@ -1049,7 +1049,7 @@ func TestMetatronFailure(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, status)
 	if status != nil {
-		assert.Equal(t, "container prestart error: error starting titus-sidecar-metatron-sync service: initialization failed: exit status 1", status.Mesg)
+		assert.Contains(t, status.Mesg, "error starting titus-sidecar-metatron-sync service: initialization failed: exit status 1")
 	}
 }
 
