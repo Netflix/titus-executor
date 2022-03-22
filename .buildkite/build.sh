@@ -27,7 +27,10 @@ redact_secrets() {
   sed "s/$DOCKER_PASSWORD/[REDACTED]/"
 }
 
-log "Building executor"
+# For CI/CD, we touch some files to make them new, so that make doesn't think they need
+# to be re-generated
+touch vpc/service/db/migrations/bindata.go
 
+log "Building executor"
 make clean
 make --output-sync -j16 builder all 2>&1 | redact_secrets | tee build.log
