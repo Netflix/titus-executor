@@ -109,6 +109,10 @@ var NoEntrypointError = &runtimeTypes.BadEntryPointError{Reason: errors.New("Ima
 // applications shall tolerate the presence of such names.
 var environmentVariableKeyRegexp = regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_]*$")
 
+// possibleSystemdPaths is a list of paths that represent commands that end up running systemd.
+// We need this so that we can know if we should `exec` into them or not (TINI_HANDOFF)
+var possibleSystemdPaths = []string{"/sbin/init", "/nflx/init", "/lib/systemd/systemd"}
+
 // Poor man's OS compat
 type ucred struct {
 	pid int32
@@ -469,7 +473,13 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		// systemd requires `/run/lock` to be a separate mount from `/run`
 		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
 		// Systemd *must* be pid1. Setting this variable instructs tini to exec into systemd so it can be pid 1
-		c.SetEnv("TINI_HANDOFF", trueString)
+		// But we don't want to do that if the entrypoint is just "sleep", we only want to do it if the systemd
+		// image is actually running systemd.
+		// If this detection fails, a user may also set TINI_HANDOFF=true themselves if they need, we will respect
+		// an existing Env variable.
+		if _, ok := c.Env()["TINI_HANDOFF"]; !ok {
+			c.SetEnv("TINI_HANDOFF", trueString)
+		}
 	}
 
 	if shmSize := c.ShmSizeMiB(); shmSize != nil {
@@ -674,13 +684,14 @@ func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c runt
 	if systemdBool, ok := imageInfo.Config.Labels[systemdImageLabel]; ok {
 		logger.G(ctx).WithField("systemdLabel", systemdBool).Info("SystemD image label set")
 
-		val, err := strconv.ParseBool(systemdBool)
+		isSystemdImage, err := strconv.ParseBool(systemdBool)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Error parsing systemd image label")
 			return errors.Wrap(err, "error parsing systemd image label")
 		}
+		isSystemdEntrypoint := isSystemdEntrypointOrCommand(imageInfo, c)
 
-		c.SetSystemD(val)
+		c.SetSystemD(isSystemdImage && isSystemdEntrypoint)
 		return nil
 	}
 
@@ -2816,6 +2827,29 @@ func (r *DockerRuntime) reportDockerImageSizeMetric(c runtimeTypes.Container, im
 func (r *DockerRuntime) hasEntrypointOrCmd(imageInfo *types.ImageInspect, c runtimeTypes.Container) bool {
 	entrypoint, cmd := c.Process()
 	return len(entrypoint) > 0 || len(cmd) > 0 || len(imageInfo.Config.Entrypoint) > 0 || len(imageInfo.Config.Cmd) > 0
+}
+
+// isSystemdEntrypointOrCommand tries to determine if a container (via the configure process or image info)
+// is going to run systemd. It errs on the side of false.
+func isSystemdEntrypointOrCommand(imageInfo types.ImageInspect, c runtimeTypes.Container) bool {
+	entrypoint, cmd := c.Process()
+	return isSystemdPath(entrypoint) || isSystemdPath(cmd) || isSystemdPath(imageInfo.Config.Entrypoint) || isSystemdPath(imageInfo.Config.Cmd)
+}
+
+func isSystemdPath(cmd []string) bool {
+	if cmd == nil || len(cmd) < 1 {
+		return false
+	}
+	return isSystemdPathOnDisk(cmd[0])
+}
+
+func isSystemdPathOnDisk(path string) bool {
+	for _, p := range possibleSystemdPaths {
+		if path == p {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldClose(c io.Closer) {
