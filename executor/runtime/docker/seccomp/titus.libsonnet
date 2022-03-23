@@ -11,7 +11,6 @@
     names: [
       'bpf',
       'clone',
-      'clone3',
       'fanotify_init',
       'fsconfig',
       'fsmount',

@@ -33,5 +33,10 @@ func TestAllProfilesLoad(t *testing.T) {
 		profile, err := dockerSeccomp.LoadProfile(string(a), &rs)
 		assert.NoError(t, err)
 		assert.NotNil(t, profile)
+
+		// Temporarily manual removal of clone3, as our version of docker/libseccomp does not support it
+		for _, syscall := range profile.Syscalls {
+			assert.NotContains(t, syscall.Names, "clone3")
+		}
 	}
 }
