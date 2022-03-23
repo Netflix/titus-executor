@@ -583,6 +583,24 @@ func _38_trunk_eni_id_up_sql() ([]byte, error) {
 	)
 }
 
+var __39_gc_tombstone_down_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x04\xc0\xd1\x09\x80\x30\x0c\x04\xd0\xff\x4c\x71\x7b\x38\x8c\xa4\x1a\x8a\xd0\x26\x92\xbb\xfd\xe9\xf3\xa5\x68\xc8\xc7\x0a\x38\xf9\xcd\xdc\x91\xa2\x01\xc0\xdb\xf5\x63\x3e\xb7\x6a\x0f\xaa\x32\x2e\xb3\x13\x00\x00\xff\xff\x29\xe0\x1e\xae\x30\x00\x00\x00")
+
+func _39_gc_tombstone_down_sql() ([]byte, error) {
+	return bindata_read(
+		__39_gc_tombstone_down_sql,
+		"39_gc_tombstone.down.sql",
+	)
+}
+
+var __39_gc_tombstone_up_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x04\xc0\xd1\x09\xc0\x20\x10\x03\xd0\x7f\xa7\xc8\x1e\x1d\xa6\x9c\x35\x88\xe0\x9d\xa5\xc9\xfe\xf4\xc5\x36\x3f\x38\xfa\x26\x42\x5a\xb3\x92\x65\x35\x00\x88\x31\x30\x9f\xdb\x27\xbb\x7c\x8a\xf0\x4a\xca\x91\xef\xd5\xda\x1f\x00\x00\xff\xff\xd3\x24\xa5\x85\x39\x00\x00\x00")
+
+func _39_gc_tombstone_up_sql() ([]byte, error) {
+	return bindata_read(
+		__39_gc_tombstone_up_sql,
+		"39_gc_tombstone.up.sql",
+	)
+}
+
 var __3_branch_enis2_down_sql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x54\xcb\x31\x0a\x03\x21\x10\x05\xd0\xde\x53\xfc\x7b\x58\x4d\x86\x21\x08\x3a\x26\x3a\x5b\x6c\x25\x01\xb7\x10\x52\x24\x98\xdc\x3f\x45\xb0\xd8\xfa\xf1\xaa\x51\x31\x58\x21\xad\xc4\x16\xb2\x7a\x47\xd1\xa4\xa0\xca\x7d\x13\x65\xc1\x78\xb5\xe7\x63\x7e\xda\x77\x1e\xbd\x8d\xde\xe6\xf1\x06\x55\x04\x35\xb9\x4a\x81\x66\xf0\xce\x51\xd6\x33\xba\xc4\x73\xc2\x1f\x38\xc7\x2d\x29\x46\x87\xed\x37\x59\xdf\x3b\xce\x29\x05\xf3\xee\x17\x00\x00\xff\xff\x1f\x7d\x3b\xe6\x8a\x00\x00\x00")
 
 func _3_branch_enis2_down_sql() ([]byte, error) {
@@ -793,6 +811,8 @@ var _bindata = map[string]func() ([]byte, error){
 	"37_add_ipv4_cidr.up.sql":                    _37_add_ipv4_cidr_up_sql,
 	"38_trunk_eni_id.down.sql":                   _38_trunk_eni_id_down_sql,
 	"38_trunk_eni_id.up.sql":                     _38_trunk_eni_id_up_sql,
+	"39_gc_tombstone.down.sql":                   _39_gc_tombstone_down_sql,
+	"39_gc_tombstone.up.sql":                     _39_gc_tombstone_up_sql,
 	"3_branch_enis2.down.sql":                    _3_branch_enis2_down_sql,
 	"3_branch_enis2.up.sql":                      _3_branch_enis2_up_sql,
 	"4_branch_eni_last_used.down.sql":            _4_branch_eni_last_used_down_sql,
@@ -912,6 +932,8 @@ var _bintree = &_bintree_t{nil, map[string]*_bintree_t{
 	"37_add_ipv4_cidr.up.sql":                    &_bintree_t{_37_add_ipv4_cidr_up_sql, map[string]*_bintree_t{}},
 	"38_trunk_eni_id.down.sql":                   &_bintree_t{_38_trunk_eni_id_down_sql, map[string]*_bintree_t{}},
 	"38_trunk_eni_id.up.sql":                     &_bintree_t{_38_trunk_eni_id_up_sql, map[string]*_bintree_t{}},
+	"39_gc_tombstone.down.sql":                   &_bintree_t{_39_gc_tombstone_down_sql, map[string]*_bintree_t{}},
+	"39_gc_tombstone.up.sql":                     &_bintree_t{_39_gc_tombstone_up_sql, map[string]*_bintree_t{}},
 	"3_branch_enis2.down.sql":                    &_bintree_t{_3_branch_enis2_down_sql, map[string]*_bintree_t{}},
 	"3_branch_enis2.up.sql":                      &_bintree_t{_3_branch_enis2_up_sql, map[string]*_bintree_t{}},
 	"4_branch_eni_last_used.down.sql":            &_bintree_t{_4_branch_eni_last_used_down_sql, map[string]*_bintree_t{}},

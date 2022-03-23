@@ -106,9 +106,7 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 	logger.G(ctx).WithField("taskIds", req.RunningTaskIDs).Debug("GCing for running task IDs")
 	resp := vpcapi.GCResponseV3{}
 
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		ReadOnly: true,
-	})
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
 		span.SetStatus(traceStatusFromError(err))
@@ -118,14 +116,43 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 		_ = tx.Rollback()
 	}()
 
+	rowsAffected, err := tx.ExecContext(ctx, `
+WITH unused_assignments AS
+  (SELECT id
+   FROM branch_eni_attachments
+   JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
+   WHERE trunk_eni = $1
+     AND assignments.assignment_id NOT IN
+       (SELECT unnest($2::text[]))
+     AND assignments.created_at < now() - INTERVAL '5 minutes'
+     AND NOT assignments.is_transition_assignment
+     AND assignments.gc_tombstone IS NULL)
+UPDATE assignments
+SET gc_tombstone = now()
+FROM unused_assignments
+WHERE assignments.id = unused_assignments.id
+`)
+	if err != nil {
+		err = fmt.Errorf("Could not tombstone VPC entries: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+
+	n, err := rowsAffected.RowsAffected()
+	if err != nil {
+		err = fmt.Errorf("Could not find rows affected: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	span.AddAttributes(trace.Int64Attribute("rowsTombstoned", n))
+
 	rows, err := tx.QueryContext(ctx, `
 SELECT assignment_id
 FROM branch_eni_attachments
 JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
 WHERE trunk_eni = $1
 AND assignments.assignment_id NOT IN (SELECT unnest($2::text[]))
-AND assignments.created_at < now() - INTERVAL '5 minutes'
-AND NOT assignments.is_transition_assignment
+AND gc_tombstone < now() - INTERVAL '30 minutes'
 `, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	if err != nil {
 		err = errors.Wrap(err, "Could not fetch assignments")
