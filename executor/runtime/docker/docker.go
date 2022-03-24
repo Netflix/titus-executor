@@ -23,9 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protojson"
-
 	"github.com/Netflix/metrics-client-go/metrics"
+	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
@@ -37,7 +36,6 @@ import (
 	"github.com/Netflix/titus-kube-common/pod"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
-	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -52,10 +50,9 @@ import (
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
+	"google.golang.org/protobuf/encoding/protojson"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
 var (
@@ -2889,7 +2886,7 @@ func (r *DockerRuntime) runBlockingPreStopExec(ctx context.Context, command []st
 		"TITUS_REDIRECT_STDOUT=/logs/prestop." + cName + ".out",
 	}
 	tiniCommand := []string{"/sbin/docker-init", "-s", "--"}
-	optionsCreate := dockerTypes.ExecConfig{
+	optionsCreate := types.ExecConfig{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          append(tiniCommand, command...),
@@ -2899,7 +2896,7 @@ func (r *DockerRuntime) runBlockingPreStopExec(ctx context.Context, command []st
 	if err != nil {
 		return fmt.Errorf("Error when creating exec (%v) for %s: %w", command, cName, err)
 	}
-	optionsStart := dockerTypes.ExecStartCheck{
+	optionsStart := types.ExecStartCheck{
 		Detach: false,
 		Tty:    false,
 	}
