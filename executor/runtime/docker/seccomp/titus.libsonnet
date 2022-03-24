@@ -34,11 +34,7 @@
   },
   // For Perf-Enabled Profiles, we need to actually allow bpf and perf, if they are SYS_ADMIN
   AllowPerfAndBPF: {
-    includes: {
-      caps: [
-        'CAP_SYS_ADMIN',
-      ],
-    },
+    action: 'SCMP_ACT_ALLOW',
     names: [
       'bpf',
       'perf_event_open',

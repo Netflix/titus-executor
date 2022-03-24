@@ -52,11 +52,7 @@
    "defaultErrnoRet": 1,
    "syscalls": [
       {
-         "includes": {
-            "caps": [
-               "CAP_SYS_ADMIN"
-            ]
-         },
+         "action": "SCMP_ACT_ALLOW",
          "names": [
             "bpf",
             "perf_event_open"
