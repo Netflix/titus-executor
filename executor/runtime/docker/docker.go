@@ -111,7 +111,7 @@ var environmentVariableKeyRegexp = regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_]*$"
 
 // possibleSystemdPaths is a list of paths that represent commands that end up running systemd.
 // We need this so that we can know if we should `exec` into them or not (TINI_HANDOFF)
-var possibleSystemdPaths = []string{"/sbin/init", "/nflx/init", "/lib/systemd/systemd"}
+var possibleSystemdPaths = []string{"/sbin/init", "/nflx/bin/init", "/lib/systemd/systemd"}
 
 // Poor man's OS compat
 type ucred struct {
