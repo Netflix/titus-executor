@@ -255,7 +255,7 @@ func TestFlags(t *testing.T) {
 	properties.ConvertFlagsForAltSrc(flags)
 }
 
-func TestContainerStatusMetrics(t *testing.T) {
+func TestGenerateContainerStatusSpectatordMetrics(t *testing.T) {
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
@@ -311,7 +311,7 @@ func TestContainerStatusMetrics(t *testing.T) {
 	runtime := &DockerRuntime{
 		c: container,
 	}
-	actual := runtime.containerStatusMetrics()
+	actual := runtime.generateContainerStatusSpectatordMetrics()
 	expected := []string{
 		"g,2:titus.containers.status,nf.container=main,titus.image.name=titusops_echoservice_latest,titus.image.version=sha256_60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e,titus.state=healthy:1",
 		"g,2:titus.containers.status,nf.container=fuse,nf.process=foo,titus.image.name=titusops_titus-test-fuse,titus.image.version=sha256_f6ac1d3f204660792aef47b482fb43a34de23768727512868f428d18a90d4c48,titus.state=healthy:1",

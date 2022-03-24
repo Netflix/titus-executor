@@ -34,6 +34,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	"github.com/Netflix/titus-kube-common/pod"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	dockerTypes "github.com/docker/docker/api/types"
@@ -1634,7 +1635,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		}
 	}
 
-	go r.reportContainerStatusMetrics(parentCtx)
+	go r.periodicallyReportContainerStatusMetrics(parentCtx)
 
 	// Last, we actually start the containers. And by start we mean:
 	// platform sidecars first (via docker start)
@@ -1649,7 +1650,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	return logDir, details, statusMessageChan, err
 }
 
-func (r *DockerRuntime) reportContainerStatusMetrics(ctx context.Context) {
+func (r *DockerRuntime) periodicallyReportContainerStatusMetrics(ctx context.Context) {
 	l := log.WithField("taskID", r.c.TaskID())
 	defer func() {
 		if r := recover(); r != nil {
@@ -1657,7 +1658,7 @@ func (r *DockerRuntime) reportContainerStatusMetrics(ctx context.Context) {
 		}
 	}()
 	spectatordSocket := fmt.Sprintf("/var/lib/titus-inits/%s/root/run/spectatord/spectatord.unix", r.c.TaskID())
-	conn, err := connectToSpectatord(spectatordSocket, 3) // Retry 3 times before giving up.
+	conn, err := connectToSpectatord(spectatordSocket, 3) // Attempt 3 times before giving up.
 	if err != nil {
 		l.WithError(err).Warnf("Dial error with spectatord socket %s", spectatordSocket)
 		return
@@ -1671,7 +1672,7 @@ func (r *DockerRuntime) reportContainerStatusMetrics(ctx context.Context) {
 			l.WithError(ctx.Err()).Debug("Stopping reporting container status metric")
 			return
 		case <-reportTicker.C:
-			metricLines := r.containerStatusMetrics()
+			metricLines := r.generateContainerStatusSpectatordMetrics()
 			for _, m := range metricLines {
 				if _, err := conn.Write([]byte(m)); err != nil {
 					l.WithError(err).Warnf("Error sending metric to spectatord, metric string: %s", m)
@@ -1681,18 +1682,18 @@ func (r *DockerRuntime) reportContainerStatusMetrics(ctx context.Context) {
 	}
 }
 
-func connectToSpectatord(spectatordSocket string, retriesLeft int) (net.Conn, error) {
+func connectToSpectatord(spectatordSocket string, attemptsLeft int) (net.Conn, error) {
 	conn, err := net.Dial("unixgram", spectatordSocket)
 	if err != nil {
-		if retriesLeft--; retriesLeft > 0 {
+		if attemptsLeft--; attemptsLeft > 0 {
 			time.Sleep(1 * time.Second)
-			return connectToSpectatord(spectatordSocket, retriesLeft)
+			return connectToSpectatord(spectatordSocket, attemptsLeft)
 		}
 	}
 	return conn, err
 }
 
-func (r *DockerRuntime) containerStatusMetrics() []string {
+func (r *DockerRuntime) generateContainerStatusSpectatordMetrics() []string {
 	l := log.WithField("taskID", r.c.TaskID())
 	var metricLines []string
 	// 1. Loop through all containers.
@@ -1703,9 +1704,10 @@ func (r *DockerRuntime) containerStatusMetrics() []string {
 		metricTags["nf.process"] = processNameForContainer(c.Name, r.c.Pod())
 		imageName, imageVersion, err := imageNameAndDigest(c.Image, c.Name)
 		if err != nil {
-			l.WithError(err).Warnf("Error getting image metric tags for container status metrics")
+			l.WithError(err).Warn("Error getting image metric tags, skipping sending container status metric")
+			continue
 		}
-		if imageTag := imageTagForContainer(c.Name, r.c); imageTag != "" && imageName != "" {
+		if imageTag := pod.GetImageTagForContainer(c.Name, r.c.Pod()); imageTag != "" && imageName != "" {
 			imageName = fmt.Sprintf("%s:%s", imageName, imageTag)
 		}
 		metricTags["titus.image.name"] = imageName
@@ -1751,16 +1753,6 @@ func imageNameAndDigest(image, containerName string) (name, digest string, err e
 		digest = digested.Digest().String()
 	}
 	return name, digest, nil
-}
-
-func imageTagForContainer(containerName string, c runtimeTypes.Container) string {
-	// TODO: add image tag support in all other containers.
-	if containerName == mainContainerName {
-		if imageTag := c.ImageVersion(); imageTag != nil {
-			return *imageTag
-		}
-	}
-	return ""
 }
 
 func spectatordTags(tags map[string]string) string {
