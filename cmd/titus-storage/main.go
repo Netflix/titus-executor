@@ -66,13 +66,6 @@ func main() {
 					return err
 				}
 			}
-			if ephemeralStorageIsAvailable() {
-				err := ephemeralStorageRunner(ctx, command, mountConfig)
-				if err != nil {
-					l.WithError(err).Error("Non-fatal error when mounting ephemeral storage")
-					return nil
-				}
-			}
 			return nil
 		},
 		Use: "titus-storage <start|stop>",
