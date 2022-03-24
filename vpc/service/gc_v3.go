@@ -118,7 +118,7 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 
 	rowsAffected, err := tx.ExecContext(ctx, `
 WITH unused_assignments AS
-  (SELECT id
+  (SELECT assignments.id
    FROM branch_eni_attachments
    JOIN assignments ON branch_eni_attachments.association_id = assignments.branch_eni_association
    WHERE trunk_eni = $1
@@ -131,7 +131,7 @@ UPDATE assignments
 SET gc_tombstone = now()
 FROM unused_assignments
 WHERE assignments.id = unused_assignments.id
-`)
+`, aws.StringValue(trunkENI.NetworkInterfaceId), pq.Array(req.RunningTaskIDs))
 	if err != nil {
 		err = fmt.Errorf("Could not tombstone VPC entries: %w", err)
 		tracehelpers.SetStatus(err, span)
