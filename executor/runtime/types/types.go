@@ -496,10 +496,6 @@ func (n *NetworkConfigurationDetails) PickPrimaryIP() string {
 	if n.NetworkMode == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() {
 		return n.EniIPv6Address
 	}
-	// If we have an Elastic IP, we consider that to be the main one
-	if n.ElasticIPAddress != "" {
-		return n.ElasticIPAddress
-	}
 
 	// We prefer IPv4 as our primary IP over IPv6.
 	if n.EniIPv4Address != "" {
