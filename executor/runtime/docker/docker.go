@@ -177,9 +177,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 		return nil, err
 	}
 
-	// We bind-mount tini in as /sbin/docker-init to ensure we can always
-	// depend on it being there, regardless of the host docker configuration.
-	defaultBindMounts := []string{dockerCfg.tiniPath + ":/sbin/docker-init:ro"}
+	defaultBindMounts := []string{}
 	defaultBindMounts = append(defaultBindMounts, filepath.Join(cfg.RuntimeDir, "pod.json")+":/titus/run/pod.json:ro")
 
 	pidCgroupPath, err := getOwnCgroup("pids")
@@ -505,6 +503,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 	// This is just factored out mutation of these objects to make the code cleaner.
 	r.setupLogs(c, hostCfg)
+	r.setupTiniForContainer(hostCfg, containerCfg, "main")
 
 	if r.cfg.PrivilegedContainersEnabled {
 		// Note: ATM, this is used to enable MCE to use FUSE within a container and
@@ -537,8 +536,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
-	// This must go after all setup
-	containerCfg.Env = c.SortedEnvArray()
+	containerCfg.Env = append(containerCfg.Env, c.SortedEnvArray()...)
 	containerCfg.Env = append(containerCfg.Env, "TITUS_CONTAINER_NAME=main")
 
 	return containerCfg, hostCfg, nil
@@ -551,40 +549,44 @@ func (r *DockerRuntime) setupLogs(c runtimeTypes.Container, hostCfg *container.H
 			Type: "journald",
 		}
 	}
-
-	t := true
-	hostCfg.Init = &t
-	socketFileName := tiniSocketFileName(c)
-
-	hostCfg.Binds = append(hostCfg.Binds, r.tiniSocketDir+":/titus-executor-sockets:ro")
 	c.SetEnvs(map[string]string{
 		"TITUS_REDIRECT_STDERR": "/logs/stderr",
 		"TITUS_REDIRECT_STDOUT": "/logs/stdout",
 	})
+}
+
+// setupTiniForContainer configures a container to use tini. Mutates the hostCfg and containerCfg.
+func (r *DockerRuntime) setupTiniForContainer(hostCfg *container.HostConfig, containerCfg *container.Config, cName string) {
+	t := true
+	hostCfg.Init = &t
+	socketFileName := tiniSocketFileName(cName)
+	hostCfg.Binds = append(hostCfg.Binds, r.tiniSocketDir+":/titus-executor-sockets:ro")
+	// We bind-mount tini in as /sbin/docker-init to ensure we can always
+	// depend on it being there, regardless of the host docker configuration.
+	hostCfg.Binds = append(hostCfg.Binds, r.dockerCfg.tiniPath+":/sbin/docker-init:ro")
+
 	if runtime.GOOS == "linux" {
 		// Only in non-darwin (linux) can bind-mounted unix socket directories work
 		// Otherwise these will *not* be set, and tini won't bother to call back
 		// on these sockets.
-		c.SetEnvs(map[string]string{
-			"TITUS_UNIX_CB_PATH": filepath.Join("/titus-executor-sockets/", socketFileName),
-			/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
-			"TITUS_CONFIRM": trueString,
-		})
+		containerCfg.Env = append(containerCfg.Env, "TITUS_UNIX_CB_PATH="+filepath.Join("/titus-executor-sockets/", socketFileName))
+		/* Require us to send a message to tini in order to let it know we're ready for it to start the container */
+		containerCfg.Env = append(containerCfg.Env, "TITUS_CONFIRM="+trueString)
 	}
 
 	if r.dockerCfg.tiniVerbosity > 0 {
-		c.SetEnv("TINI_VERBOSITY", strconv.Itoa(r.dockerCfg.tiniVerbosity))
+		containerCfg.Env = append(containerCfg.Env, "TINI_VERBOSITY="+strconv.Itoa(r.dockerCfg.tiniVerbosity))
 	}
 }
 
-func (r *DockerRuntime) hostOSPathToTiniSocket(c runtimeTypes.Container) string {
-	socketFileName := tiniSocketFileName(c)
+func (r *DockerRuntime) hostOSPathToTiniSocket(cName string) string {
+	socketFileName := tiniSocketFileName(cName)
 
 	return filepath.Join(r.tiniSocketDir, socketFileName)
 }
 
-func tiniSocketFileName(c runtimeTypes.Container) string {
-	return fmt.Sprintf("%s.socket", c.TaskID())
+func tiniSocketFileName(cName string) string {
+	return fmt.Sprintf("%s.socket", cName)
 }
 
 func netflixLoggerTempDir(cfg config.Config, c runtimeTypes.Container) string {
@@ -1486,7 +1488,7 @@ func maybeConvertIntoBadEntryPointError(err error) error {
 // it does *not* send the L (launch) signal to tini though
 func (r *DockerRuntime) setupEFSandLogsAndMisc(ctx context.Context, typedConn *net.UnixConn, c runtimeTypes.Container) (string, error) {
 	// This can block for up to the full ctx timeout
-	logDir, cred, rootFile, err := r.setupGetLogCredAndRootFromTini(ctx, c, typedConn)
+	logDir, cred, rootFile, err := r.setupGetLogCredAndRootFromMainTini(ctx, c, typedConn)
 	if err != nil {
 		return logDir, err
 	}
@@ -1514,7 +1516,6 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	defer span.End()
 
 	var err error
-	var listener *net.UnixListener
 	var details *runtimeTypes.Details
 	statusMessageChan := make(chan runtimeTypes.StatusMessage, 10)
 
@@ -1525,8 +1526,8 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		return "", nil, statusMessageChan, err
 	}
 
-	// This sets up the tini listener and pauses the workload
-	listener, err = r.setupTiniListener(ctx, r.c)
+	// This sets up the tini listeners and pauses the workload
+	listeners, err := r.setupTiniListeners(ctx, r.c.Pod())
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return "", nil, statusMessageChan, err
@@ -1540,6 +1541,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	// 1. We need to establish a docker events channel, one for the whole, but it monitors the main container.
 	eventChan, eventErrChan := r.getDockerEventsChannelsForContainers(eventCtx, []string{r.c.ID()})
 
+	// TODO: Start all containers here, not just the main one
 	err = r.client.ContainerStart(ctx, r.c.ID(), types.ContainerStartOptions{})
 	if err != nil {
 		entry.WithError(err).Error("error starting")
@@ -1591,14 +1593,14 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		details.NetworkConfiguration.TransitionIPAddress = a.Address.Address
 	}
 
-	tiniConn, err := r.waitForTiniConnections(ctx, listener, r.c)
+	mainTiniConn, err := r.waitForTiniConnection(ctx, listeners[runtimeTypes.MainContainerName])
 	if err != nil {
 		eventCancel()
 		err = fmt.Errorf("container prestart error: %w", err)
 		return "", nil, statusMessageChan, err
 	}
 
-	logDir, err := r.setupEFSandLogsAndMisc(ctx, tiniConn, r.c)
+	logDir, err := r.setupEFSandLogsAndMisc(ctx, mainTiniConn, r.c)
 	if err != nil {
 		eventCancel()
 		err = fmt.Errorf("container prestart error: %w", err)
@@ -1625,7 +1627,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 
 	allOtherContainerIDs := r.getExtraContainerIDs()
 	if len(allOtherContainerIDs) > 0 {
-		err = r.createOtherContainers(ctx, pod, r.c.ID(), tiniConn, mainContainerRoot)
+		err = r.createOtherContainers(ctx, pod, r.c.ID(), mainTiniConn, mainContainerRoot)
 		if err != nil {
 			eventCancel()
 			return "", nil, statusMessageChan, err
@@ -1653,11 +1655,11 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 
 	go r.periodicallyReportContainerStatusMetrics(parentCtx)
 
-	// Last, we actually start the containers. And by start we mean:
+	// Last, we actually launch the containers. And by launch we mean:
 	// platform sidecars first (via docker start)
 	// user extra containers second (via docker start)
 	// main container (via tini)
-	err = r.startUserDefinedContainers(ctx, tiniConn)
+	err = r.launchUserDefinedContainers(ctx, mainTiniConn)
 	if err != nil {
 		eventCancel()
 		return "", nil, statusMessageChan, fmt.Errorf("Failed to start a user-defined container: %s", err)
@@ -1960,8 +1962,8 @@ func (r *DockerRuntime) startPlatformDefinedContainers(ctx context.Context) erro
 	return group.Wait()
 }
 
-// startUserDefinedContainers starts all existing (pre-created) containers, even the 'main' one (via tini)
-func (r *DockerRuntime) startUserDefinedContainers(ctx context.Context, tiniConn *net.UnixConn) error {
+// launchUserDefinedContainers starts all existing (pre-created) containers, even the 'main' one (via tini)
+func (r *DockerRuntime) launchUserDefinedContainers(ctx context.Context, tiniConn *net.UnixConn) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	group := groupWithContext(ctx)
 	for _, c := range r.c.ExtraUserContainers() {
@@ -2450,8 +2452,25 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes
 	return nil
 }
 
-// Setup listener
-func (r *DockerRuntime) setupTiniListener(ctx context.Context, c runtimeTypes.Container) (*net.UnixListener, error) {
+func (r *DockerRuntime) setupTiniListener(cName string) (*net.UnixListener, error) {
+	fullSocketFileName := r.hostOSPathToTiniSocket(cName)
+	l, err := net.Listen("unix", fullSocketFileName)
+	if err != nil {
+		return nil, err
+	}
+
+	unixListener := l.(*net.UnixListener)
+	err = os.Chmod(fullSocketFileName, 0777) // nolint: gosec
+	if err != nil {
+		return nil, err
+	}
+
+	return unixListener, nil
+}
+
+// setupTiniListeners sets up listening sockets in preperation for all the tinis from multiple
+// containers to connect to them
+func (r *DockerRuntime) setupTiniListeners(ctx context.Context, pod *v1.Pod) (map[string]*net.UnixListener, error) {
 	if runtime.GOOS == "darwin" { //nolint:goconst
 		// On darwin (docker-for-mac), it is not possible to share
 		// darwin unix sockets with a linux guest container: https://github.com/docker/for-mac/issues/483
@@ -2459,31 +2478,27 @@ func (r *DockerRuntime) setupTiniListener(ctx context.Context, c runtimeTypes.Co
 		return nil, nil
 	}
 
-	fullSocketFileName := r.hostOSPathToTiniSocket(c)
+	listeners := make(map[string]*net.UnixListener)
 
-	l, err := net.Listen("unix", fullSocketFileName)
-	if err != nil {
-		return nil, err
-	}
-	unixListener := l.(*net.UnixListener)
-
-	err = os.Chmod(fullSocketFileName, 0777) // nolint: gosec
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		<-ctx.Done()
-		shouldClose(l)
-		if ctx.Err() == context.DeadlineExceeded {
-			log.WithField("ctxError", ctx.Err()).Error("Tini listener timeout occurred")
+	for _, c := range pod.Spec.Containers {
+		listener, err := r.setupTiniListener(c.Name)
+		if err != nil {
+			return nil, fmt.Errorf("Error while setting up tini listener for %s: %w", c.Name, err)
 		}
-	}()
+		listeners[c.Name] = listener
+		go func() {
+			<-ctx.Done()
+			shouldClose(listener)
+			if ctx.Err() == context.DeadlineExceeded {
+				log.WithField("ctxError", ctx.Err()).Error("Tini listener timeout occurred")
+			}
+		}()
+	}
 
-	return unixListener, err
+	return listeners, nil
 }
 
-func (r *DockerRuntime) waitForTiniConnections(ctx context.Context, l *net.UnixListener, c runtimeTypes.Container) (*net.UnixConn, error) {
+func (r *DockerRuntime) waitForTiniConnection(ctx context.Context, l *net.UnixListener) (*net.UnixConn, error) {
 	if l == nil {
 		// In situations where we don't have a listener to use (docker-for-mac)
 		// we can gracefully degrade and not do additional log or system service setup
@@ -2509,7 +2524,7 @@ func (r *DockerRuntime) waitForTiniConnections(ctx context.Context, l *net.UnixL
 	}
 }
 
-func (r *DockerRuntime) setupGetLogCredAndRootFromTini(parentCtx context.Context, c runtimeTypes.Container, unixConn *net.UnixConn) (string, *ucred, *os.File, error) {
+func (r *DockerRuntime) setupGetLogCredAndRootFromMainTini(parentCtx context.Context, c runtimeTypes.Container, unixConn *net.UnixConn) (string, *ucred, *os.File, error) {
 	waitForFileDescriptorsCtx, waitForFileDescriptorsCancel := context.WithTimeout(parentCtx, time.Second*15)
 	defer waitForFileDescriptorsCancel()
 
