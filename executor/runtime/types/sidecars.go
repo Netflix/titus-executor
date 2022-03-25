@@ -23,6 +23,16 @@ const (
 )
 
 var systemServices = []ServiceOpts{
+	/*
+	 * Titus sidecar seccomp agent must be in the beginning of the list because
+	 * other sidecars may depend on it for IPv6 connectivity
+	 */
+	{
+		ServiceName:  SidecarSeccompAgent,
+		UnitName:     "titus-sidecar-seccomp-agent",
+		Required:     true,
+		EnabledCheck: shouldStartTitusSeccompAgent,
+	},
 	{
 		ServiceName: SidecarTitusContainer,
 		UnitName:    "titus-container",
@@ -97,12 +107,6 @@ var systemServices = []ServiceOpts{
 		Volumes: map[string]struct{}{
 			"/titus/abmetrix": {},
 		},
-	},
-	{
-		ServiceName:  SidecarSeccompAgent,
-		UnitName:     "titus-sidecar-seccomp-agent",
-		Required:     true,
-		EnabledCheck: shouldStartTitusSeccompAgent,
 	},
 	{
 		ServiceName:  SidecarTitusStorage,
