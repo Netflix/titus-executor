@@ -86,7 +86,6 @@ const (
 	// MS_RDONLY indicates that mount is read-only
 	MS_RDONLY              = 1 // nolint: golint
 	mountTimeout           = 5 * time.Minute
-	mainContainerName      = "main"
 	isTerminalDockerEvent  = true
 	nonTerminalDockerEvent = false
 )
@@ -1221,7 +1220,7 @@ func getSharedMountDirsFromPod(pod *v1.Pod) []string {
 	sharedMountDirs := []string{}
 	for _, v := range pod.Spec.Volumes {
 		if v.FlexVolume != nil && v.FlexVolume.Driver == "SharedContainerVolumeSource" && v.FlexVolume.Options != nil {
-			if v.FlexVolume.Options["sourceContainer"] == "main" {
+			if v.FlexVolume.Options["sourceContainer"] == runtimeTypes.MainContainerName {
 				sharedMountDirs = append(sharedMountDirs, v.FlexVolume.Options["sourcePath"])
 			}
 		}
@@ -2254,7 +2253,7 @@ func (r *DockerRuntime) getContainerSharedVolumeSourceMounts(mainContainerRoot s
 			return nil, fmt.Errorf("couldn't find the corresponding volume for volumeMount %+v", volumeMount)
 		}
 		if v.FlexVolume != nil && v.FlexVolume.Driver == "SharedContainerVolumeSource" && v.FlexVolume.Options != nil {
-			if v.FlexVolume.Options["sourceContainer"] != "main" && v.FlexVolume.Options["sourceContainer"] != "" {
+			if v.FlexVolume.Options["sourceContainer"] != runtimeTypes.MainContainerName && v.FlexVolume.Options["sourceContainer"] != "" {
 				return nil, fmt.Errorf("only 'main' SharedContainerVolume volumes are supported. Volume: %+v", v)
 			}
 			m := mount.Mount{
@@ -2310,7 +2309,7 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 	case "start":
 		// Updating the pod is relativly expensive, so we only send the update and consider the pod "running"
 		// if the the docker event came from the main container
-		if cName == mainContainerName {
+		if cName == runtimeTypes.MainContainerName {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusRunning,
 				Msg:    cName + " container is now running",
@@ -2327,7 +2326,7 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 				Msg:    cName + " container successfully exited with 0",
 			}
 			return isTerminalDockerEvent
-		} else if exitCode == "137" && cName != mainContainerName {
+		} else if exitCode == "137" && cName != runtimeTypes.MainContainerName {
 			// An exit code of 137 means it was killed.
 			// If we are not on the 'main' container, and docker doesn't have us in the 'oom' case,
 			// then it *probably* means that a sidecar container got killed while we were tearing down the pod
@@ -2352,7 +2351,7 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 	case "kill":
 		// TODO: Handle the difference between platform/user sidecar, not all
 		// "kills"s should result in a Failed
-		if cName == mainContainerName {
+		if cName == runtimeTypes.MainContainerName {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFailed,
 				Msg:    fmt.Sprintf("%s container killed with signal %s", cName, message.Actor.Attributes["signal"]),
@@ -2400,7 +2399,7 @@ func (r *DockerRuntime) getContainerNameFromDockerEvent(m events.Message) (strin
 func (r *DockerRuntime) getContainerNameFromID(id string) (string, error) {
 	// Most common case, just the main container, we return the string "main"
 	if id == r.c.ID() {
-		return mainContainerName, nil
+		return runtimeTypes.MainContainerName, nil
 	}
 	for _, c := range r.c.ExtraPlatformContainers() {
 		if id == c.Status.ContainerID {
