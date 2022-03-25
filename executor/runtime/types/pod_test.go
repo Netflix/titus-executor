@@ -49,7 +49,7 @@ func TestPodImageNameWithTagAndDigest(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = "docker.io/titusoss/alpine@" + testDigest
 	pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+MainContainerName] = "myCoolTag"
 	c, err := NewPodContainer(pod, *conf)
@@ -64,7 +64,7 @@ func TestPodImageNameWithOtherTagAndNoDigest(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = imageFullWithLatest
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
@@ -82,7 +82,7 @@ func TestPodImageNameComplex(t *testing.T) {
 	img := "titusoss/titus-test"
 	digest := testDigest
 	fullImg := fmt.Sprintf("%s/%s@%s", reg, img, digest)
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = fullImg
 
 	c, err := NewPodContainer(pod, *conf)
@@ -98,7 +98,7 @@ func TestPodImageTagOmitLatest(t *testing.T) {
 
 	// TODO: is this the behaviour we want?
 	expected := "docker.io/titusoss/alpine"
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = expected
 
 	c, err := NewPodContainer(pod, *conf)
@@ -112,7 +112,7 @@ func TestPodImageByDigest(t *testing.T) {
 
 	expected := "docker.io/" + imageName + "@" + testDigest
 
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = expected
 	c, err := NewPodContainer(pod, *conf)
 	assert.NilError(t, err)
@@ -229,7 +229,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		podCommon.AnnotationKeyServicePrefix + "/servicemesh.v1.image":   "titusoss/servicemesh:latest",
 	})
 
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Args = expectedCommand
 	uc.Command = expectedEntrypoint
 	uc.Image = expectedImage
@@ -1362,7 +1362,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 	delete(pod.Annotations, podCommon.AnnotationKeyPodTitusContainerInfo)
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Env = []corev1.EnvVar{
 		{
 			Name:  "FROM_USER_1",
@@ -1422,7 +1422,7 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 	delete(pod.Annotations, podCommon.AnnotationKeyPodTitusContainerInfo)
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Env = []corev1.EnvVar{
 		{
 			Name:  "FROM_USER_1",
@@ -1518,7 +1518,7 @@ func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 	delete(pod.Annotations, podCommon.AnnotationKeyPodTitusContainerInfo)
-	uc := podCommon.GetUserContainer(pod)
+	uc := podCommon.GetMainUserContainer(pod)
 	uc.Env = []corev1.EnvVar{
 		{
 			Name:  "FROM_TITUS_1",

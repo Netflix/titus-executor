@@ -51,7 +51,7 @@ func TestOverrideFuseProfile(t *testing.T) {
 	pod, conf, err := runtimeTypes.PodContainerTestArgs()
 	assert.NoError(t, err)
 	// Using the full pod spec, the apparmor profile is specified in an annotation
-	pod.Annotations[podCommon.AnnotationKeyPrefixAppArmor+"/"+pod.ObjectMeta.Name] = "docker_foo"
+	pod.Annotations[podCommon.AnnotationKeyPrefixAppArmor+"/"+runtimeTypes.MainContainerName] = "docker_foo"
 	pod.Annotations[podCommon.AnnotationKeyPodFuseEnabled] = True
 	c, err := runtimeTypes.NewPodContainer(pod, *conf)
 	assert.NoError(t, err)

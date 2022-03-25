@@ -357,7 +357,7 @@ func GenerateV1TestPod(taskID string, resources *Resources, cfg *config.Config) 
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:      taskID,
+					Name:      MainContainerName,
 					Image:     image,
 					Resources: resourceReqs,
 				},
