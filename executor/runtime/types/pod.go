@@ -97,7 +97,7 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		return nil, err
 	}
 
-	userContainer := podCommon.GetUserContainer(pod)
+	userContainer := podCommon.GetMainUserContainer(pod)
 	if userContainer == nil {
 		return nil, errors.New("no containers found in pod")
 	}
@@ -228,7 +228,7 @@ func (c *PodContainer) CombinedAppStackDetails() string {
 // for the titus-imds, which uses it to serve the task-identity document.
 func (c *PodContainer) SyntheticContainerInfo() (*titus.ContainerInfo, error) {
 	// TODO: this needs to be removed once Metatron supports the v2 identity endpoint (TITUS-5823)
-	userContainer := podCommon.GetUserContainer(c.pod)
+	userContainer := podCommon.GetMainUserContainer(c.pod)
 	appName := c.AppName()
 	stack := c.JobGroupStack()
 	detail := c.JobGroupDetail()
@@ -822,7 +822,7 @@ func (c *PodContainer) parsePodVolumes() error {
 		nameToMount[vol.Name] = vol
 	}
 
-	uc := podCommon.GetUserContainer(c.pod)
+	uc := podCommon.GetMainUserContainer(c.pod)
 	for _, vm := range uc.VolumeMounts {
 		vol, ok := nameToMount[vm.Name]
 		if !ok {
@@ -858,7 +858,7 @@ func (c *PodContainer) parsePodVolumes() error {
 
 func (c *PodContainer) parsePodEmptyDirVolumes() error {
 	var shmVM *corev1.VolumeMount
-	uc := podCommon.GetUserContainer(c.pod)
+	uc := podCommon.GetMainUserContainer(c.pod)
 
 	for i := range uc.VolumeMounts {
 		vm := uc.VolumeMounts[i]
@@ -944,7 +944,7 @@ func (c *PodContainer) extractServiceMesh() error {
 // the TJC and passed down to the executor, because Titus clients sign jobs with the original unparsed Command
 // and Args. If the executor reports something different than what was in the signature, this breaks Metatron.
 func (c *PodContainer) parsePodCommandAndArgs() error {
-	uc := podCommon.GetUserContainer(c.pod)
+	uc := podCommon.GetMainUserContainer(c.pod)
 	c.entrypoint = uc.Command
 	c.command = uc.Args
 
