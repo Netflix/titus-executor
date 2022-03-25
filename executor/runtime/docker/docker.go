@@ -1483,22 +1483,27 @@ func maybeConvertIntoBadEntryPointError(err error) error {
 	return err
 }
 
-// setupTini connects to tini, and also sets up NFS mounts
+// setupEFSAndLogs connects to tini, and also sets up NFS mounts
 // it does *not* send the L (launch) signal to tini though
-func (r *DockerRuntime) setupTini(ctx context.Context, listener *net.UnixListener, c runtimeTypes.Container) (string, *net.UnixConn, error) {
+func (r *DockerRuntime) setupEFSandLogsAndMisc(ctx context.Context, typedConn *net.UnixConn, c runtimeTypes.Container) (string, error) {
 	// This can block for up to the full ctx timeout
-	logDir, containerCred, rootFile, unixConn, err := r.setupPostStartLogDirTini(ctx, listener, c)
+	logDir, cred, rootFile, err := r.setupGetLogCredAndRootFromTini(ctx, c, typedConn)
 	if err != nil {
-		return logDir, unixConn, err
+		return logDir, err
+	}
+
+	err = r.setupPostStartNetworkingAndIsolate(ctx, c, *cred, rootFile)
+	if err != nil {
+		return logDir, err
 	}
 
 	if len(c.NFSMounts()) > 0 {
-		err = r.setupEFSMounts(ctx, c, rootFile, containerCred)
+		err = r.setupEFSMounts(ctx, c, rootFile, cred)
 		if err != nil {
-			return logDir, unixConn, err
+			return logDir, err
 		}
 	}
-	return logDir, unixConn, err
+	return logDir, err
 }
 
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
@@ -1522,7 +1527,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	// This sets up the tini listener and pauses the workload
-	listener, err = r.setupPreStartTini(ctx, r.c)
+	listener, err = r.setupTiniListener(ctx, r.c)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return "", nil, statusMessageChan, err
@@ -1587,12 +1592,27 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		details.NetworkConfiguration.TransitionIPAddress = a.Address.Address
 	}
 
-	logDir, tiniConn, err := r.setupTini(ctx, listener, r.c)
+	tiniConn, err := r.waitForTiniConnections(ctx, listener, r.c)
 	if err != nil {
 		eventCancel()
 		err = fmt.Errorf("container prestart error: %w", err)
 		return "", nil, statusMessageChan, err
 	}
+
+	logDir, err := r.setupEFSandLogsAndMisc(ctx, tiniConn, r.c)
+	if err != nil {
+		eventCancel()
+		err = fmt.Errorf("container prestart error: %w", err)
+		return "", nil, statusMessageChan, err
+	}
+
+	err = setupSystemServices(ctx, r.c, r.cfg)
+	if err != nil {
+		log.WithError(err).Error("Unable to launch system services")
+		eventCancel()
+		return "", nil, statusMessageChan, err
+	}
+
 	entry.Debugf("Adding status monitor for main container (cid %s)", r.c.ID())
 	go r.statusMonitor(eventCancel, r.c.ID(), eventChan, eventErrChan, statusMessageChan)
 
@@ -2432,7 +2452,7 @@ func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes
 }
 
 // Setup listener
-func (r *DockerRuntime) setupPreStartTini(ctx context.Context, c runtimeTypes.Container) (*net.UnixListener, error) {
+func (r *DockerRuntime) setupTiniListener(ctx context.Context, c runtimeTypes.Container) (*net.UnixListener, error) {
 	if runtime.GOOS == "darwin" { //nolint:goconst
 		// On darwin (docker-for-mac), it is not possible to share
 		// darwin unix sockets with a linux guest container: https://github.com/docker/for-mac/issues/483
@@ -2464,34 +2484,33 @@ func (r *DockerRuntime) setupPreStartTini(ctx context.Context, c runtimeTypes.Co
 	return unixListener, err
 }
 
-func (r *DockerRuntime) setupPostStartLogDirTini(ctx context.Context, l *net.UnixListener, c runtimeTypes.Container) (string, *ucred, *os.File, *net.UnixConn, error) {
+func (r *DockerRuntime) waitForTiniConnections(ctx context.Context, l *net.UnixListener, c runtimeTypes.Container) (*net.UnixConn, error) {
 	if l == nil {
 		// In situations where we don't have a listener to use (docker-for-mac)
 		// we can gracefully degrade and not do additional log or system service setup
-		return "", nil, nil, nil, nil
+		return nil, nil
 	}
 
 	genericConn, err := l.Accept()
 	if err != nil {
 		if ctx.Err() != nil {
 			log.WithField("ctxError", ctx.Err()).Error("Never received connection from container from tini: ", err)
-			return "", nil, nil, nil, errors.New("Never received connection from container from tini")
+			return nil, errors.New("Never received connection from container from tini")
 		}
 		log.WithError(err).Error("Error accepting tini connection from container")
-		return "", nil, nil, nil, fmt.Errorf("error accepting tini connection from container: %w", err)
+		return nil, fmt.Errorf("error accepting tini connection from container: %w", err)
 	}
 
 	switch typedConn := genericConn.(type) {
 	case (*net.UnixConn):
-		logDir, cred, rootFile, err := r.setupPostStartLogDirTiniHandleConnection(ctx, c, typedConn)
-		return logDir, cred, rootFile, typedConn, err
+		return typedConn, err
 	default:
 		log.Error("Unknown connection type received: ", genericConn)
-		return "", nil, nil, nil, errors.New("Unknown connection type received")
+		return nil, errors.New("Unknown connection type received")
 	}
 }
 
-func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx context.Context, c runtimeTypes.Container, unixConn *net.UnixConn) (string, *ucred, *os.File, error) {
+func (r *DockerRuntime) setupGetLogCredAndRootFromTini(parentCtx context.Context, c runtimeTypes.Container, unixConn *net.UnixConn) (string, *ucred, *os.File, error) {
 	waitForFileDescriptorsCtx, waitForFileDescriptorsCancel := context.WithTimeout(parentCtx, time.Second*15)
 	defer waitForFileDescriptorsCancel()
 
@@ -2534,13 +2553,10 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection(parentCtx conte
 
 	rootFile := files[0]
 	r.registerRuntimeCleanup(rootFile.Close)
-
-	// r.logDir(c), &cred, rootFile, nil
-	err = r.setupPostStartLogDirTiniHandleConnection2(parentCtx, c, cred, rootFile)
 	return r.logDir(c), &cred, rootFile, err
 }
 
-func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx context.Context, c runtimeTypes.Container, cred ucred, rootFile *os.File) error { // nolint: gocyclo
+func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Context, c runtimeTypes.Container, cred ucred, rootFile *os.File) error { // nolint: gocyclo
 	group, errGroupCtx := errgroup.WithContext(parentCtx)
 
 	// This required (write) access to c.RegisterRuntimeCleanup
@@ -2604,11 +2620,6 @@ func (r *DockerRuntime) setupPostStartLogDirTiniHandleConnection2(parentCtx cont
 	r.registerRuntimeCleanup(func() error {
 		return os.Remove(logviewerRoot)
 	})
-
-	if err := setupSystemServices(parentCtx, c, r.cfg, cred); err != nil {
-		log.WithError(err).Error("Unable to launch system services")
-		return err
-	}
 
 	r.registerRuntimeCleanup(func() error {
 		ctx, cancel := context.WithCancel(context.Background())
