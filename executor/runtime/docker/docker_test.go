@@ -266,7 +266,7 @@ func TestGenerateContainerStatusSpectatordMetrics(t *testing.T) {
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{
 				{
-					Name:  "main",
+					Name:  runtimeTypes.MainContainerName,
 					Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/echoservice@sha256:60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e",
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
@@ -288,7 +288,7 @@ func TestGenerateContainerStatusSpectatordMetrics(t *testing.T) {
 		Status: v1.PodStatus{
 			ContainerStatuses: []v1.ContainerStatus{
 				{
-					Name:  "main",
+					Name:  runtimeTypes.MainContainerName,
 					Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/echoservice@sha256:60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e",
 					Ready: true,
 					State: v1.ContainerState{

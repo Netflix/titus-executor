@@ -32,6 +32,7 @@ const (
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
+	MainContainerName = "main"
 )
 
 var (

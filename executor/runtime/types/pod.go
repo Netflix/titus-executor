@@ -394,7 +394,7 @@ func (c *PodContainer) ImageVersion() *string {
 	// the control-plane does tag->digest resolution.
 	// However, the control-plan saves the original tag in a special annotation for us
 	// so that we can look up the *original* tag the digest came from.
-	tagFromPodAnnotation, ok := c.pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+"main"]
+	tagFromPodAnnotation, ok := c.pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+MainContainerName]
 	if ok {
 		return &tagFromPodAnnotation
 	}

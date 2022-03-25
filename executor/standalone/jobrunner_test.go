@@ -338,7 +338,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 			Containers: []corev1.Container{
 				{
 					Env:       []corev1.EnvVar{},
-					Name:      task.TaskID,
+					Name:      runtimeTypes.MainContainerName,
 					Image:     image,
 					Resources: resourceReqs,
 				},
