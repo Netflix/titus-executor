@@ -452,6 +452,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	}
 	assert.DeepEqual(t, systemServiceNames,
 		[]string{
+			SidecarSeccompAgent,
 			SidecarTitusContainer,
 			SidecarServiceSpectatord,
 			SidecarServiceAtlasTitusAgent,
@@ -461,7 +462,6 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 			SidecarServiceLogViewer,
 			SidecarServiceServiceMesh,
 			SidecarServiceAbMetrix,
-			SidecarSeccompAgent,
 			SidecarTitusStorage,
 			SidecarContainerTools,
 			SidecarTrafficSteering,
