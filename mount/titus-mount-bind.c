@@ -49,7 +49,7 @@ static inline int open_tree(int dfd, const char *filename, unsigned int flags)
 
 static void switch_into_mount_namespace(int nsfd)
 {
-	int ret, mnt_fd;
+	int mnt_fd;
 
 	mnt_fd = openat(nsfd, "mnt", O_RDONLY);
 	assert(mnt_fd != -1);
