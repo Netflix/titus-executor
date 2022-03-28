@@ -2987,7 +2987,22 @@ func (r *DockerRuntime) hasEntrypointOrCmd(imageInfo *types.ImageInspect, c runt
 // is going to run systemd. It errs on the side of false.
 func isSystemdEntrypointOrCommand(imageInfo types.ImageInspect, c runtimeTypes.Container) bool {
 	entrypoint, cmd := c.Process()
-	return isSystemdPath(entrypoint) || isSystemdPath(cmd) || isSystemdPath(imageInfo.Config.Entrypoint) || isSystemdPath(imageInfo.Config.Cmd)
+	effectiveEntrypoint := getEffectiveCmdEntrypoint(entrypoint, imageInfo.Config.Entrypoint)
+	effectiveCmd := getEffectiveCmdEntrypoint(cmd, imageInfo.Config.Cmd)
+	if isSystemdPath(effectiveEntrypoint) {
+		return true
+	}
+	if len(effectiveEntrypoint) == 0 && isSystemdPath(effectiveCmd) {
+		return true
+	}
+	return false
+}
+
+func getEffectiveCmdEntrypoint(cmd []string, imageCmd []string) []string {
+	if len(cmd) > 0 {
+		return cmd
+	}
+	return imageCmd
 }
 
 func isSystemdPath(cmd []string) bool {
