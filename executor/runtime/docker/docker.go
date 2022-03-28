@@ -2039,8 +2039,14 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		},
 	}
 	if mainContainerRoot != "" {
-		_ = os.MkdirAll(path.Join(mainContainerRoot, "/logs"), 0700)
-		_ = os.MkdirAll(path.Join(mainContainerRoot, "/run-shared"), 0700)
+		err := os.MkdirAll(path.Join(mainContainerRoot, "/logs"), 0700)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("Error making dir on /logs in the container: %w", err)
+		}
+		err = os.MkdirAll(path.Join(mainContainerRoot, "/run-shared"), 0700)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("Error making dir on /run-shared in the container: %w", err)
+		}
 		mounts = append(
 			mounts, mount.Mount{
 				Type:     "bind",
@@ -2076,7 +2082,10 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 			// These are static certs that the metatron service will create, but we also share them
 			// between all containers in the pod.
 			if mainContainerRoot != "" {
-				_ = os.MkdirAll(path.Join(mainContainerRoot, "/metatron"), 0700)
+				err := os.MkdirAll(path.Join(mainContainerRoot, "/metatron"), 0700)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("Error making dir on /metatron in the container: %w", err)
+				}
 				mounts = append(mounts, mount.Mount{
 					Type:     "bind",
 					Source:   path.Join(mainContainerRoot, "/metatron"),
@@ -2261,7 +2270,10 @@ func (r *DockerRuntime) getContainerSharedVolumeSourceMounts(mainContainerRoot s
 			if v.FlexVolume.Options["sourceContainer"] != runtimeTypes.MainContainerName && v.FlexVolume.Options["sourceContainer"] != "" {
 				return nil, fmt.Errorf("only 'main' SharedContainerVolume volumes are supported. Volume: %+v", v)
 			}
-			_ = os.MkdirAll(filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]), 0700)
+			err := os.MkdirAll(filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]), 0700)
+			if err != nil {
+				return nil, err
+			}
 			m := mount.Mount{
 				Type:        "bind",
 				Source:      filepath.Join(mainContainerRoot, v.FlexVolume.Options["sourcePath"]),
@@ -2529,12 +2541,6 @@ func (r *DockerRuntime) waitForTiniConnection(ctx context.Context, l *net.UnixLi
 }
 
 func (r *DockerRuntime) waitForTiniConnections(ctx context.Context, listeners map[string]*net.UnixListener) (map[string]*net.UnixConn, error) {
-	if listeners == nil {
-		// In situations where we don't have a listener to use (docker-for-mac)
-		// we can gracefully degrade and not do additional log or system service setup
-		return nil, nil
-	}
-
 	connections := make(map[string]*net.UnixConn)
 	for cName, listener := range listeners {
 		connection, err := r.waitForTiniConnection(ctx, listener)
