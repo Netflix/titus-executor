@@ -16,7 +16,7 @@ const (
 )
 
 type MountCommand struct {
-	device     string
+	source     string
 	perms      string
 	pid1Dir    string
 	mountPoint string
@@ -41,12 +41,12 @@ func mountBlockDeviceInContainer(ctx context.Context, mc MountCommand) error {
 	if mc.pid1Dir == "" {
 		return fmt.Errorf("env var TITUS_PID_1_DIR is not set, unable to mount")
 	}
-	l.Printf("Running %s to mount %s onto %s in the container", mountBlockDeviceCommand, mc.device, mc.mountPoint)
+	l.Printf("Running %s to mount %s onto %s in the container", mountBlockDeviceCommand, mc.source, mc.mountPoint)
 	cmd := exec.Command(mountBlockDeviceCommand)
 	cmd.Env = []string{
 		"TITUS_PID_1_DIR=" + mc.pid1Dir,
 		"MOUNT_TARGET=" + mc.mountPoint,
-		"MOUNT_OPTIONS=source=" + mc.device,
+		"MOUNT_OPTIONS=source=" + mc.source,
 		"MOUNT_FLAGS=" + flags,
 		"MOUNT_FSTYPE=" + mc.fstype,
 	}
