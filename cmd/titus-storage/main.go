@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/fslocker"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/utils/log"
@@ -13,6 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -31,6 +34,7 @@ type MountConfig struct {
 	ebsMountPerm  string
 	ebsFStype     string
 	ebsVolumeID   string
+	pod           *corev1.Pod
 }
 
 func main() {
@@ -54,13 +58,26 @@ func main() {
 			l := logger.GetLogger(ctx)
 			command := args[0]
 			l.Infof("Running titus-storage with %s", command)
-			exclusiveLock, err := getExclusiveLock(ctx)
+			pod, err := common.ReadTaskPodFile(mountConfig.taskID)
 			if err != nil {
-				return err
+				return fmt.Errorf("Error when reading pod.json file: %s", err)
 			}
-			defer exclusiveLock.Unlock()
+			mountConfig.pod = pod
+			// Currently only doing mntShared on multi-container workloads
+			if len(pod.Spec.Containers) > 1 {
+				err = mntSharedRunner(ctx, command, mountConfig)
+				if err != nil {
+					l.WithError(err)
+					return err
+				}
+			}
 			if mountConfig.ebsVolumeID != "" {
-				err := ebsRunner(ctx, command, mountConfig)
+				exclusiveLock, err := getExclusiveLock(ctx)
+				if err != nil {
+					return err
+				}
+				defer exclusiveLock.Unlock()
+				err = ebsRunner(ctx, command, mountConfig)
 				if err != nil {
 					l.WithError(err)
 					return err
