@@ -13,6 +13,7 @@ import (
 
 const (
 	mountBlockDeviceCommand = "/apps/titus-executor/bin/titus-mount-block-device"
+	mountBindCommand        = "/apps/titus-executor/bin/titus-mount-bind"
 )
 
 type MountCommand struct {
@@ -82,4 +83,22 @@ func deviceIsInUse(device string) (bool, error) {
 	} else {
 		return true, fmt.Errorf("Got unexpected error when trying to determine if %s was open: %s", device, err)
 	}
+}
+
+func mountBindInContainer(ctx context.Context, mc MountCommand) error {
+	l := logger.GetLogger(ctx)
+	if mc.pid1Dir == "" {
+		return fmt.Errorf("env var TITUS_PID_1_DIR is not set, unable to mount")
+	}
+	l.Printf("Running %s to mount %s onto %s in the container", mountBindCommand, mc.source, mc.mountPoint)
+	cmd := exec.Command(mountBindCommand)
+	cmd.Env = []string{
+		"TITUS_PID_1_DIR=" + mc.pid1Dir,
+		"MOUNT_TARGET=" + mc.mountPoint,
+		"MOUNT_SOURCE=" + mc.source,
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	l.Printf("%s %s", strings.Join(cmd.Env, " "), mountBindCommand)
+	return cmd.Run()
 }
