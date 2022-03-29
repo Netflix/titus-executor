@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/Netflix/titus-executor/cmd/common"
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -91,30 +91,6 @@ func readTaskContainerInfoFile(taskID string) (*titus.ContainerInfo, error) {
 	}
 
 	return &cInfo, nil
-}
-
-func readTaskPodFile(taskID string) (*corev1.Pod, error) {
-	if taskID == "" {
-		log.Errorf("task ID is empty: can't read pod config file")
-		return nil, fmt.Errorf("TITUS_TASK_ID env var unset?")
-	}
-
-	// This filename is from VK, which is /run/titus-executor/$namespace__$podname/pod.json
-	// We only use the default namespace, so we hardcode it here.
-	confFile := filepath.Join("/run/titus-executor/default__"+taskID, "pod.json")
-	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
-	if err != nil {
-		log.WithError(err).Errorf("Error reading pod config file %s", confFile)
-		return nil, err
-	}
-
-	var pod corev1.Pod
-	if err = json.Unmarshal(contents, &pod); err != nil {
-		log.WithError(err).Errorf("Error parsing JSON in pod config file %s", confFile)
-		return nil, err
-	}
-
-	return &pod, nil
 }
 
 func reloadSigner(ms *metadataserver.MetadataServer) {
@@ -379,7 +355,7 @@ func main() {
 			} else {
 				mdscfg.ContainerInfo = cInfo
 			}
-			if pod, err := readTaskPodFile(titusTaskInstanceID); err != nil {
+			if pod, err := common.ReadTaskPodFile(titusTaskInstanceID); err != nil {
 				// TOOD: Make this fatal once we depend on this functionality
 				log.WithError(err).Error("Cannot read pod config file, continuing anyway")
 			} else {
