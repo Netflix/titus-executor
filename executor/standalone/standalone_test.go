@@ -85,10 +85,6 @@ var (
 		name: "titusoss/user-set",
 		tag:  "20210524-1621898423",
 	}
-	systemdImage = testImage{
-		name: "titusoss/ubuntu-systemd-bionic",
-		tag:  "20181219-1545261266",
-	}
 )
 
 const defaultFailureTimeout = time.Minute
@@ -1076,22 +1072,6 @@ func TestExecSlashRun(t *testing.T) {
 		ImageName:     ubuntu.name,
 		Version:       ubuntu.tag,
 		EntrypointOld: `/bin/bash -c 'cp /bin/ls /run/ && /run/ls'`,
-		JobID:         t.Name(),
-	}
-	if !RunJobExpectingSuccess(t, ji) {
-		t.Fail()
-	}
-}
-
-// Test for a container running a systemd labeled image that `/run/lock` is a tmpfs mount, and has the default size
-func TestSystemdImageMount(t *testing.T) {
-	wrapTestStandalone(t)
-	var mem int64 = 256
-	ji := &JobInput{
-		ImageName:     systemdImage.name,
-		Version:       systemdImage.tag,
-		Mem:           &mem,
-		EntrypointOld: `/bin/bash -c 'findmnt -l -t tmpfs -o target,size | grep -e "/run/lock[^/]" | grep 5M'`,
 		JobID:         t.Name(),
 	}
 	if !RunJobExpectingSuccess(t, ji) {
