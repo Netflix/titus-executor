@@ -58,9 +58,12 @@ func main() {
 			l := logger.GetLogger(ctx)
 			command := args[0]
 			l.Infof("Running titus-storage with %s", command)
+			l.Info("IM HERE")
+			time.Sleep(10 * time.Second)
 			pod, err := common.ReadTaskPodFile(mountConfig.taskID)
 			if err != nil {
-				return fmt.Errorf("Error when reading pod.json file: %s", err)
+				l.WithError(err)
+				return fmt.Errorf("Error when reading state.json file: %s", err)
 			}
 			mountConfig.pod = pod
 			// Currently only doing mntShared on multi-container workloads
@@ -70,10 +73,13 @@ func main() {
 					l.WithError(err)
 					return err
 				}
+			} else {
+				l.Info("Not a multi-container workload, not doing shared")
 			}
 			if mountConfig.ebsVolumeID != "" {
 				exclusiveLock, err := getExclusiveLock(ctx)
 				if err != nil {
+					l.WithError(err)
 					return err
 				}
 				defer exclusiveLock.Unlock()

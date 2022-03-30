@@ -39,5 +39,4 @@ ExecStop=/apps/titus-executor/bin/titus-storage stop
 ExecStop=/bin/rm -f /var/lib/titus-environments/%i-titus-storage.env
 
 LimitNOFILE=65535
-PrivateTmp=yes
 KillMode=mixed

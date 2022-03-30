@@ -20,7 +20,7 @@ func ReadTaskPodFile(taskID string) (*corev1.Pod, error) {
 
 	// This filename is from VK, which is /run/titus-executor/$namespace__$podname/pod.json
 	// We only use the default namespace, so we hardcode it here.
-	confFile := filepath.Join("/run/titus-executor/default__"+taskID, "pod.json")
+	confFile := filepath.Join("/run/titus-executor/default__"+taskID, "state.json")
 	contents, err := ioutil.ReadFile(confFile) // nolint: gosec
 	if err != nil {
 		log.WithError(err).Errorf("Error reading pod config file %s", confFile)
