@@ -11,6 +11,8 @@
 #include <syscall.h> // for __NR_fsopen, __NR_move_mount, __NR_open_tree
 #include <unistd.h> // for syscall, pid_t
 
+#include "common.h"
+
 // Only to make it easier to build on older kernels
 #ifndef AT_RECURSIVE
 #define AT_RECURSIVE 0x8000
@@ -88,6 +90,7 @@ int main(int argc, char *argv[])
 	mfd = open_tree(AT_FDCWD, source,
 			OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_RECURSIVE);
 	switch_into_mount_namespace(nsfd);
+	mkdir_p(target);
 	E(move_mount(mfd, "", AT_FDCWD, target, MOVE_MOUNT_F_EMPTY_PATH));
 	fprintf(stderr,
 		"titus-mount-bind: All done, bind mount %s mounted on %s\n",

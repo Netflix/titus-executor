@@ -50,10 +50,10 @@ func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
 	return nil
 }
 
-func mountTmpfs(path string, size string) error {
+func MountTmpfs(path string, size string) error {
 	return nil
 }
 
-func unmountTmpfs(path string) error {
+func UnmountLazily(path string) error {
 	return nil
 }
