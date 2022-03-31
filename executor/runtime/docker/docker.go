@@ -1375,7 +1375,7 @@ func (r *DockerRuntime) cleanupAllPodMounts() error {
 	l := log.WithField("taskID", r.c.TaskID())
 	mountsPath := path.Join(r.cfg.RuntimeDir, "mounts")
 	f := func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() && isDirMounted(path) {
+		if info != nil && info.IsDir() && isDirMounted(path) {
 			l.Infof("Cleanup: unmounting %s", path)
 			_ = UnmountLazily(path)
 		}
@@ -2655,7 +2655,7 @@ func (r *DockerRuntime) setupTitusInit(cName string, unixConn *net.UnixConn) err
 		return fmt.Errorf("Error getting peerinfo for %s: %w", cName, err)
 
 	}
-	target := filepath.Join("proc", strconv.FormatInt(int64(cred.pid), 10))
+	target := filepath.Join("/proc", strconv.FormatInt(int64(cred.pid), 10))
 	link := GetTitusInitsPath(r.c.TaskID(), cName)
 	err = os.MkdirAll(getTitusInitsBase(r.c.TaskID()), 0700)
 	if err != nil {

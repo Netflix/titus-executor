@@ -34,12 +34,20 @@ func mntSharedStart(ctx context.Context, config MountConfig) error {
 	l.Info("Creating tmpfs at " + path)
 	err = executorDocker.MountTmpfs(path, "5242880")
 	if err != nil {
+		err = fmt.Errorf("Unable to mount tmpfs at %s: %w", path, err)
+		l.Error(err)
+		return err
+	}
+
+	err = makeMountRShared(path)
+	if err != nil {
+		err = fmt.Errorf("Unable to make tmpfs at %s rshared: %w", path, err)
 		l.Error(err)
 		return err
 	}
 
 	for _, c := range config.pod.Spec.Containers {
-		l.Infof("Mounting /mnt-shared into container %s", &c.Name)
+		l.Infof("Mounting /mnt-shared into container %s", c.Name)
 		pid1Dir := executorDocker.GetTitusInitsPath(config.taskID, c.Name)
 		mc := MountCommand{
 			source:     path,

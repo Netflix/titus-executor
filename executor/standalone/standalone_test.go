@@ -85,6 +85,10 @@ var (
 		name: "titusoss/user-set",
 		tag:  "20210524-1621898423",
 	}
+	fuseImage = testImage{
+		name: "titusoss/titus-test-fuse",
+		tag:  "latest",
+	}
 )
 
 const defaultFailureTimeout = time.Minute
@@ -107,7 +111,7 @@ func skipOnDarwinOrNoRoot(t *testing.T) {
 }
 
 func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, dockerCfg := GenerateTestConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -127,7 +131,7 @@ func dockerImageRemove(t *testing.T, imgName string) {
 }
 
 func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, dockerCfg := GenerateTestConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1279,6 +1283,35 @@ func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
 		t.Fail()
 	}
 }
+
+func TestBasicMultiContainerHasMntShared(t *testing.T) {
+	wrapTestStandalone(t)
+
+	// In the main container, we expect to see a file created by our sentinel
+	testEntrypointOld := "ls -rl /mnt-shared/ && stat /mnt-shared/1/foo"
+	testEntrypointOld = `/bin/sh -vxc "sleep 5;` + testEntrypointOld + `"`
+
+	ji := &JobInput{
+		ImageName: busybox.name,
+		Version:   busybox.tag,
+		// This sentinel container touches a file, and the main container should
+		// see it if volumes are working
+		ExtraContainers: []corev1.Container{
+			{
+				Name:    "fuse-sidecar",
+				Image:   fuseImage.name + `:` + fuseImage.tag,
+				Command: []string{"/bin/sh", "-vxc"},
+				Args:    []string{"touch /mnt-shared/fuse-container-was-here && mkdir /mnt-shared/1 && fuse-zip -f /out.zip /mnt-shared/1"},
+			},
+		},
+		ExtraAnnotations: map[string]string{podCommon.AnnotationKeyPodFuseEnabled: True},
+		EntrypointOld:    testEntrypointOld,
+	}
+	if !RunJobExpectingSuccess(t, ji) {
+		t.Fail()
+	}
+}
+
 func TestOtherUserContaintainerFailsTask(t *testing.T) {
 	wrapTestStandalone(t)
 	testEntrypointOld := `/bin/sh -c "sleep 5"`
