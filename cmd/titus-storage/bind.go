@@ -22,17 +22,16 @@ func mntSharedRunner(ctx context.Context, command string, config MountConfig) er
 }
 
 func mntSharedStart(ctx context.Context, config MountConfig) error {
-	var err error
 	l := logger.GetLogger(ctx)
 	path := getMntSharedPath(config.taskID)
 
-	l.Info("Creating /mnt/shared for " + path)
-	err = createMntShared(path)
+	l.Info("Creating /mnt-shared on the host at " + path)
+	err := createMntShared(path)
 	if err != nil {
 		return err
 	}
 
-	l.Info("Creating tmpfs for " + path)
+	l.Info("Creating tmpfs at " + path)
 	err = executorDocker.MountTmpfs(path, "5242880")
 	if err != nil {
 		l.Error(err)
@@ -40,7 +39,7 @@ func mntSharedStart(ctx context.Context, config MountConfig) error {
 	}
 
 	for _, c := range config.pod.Spec.Containers {
-		l.Infof("Mounting /mnt/shared into container %s", &c.Name)
+		l.Infof("Mounting /mnt-shared into container %s", &c.Name)
 		pid1Dir := executorDocker.GetTitusInitsPath(config.taskID, c.Name)
 		mc := MountCommand{
 			source:     path,
@@ -49,7 +48,7 @@ func mntSharedStart(ctx context.Context, config MountConfig) error {
 		}
 		err = mountBindInContainer(ctx, mc)
 		if err != nil {
-			return fmt.Errorf("Error mounting /mnt/shared in container %s: %w", c.Name, err)
+			return fmt.Errorf("Error mounting /mnt-shared in container %s: %w", c.Name, err)
 		}
 	}
 	return err
@@ -76,5 +75,5 @@ func createMntShared(path string) error {
 }
 
 func getMntSharedPath(taskID string) string {
-	return path.Join("/run/titus-executor/default__"+taskID, "/mounts/mnt-shared")
+	return path.Join("run", "titus-executor", "default__"+taskID, "mounts", "mnt-shared")
 }

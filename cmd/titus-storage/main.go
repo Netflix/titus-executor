@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -60,15 +59,15 @@ func main() {
 			l.Infof("Running titus-storage with %s", command)
 			pod, err := common.ReadTaskPodFile(mountConfig.taskID)
 			if err != nil {
-				l.WithError(err)
-				return fmt.Errorf("Error when reading state.json file: %s", err)
+				l.WithError(err).Error("Error when reading state.json file")
+				return err
 			}
 			mountConfig.pod = pod
 			// Currently only doing mntShared on multi-container workloads
 			if len(pod.Spec.Containers) > 1 {
 				err = mntSharedRunner(ctx, command, mountConfig)
 				if err != nil {
-					l.WithError(err)
+					l.WithError(err).Error("Error setting up /mnt-shared")
 					return err
 				}
 			} else {
@@ -77,13 +76,13 @@ func main() {
 			if mountConfig.ebsVolumeID != "" {
 				exclusiveLock, err := getExclusiveLock(ctx)
 				if err != nil {
-					l.WithError(err)
+					l.WithError(err).Error("Error getting a lock on the host for EBS mounting")
 					return err
 				}
 				defer exclusiveLock.Unlock()
 				err = ebsRunner(ctx, command, mountConfig)
 				if err != nil {
-					l.WithError(err)
+					l.WithError(err).Error("Error mounting EBS for the pod")
 					return err
 				}
 			}

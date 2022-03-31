@@ -2655,7 +2655,7 @@ func (r *DockerRuntime) setupTitusInit(cName string, unixConn *net.UnixConn) err
 		return fmt.Errorf("Error getting peerinfo for %s: %w", cName, err)
 
 	}
-	target := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10))
+	target := filepath.Join("proc", strconv.FormatInt(int64(cred.pid), 10))
 	link := GetTitusInitsPath(r.c.TaskID(), cName)
 	err = os.MkdirAll(getTitusInitsBase(r.c.TaskID()), 0700)
 	if err != nil {
@@ -2673,7 +2673,7 @@ func GetTitusInitsPath(taskID string, cName string) string {
 }
 
 func getTitusInitsBase(taskID string) string {
-	return filepath.Join("/run/titus-executor/default__"+taskID, "inits")
+	return filepath.Join("/run", "titus-executor", "default__"+taskID, "inits")
 }
 
 func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Context, c runtimeTypes.Container, cred ucred, rootFile *os.File) error { // nolint: gocyclo
@@ -2760,7 +2760,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	log.Info("Setting up container network")
 	var result vpcTypes.WiringStatus
 
-	pid1DirPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)))
+	pid1DirPath := filepath.Join("proc", strconv.Itoa(int(cred.pid)))
 	pid1DirFile, err := os.Open(pid1DirPath)
 	if err != nil {
 		return nil, err

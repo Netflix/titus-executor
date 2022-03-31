@@ -87,7 +87,7 @@ func setupScheduler(cred ucred) error {
 
 // This mounts /proc/${PID1}/ to /var/lib/titus-inits for the container
 func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
-	pidpath := filepath.Join("/proc/", strconv.FormatInt(int64(cred.pid), 10))
+	pidpath := filepath.Join("/proc", strconv.FormatInt(int64(cred.pid), 10))
 	path := filepath.Join(titusInits, c.TaskID())
 	if err := os.Mkdir(path, 0755); err != nil { // nolint: gosec
 		return err
