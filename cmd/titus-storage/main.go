@@ -59,7 +59,7 @@ func main() {
 			l.Infof("Running titus-storage with %s", command)
 			pod, err := common.ReadTaskPodFile(mountConfig.taskID)
 			if err != nil {
-				l.WithError(err).Error("Error when reading state.json file")
+				l.WithError(err).Error("Error when reading pod.json file")
 				return err
 			}
 			mountConfig.pod = pod
