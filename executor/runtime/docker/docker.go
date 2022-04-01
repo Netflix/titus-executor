@@ -1664,7 +1664,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		}
 	}
 
-	go r.periodicallyReportContainerStatusMetrics(parentCtx)
+	go r.periodicallyReportTaskMetrics(parentCtx)
 
 	// Last, we actually launch the containers. And by launch we mean we tell tini `L` and it makes things go
 	err = r.launchAllContainers(ctx, tiniConns)
@@ -1676,11 +1676,11 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	return logDir, details, statusMessageChan, err
 }
 
-func (r *DockerRuntime) periodicallyReportContainerStatusMetrics(ctx context.Context) {
+func (r *DockerRuntime) periodicallyReportTaskMetrics(ctx context.Context) {
 	l := log.WithField("taskID", r.c.TaskID())
 	defer func() {
 		if r := recover(); r != nil {
-			l.Warnf("Unexpected panic when reporting container status metrics: %#v", r)
+			l.Warnf("Unexpected panic when reporting task metrics: %#v", r)
 		}
 	}()
 	spectatordSocket := fmt.Sprintf("/var/lib/titus-inits/%s/root/run/spectatord/spectatord.unix", r.c.TaskID())
@@ -1692,13 +1692,15 @@ func (r *DockerRuntime) periodicallyReportContainerStatusMetrics(ctx context.Con
 	defer conn.Close()
 	reportTicker := time.NewTicker(1 * time.Minute)
 	defer reportTicker.Stop()
+	// Platform sidecar metrics don't change, only need to generate them once.
+	psMetrics := r.generatePlatformSidecarSpectatordMetrics()
 	for {
 		select {
 		case <-ctx.Done():
-			l.WithError(ctx.Err()).Debug("Stopping reporting container status metric")
+			l.WithError(ctx.Err()).Debug("Stopping reporting task metric")
 			return
 		case <-reportTicker.C:
-			metricLines := r.generateContainerStatusSpectatordMetrics()
+			metricLines := append(psMetrics, r.generateContainerStatusSpectatordMetrics()...)
 			for _, m := range metricLines {
 				if _, err := conn.Write([]byte(m)); err != nil {
 					l.WithError(err).Warnf("Error sending metric to spectatord, metric string: %s", m)
@@ -1779,6 +1781,32 @@ func imageNameAndDigest(image, containerName string) (name, digest string, err e
 		digest = digested.Digest().String()
 	}
 	return name, digest, nil
+}
+
+func (r *DockerRuntime) generatePlatformSidecarSpectatordMetrics() []string {
+	l := log.WithField("taskID", r.c.TaskID())
+	var metricLines []string
+	for k, v := range r.c.Pod().Annotations {
+		releaseSuffix := fmt.Sprintf(".%s/%s", pod.AnnotationKeySuffixSidecars, pod.AnnotationKeySuffixSidecarsRelease)
+		if !strings.HasSuffix(k, releaseSuffix) {
+			continue
+		}
+		sidecar := strings.TrimSuffix(k, releaseSuffix)
+		release := strings.Split(v, "/") // Expected format: $channel/$channelDefID
+		if len(release) != 2 || release[0] == "" || release[1] == "" {
+			l.Warnf("Unexpected release value for platform sidecar %q: %q", sidecar, v)
+			continue
+		}
+		metricTags := map[string]string{
+			"platform.sidecar":             sidecar,
+			"platform.sidecar.channel":     release[0],
+			"platform.sidecar.channel.def": release[1],
+		}
+		// The metric is a gauge with a value of 1 and a TTL of 2m.
+		psGauge := fmt.Sprintf("g,2:platform.sidecars.instance,%s:1", spectatordTags(metricTags))
+		metricLines = append(metricLines, psGauge)
+	}
+	return metricLines
 }
 
 func spectatordTags(tags map[string]string) string {

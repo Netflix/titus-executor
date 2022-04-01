@@ -318,3 +318,42 @@ func TestGenerateContainerStatusSpectatordMetrics(t *testing.T) {
 	}
 	assert.Equal(t, expected, actual)
 }
+
+func TestGeneratePlatformSidecarSpectatordMetrics(t *testing.T) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"pod.titus.netflix.com/system-env-var-names":     "",
+				"sidecar1.platform-sidecars.netflix.com/release": "dev/1",
+				"sidecar2.platform-sidecars.netflix.com/release": "stable/32",
+				"sidecar3.platform-sidecars.netflix.com/release": "invalid release",
+				"sidecar4.platform-sidecars.netflix.com/release": "invalid release/",
+				"sidecar5.platform-sidecars.netflix.com/release": "/invalid release",
+			},
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:  runtimeTypes.MainContainerName,
+					Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/echoservice@sha256:60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e",
+					Resources: v1.ResourceRequirements{
+						Limits: v1.ResourceList{
+							commonResource.ResourceNameNetwork: resource.MustParse("128M"),
+						},
+					},
+				},
+			},
+		},
+	}
+	container, err := runtimeTypes.NewPodContainer(pod, config.Config{})
+	assert.NoError(t, err)
+	runtime := &DockerRuntime{
+		c: container,
+	}
+	actual := runtime.generatePlatformSidecarSpectatordMetrics()
+	expected := []string{
+		"g,2:platform.sidecars.instance,platform.sidecar.channel.def=1,platform.sidecar.channel=dev,platform.sidecar=sidecar1:1",
+		"g,2:platform.sidecars.instance,platform.sidecar.channel.def=32,platform.sidecar.channel=stable,platform.sidecar=sidecar2:1",
+	}
+	assert.ElementsMatch(t, expected, actual) // Ignore order of the metric strings.
+}
