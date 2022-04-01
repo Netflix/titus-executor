@@ -2655,7 +2655,7 @@ func (r *DockerRuntime) setupTitusInit(cName string, unixConn *net.UnixConn) err
 		return fmt.Errorf("Error getting peerinfo for %s: %w", cName, err)
 
 	}
-	target := filepath.Join("proc", strconv.FormatInt(int64(cred.pid), 10))
+	target := filepath.Join("/proc", strconv.FormatInt(int64(cred.pid), 10))
 	link := GetTitusInitsPath(r.c.TaskID(), cName)
 	err = os.MkdirAll(getTitusInitsBase(r.c.TaskID()), 0700)
 	if err != nil {

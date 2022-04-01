@@ -1,7 +1,6 @@
 [Unit]
 Description=Storage mounting for task %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
-ConditionPathExists=/run/titus-executor/default__%i/pod.json
 # PartOf ensures that titus-storage will shutdown as part of the main titus-executor unit
 PartOf=titus-executor@default__%i.service
 
