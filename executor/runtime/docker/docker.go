@@ -1375,7 +1375,7 @@ func (r *DockerRuntime) cleanupAllPodMounts() error {
 	l := log.WithField("taskID", r.c.TaskID())
 	mountsPath := path.Join(r.cfg.RuntimeDir, "mounts")
 	f := func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() && isDirMounted(path) {
+		if info != nil && info.IsDir() && isDirMounted(path) {
 			l.Infof("Cleanup: unmounting %s", path)
 			_ = UnmountLazily(path)
 		}

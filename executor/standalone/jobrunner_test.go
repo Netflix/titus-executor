@@ -2,11 +2,13 @@ package standalone
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -215,28 +217,27 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 	return notify
 }
 
-// logContainerStdErrOut logs the contents of the tasks' log files
+// logContainerStdErrOut reports the contents of the tasks' log files
 func (jobRunResponse *JobRunResponse) logContainerStdErrOut() {
-	lp := fmt.Sprintf("%s/titan/mainvpc/logs/%s", logUploadDir, jobRunResponse.TaskID)
-	_, err := os.Stat(lp)
+	logDir := fmt.Sprintf("%s/titan/mainvpc/logs/%s", logUploadDir, jobRunResponse.TaskID)
+	_, err := os.Stat(logDir)
 	if os.IsNotExist(err) {
-		log.Infof("logContainerStdErrOut: log directory does not exist: %s", lp)
+		log.Infof("logContainerStdErrOut: log directory does not exist: %s", logDir)
 		return
 	}
-	files, _ := ioutil.ReadDir(lp)
+	files, _ := ioutil.ReadDir(logDir)
 
-	for _, l := range files {
-		contents, err := ioutil.ReadFile(lp)
+	for _, logFile := range files {
+		contents, err := ioutil.ReadFile(filepath.Join(logDir, logFile.Name()))
 		if err != nil {
-			log.WithError(err).Errorf("Error reading file '%s': %+v", lp, err)
+			log.WithError(err).Errorf("Error reading log file '%s': %+v", logFile.Name(), err)
 			continue
 		}
-		log.Infof("logContainerStdErrOut: %s: '%s'", l, contents)
+		log.Infof("Task Log Output for %s: '%s'", logFile.Name(), contents)
 	}
-
 }
 
-func GenerateTestConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
+func GenerateTestConfigs(jobInput *JobInput, taskID string) (*config.Config, *docker.Config) {
 	configArgs := []string{"--copy-uploader", logUploadDir}
 
 	logViewerEnabled := false
