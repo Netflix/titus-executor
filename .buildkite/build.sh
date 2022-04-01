@@ -30,6 +30,8 @@ redact_secrets() {
 # For CI/CD, we touch some files to make them new, so that make doesn't think they need
 # to be re-generated
 touch vpc/service/db/migrations/bindata.go
+touch executor/runtime/docker/seccomp/*.json
+touch executor/runtime/docker/seccomp/seccomp.go
 
 log "Building executor"
 make clean
