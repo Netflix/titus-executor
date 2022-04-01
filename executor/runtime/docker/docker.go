@@ -45,6 +45,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/ftrvxmtrx/fd"
 	"github.com/hashicorp/go-multierror"
+	"github.com/moby/sys/mountinfo"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
@@ -1003,6 +1004,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) error { // nol
 			goto error
 		}
 		bindMounts = append(bindMounts, runTmpfs)
+		r.registerRuntimeCleanup(r.cleanupAllPodMounts)
 	}
 
 	systemServices, err = r.c.SystemServices()
@@ -1351,7 +1353,7 @@ func (r *DockerRuntime) createMetatronTmpfs() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	err = mountTmpfs(podMetatronFsHostPath, defaultRunTmpFsSize)
+	err = MountTmpfs(podMetatronFsHostPath, defaultRunTmpFsSize)
 	v := podMetatronFsHostPath + ":/run/metatron:rw"
 	return v, err
 }
@@ -1361,7 +1363,30 @@ func (r *DockerRuntime) cleanupMetatronTmpfs() error {
 	if err != nil {
 		return err
 	}
-	return unmountTmpfs(podMetatronFsHostPath)
+	if isDirMounted(podMetatronFsHostPath) {
+		return UnmountLazily(podMetatronFsHostPath)
+	}
+	return nil
+}
+
+// cleanupAllPodMounts is a catchall cleanup for anything that might be
+// leftover in the pod mount directly. It will agressivly try to unmount everything.
+func (r *DockerRuntime) cleanupAllPodMounts() error {
+	l := log.WithField("taskID", r.c.TaskID())
+	mountsPath := path.Join(r.cfg.RuntimeDir, "mounts")
+	f := func(path string, info os.FileInfo, err error) error {
+		if info != nil && info.IsDir() && isDirMounted(path) {
+			l.Infof("Cleanup: unmounting %s", path)
+			_ = UnmountLazily(path)
+		}
+		return nil
+	}
+	return filepath.Walk(mountsPath, f)
+}
+
+func isDirMounted(path string) bool {
+	mounted, _ := mountinfo.Mounted(path)
+	return mounted
 }
 
 func (r *DockerRuntime) getPodMetatronFsHostPath() (string, error) {
@@ -1624,6 +1649,12 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	tiniConns, err := r.waitForTiniConnections(ctx, listeners)
+	if err != nil {
+		eventCancel()
+		err = fmt.Errorf("container prestart error: %w", err)
+		return "", nil, statusMessageChan, err
+	}
+	err = r.setupTitusInits(tiniConns)
 	if err != nil {
 		eventCancel()
 		err = fmt.Errorf("container prestart error: %w", err)
@@ -2627,6 +2658,52 @@ func (r *DockerRuntime) setupGetLogCredAndRootFromMainTini(parentCtx context.Con
 	return r.logDir(c), &cred, rootFile, err
 }
 
+func (r *DockerRuntime) setupTitusInits(tiniConns map[string]*net.UnixConn) error {
+	var err error
+	for cName, unixConn := range tiniConns {
+		err = r.setupTitusInit(cName, unixConn)
+		if err != nil {
+			return err
+		}
+	}
+	r.registerRuntimeCleanup(func() error {
+		return os.RemoveAll(getTitusInitsBase(r.c.TaskID()))
+	})
+	return nil
+}
+
+func (r *DockerRuntime) setupTitusInit(cName string, unixConn *net.UnixConn) error {
+	/* Cred here is a ucred. We have a mimic'd type of unix.Ucred, because it's not available
+	 * on darwin. I don't want to stub out this entire method / all of these types on darwin,
+	 * so we have this. These are the containers uid / pid / gid from the perspective of the
+	 * host namespace.
+	 */
+	cred, err := getPeerInfo(unixConn)
+	if err != nil {
+		return fmt.Errorf("Error getting peerinfo for %s: %w", cName, err)
+
+	}
+	target := filepath.Join("/proc", strconv.FormatInt(int64(cred.pid), 10))
+	link := GetTitusInitsPath(r.c.TaskID(), cName)
+	err = os.MkdirAll(getTitusInitsBase(r.c.TaskID()), 0700)
+	if err != nil {
+		return fmt.Errorf("Error making base titus-inits dir: %w", err)
+	}
+	err = os.Symlink(target, link)
+	if err != nil {
+		return fmt.Errorf("Error making symlink for titus-inits from %s to %s: %w", target, link, err)
+	}
+	return nil
+}
+
+func GetTitusInitsPath(taskID string, cName string) string {
+	return filepath.Join(getTitusInitsBase(taskID), cName)
+}
+
+func getTitusInitsBase(taskID string) string {
+	return filepath.Join("/run", "titus-executor", "default__"+taskID, "inits")
+}
+
 func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Context, c runtimeTypes.Container, cred ucred, rootFile *os.File) error { // nolint: gocyclo
 	group, errGroupCtx := errgroup.WithContext(parentCtx)
 
@@ -2711,7 +2788,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	log.Info("Setting up container network")
 	var result vpcTypes.WiringStatus
 
-	pid1DirPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)))
+	pid1DirPath := filepath.Join("proc", strconv.Itoa(int(cred.pid)))
 	pid1DirFile, err := os.Open(pid1DirPath)
 	if err != nil {
 		return nil, err

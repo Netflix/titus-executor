@@ -1,5 +1,5 @@
 [Unit]
-Description=Storage mounting for task %s
+Description=Storage mounting for task %i
 ConditionPathIsDirectory=/var/lib/titus-inits/%i/ns
 # PartOf ensures that titus-storage will shutdown as part of the main titus-executor unit
 PartOf=titus-executor@default__%i.service
@@ -39,5 +39,4 @@ ExecStop=/apps/titus-executor/bin/titus-storage stop
 ExecStop=/bin/rm -f /var/lib/titus-environments/%i-titus-storage.env
 
 LimitNOFILE=65535
-PrivateTmp=yes
 KillMode=mixed

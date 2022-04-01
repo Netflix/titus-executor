@@ -193,9 +193,9 @@ func shouldStartLogViewer(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
-	// Currently titus-storage only supports EBS and /ephemeral storage
-	// which is currently only available on GPU instance types.
-	return c.EBSInfo().VolumeID != "" || c.Resources().GPU > 0
+	// Currently titus-storage only supports EBS and /mnt-shared storage
+	// which is currently only available on multi-container workloads
+	return c.EBSInfo().VolumeID != "" || len(c.Pod().Spec.Containers) > 1
 }
 
 func shouldStartContainerTools(cfg *config.Config, c Container) bool {

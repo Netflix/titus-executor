@@ -75,7 +75,7 @@ func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2Instanc
 	}
 
 	mc := MountCommand{
-		device:     device,
+		source:     device,
 		fstype:     c.ebsFStype,
 		mountPoint: c.ebsMountPoint,
 		perms:      c.ebsMountPerm,
