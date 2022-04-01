@@ -270,6 +270,8 @@ func GenerateTestConfigs(jobInput *JobInput, taskID string) (*config.Config, *do
 	cfg.MetatronEnabled = metatronEnabled
 	cfg.MetatronServiceImage = metatronTestImage
 	cfg.SSHDServiceImage = sshdTestImage
+	cfg.RuntimeDir = "/run/titus-executor/default__" + taskID
+	_ = os.MkdirAll(cfg.RuntimeDir, 0700)
 
 	if runtime.GOOS == "darwin" { //nolint:goconst
 		// On darwin these don't work yet
@@ -292,7 +294,6 @@ func GenerateTestConfigs(jobInput *JobInput, taskID string) (*config.Config, *do
 	if err != nil {
 		panic(err)
 	}
-	cfg.RuntimeDir = cwd
 	log.Infof("GenerateConfigs: configArgs=%+v, cfg=%+v, dockerCfg=%+v", configArgs, cfg, dockerCfg)
 	return cfg, dockerCfg
 }
@@ -454,7 +455,14 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 
 // StartTestTask starts a job and returns once the job is started
 func StartTestTask(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunResponse, error) { // nolint: gocyclo,golint
-	cfg, dockerCfg := GenerateTestConfigs(jobInput)
+	// TODO: refactor this all to use NewContainer()
+	// Strip out characters that aren't allowed in container names, and shorten
+	// the name so that it only includes the name of the test
+	validContainerNameRE := regexp.MustCompile("[^a-zA-Z0-9_.-]")
+	shortTestNameRE := regexp.MustCompile(".*/")
+	taskID := fmt.Sprintf("Titus-%v%v-%s-0-2", r.Intn(1000), time.Now().Second(), validContainerNameRE.ReplaceAllString(shortTestNameRE.ReplaceAllString(t.Name(), ""), "_"))
+
+	cfg, dockerCfg := GenerateTestConfigs(jobInput, taskID)
 
 	log.SetLevel(log.DebugLevel)
 	// Create an executor
@@ -471,12 +479,6 @@ func StartTestTask(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobR
 	}
 
 	ctx = logger.WithField(ctx, "jobID", jobID)
-	// TODO: refactor this all to use NewContainer()
-	// Strip out characters that aren't allowed in container names, and shorten
-	// the name so that it only includes the name of the test
-	validContainerNameRE := regexp.MustCompile("[^a-zA-Z0-9_.-]")
-	shortTestNameRE := regexp.MustCompile(".*/")
-	taskID := fmt.Sprintf("Titus-%v%v-%s-0-2", r.Intn(1000), time.Now().Second(), validContainerNameRE.ReplaceAllString(shortTestNameRE.ReplaceAllString(t.Name(), ""), "_"))
 	ctx = logger.WithField(ctx, "taskID", taskID)
 
 	env := map[string]string{
@@ -529,6 +531,21 @@ func StartTestTask(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobR
 	if tErr != nil {
 		cancel()
 		return nil, fmt.Errorf("could not construct task: %w", tErr)
+	}
+	podData, err := json.Marshal(task.Pod)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("could not marshal pod json: %w", err)
+	}
+	err = os.MkdirAll("/run/titus-executor/default__"+taskID, 0700)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("Create /run/titus-executor/default__%s: %w", taskID, err)
+	}
+	err = ioutil.WriteFile("/run/titus-executor/default__"+taskID+"/pod.json", podData, 0600)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("could not write into pod.json: %w", err)
 	}
 
 	opts := []docker.Opt{}

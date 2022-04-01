@@ -107,7 +107,7 @@ func skipOnDarwinOrNoRoot(t *testing.T) {
 }
 
 func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, dockerCfg := GenerateTestConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -127,7 +127,7 @@ func dockerImageRemove(t *testing.T, imgName string) {
 }
 
 func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, dockerCfg := GenerateTestConfigs(nil)
+	cfg, dockerCfg := GenerateTestConfigs(nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
