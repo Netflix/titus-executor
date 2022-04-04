@@ -225,8 +225,9 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 			AvailabilityZone: alloc.az,
 			SubnetId:         aws.StringValue(iface.SubnetId),
 		},
-		Uuid:    alloc.id,
-		Address: ipv4Address.String(),
+		Uuid:        alloc.id,
+		Address:     ipv4Address.String(),
+		Ipv6Address: ipv6Address.String(),
 	}
 
 	bytes, err := proto.Marshal(allocation)
@@ -312,10 +313,14 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 
 	switch v := rq.GetSearchParameter().(type) {
 	case *titus.GetAllocationRequest_Address:
-		rows, err = tx.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE ip_address = $1", v.Address)
+		rows, err = tx.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, ipv6address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE ip_address = $1", v.Address)
 
 	case *titus.GetAllocationRequest_Uuid:
-		rows, err = tx.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE id = $1", v.Uuid)
+		rows, err = tx.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, ipv6address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE id = $1", v.Uuid)
+
+	case *titus.GetAllocationRequest_Ipv6Address:
+		rows, err = tx.QueryContext(ctx, "SELECT id, az, region, subnet_id, ip_address, ipv6address, host_public_key, host_public_key_signature, message, message_signature FROM ip_addresses WHERE id = $1", v.Ipv6Address)
+
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not run SQL query")
@@ -324,9 +329,9 @@ func (vpcService *vpcService) GetAllocation(ctx context.Context, rq *titus.GetAl
 	if !rows.Next() {
 		return nil, errAllocationNotFound
 	}
-	var id, az, region, subnetid, ipaddress string
+	var id, az, region, subnetid, ipv4address, ipv6address string
 	var hostPublicKey, hostPublicKeySignature, message, messageSignature []byte
-	err = rows.Scan(&id, &az, &region, &subnetid, &ipaddress, &hostPublicKey, &hostPublicKeySignature, &message, &messageSignature)
+	err = rows.Scan(&id, &az, &region, &subnetid, &ipv4address, &ipv6address, &hostPublicKey, &hostPublicKeySignature, &message, &messageSignature)
 	if err == sql.ErrNoRows {
 		return nil, errAllocationNotFound
 	}
@@ -358,8 +363,9 @@ key_found:
 			AvailabilityZone: az,
 			SubnetId:         subnetid,
 		},
-		Uuid:    id,
-		Address: ipaddress,
+		Uuid:        id,
+		Address:     ipv4address,
+		Ipv6Address: ipv6address,
 	}
 
 	return &titus.GetAllocationResponse{
