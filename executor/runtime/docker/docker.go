@@ -1917,7 +1917,6 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID str
 			log.WithError(err).Errorf("Got unexpected error while listening for docker events for %s, bailing: %s", containerID, err)
 			return
 		case event := <-eventChan:
-			log.Debug("Got docker event: ", event)
 			isTerminalEvent := r.handleDockerEvent(event, statusMessageChan)
 			if isTerminalEvent {
 				cName, err := r.getContainerNameFromID(containerID)
@@ -2376,14 +2375,15 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 		l = l.WithField(fmt.Sprintf("actor.attributes.%s", k), v)
 	}
 	cName, err := r.getContainerNameFromDockerEvent(message)
-	if err == nil {
-		l.Infof("Processing docker event on %s container: %s", cName, action)
-	} else {
+	if err != nil {
 		l.WithError(err).WithField("message", message).Error("Error looking up the container name for the message, ignoring docker event")
 		return nonTerminalDockerEvent
 	}
+	l.Debugf("Processing docker event on %s container: %+v", cName, message)
+
 	switch action {
 	case "start":
+		l.Debugf("Processing docker start event on %s container: %s", cName, action)
 		// Updating the pod is relativly expensive, so we only send the update and consider the pod "running"
 		// if the the docker event came from the main container
 		if cName == runtimeTypes.MainContainerName {
@@ -2396,6 +2396,7 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 		l.Debugf("Skipping docker start event for %s, no need to update the pod", cName)
 		return nonTerminalDockerEvent
 	case "die":
+		l.Debugf("Processing docker die event on %s container: %s", cName, action)
 		exitCode := message.Actor.Attributes["exitCode"]
 		if exitCode == "0" {
 			statusMessageChan <- runtimeTypes.StatusMessage{
@@ -2418,14 +2419,22 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 			return isTerminalDockerEvent
 		}
 	case "health_status":
-		// TODO: Update the actual health state of the container
-		// so that ContainerStatus reflects what docker knows
+		l.Debugf("Processing docker health_status event on %s container: %s", cName, action)
+		r.convertDockerHealthUpdateToContainerStatus(cName, message.Action)
+		if strings.Contains(message.Action, "unhealthy") {
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusFailed,
+				Msg:    fmt.Sprintf("container %s failed its healthcheck, marking task as Failed", cName),
+			}
+			return isTerminalDockerEvent
+		}
 		statusMessageChan <- runtimeTypes.StatusMessage{
 			Status: runtimeTypes.StatusRunning,
 			Msg:    fmt.Sprintf("%s Docker health status: %s", cName, message.Status),
 		}
 		return nonTerminalDockerEvent
 	case "kill":
+		l.Debugf("Processing docker kill event on %s container: %s", cName, action)
 		// TODO: Handle the difference between platform/user sidecar, not all
 		// "kills"s should result in a Failed
 		if cName == runtimeTypes.MainContainerName {
@@ -2438,6 +2447,7 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 		l.Debugf("Skipping docker kill event for %s, no need to update the pod", cName)
 		return nonTerminalDockerEvent
 	case "oom":
+		l.Debugf("Processing docker oom event on %s container: %s", cName, action)
 		// TODO: Handle the difference between platform/user sidecar, not all
 		// "oom"s should result in a Failed
 		statusMessageChan <- runtimeTypes.StatusMessage{
@@ -2448,6 +2458,9 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 	// Ignore exec events entirely
 	case "exec_create", "exec_start", "exec_die":
 		return nonTerminalDockerEvent
+	case "destroy":
+		l.Debugf("Processing docker destroy event on %s container: %s", cName, action)
+		return isTerminalDockerEvent
 	default:
 		log.WithField("taskID", r.c.ID()).Info("Received unexpected docker event: ", message)
 		return nonTerminalDockerEvent
@@ -2489,6 +2502,20 @@ func (r *DockerRuntime) getContainerNameFromID(id string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("Unknown container couldn't find the container name for cid " + id)
+}
+
+func (r *DockerRuntime) convertDockerHealthUpdateToContainerStatus(cName string, m string) {
+	readyBool := messageHealthActionToBool(m)
+	for _, c := range append(r.c.ExtraUserContainers(), r.c.ExtraPlatformContainers()...) {
+		if cName == c.Name {
+			c.Status.Ready = readyBool
+		}
+	}
+}
+
+func messageHealthActionToBool(m string) bool {
+	s := strings.TrimSpace(strings.TrimPrefix(m, "health_status:"))
+	return s != "unhealthy"
 }
 
 func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {
