@@ -91,7 +91,7 @@ docker exec "$titus_agent_name" ${PWD}/hack/agent/certs/setup-metatron-certs.sh
 
 log "Running integration tests against the $titus_agent_name daemon"
 # --privileged is needed here since we are reading FDs from a unix socket
-docker exec $TTYFLAG --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
+docker exec $TTYFLAG --privileged -e DIND=true -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
     -covermode=count -coverprofile=coverage-standalone.out \
     -coverpkg=github.com/Netflix/... ./executor/standalone/... -short=false 2>&1 | redact_secrets | tee test-standalone-podspec.log
