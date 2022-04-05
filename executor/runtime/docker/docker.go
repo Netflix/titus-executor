@@ -1773,8 +1773,8 @@ func (r *DockerRuntime) generateContainerStatusSpectatordMetrics() []string {
 		}
 		metricTags["titus.state"] = state
 		// 3. Create the metric line using the spectatord protocol.
-		// The metric is a gauge with a value of 1 and a TTL of 2m.
-		statusGauge := fmt.Sprintf("g,2:titus.containers.status,%s:1", spectatordTags(metricTags))
+		// The metric is a gauge with a value of 1 and a TTL of 120s.
+		statusGauge := fmt.Sprintf("g,120:titus.containers.status,%s:1", spectatordTags(metricTags))
 		metricLines = append(metricLines, statusGauge)
 	}
 	return metricLines
@@ -1829,8 +1829,8 @@ func (r *DockerRuntime) generatePlatformSidecarSpectatordMetrics() []string {
 			"platform.sidecar.channel":     release[0],
 			"platform.sidecar.channel.def": release[1],
 		}
-		// The metric is a gauge with a value of 1 and a TTL of 2m.
-		psGauge := fmt.Sprintf("g,2:platform.sidecars.instance,%s:1", spectatordTags(metricTags))
+		// The metric is a gauge with a value of 1 and a TTL of 120s.
+		psGauge := fmt.Sprintf("g,120:platform.sidecars.instance,%s:1", spectatordTags(metricTags))
 		metricLines = append(metricLines, psGauge)
 	}
 	return metricLines
