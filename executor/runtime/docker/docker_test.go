@@ -313,8 +313,8 @@ func TestGenerateContainerStatusSpectatordMetrics(t *testing.T) {
 	}
 	actual := runtime.generateContainerStatusSpectatordMetrics()
 	expected := []string{
-		"g,2:titus.containers.status,nf.container=main,titus.image.name=titusops_echoservice_latest,titus.image.version=sha256_60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e,titus.state=healthy:1",
-		"g,2:titus.containers.status,nf.container=fuse,nf.process=foo,titus.image.name=titusops_titus-test-fuse,titus.image.version=sha256_f6ac1d3f204660792aef47b482fb43a34de23768727512868f428d18a90d4c48,titus.state=healthy:1",
+		"g,120:titus.containers.status,nf.container=main,titus.image.name=titusops_echoservice_latest,titus.image.version=sha256_60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e,titus.state=healthy:1",
+		"g,120:titus.containers.status,nf.container=fuse,nf.process=foo,titus.image.name=titusops_titus-test-fuse,titus.image.version=sha256_f6ac1d3f204660792aef47b482fb43a34de23768727512868f428d18a90d4c48,titus.state=healthy:1",
 	}
 	assert.Equal(t, expected, actual)
 }
@@ -352,8 +352,8 @@ func TestGeneratePlatformSidecarSpectatordMetrics(t *testing.T) {
 	}
 	actual := runtime.generatePlatformSidecarSpectatordMetrics()
 	expected := []string{
-		"g,2:platform.sidecars.instance,platform.sidecar.channel.def=1,platform.sidecar.channel=dev,platform.sidecar=sidecar1:1",
-		"g,2:platform.sidecars.instance,platform.sidecar.channel.def=32,platform.sidecar.channel=stable,platform.sidecar=sidecar2:1",
+		"g,120:platform.sidecars.instance,platform.sidecar.channel.def=1,platform.sidecar.channel=dev,platform.sidecar=sidecar1:1",
+		"g,120:platform.sidecars.instance,platform.sidecar.channel.def=32,platform.sidecar.channel=stable,platform.sidecar=sidecar2:1",
 	}
 	assert.ElementsMatch(t, expected, actual) // Ignore order of the metric strings.
 }
