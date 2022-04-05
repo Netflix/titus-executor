@@ -31,7 +31,8 @@ const (
 	jobTypeLabelKey      = "com.netflix.titus.job.type"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
-	DefaultOciRuntime = "runc"
+	// runc-alt is netflix runc version to support hybrid cgroup hierarchy
+	DefaultOciRuntime = "runc-alt"
 	MainContainerName = "main"
 )
 

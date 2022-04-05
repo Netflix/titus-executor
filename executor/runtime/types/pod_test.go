@@ -434,7 +434,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 
 	assert.DeepEqual(t, c.Resources(), expResources)
 	assert.DeepEqual(t, c.RequireIMDSToken(), ptr.StringPtr("token"))
-	assert.Equal(t, c.Runtime(), "runc")
+	assert.Equal(t, c.Runtime(), "runc-alt")
 	assert.Equal(t, c.SeccompAgentEnabledForPerfSyscalls(), true)
 	assert.DeepEqual(t, c.SecurityGroupIDs(), &expSGs)
 	assert.Equal(t, c.ServiceMeshEnabled(), true)

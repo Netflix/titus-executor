@@ -16,6 +16,11 @@ RUN echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stabl
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update &&\
     apt-get install -y docker-ce=5:18.09.7~3-0~ubuntu-bionic
 
+ENV RUNC_ALT_VERSION v1.1.0
+ENV RUNC_ALT_DOWNLOAD_URL https://github.com/opencontainers/runc/releases/download/$RUNC_ALT_VERSION/runc.amd64
+
+RUN curl -fsSL $RUNC_ALT_DOWNLOAD_URL -o runc-alt && chmod 755 runc-alt && cp runc-alt /usr/bin/
+
 ### systemd
 ENV container docker
 

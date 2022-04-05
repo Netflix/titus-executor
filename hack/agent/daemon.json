@@ -3,7 +3,11 @@
     "debug": true,
     "log-driver": "journald",
     "init-path": "/apps/titus-executor/bin/tini-static",
+    "default-runtime": "runc-alt",
     "runtimes": {
+        "runc-alt": {
+            "path": "/usr/bin/runc-alt"
+        },
         "fake-gpu-runtime": {
             "path": "/usr/bin/runc"
         }
