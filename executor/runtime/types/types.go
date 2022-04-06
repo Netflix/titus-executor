@@ -41,6 +41,8 @@ const (
 	VPCIPv4Label = "titus.vpc.ipv4"
 	// NetIPv4Label is the canonical network address of the container
 	NetIPv4Label = "titus.net.ipv4"
+	// HTBClassIDLabel is the HTB Class ID used by the container
+	HTBClassIDLabel = "titus.net.htbclassid"
 
 	// Make the linter happy
 	True             = "true"
@@ -222,6 +224,7 @@ type Container interface {
 	VPCAllocation() *vpcapi.Assignment
 	VPCAccountID() *string
 	TrafficSteeringEnabled() bool
+	HTBClassID() *uint32
 }
 
 func validateHostnameStyle(style string) error {

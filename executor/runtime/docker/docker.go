@@ -534,6 +534,9 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 	}
 
 	if r.cfg.UseNewNetworkDriver {
+		if classid := c.HTBClassID(); classid != nil {
+			containerCfg.Labels[runtimeTypes.HTBClassIDLabel] = fmt.Sprintf("%d", *classid)
+		}
 		hostCfg.NetworkMode = container.NetworkMode("none")
 	}
 
