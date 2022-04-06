@@ -971,6 +971,19 @@ func (c *PodContainer) parsePodCommandAndArgs() error {
 	return nil
 }
 
+func (c *PodContainer) HTBClassID() *uint32 {
+	if c.vpcAllocation == nil {
+		return nil
+	}
+
+	switch t := c.vpcAllocation.Assignment.(type) {
+	case *vpcapi.Assignment_AssignIPResponseV3:
+		return &t.AssignIPResponseV3.ClassId
+	}
+
+	return nil
+}
+
 func BoolPtr(b bool) *bool {
 	return &b
 }
