@@ -1137,6 +1137,10 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 	ctx, span := trace.StartSpan(ctx, "createBranchENI")
 	defer span.End()
 
+	span.AddAttributes(
+		trace.StringAttribute("subnet", subnetID),
+		trace.StringAttribute("securityGroups", fmt.Sprintf("%v", securityGroups)))
+
 	// TODO: Use idempotency token
 	row := tx.QueryRowContext(ctx, `
 SELECT subnet_usable_prefix.prefix
@@ -1160,6 +1164,10 @@ WHERE subnets.subnet_id = $1
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+
+	span.AddAttributes(
+		trace.StringAttribute("prefix", prefix),
+	)
 
 	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
 		// Ipv6AddressCount: aws.Int64(0),
