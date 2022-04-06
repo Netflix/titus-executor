@@ -28,13 +28,13 @@ func ebsRunner(ctx context.Context, command string, config MountConfig) error {
 	var err error
 
 	switch command {
-	case "start":
+	case start:
 		err = ebsStart(ctx, ec2Client, config, ec2InstanceID)
 		if err != nil {
 			l.Error("Failed to start. Running stop sequence now as we wont get a stop command later on TASK_LOST")
 			_ = ebsStop(ctx, ec2Client, config, ec2InstanceID)
 		}
-	case "stop":
+	case stop:
 		err = ebsStop(ctx, ec2Client, config, ec2InstanceID)
 	default:
 		return fmt.Errorf("Command %q unsupported. Must be either start or stop", command)
