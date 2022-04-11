@@ -15,7 +15,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
 
 RUN gem install --no-ri --no-rdoc fpm
 
-COPY --from=golang:1.13-stretch /usr/local/go /usr/local/go
+COPY --from=golang:1.16-stretch /usr/local/go /usr/local/go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
 RUN go version
