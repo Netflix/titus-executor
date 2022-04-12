@@ -2959,6 +2959,8 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 		containerStopTimeout = time.Second * time.Duration(*killWait)
 	}
 	cStopPtr := &containerStopTimeout
+	ctxWithTimeout, cancel := context.WithTimeout(context.Background(), containerStopTimeout)
+	defer cancel()
 
 	if wasKilled {
 		// We're being told by the API to stop, so use the configured stop timeout
@@ -2969,10 +2971,10 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 		logger.G(ctx).Info("Stopping+Cleaning up containers because they finished or died")
 	}
 
-	if containerJSON, err := r.client.ContainerInspect(context.TODO(), r.c.ID()); docker.IsErrNotFound(err) {
+	if containerJSON, err := r.client.ContainerInspect(ctxWithTimeout, r.c.ID()); docker.IsErrNotFound(err) {
 		goto stopped
 	} else if err != nil {
-		log.Error("Failed to inspect container: ", err)
+		log.WithError(err).Error("Failed to inspect container")
 		errs = multierror.Append(errs, err)
 		// There could be a race condition here, where if the container is killed before it is started, it could go into a wonky state
 	} else if !containerJSON.State.Running {
@@ -2980,22 +2982,22 @@ func (r *DockerRuntime) Kill(ctx context.Context, wasKilled bool) error { // nol
 	}
 
 	if err := r.runAllPreStopHooks(ctx); err.ErrorOrNil() != nil {
-		log.Error("Error encountered when running preStop hooks, continuing to shutdown regardless", err)
+		log.WithError(err).Error("Error encountered when running preStop hooks, continuing to shutdown regardless")
 	}
 
 	logger.G(ctx).Debug("Stopping main container")
-	if err := r.client.ContainerStop(context.TODO(), r.c.ID(), cStopPtr); err != nil {
+	if err := r.client.ContainerStop(ctxWithTimeout, r.c.ID(), cStopPtr); err != nil {
 		r.metrics.Counter("titus.executor.dockerStopContainerError", 1, nil)
-		log.Errorf("container %s : stop %v", r.c.TaskID(), err)
+		log.WithError(err).Errorf("container %s stopped with error", r.c.TaskID())
 		errs = multierror.Append(errs, err)
 	} else {
 		goto stopped
 	}
 
 	logger.G(ctx).Debug("Killing main container")
-	if err := r.client.ContainerKill(context.TODO(), r.c.ID(), "SIGKILL"); err != nil {
+	if err := r.client.ContainerKill(ctxWithTimeout, r.c.ID(), "SIGKILL"); err != nil {
 		r.metrics.Counter("titus.executor.dockerKillContainerError", 1, nil)
-		log.Errorf("container %s : kill %v", r.c.TaskID(), err)
+		log.WithError(err).Errorf("container %s killed with error", r.c.TaskID())
 		errs = multierror.Append(errs, err)
 	}
 
