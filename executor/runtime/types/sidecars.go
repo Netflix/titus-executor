@@ -7,19 +7,20 @@ import (
 )
 
 const (
-	SidecarTitusContainer         = "titus-container"
-	SidecarServiceAbMetrix        = "abmetrix"
-	SidecarServiceLogViewer       = "logviewer"
-	SidecarServiceMetatron        = "metatron"
-	SidecarServiceServiceMesh     = "servicemesh"
-	SidecarServiceSshd            = "sshd"
-	SidecarServiceSpectatord      = "spectatord"
-	SidecarServiceAtlasTitusAgent = "atlas-titus-agent"
-	SidecarTitusStorage           = "titus-storage"
-	SidecarSeccompAgent           = "seccomp-agent"
-	SidecarServiceMetadataProxy   = "metadata-proxy"
-	SidecarContainerTools         = "container-tools"
-	SidecarTrafficSteering        = "traffic-steering"
+	SidecarTitusContainer          = "titus-container"
+	SidecarServiceAbMetrix         = "abmetrix"
+	SidecarServiceLogViewer        = "logviewer"
+	SidecarServiceMetatron         = "metatron"
+	SidecarServiceServiceMesh      = "servicemesh"
+	SidecarServiceSshd             = "sshd"
+	SidecarServiceSpectatord       = "spectatord"
+	SidecarServiceTracingCollector = "tracing-collector"
+	SidecarServiceAtlasTitusAgent  = "atlas-titus-agent"
+	SidecarTitusStorage            = "titus-storage"
+	SidecarSeccompAgent            = "seccomp-agent"
+	SidecarServiceMetadataProxy    = "metadata-proxy"
+	SidecarContainerTools          = "container-tools"
+	SidecarTrafficSteering         = "traffic-steering"
 )
 
 var systemServices = []ServiceOpts{
@@ -46,6 +47,15 @@ var systemServices = []ServiceOpts{
 		Required:     false,
 		Volumes: map[string]struct{}{
 			"/titus/spectatord": {},
+		},
+	},
+	{
+		ServiceName:  SidecarServiceTracingCollector,
+		UnitName:     "titus-sidecar-tracing-collector",
+		EnabledCheck: shouldStartTracingCollector,
+		Required:     false,
+		Volumes: map[string]struct{}{
+			"/titus/tracing-collector": {},
 		},
 	},
 	{
@@ -167,6 +177,18 @@ func shouldStartSpectatord(cfg *config.Config, c Container) bool {
 	}
 
 	if cfg.SpectatordServiceImage == "" {
+		return false
+	}
+	return true
+}
+
+func shouldStartTracingCollector(cfg *config.Config, c Container) bool {
+	enabled := cfg.ContainerTracingCollector
+	if !enabled {
+		return false
+	}
+
+	if cfg.TracingCollectorServiceImage == "" {
 		return false
 	}
 	return true

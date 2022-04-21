@@ -62,6 +62,10 @@ type Config struct {
 	ContainerSpectatord    bool
 	SpectatordServiceImage string
 
+	// Do we enable tracing-collector titus-system-service?
+	ContainerTracingCollector    bool
+	TracingCollectorServiceImage string
+
 	// Do we enable atlas-titus-agent titus-system-service?
 	ContainerAtlasTitusAgent    bool
 	AtlasTitusAgentServiceImage string
@@ -255,6 +259,16 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-spectatord-image",
 			EnvVar:      "SPECTATORD_SERVICE_IMAGE",
 			Destination: &cfg.SpectatordServiceImage,
+		},
+		cli.BoolFlag{
+			Name:        "container-tracing-collector",
+			EnvVar:      "CONTAINER_TRACING_COLLECTOR",
+			Destination: &cfg.ContainerTracingCollector,
+		},
+		cli.StringFlag{
+			Name:        "container-tracing-collector-image",
+			EnvVar:      "TRACING_COLLECTOR_SERVICE_IMAGE",
+			Destination: &cfg.TracingCollectorServiceImage,
 		},
 		cli.StringFlag{
 			Name:        "container-tools-image",
