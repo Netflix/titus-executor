@@ -2404,11 +2404,18 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 			}
 			return isTerminalDockerEvent
 		} else if exitCode == "137" && cName != runtimeTypes.MainContainerName {
-			// An exit code of 137 means it was killed.
+			// An exit code of 137 means it was killed with sigterm.
 			// If we are not on the 'main' container, and docker doesn't have us in the 'oom' case,
 			// then it *probably* means that a sidecar container got killed while we were tearing down the pod
 			// In this case, we should not update the task status, and let the "real" docker event do that for us.
-			l.Infof("Ignoring %s container dying with exit code 137, probably meaning that it was killed while the main container was exiting", cName)
+			l.Infof("Ignoring %s container dying with exit code 137 (kill -s SIGTERM), probably meaning that it was sigterm'd while the main container was exiting", cName)
+			return nonTerminalDockerEvent
+		} else if exitCode == "143" && cName != runtimeTypes.MainContainerName {
+			// An exit code of 143 means it was killed with sigkill.
+			// If we are not on the 'main' container, and docker doesn't have us in the 'oom' case,
+			// then it *probably* means that a sidecar container got killed while we were tearing down the pod
+			// In this case, we should not update the task status, and let the "real" docker event do that for us.
+			l.Infof("Ignoring %s container dying with exit code 143 (kill -9), probably meaning that it was sigkill'd while the main container was exiting", cName)
 			return nonTerminalDockerEvent
 		} else {
 			statusMessageChan <- runtimeTypes.StatusMessage{
