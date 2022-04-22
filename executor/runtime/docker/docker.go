@@ -2457,6 +2457,9 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 	// Ignore exec events entirely
 	case "exec_create", "exec_start", "exec_die":
 		return nonTerminalDockerEvent
+	// top events are also ignorable, and are not worth logging about
+	case "top":
+		return nonTerminalDockerEvent
 	case "destroy":
 		l.Debugf("Processing docker destroy event on %s container: %s", cName, action)
 		return isTerminalDockerEvent
