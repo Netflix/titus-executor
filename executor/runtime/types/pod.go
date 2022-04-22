@@ -667,14 +667,15 @@ func (c *PodContainer) SystemServices() ([]*ServiceOpts, error) {
 	}
 
 	imageMap := map[string]string{
-		SidecarServiceAbMetrix:        c.config.AbmetrixServiceImage,
-		SidecarServiceLogViewer:       c.config.LogViewerServiceImage,
-		SidecarServiceMetatron:        c.config.MetatronServiceImage,
-		SidecarServiceServiceMesh:     svcMeshImage,
-		SidecarServiceSshd:            c.config.SSHDServiceImage,
-		SidecarServiceSpectatord:      c.config.SpectatordServiceImage,
-		SidecarServiceAtlasTitusAgent: c.config.AtlasTitusAgentServiceImage,
-		SidecarContainerTools:         c.config.ContainerToolsImage,
+		SidecarServiceAbMetrix:         c.config.AbmetrixServiceImage,
+		SidecarServiceLogViewer:        c.config.LogViewerServiceImage,
+		SidecarServiceMetatron:         c.config.MetatronServiceImage,
+		SidecarServiceServiceMesh:      svcMeshImage,
+		SidecarServiceSshd:             c.config.SSHDServiceImage,
+		SidecarServiceSpectatord:       c.config.SpectatordServiceImage,
+		SidecarServiceTracingCollector: c.config.TracingCollectorServiceImage,
+		SidecarServiceAtlasTitusAgent:  c.config.AtlasTitusAgentServiceImage,
+		SidecarContainerTools:          c.config.ContainerToolsImage,
 	}
 
 	sideCarPtrs := []*ServiceOpts{}
