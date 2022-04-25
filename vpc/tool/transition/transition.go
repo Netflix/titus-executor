@@ -20,7 +20,7 @@ func LockTransitionNamespaces(ctx context.Context, dir string) (*os.File, func()
 		return nil, nil, fmt.Errorf("Could not open transition namespace directory %q: %w", dir, err)
 	}
 
-	for ctx.Err() != nil {
+	for {
 		err := unix.Flock(int(transitionNamespaceDirFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
 			break
