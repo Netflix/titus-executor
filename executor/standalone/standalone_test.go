@@ -1239,6 +1239,7 @@ func TestBasicMultiContainerCustomSharedVolumes(t *testing.T) {
 	wrapTestStandalone(t)
 	// Requires titus-storage system unit
 	skipOnDarwinOrNoRoot(t)
+	t.Skip("Multicontainer volume tests with titus-storage currently don't work on CI")
 	// In the main container, we expect to see a file created by our sentinel
 	testEntrypointOld := "stat /data2/sentinel"
 	testEntrypointOld = `/bin/sh -vxc "sleep 3;` + testEntrypointOld + `"`
