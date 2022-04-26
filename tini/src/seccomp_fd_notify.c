@@ -183,6 +183,25 @@ static int install_notify_filter(void) {
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 	};
 
+	struct sock_filter traffic_steering_filter[] = {
+		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 0, 2),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
+		BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 1),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
+		/* Trap setsocktopt */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_setsockopt, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+		/* Trap listen */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_listen, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+
+		/* Every other system call is allowed */
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+	};
+
 	/* If we don't have CAP_SYSADMIN, we MUST set NO_NEW_PRIVS.
 	Why? Read https://unix.stackexchange.com/a/562899/411719
 	Or, from the seccomp man page:
@@ -198,6 +217,7 @@ static int install_notify_filter(void) {
 
 	char *is_handle_net = getenv("TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS");
 	char *is_handle_perf = getenv("TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS");
+	char *is_traffic_steering = getenv("TITUS_SECCOMP_AGENT_HANDLE_TRAFFIC_STEERING");
 	if (is_handle_net != NULL) {
 		prog.filter = net_filter;
 		prog.len = 
@@ -208,6 +228,11 @@ static int install_notify_filter(void) {
 		prog.len = 
 			(unsigned short)(sizeof(perf_filter) / sizeof(perf_filter[0]));
 		PRINT_INFO("BPF/Perf system calls will be intercepted");
+	} else if (is_traffic_steering != NULL) {
+		prog.filter = traffic_steering_filter;
+		prog.len =
+			(unsigned short)(sizeof(traffic_steering_filter) / sizeof(traffic_steering_filter[0]));
+		PRINT_INFO("traffic steering system calls will be intercepted");
 	} else {
 		PRINT_INFO("No env variables set, no interception of system calls");
 		return -1;
