@@ -1,22 +1,22 @@
 #define _GNU_SOURCE
-#include <errno.h>        // for EBADF
-#include <stdio.h>        // for perror, fprintf, snprintf, stderr, size_t
-#include <stdlib.h>       // for exit, getenv, WEXITSTATUS, WIFEXITED
+#include <errno.h> // for EBADF
+#include <stdio.h> // for perror, fprintf, snprintf, stderr, size_t
+#include <stdlib.h> // for exit, getenv, WEXITSTATUS, WIFEXITED
 /* setns */
-#include <sched.h>        // for setns, CLONE_NEWNS, CLONE_NEWUSER
-#include <limits.h>       // for PATH_MAX
-#include <sys/socket.h>   // for socketpair, PF_LOCAL, SOCK_SEQPACKET
-#include <syscall.h>      // for __NR_fsopen, __NR_mount_setattr, __NR_move_...
+#include <limits.h> // for PATH_MAX
+#include <sched.h> // for setns, CLONE_NEWNS, CLONE_NEWUSER
+#include <sys/socket.h> // for socketpair, PF_LOCAL, SOCK_SEQPACKET
+#include <syscall.h> // for __NR_fsopen, __NR_mount_setattr, __NR_move_...
 
-#include <linux/mount.h>  // for MOUNT_ATTR_NODEV, MOUNT_ATTR_NOEXEC, MOUNT_...
-#include <assert.h>       // for assert
-#include <fcntl.h>        // for open, openat, O_RDONLY, AT_EMPTY_PATH, O_CL...
-#include <sys/wait.h>     // for waitpid
-#include <unistd.h>       // for close, syscall, fork, pid_t
+#include <assert.h> // for assert
+#include <fcntl.h> // for open, openat, O_RDONLY, AT_EMPTY_PATH, O_CL...
+#include <linux/mount.h> // for MOUNT_ATTR_NODEV, MOUNT_ATTR_NOEXEC, MOUNT_...
+#include <sys/wait.h> // for waitpid
+#include <unistd.h> // for close, syscall, fork, pid_t
 
 /* fcntl */
-#include "scm_rights.h"   // for send_fd, recv_fd
-#include "common.h"       // for mkdir_p
+#include "common.h" // for mkdir_p
+#include "scm_rights.h" // for send_fd, recv_fd
 
 #define E(x)                                                                   \
 	do {                                                                   \
@@ -91,9 +91,14 @@ static int setup_fsfd_in_namespaces(int sk, int src_nsfd, const char *src_path)
 		return 1;
 	}
 
+	setuid(0);
+	setgid(0);
+	mkdir_p(src_path);
+	fprintf(stderr, "titus-mount-bind: opening %s in the container\n",
+		src_path);
 	src_dfd = open(src_path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	if (src_dfd < 0) {
-		perror("open");
+		perror("src open");
 		return 1;
 	}
 
