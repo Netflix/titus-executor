@@ -653,6 +653,24 @@ func (s *EC2Session) CreateSubnetCidrReservation(ctx context.Context, input ec2.
 	return output, nil
 }
 
+func (s *EC2Session) DeleteSubnetCidrReservation(ctx context.Context, input ec2.DeleteSubnetCidrReservationInput) (*ec2.DeleteSubnetCidrReservationOutput, error) {
+	ctx, span := trace.StartSpan(ctx, "DeleteSubnetCidrReservation")
+	defer span.End()
+
+	span.AddAttributes(
+		trace.StringAttribute("subnetCidrReservationId", aws.StringValue(input.SubnetCidrReservationId)),
+	)
+
+	ec2client := ec2.New(s.Session)
+	output, err := ec2client.DeleteSubnetCidrReservationWithContext(ctx, &input)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot delete subnet cidr reservation")
+		_ = HandleEC2Error(err, span)
+		return nil, err
+	}
+	return output, nil
+}
+
 func (s *EC2Session) GetRouteTables(ctx context.Context) ([]*ec2.RouteTable, error) {
 	ctx, span := trace.StartSpan(ctx, "GetRouteTables")
 	defer span.End()

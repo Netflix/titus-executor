@@ -137,6 +137,7 @@ func TestIntegrationTests(t *testing.T) {
 	runIntegrationTest(t, "testGenerateAssignmentIDWithTransitionNS", testGenerateAssignmentIDWithTransitionNS)
 	runIntegrationTest(t, "testGenerateAssignmentIDWithAddress", testGenerateAssignmentIDWithAddress)
 	runIntegrationTest(t, "testResetSecurityGroup", testResetSecurityGroup)
+	runIntegrationTest(t, "testAllocateAndDeallocateStaticAddress", testAllocateAndDeallocateStaticAddress)
 }
 
 type zipkinReporter struct {
@@ -1262,4 +1263,42 @@ func testGenerateAssignmentIDWithAddress(ctx context.Context, t *testing.T, md i
 	}
 	assert.Assert(t, ipnet.Contains(firstIP))
 	assert.Assert(t, ipnet.Contains(secondIP))
+}
+
+func testAllocateAndDeallocateStaticAddress(ctx context.Context, t *testing.T, md integrationTestMetadata, service *vpcService, session *ec2wrapper.EC2Session) {
+	address, err := service.AllocateAddress(ctx, &titus.AllocateAddressRequest{
+		AddressAllocation: &titus.AddressAllocation{
+			AddressLocation: &titus.AddressLocation{
+				SubnetId: md.subnetID,
+			},
+		},
+		Family:    titus.Family_FAMILY_V4,
+		AccountId: md.account,
+	})
+	assert.NilError(t, err)
+
+	var count int
+	var v4prefix, v6prefix string
+	row := service.db.QueryRowContext(ctx, "SELECT count(*) FROM ip_addresses WHERE id = $1", address.SignedAddressAllocation.AddressAllocation.Uuid)
+	assert.NilError(t, row.Scan(&count))
+	assert.Assert(t, count == 1)
+
+	row = service.db.QueryRowContext(ctx, "SELECT v4prefix, v6prefix FROM ip_addresses WHERE id = $1", address.SignedAddressAllocation.AddressAllocation.Uuid)
+	assert.NilError(t, row.Scan(&v4prefix, &v6prefix))
+
+	_, err = service.DeallocateAddress(ctx, &titus.DeallocateAddressRequest{
+		Uuid: address.SignedAddressAllocation.AddressAllocation.Uuid,
+	})
+	assert.NilError(t, err)
+
+	row = service.db.QueryRowContext(ctx, "SELECT count(*) FROM ip_addresses WHERE id = $1", address.SignedAddressAllocation.AddressAllocation.Uuid)
+	assert.NilError(t, row.Scan(&count))
+	assert.Assert(t, count == 0)
+
+	subnetCIDRReservations, err := session.GetSubnetCidrReservations(ctx, md.subnetID)
+	assert.NilError(t, err)
+	for _, subnetCIDRReservation := range subnetCIDRReservations {
+		assert.Assert(t, aws.StringValue(subnetCIDRReservation.SubnetCidrReservationId) != v4prefix)
+		assert.Assert(t, aws.StringValue(subnetCIDRReservation.SubnetCidrReservationId) != v6prefix)
+	}
 }
