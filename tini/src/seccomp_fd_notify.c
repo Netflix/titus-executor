@@ -28,6 +28,10 @@
 #define CHILD_SIG SIGUSR1
 #endif
 
+#ifndef SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
+#define SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV (1UL << 5)
+#endif
+
 #define MAX_EVENTS 16
 #define EPOLL_IGNORED_VAL 3
 /* For the x32 ABI, all system call numbers have bit 30 set */
@@ -245,7 +249,7 @@ static int install_notify_filter(void) {
 	   establish a second listener yields an EBUSY error. */
 
 	notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
-				SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
+				SECCOMP_FILTER_FLAG_NEW_LISTENER|SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV, &prog);
 	if (notify_fd == -1) {
 		PRINT_WARNING("seccomp install_notify_filter failed: %s",
 			      strerror(errno));
