@@ -24,6 +24,8 @@ const (
 	ebsMountPermFlagName  = "ebs-mount-perm"
 	ebsFSTypeFlagName     = "ebs-fstype"
 	titusPid1DirFlagName  = "titus-pid1-dir"
+	start                 = "start"
+	stop                  = "stop"
 )
 
 type MountConfig struct {
@@ -45,7 +47,7 @@ func main() {
 	var cmd = &cobra.Command{
 		Short:        "The container sidecar for attaching storage",
 		Long:         "",
-		ValidArgs:    []string{"start", "stop"},
+		ValidArgs:    []string{start, stop},
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -72,6 +74,11 @@ func main() {
 				}
 			} else {
 				l.Info("Not a multi-container workload, not doing shared")
+			}
+			err = sharedVolumeSourceRunner(ctx, command, mountConfig)
+			if err != nil {
+				l.WithError(err).Error("Error setting up shared volumes between containers")
+				return err
 			}
 			if mountConfig.ebsVolumeID != "" {
 				exclusiveLock, err := getExclusiveLock(ctx)

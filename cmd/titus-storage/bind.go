@@ -12,9 +12,9 @@ import (
 
 func mntSharedRunner(ctx context.Context, command string, config MountConfig) error {
 	switch command {
-	case "start":
+	case start:
 		return mntSharedStart(ctx, config)
-	case "stop":
+	case stop:
 		return mntSharedStop(ctx, config)
 	default:
 		return fmt.Errorf("Command %q unsupported. Must be either start or stop", command)
@@ -83,5 +83,5 @@ func createMntShared(path string) error {
 }
 
 func getMntSharedPath(taskID string) string {
-	return path.Join("run", "titus-executor", "default__"+taskID, "mounts", "mnt-shared")
+	return path.Join("/", "run", "titus-executor", "default__"+taskID, "mounts", "mnt-shared")
 }

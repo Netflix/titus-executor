@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	mountBlockDeviceCommand = "/apps/titus-executor/bin/titus-mount-block-device"
-	mountBindCommand        = "/apps/titus-executor/bin/titus-mount-bind"
+	mountBlockDeviceCommand              = "/apps/titus-executor/bin/titus-mount-block-device"
+	mountBindCommand                     = "/apps/titus-executor/bin/titus-mount-bind"
+	mountBindContainerToContainerCommand = "/apps/titus-executor/bin/titus-mount-container-to-container"
 )
 
 type MountCommand struct {
@@ -100,5 +101,18 @@ func mountBindInContainer(ctx context.Context, mc MountCommand) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	l.Printf("%s %s", strings.Join(cmd.Env, " "), mountBindCommand)
+	return cmd.Run()
+}
+
+func mountBindContainerToContainer(srcPid1Dir string, srcPath string, dstPid1Dir string, dstPath string) error {
+	cmd := exec.Command(mountBindContainerToContainerCommand)
+	cmd.Env = []string{
+		"SRC_PID_1_DIR=" + srcPid1Dir,
+		"SRC_PATH=" + srcPath,
+		"DST_PID_1_DIR=" + dstPid1Dir,
+		"DST_PATH=" + dstPath,
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
