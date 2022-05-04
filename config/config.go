@@ -82,6 +82,9 @@ type Config struct {
 
 	// The RuntimeDir is a tmpdir containing the pod state.json and other sensitive info
 	RuntimeDir string
+
+	//Used to disable the TSA
+	DisableTsa bool
 }
 
 // NewConfig generates a configuration and a set of flags to passed to urfave/cli
@@ -296,6 +299,11 @@ func NewConfig() (*Config, []cli.Flag) {
 		cli.StringSliceFlag{
 			Name:  "noop-uploaders",
 			Value: &cfg.NoopUploaders,
+		},
+		cli.BoolFlag{
+			Name:        "disable-tsa-titus-agent",
+			EnvVar:      "DISABLE_TSA_TITUS_AGENT",
+			Destination: &cfg.DisableTsa,
 		},
 	}
 

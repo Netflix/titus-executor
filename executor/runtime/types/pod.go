@@ -555,7 +555,7 @@ func (c *PodContainer) EffectiveNetworkMode() string {
 	if c.podConfig != nil && c.podConfig.NetworkMode != nil {
 		mode = *c.podConfig.NetworkMode
 	}
-	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address())
+	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address(), c.config.DisableTsa)
 }
 
 func (c *PodContainer) NFSMounts() []NFSMount {

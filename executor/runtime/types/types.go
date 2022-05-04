@@ -375,7 +375,9 @@ func GenerateV1TestPod(taskID string, resources *Resources, cfg *config.Config) 
 // Someday when network mode is set across the board, we can drop this function and just fail
 // fast when network mode is Unknown, but till then, this function encpasulates the busines logic
 // of interpretting the legacy attributes and computing what the effective network mode "should" be
-func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address bool) string {
+// Caveat: If TSA has been disabled for operational reasons, there is no provider for the Ipv6AndIpv4Fallback
+//         network mode, so return Ipv6AndIpv4 instead
+func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address bool, disableTsa bool) string {
 	if originalNetworkMode == titus.NetworkConfiguration_UnknownNetworkMode.String() {
 		if assignIPv6Address {
 			return titus.NetworkConfiguration_Ipv6AndIpv4.String()
@@ -383,6 +385,9 @@ func computeEffectiveNetworkMode(originalNetworkMode string, assignIPv6Address b
 		return titus.NetworkConfiguration_Ipv4Only.String()
 	}
 	if originalNetworkMode == titus.NetworkConfiguration_HighScale.String() {
+		if disableTsa {
+			return titus.NetworkConfiguration_Ipv6AndIpv4.String()
+		}
 		// HighScale is really an alias for the Transition Mode today
 		return titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String()
 	}
