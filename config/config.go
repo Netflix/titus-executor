@@ -84,7 +84,7 @@ type Config struct {
 	RuntimeDir string
 
 	//Used to disable the TSA
-	DisableTsa bool
+	EnableTransitionNetworkMode bool
 }
 
 // NewConfig generates a configuration and a set of flags to passed to urfave/cli
@@ -301,9 +301,9 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value: &cfg.NoopUploaders,
 		},
 		cli.BoolFlag{
-			Name:        "disable-tsa-titus-agent",
-			EnvVar:      "DISABLE_TSA_TITUS_AGENT",
-			Destination: &cfg.DisableTsa,
+			Name:        "enable-transition-network-titus-agent",
+			EnvVar:      "ENABLE_TRANSITION_NETWORK_MODE",
+			Destination: &cfg.EnableTransitionNetworkMode,
 		},
 	}
 
