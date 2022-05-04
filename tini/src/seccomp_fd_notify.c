@@ -22,11 +22,15 @@
 #include <stddef.h>
 #include <sched.h>
 #include <sys/prctl.h>
+#include <linux/version.h>
+#include <sys/utsname.h>
 #include "seccomp_fd_notify.h"
 
 #ifndef CHILD_SIG
 #define CHILD_SIG SIGUSR1
 #endif
+
+#define WAIT_KILLABLE_SECCOMP_KERNEL_VERSION KERNEL_VERSION(5, 15, 35)
 
 #ifndef SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
 #define SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV (1UL << 5)
@@ -68,6 +72,29 @@ bool have_cap_sysadmin()
 	cap_get_flag(current_capabilties, CAP_SYS_ADMIN, CAP_EFFECTIVE,
 		     &cap_value);
 	return cap_value == CAP_SET;
+}
+
+static int get_kernel_version(unsigned int *ver) {
+	struct utsname utsname;
+	int version, patchlevel, sublevel, err;
+
+	if (uname(&utsname)) {
+		PRINT_WARNING("Unable to call uname: %s",
+			strerror(errno));
+		return -1;
+	}
+
+	err = sscanf(utsname.release, "%d.%d.%d",
+		     &version, &patchlevel, &sublevel);
+
+	if (err != 3) {
+		PRINT_WARNING("Unable to get kernel version from uname '%s'",
+			 utsname.release);
+		return -1;
+	}
+
+	*ver = KERNEL_VERSION(version, patchlevel, sublevel);
+	return 0;
 }
 
 static int send_fd(int sock, int fd)
@@ -113,8 +140,10 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
 */
 #define SOCK_TYPE_MASK ~(SOCK_NONBLOCK | SOCK_CLOEXEC)
 static int install_notify_filter(void) {
-	int notify_fd = -1;
+	unsigned int seccomp_flags = SECCOMP_FILTER_FLAG_NEW_LISTENER;
+	unsigned int system_kernel_version = -1;
 	struct sock_fprog prog = {0};
+	int notify_fd = -1;
 
 	struct sock_filter perf_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
@@ -248,8 +277,16 @@ static int install_notify_filter(void) {
 	/* Only one listening file descriptor can be established. An attempt to
 	   establish a second listener yields an EBUSY error. */
 
+	if (get_kernel_version(&system_kernel_version) == -1) {
+		return -1;
+	}
+
+	if (system_kernel_version >= WAIT_KILLABLE_SECCOMP_KERNEL_VERSION) {
+		seccomp_flags = seccomp_flags|SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV;
+	}
+
 	notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
-				SECCOMP_FILTER_FLAG_NEW_LISTENER|SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV, &prog);
+				seccomp_flags, &prog);
 	if (notify_fd == -1) {
 		PRINT_WARNING("seccomp install_notify_filter failed: %s",
 			      strerror(errno));
