@@ -49,6 +49,7 @@
       'fsmount',
       'fsopen',
       'fspick',
+      'keyctl',
       'mount',
       'move_mount',
       'umount',
