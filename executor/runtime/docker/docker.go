@@ -84,11 +84,8 @@ const (
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
 	systemdImageLabel       = "com.netflix.titus.systemd"
-	// MS_RDONLY indicates that mount is read-only
-	MS_RDONLY              = 1 // nolint: golint
-	mountTimeout           = 5 * time.Minute
-	isTerminalDockerEvent  = true
-	nonTerminalDockerEvent = false
+	isTerminalDockerEvent   = true
+	nonTerminalDockerEvent  = false
 )
 
 // cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
@@ -1072,7 +1069,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 		}
 	}
 
-	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
+	if r.c.EBSInfo().VolumeID != "" {
 		v := r.c.EBSInfo()
 		r.c.SetEnvs(map[string]string{
 			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
@@ -1448,17 +1445,6 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 		}
 	}
 
-	for _, nfsMount := range c.NFSMounts() {
-		mp := strings.TrimPrefix(nfsMount.MountPoint, "/")
-		if err := tw.WriteHeader(&tar.Header{
-			Name:     mp,
-			Mode:     0777,
-			Typeflag: tar.TypeDir,
-		}); err != nil {
-			log.WithError(err).Fatal()
-		}
-	}
-
 	path := "etc/profile.d/netflix_environment.sh"
 	if version, ok := imageInfo.Config.Labels["nflxenv"]; ok && strings.HasPrefix(version, "1.") {
 		path = "etc/nflx/base-environment.d/200titus"
@@ -1499,8 +1485,8 @@ func maybeConvertIntoBadEntryPointError(err error) error {
 	return err
 }
 
-// setupEFSAndLogs connects to tini, and also sets up NFS mounts
-func (r *DockerRuntime) setupEFSandLogsAndMisc(ctx context.Context, typedConn *net.UnixConn, c runtimeTypes.Container) (string, error) {
+// setupLogsAndMisc connects to tini
+func (r *DockerRuntime) setupLogsAndMisc(ctx context.Context, typedConn *net.UnixConn, c runtimeTypes.Container) (string, error) {
 	// This can block for up to the full ctx timeout
 	logDir, cred, rootFile, err := r.setupGetLogCredAndRootFromMainTini(ctx, c, typedConn)
 	if err != nil {
@@ -1512,12 +1498,6 @@ func (r *DockerRuntime) setupEFSandLogsAndMisc(ctx context.Context, typedConn *n
 		return logDir, err
 	}
 
-	if len(c.NFSMounts()) > 0 {
-		err = r.setupEFSMounts(ctx, c, rootFile, cred)
-		if err != nil {
-			return logDir, err
-		}
-	}
 	return logDir, err
 }
 
@@ -1631,7 +1611,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 	mainTiniConn := tiniConns[runtimeTypes.MainContainerName]
 
-	logDir, err := r.setupEFSandLogsAndMisc(ctx, mainTiniConn, r.c)
+	logDir, err := r.setupLogsAndMisc(ctx, mainTiniConn, r.c)
 	if err != nil {
 		eventCancel()
 		err = fmt.Errorf("container prestart error: %w", err)
@@ -2424,42 +2404,6 @@ func (r *DockerRuntime) convertDockerHealthUpdateToContainerStatus(cName string,
 func messageHealthActionToBool(m string) bool {
 	s := strings.TrimSpace(strings.TrimPrefix(m, "health_status:"))
 	return s != "unhealthy"
-}
-
-func (r *DockerRuntime) setupEFSMounts(parentCtx context.Context, c runtimeTypes.Container, rootFile *os.File, cred *ucred) error {
-	baseMountOptions := []string{"vers=4.1,rsize=1048576,wsize=1048576,timeo=600,retrans=2"}
-	for _, nfs := range c.NFSMounts() {
-		// Todo: Make into a const
-		// Although 5 minutes is probably far too much here, this window is okay to be large
-		// because the parent window should be greater
-		ctx, cancel := context.WithTimeout(parentCtx, mountTimeout)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "/apps/titus-executor/bin/titus-mount-nfs", strconv.Itoa(int(cred.pid))) // nolint: gosec
-		flags := 0
-		if nfs.ReadOnly {
-			flags = flags | MS_RDONLY
-		}
-		mountOptions := append(
-			baseMountOptions,
-			fmt.Sprintf("fsc=%s", c.TaskID()),
-			fmt.Sprintf("source=[%s]:%s", nfs.Server, nfs.ServerPath),
-		)
-		cmd.Env = []string{
-			fmt.Sprintf("MOUNT_TARGET=%s", nfs.MountPoint),
-			fmt.Sprintf("MOUNT_NFS_HOSTNAME=%s", nfs.Server),
-			fmt.Sprintf("MOUNT_FLAGS=%d", flags),
-			fmt.Sprintf("MOUNT_OPTIONS=%s", strings.Join(mountOptions, ",")),
-		}
-
-		stdoutStderr, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("Mount failure: %+v: %s", nfs, string(stdoutStderr))
-		}
-		cancel()
-
-	}
-
-	return nil
 }
 
 func (r *DockerRuntime) setupTiniListener(cName string) (*net.UnixListener, error) {

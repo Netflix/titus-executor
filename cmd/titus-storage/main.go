@@ -64,6 +64,13 @@ func main() {
 				l.WithError(err).Error("Error when reading pod.json file")
 				return err
 			}
+
+			// Setup NFS volume mounts on all containers.
+			if err := setupNFSMounts(ctx, mountConfig.taskID, pod); err != nil {
+				l.WithError(err).Error("Error when mounting NFS volumes")
+				return err
+			}
+
 			mountConfig.pod = pod
 			// Currently only doing mntShared on multi-container workloads
 			if len(pod.Spec.Containers) > 1 {

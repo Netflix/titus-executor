@@ -252,9 +252,9 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 		}
 	case <-time.After(timeout):
 		if opts.Required {
-			return fmt.Errorf("timeout after %d seconds starting %s service (which is required to start)", timeout, opts.UnitName)
+			return fmt.Errorf("timeout after %d seconds starting %s service (which is required to start)", timeout/time.Second, opts.UnitName)
 		}
-		l.Errorf("timeout after %d seconds starting %s service (not required to launch this task)", timeout, opts.UnitName)
+		l.Errorf("timeout after %d seconds starting %s service (not required to launch this task)", timeout/time.Second, opts.UnitName)
 		return nil
 	}
 	return nil

@@ -185,22 +185,28 @@ static void do_fsconfigs(int fsfd, char *options)
 	E_fsconfig(fsfd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
 }
 
-static int setup_fsfd_in_namespaces(int sk, int pidfd)
+static int setup_fsfd_in_namespaces(int sk, int nsfd)
 {
 	int fsfd, ret;
-	ret = setns(pidfd, CLONE_NEWUSER);
+	int usernsfd = openat(nsfd, "user", O_RDONLY);
+	int mnt_fd = openat(nsfd, "mnt", O_RDONLY);
+	int net_fd = openat(nsfd, "net", O_RDONLY);
+	assert(usernsfd != -1);
+	assert(mnt_fd != -1);
+	assert(net_fd != -1);
+	ret = setns(usernsfd, CLONE_NEWUSER);
 	if (ret == -1) {
 		perror("setns user");
 		return 1;
 	}
-	ret = setns(pidfd, CLONE_NEWNET);
-	if (ret == -1) {
-		perror("setns net");
-		return 1;
-	}
-	ret = setns(pidfd, CLONE_NEWNS);
+	ret = setns(mnt_fd, CLONE_NEWNS);
 	if (ret == -1) {
 		perror("setns mnt");
+		return 1;
+	}
+	ret = setns(net_fd, CLONE_NEWNET);
+	if (ret == -1) {
+		perror("setns net");
 		return 1;
 	}
 	fsfd = fsopen("nfs4", 0);
@@ -212,7 +218,7 @@ static int setup_fsfd_in_namespaces(int sk, int pidfd)
 	return 0;
 }
 
-static int fork_and_get_fsfd(long int pidfd)
+static int fork_and_get_fsfd(long int nsfd)
 {
 	int sk_pair[2], ret, fsfd, status;
 	pid_t worker;
@@ -228,7 +234,7 @@ static int fork_and_get_fsfd(long int pidfd)
 	}
 	if (worker == 0) {
 		close(sk_pair[0]);
-		ret = setup_fsfd_in_namespaces(sk_pair[1], pidfd);
+		ret = setup_fsfd_in_namespaces(sk_pair[1], nsfd);
 		close(sk_pair[1]);
 		exit(ret);
 	}
@@ -247,17 +253,26 @@ static int fork_and_get_fsfd(long int pidfd)
 	return fsfd;
 }
 
-static void switch_namespaces(int pidfd)
+static void switch_namespaces(int nsfd)
 {
 	int ret;
-	ret = setns(pidfd, CLONE_NEWNET | CLONE_NEWNS);
+	int mnt_fd = openat(nsfd, "mnt", O_RDONLY);
+	assert(mnt_fd != -1);
+	ret = setns(mnt_fd, CLONE_NEWNS);
 	if (ret == -1) {
-		perror("setns net / mount");
+		perror("setns mount");
+		exit(1);
+	}
+	int net_fd = openat(nsfd, "net", O_RDONLY);
+	assert(net_fd != -1);
+	ret = setns(net_fd, CLONE_NEWNET);
+	if (ret == -1) {
+		perror("setns net");
 		exit(1);
 	}
 }
 
-static void mount_and_move(int fsfd, const char *target, int pidfd,
+static void mount_and_move(int fsfd, const char *target,
 			   unsigned long flags)
 {
 	int mfd = fsmount(fsfd, 0, flags);
@@ -271,34 +286,26 @@ static void mount_and_move(int fsfd, const char *target, int pidfd,
 
 int main(int argc, char *argv[])
 {
-	int pidfd, fsfd, res = -1;
-	long int container_pid;
+	int nsfd, fsfd, res = -1;
 	unsigned long flags_ul;
 	/*
 	 * We do this because parsing args is a bigger pain than passing
 	 * via environment variable, although passing via environment
 	 * variable has a "cost" in that they are limited in size
 	 */
+	const char *pidDir = getenv("TITUS_PID1_DIR");
 	const char *nfs_mount_hostname = getenv("MOUNT_NFS_HOSTNAME");
 	const char *target = getenv("MOUNT_TARGET");
 	const char *flags = getenv("MOUNT_FLAGS");
 	const char *options = getenv("MOUNT_OPTIONS");
 
-	if (argc != 2) {
-		printf("Usage: %s container_pid", argv[0]);
-		return 1;
-	}
-	errno = 0;
-	container_pid = strtol(argv[1], NULL, 10);
-	assert(errno == 0);
-
 	int buf_size = sysconf(_SC_PAGESIZE);
 	char final_options[buf_size];
 	strcpy(final_options, options);
 
-	if (!(target && flags && options)) {
+	if (!(target && flags && options && pidDir)) {
 		fprintf(stderr,
-			"Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, and MOUNT_OPTIONS env vars");
+			"Usage: must provide MOUNT_TARGET, MOUNT_FLAGS, TITUS_PID1_DIR, and MOUNT_OPTIONS env vars");
 		return 1;
 	}
 
@@ -308,17 +315,20 @@ int main(int argc, char *argv[])
 		perror("flags");
 		return 1;
 	}
-	pidfd = pidfd_open(container_pid, 0);
-	if (pidfd == -1) {
+	/* This nsfd is used to extract other namespaces to switch to, similar to a pidfd */
+	char pid1_ns_path[PATH_MAX];
+	snprintf(pid1_ns_path, PATH_MAX - 1, "%s/ns", pidDir);
+	nsfd = open(pid1_ns_path, O_PATH);
+	if (nsfd == -1) {
 		perror("pidfd_open");
 		return 1;
 	}
 
 	/* First we need to get a fsfd, but it must be created inside the user namespace */
-	fsfd = fork_and_get_fsfd(pidfd);
+	fsfd = fork_and_get_fsfd(nsfd);
 
 	/* Now we can switch net/mount namespaces so we can lookup the ip and eventually mount */
-	switch_namespaces(pidfd);
+	switch_namespaces(nsfd);
 	fprintf(stderr, "titus-mount-nfs: user-inputed options: %s\n", options);
 	res = hostname_to_ip_option(nfs_mount_hostname, final_options);
 	if (res != 0) {
@@ -331,7 +341,7 @@ int main(int argc, char *argv[])
 	/* Now we can do the fs_config calls and actual mount */
 	do_fsconfigs(fsfd, final_options);
 	mkdir_p(target);
-	mount_and_move(fsfd, target, pidfd, flags_ul);
+	mount_and_move(fsfd, target, flags_ul);
 
 	fprintf(stderr, "titus-mount-nfs: All done, mounted on %s\n", target);
 	return 0;
