@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Netflix/metrics-client-go/metrics"
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
 	"github.com/Netflix/titus-executor/tag"
@@ -27,6 +28,7 @@ type cliOptions struct {
 }
 
 func main() {
+	go common.HandleQuitSignal()
 	var options cliOptions
 	app := cli.NewApp()
 	app.Name = "titus-standalone"

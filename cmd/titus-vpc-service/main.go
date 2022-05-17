@@ -20,6 +20,7 @@ import (
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	spectator "github.com/Netflix/spectator-go"
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/logger"
 	titusTLS "github.com/Netflix/titus-executor/utils/tls"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
@@ -114,6 +115,7 @@ func getCommonTags() map[string]string {
 }
 
 func main() {
+	go common.HandleQuitSignal()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

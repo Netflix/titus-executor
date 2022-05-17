@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -34,4 +38,17 @@ func ReadTaskPodFile(taskID string) (*corev1.Pod, error) {
 	}
 
 	return &pod, nil
+}
+
+// HandleQuitSignal allows us to respond to sigquit, dumping our goroutines like normal, but *not* exit,
+// mimicking how java does it.
+func HandleQuitSignal() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGQUIT)
+	buf := make([]byte, 1<<20)
+	for {
+		<-sigs
+		stacklen := runtime.Stack(buf, true)
+		log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+	}
 }

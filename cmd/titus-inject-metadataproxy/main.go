@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/metadataserver/inject"
 	log2 "github.com/Netflix/titus-executor/utils/log"
@@ -14,6 +15,7 @@ import (
 
 func main() {
 	log2.MaybeSetupLoggerIfOnJournaldAvailable()
+	go common.HandleQuitSignal()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

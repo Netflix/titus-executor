@@ -5,6 +5,7 @@ import (
 	"flag"
 	"time"
 
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/reaper"
 	log "github.com/Netflix/titus-executor/utils/log"
 	"github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ var dockerHost string
 var debug bool
 
 func main() {
+	go common.HandleQuitSignal()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	flag.StringVar(&dockerHost, "docker-host", "unix:///var/run/docker.sock", "Docker Daemon URI")

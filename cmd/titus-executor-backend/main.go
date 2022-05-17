@@ -12,6 +12,7 @@ import (
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/Netflix/metrics-client-go/metrics"
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
@@ -38,6 +39,7 @@ type commandConfig struct {
 }
 
 func main() {
+	go common.HandleQuitSignal()
 	mainCfg := commandConfig{}
 	var flags = []cli.Flag{
 		cli.StringFlag{
