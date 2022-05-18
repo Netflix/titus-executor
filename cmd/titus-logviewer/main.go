@@ -7,6 +7,7 @@ import (
 	log2 "github.com/Netflix/titus-executor/utils/log"
 	titusTLS "github.com/Netflix/titus-executor/utils/tls"
 
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/logviewer/api"
 	"github.com/Netflix/titus-executor/logviewer/conf"
 	log "github.com/sirupsen/logrus"
@@ -53,6 +54,7 @@ func getTLSConfig(certificateFile string, privateKey string) (*tls.Config, error
 
 func main() {
 	log2.MaybeSetupLoggerIfOnJournaldAvailable()
+	go common.HandleQuitSignal()
 	log.Println("Titus logviewer is starting")
 	r := newMux()
 	go listenOnHTTPSOptionally(r)

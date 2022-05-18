@@ -7,6 +7,7 @@ import (
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	datadog "github.com/Datadog/opencensus-go-exporter-datadog"
+	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	openzipkin "github.com/openzipkin/zipkin-go"
@@ -56,6 +57,7 @@ type instanceIdentityProviderGetter func() identity.InstanceIdentityProvider
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func main() {
+	go common.HandleQuitSignal()
 	var cfgFile string
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -39,6 +39,7 @@ type MountConfig struct {
 }
 
 func main() {
+	go common.HandleQuitSignal()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	log.MaybeSetupLoggerIfOnJournaldAvailable()
