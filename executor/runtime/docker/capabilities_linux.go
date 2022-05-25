@@ -1,3 +1,6 @@
+//go:build linux && !noroot
+// +build linux,!noroot
+
 package docker
 
 import (
