@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -437,32 +436,6 @@ type NetworkConfigurationDetails struct {
 	EniID               string
 	ResourceID          string
 	TransitionIPAddress string
-}
-
-// ToLegacyAnnotationMap builds up a map of "legacy" annotations that are a 1:1
-// reflection of the NetworkConfigurationDetails struct, in pod annotation form.
-func (n *NetworkConfigurationDetails) ToLegacyAnnotationMap() map[string]string {
-	m := make(map[string]string)
-	m["IsRoutableIp"] = strconv.FormatBool(n.IsRoutableIP)
-	if n.EniIPv4Address != "" {
-		m["EniIpAddress"] = n.EniIPv4Address
-	}
-	m["EniId"] = n.EniID
-	m["ResourceId"] = n.ResourceID
-	if n.EniIPv6Address != "" {
-		m["EniIPv6Address"] = n.EniIPv6Address
-	}
-	if n.ElasticIPAddress != "" {
-		m["ElasticIPAddress"] = n.ElasticIPAddress
-	}
-	m["NetworkMode"] = n.NetworkMode
-	if n.TransitionIPAddress != "" {
-		m["TransitionIPAddress"] = n.TransitionIPAddress
-	}
-	if p := n.PickPrimaryIP(); p != "" {
-		m["IpAddress"] = p
-	}
-	return m
 }
 
 // ToAnnotationMap builds up a map of annotations that are a computed

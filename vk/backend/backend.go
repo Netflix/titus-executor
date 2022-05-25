@@ -324,10 +324,6 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	b.pod.Status.ContainerStatuses = statuses
 
 	if update.Details != nil && update.Details.NetworkConfiguration != nil {
-		// Backwards compatibility, sets "un-adorned" annotations like "IpAddress" on the pod.
-		for k, v := range update.Details.NetworkConfiguration.ToLegacyAnnotationMap() {
-			b.pod.Annotations[k] = v
-		}
 		// These annotations allow us to get data "back out" from the executor up to the control-plane, without having
 		// to depend on the limitations of the PodStatus structure.
 		for k, v := range update.Details.NetworkConfiguration.ToAnnotationMap() {
