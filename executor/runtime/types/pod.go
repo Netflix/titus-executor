@@ -673,6 +673,7 @@ func (c *PodContainer) SystemServices() ([]*ServiceOpts, error) {
 		SidecarServiceServiceMesh:      svcMeshImage,
 		SidecarServiceSshd:             c.config.SSHDServiceImage,
 		SidecarServiceSpectatord:       c.config.SpectatordServiceImage,
+		SidecarServiceSystemDNS:        c.config.SystemDNSServiceImage,
 		SidecarServiceTracingCollector: c.config.TracingCollectorServiceImage,
 		SidecarServiceAtlasTitusAgent:  c.config.AtlasTitusAgentServiceImage,
 		SidecarContainerTools:          c.config.ContainerToolsImage,

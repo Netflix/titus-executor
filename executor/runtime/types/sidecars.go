@@ -14,6 +14,7 @@ const (
 	SidecarServiceServiceMesh      = "servicemesh"
 	SidecarServiceSshd             = "sshd"
 	SidecarServiceSpectatord       = "spectatord"
+	SidecarServiceSystemDNS        = "systemdns"
 	SidecarServiceTracingCollector = "tracing-collector"
 	SidecarServiceAtlasTitusAgent  = "atlas-titus-agent"
 	SidecarTitusStorage            = "titus-storage"
@@ -33,6 +34,15 @@ var systemServices = []ServiceOpts{
 		UnitName:     "titus-sidecar-seccomp-agent",
 		Required:     true,
 		EnabledCheck: shouldStartTitusSeccompAgent,
+	},
+	{
+		ServiceName:  SidecarServiceSystemDNS,
+		UnitName:     "titus-sidecar-systemdns",
+		Required:     true,
+		EnabledCheck: ShouldStartSystemDNS,
+		Volumes: map[string]struct{}{
+			"/titus/systemdns": {},
+		},
 	},
 	{
 		ServiceName: SidecarTitusContainer,
@@ -151,6 +161,24 @@ func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
 
 func shouldStartTitusSeccompAgent(cfg *config.Config, c Container) bool {
 	return c.SeccompAgentEnabledForPerfSyscalls() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() || c.TrafficSteeringEnabled()
+}
+
+func ShouldStartSystemDNS(cfg *config.Config, c Container) bool {
+	// don't start SystemDNS unless we're in IPv6-only mode
+	if c.EffectiveNetworkMode() != titus.NetworkConfiguration_Ipv6Only.String() {
+		return false
+	}
+
+	enabled := cfg.ContainerSystemDNS
+	if !enabled {
+		return false
+	}
+
+	if cfg.SystemDNSServiceImage == "" {
+		return false
+	}
+
+	return true
 }
 
 func shouldStartServiceMesh(cfg *config.Config, c Container) bool {
