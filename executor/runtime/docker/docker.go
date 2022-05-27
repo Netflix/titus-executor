@@ -375,8 +375,12 @@ func (r *DockerRuntime) computeDNSServers() []string {
 		// the burden on TSA for ipv4 udp traffic
 		return []string{"fd00:ec2::253"}
 	case titus.NetworkConfiguration_Ipv6Only.String():
-		// True ipv6 only means we really can only have a v6
-		// resolver
+		// If we're ipv6-only and running the SystemDNS local resolver
+		// which provides DNS64, we'll point to that
+		if runtimeTypes.ShouldStartSystemDNS(&r.cfg, r.c) {
+			return []string{"127.0.0.53"}
+		}
+		// otherwise return the EC2 IPv6 resolver
 		return []string{"fd00:ec2::253"}
 	default:
 		// Any other situation means we can return the classic v4 resolver

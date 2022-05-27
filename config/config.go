@@ -62,6 +62,10 @@ type Config struct {
 	ContainerSpectatord    bool
 	SpectatordServiceImage string
 
+	// Do we enable SystemDNS titus-system-service?
+	ContainerSystemDNS    bool
+	SystemDNSServiceImage string
+
 	// Do we enable tracing-collector titus-system-service?
 	ContainerTracingCollector    bool
 	TracingCollectorServiceImage string
@@ -262,6 +266,16 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-spectatord-image",
 			EnvVar:      "SPECTATORD_SERVICE_IMAGE",
 			Destination: &cfg.SpectatordServiceImage,
+		},
+		cli.BoolFlag{
+			Name:        "container-systemdns",
+			EnvVar:      "CONTAINER_SYSTEMDNS",
+			Destination: &cfg.ContainerSystemDNS,
+		},
+		cli.StringFlag{
+			Name:        "container-systemdns-image",
+			EnvVar:      "SYSTEMDNS_SERVICE_IMAGE",
+			Destination: &cfg.SystemDNSServiceImage,
 		},
 		cli.BoolFlag{
 			Name:        "container-tracing-collector",
