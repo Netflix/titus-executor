@@ -86,6 +86,7 @@ const (
 	systemdImageLabel       = "com.netflix.titus.systemd"
 	isTerminalDockerEvent   = true
 	nonTerminalDockerEvent  = false
+	vpctoolTimeout          = 45 * time.Second
 )
 
 // cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
@@ -711,7 +712,8 @@ func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c runt
 
 // This will setup c.Allocation
 func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, vpctoolTimeout)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "prepareNetworkDriver")
@@ -803,9 +805,13 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 	if err != nil {
 		errs = multierror.Append(errs, fmt.Errorf("Could not read from stdout pipe: %w", err))
 	} else {
-		err = protojson.Unmarshal(data, &result)
-		if err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("Could not read / deserialize JSON (%s) from assignment command: %w", string(data), err))
+		if len(data) == 0 {
+			errs = multierror.Append(errs, fmt.Errorf("vpctool had no stdout output to parse"))
+		} else {
+			err = protojson.Unmarshal(data, &result)
+			if err != nil {
+				errs = multierror.Append(errs, fmt.Errorf("Could not read / deserialize JSON (%s) from assignment command: %w", string(data), err))
+			}
 		}
 	}
 	if errs != nil {
@@ -814,9 +820,9 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		if err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("Could not read stderr: %w", err))
 		} else {
-			errs = multierror.Append(errs, fmt.Errorf("Read from stderr: %s", string(data)))
+			errs = multierror.Append(errs, fmt.Errorf("stderr output: %s", string(data)))
 		}
-		errs = multierror.Append(errs, allocationCommand.Wait())
+		errs = multierror.Append(errs, fmt.Errorf("Error waiting on allocation command after %s (timeout %s): %w", time.Since(start), vpctoolTimeout, allocationCommand.Wait()))
 		tracehelpers.SetStatus(errs, span)
 		return nil, errs
 	}
