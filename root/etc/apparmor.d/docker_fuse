@@ -8,18 +8,18 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
   file,
   umount,
   mount,
+  pivot_root,
 
   signal (send,receive) peer=@{profile_name},
 
-  deny mount fstype=tmpfs,
   deny mount fstype=ramfs,
   deny mount fstype=sysfs,
-  deny mount fstype=proc,
   deny mount fstype=debugfs,
   deny mount fstype=devtmpfs,
   deny mount fstype=cgroup,
   deny mount fstype=cgroup2,
 
+  allow mount ** -> /mnt/**,
   deny mount ** -> /,
   deny mount ** -> /titus/**,
   deny mount ** -> /titus/,

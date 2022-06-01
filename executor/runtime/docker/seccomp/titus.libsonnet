@@ -52,6 +52,7 @@
       'keyctl',
       'mount',
       'move_mount',
+      'pivot_root',
       'umount',
       'umount2',
       'unshare',
