@@ -19,6 +19,7 @@ const (
 	timeBetweenNoDetatches = time.Minute
 	minTimeUnused          = time.Hour
 	minTimeAttached        = assignTimeout
+	contextTimeout         = 10 * time.Minute
 )
 
 type nilItem struct {
@@ -61,7 +62,7 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 }
 
 func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context, subnet *subnet) (time.Duration, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, contextTimeout)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "doDetatchUnusedBranchENI")
