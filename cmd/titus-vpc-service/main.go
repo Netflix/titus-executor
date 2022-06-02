@@ -305,6 +305,7 @@ func main() {
 	rootCmd.PersistentFlags().Int(maxOpenConnectionsFlagName, 200, "Maximum number of open connections allows to open to the database")
 	rootCmd.PersistentFlags().Int64(maxConcurrentRefreshFlagName, 10, "The number of maximum concurrent refreshes to allow")
 	rootCmd.AddCommand(migrateCommand(ctx, v))
+	rootCmd.AddCommand(adhocCommand(ctx, v))
 	rootCmd.AddCommand(generateKeyCommand(ctx, v))
 	rootCmd.AddCommand(fixAllocations(ctx, v))
 
