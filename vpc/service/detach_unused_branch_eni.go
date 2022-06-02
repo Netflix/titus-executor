@@ -19,7 +19,7 @@ const (
 	timeBetweenNoDetatches = time.Minute
 	minTimeUnused          = time.Hour
 	minTimeAttached        = assignTimeout
-	contextTimeout 			= 10 * time.Minute
+	contextTimeout         = 10 * time.Minute
 )
 
 type nilItem struct {
