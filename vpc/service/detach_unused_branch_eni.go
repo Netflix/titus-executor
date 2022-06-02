@@ -61,7 +61,7 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 }
 
 func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context, subnet *subnet) (time.Duration, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute * 10)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "doDetatchUnusedBranchENI")
