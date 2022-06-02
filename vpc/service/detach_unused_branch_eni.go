@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
@@ -19,7 +20,7 @@ const (
 	timeBetweenNoDetatches = time.Minute
 	minTimeUnused          = time.Hour
 	minTimeAttached        = assignTimeout
-	contextTimeout         = 10 * time.Minute
+	contextTimeout         = 15 * time.Minute
 )
 
 type nilItem struct {
@@ -77,8 +78,9 @@ func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context, subn
 	defer func() {
 		_ = tx.Rollback()
 	}()
+	logger.G(ctx).Info("Starting the disassociate query keerti")
 
-	row := tx.QueryRowContext(ctx, `
+	rows, err := tx.QueryContext(ctx, `
 SELECT branch_eni_attachments.branch_eni,
        association_id,
        availability_zones.region,
@@ -95,48 +97,34 @@ WHERE branch_eni_attachments.association_id NOT IN (SELECT branch_eni_associatio
 	AND branch_enis.last_used < now() - ($2 * interval '1 sec')
 	AND branch_enis.subnet_id = $3
 ORDER BY COALESCE(branch_enis.last_assigned_to, TIMESTAMP 'EPOCH') ASC
-LIMIT 1
+LIMIT 5
 `, minTimeAttached.Seconds(), minTimeUnused.Seconds(), subnet.subnetID)
+
 	var branchENI, associationID, region, accountID string
-	err = row.Scan(&branchENI, &associationID, &region, &accountID)
-	if err == sql.ErrNoRows {
-		logger.G(ctx).Info("Did not find branch ENI to disassociate")
-		return timeBetweenNoDetatches, nil
-	}
-	if err != nil {
-		err = errors.Wrap(err, "Cannot scan branch ENI to delete")
-		span.SetStatus(traceStatusFromError(err))
-		return timeBetweenErrors, err
-	}
-	span.AddAttributes(trace.StringAttribute("eni", branchENI))
+	branchEniSlice := make([]string, 5)
+	associationIDSlice := make([]string, 5)
+	regionSlice := make([]string, 5)
+	accountIDSlice := make([]string, 5)
 
-	logger.G(ctx).WithField("eni", branchENI).Info("Disassociating ENI")
-
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
-		Region:    region,
-		AccountID: accountID,
-	})
+	// Commit the transaction.
 	if err != nil {
-		err = errors.Wrap(err, "Could not get AWS session")
-		span.SetStatus(traceStatusFromError(err))
-		return timeBetweenErrors, err
-	}
-
-	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
-	if err != nil {
-		if errors.Is(err, &irrecoverableError{}) || vpcerrors.IsPersistentError(err) {
-			err2 := tx.Commit()
-			if err2 != nil {
-				err2 = errors.Wrap(err2, "Could not commit transaction during irrecoverableError / persistentError")
-				tracehelpers.SetStatus(err, span)
-				return timeBetweenErrors, err2
-			}
-		}
-		err = errors.Wrap(err, "Cannot disassociate network interface")
-		logger.G(ctx).WithError(err).Error("Experienced error while trying to disassociate network interface")
+		err = fmt.Errorf("Could not query database for branch ENI associations for detaching unused enis %s: ", err)
 		tracehelpers.SetStatus(err, span)
 		return timeBetweenErrors, err
 	}
+
+	sliceIt := 0
+	for rows.Next() {
+		err = rows.Scan(&branchEniSlice[sliceIt], &associationIDSlice[sliceIt], &regionSlice[sliceIt], &accountIDSlice[sliceIt])
+		sliceIt = sliceIt + 1
+		if err == sql.ErrNoRows {
+			logger.G(ctx).Info("Did not find branch ENI to disassociate")
+			return timeBetweenNoDetatches, nil
+		}
+	}
+
+	defer rows.Close()
+	enisReclaimed := 0
 
 	err = tx.Commit()
 	if err != nil {
@@ -144,5 +132,67 @@ LIMIT 1
 		span.SetStatus(traceStatusFromError(err))
 		return timeBetweenErrors, err
 	}
+
+	for iter := 0; iter < sliceIt; iter++ {
+		branchENI = branchEniSlice[iter]
+		region = regionSlice[iter]
+		accountID = accountIDSlice[iter]
+		associationID = associationIDSlice[iter]
+
+		span.AddAttributes(trace.StringAttribute("eni", branchENI))
+
+		logger.G(ctx).WithField("eni", branchENI).Info("Disassociating ENI keerti")
+
+		session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
+			Region:    region,
+			AccountID: accountID,
+		})
+		if err != nil {
+			err = errors.Wrap(err, "Could not get AWS session")
+			span.SetStatus(traceStatusFromError(err))
+			return timeBetweenErrors, err
+		}
+
+		tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			err = errors.Wrap(err, "Could not start database transaction")
+			span.SetStatus(traceStatusFromError(err))
+			return timeBetweenErrors, err
+		}
+		defer func() {
+			_ = tx.Rollback()
+		}()
+
+		err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
+		if err != nil {
+			if errors.Is(err, &irrecoverableError{}) || vpcerrors.IsPersistentError(err) {
+				err2 := tx.Commit()
+				if err2 != nil {
+					err2 = errors.Wrap(err2, "Could not commit transaction during irrecoverableError / persistentError")
+					tracehelpers.SetStatus(err, span)
+					return timeBetweenErrors, err2
+				}
+			}
+			err = errors.Wrap(err, "Cannot disassociate network interface")
+			logger.G(ctx).WithError(err).Error("Experienced error while trying to disassociate network interface")
+			tracehelpers.SetStatus(err, span)
+			return timeBetweenErrors, err
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			err = errors.Wrap(err, "Could not commit transaction")
+			span.SetStatus(traceStatusFromError(err))
+			return timeBetweenErrors, err
+		}
+		enisReclaimed = enisReclaimed + 1
+	}
+	if enisReclaimed > 0 {
+		logger.G(ctx).WithField("count", enisReclaimed).Infof("Disassociating multiple ENI %d keerti", enisReclaimed)
+	} else {
+		logger.G(ctx).Info("No ENIs to disassociate keerti")
+	}
+
+
 	return timeBetweenDetaches, nil
 }
