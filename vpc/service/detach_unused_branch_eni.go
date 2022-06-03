@@ -88,7 +88,7 @@ JOIN branch_enis ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
 JOIN trunk_enis ON branch_eni_attachments.trunk_eni = trunk_enis.trunk_eni
 JOIN availability_zones ON trunk_enis.account_id = availability_zones.account_id
 AND trunk_enis.az = availability_zones.zone_name
-WHERE branch_eni_attachments.association_id NOT IN (SELECT branch_eni_association FROM assignments)
+WHERE NOT EXISTS (SELECT branch_eni_association from assignments where branch_eni_attachments.association_id = assignments.branch_eni_association)
 	AND branch_eni_attachments.attachment_completed_at < now() - ($1 * interval '1 sec')
     AND branch_eni_attachments.state = 'attached'
     AND branch_enis.last_assigned_to < now() - ($2 * interval '1 sec')
