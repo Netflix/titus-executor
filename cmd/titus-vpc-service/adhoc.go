@@ -21,8 +21,9 @@ func adhocCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 			}
 
 			sessionMgr := ec2wrapper.NewEC2SessionManager(v.GetString(workerRoleFlagName))
-
-			err = service.RunAdhocCommand(ctx, db, sessionMgr)
+			branchEni := args[0]
+			associationId := args[1]
+			err = service.RunAdhocCommand(ctx, db, sessionMgr, branchEni, associationId)
 			if err != nil {
 				return errors.Wrap(err, "Could not fix old allocations")
 			}
