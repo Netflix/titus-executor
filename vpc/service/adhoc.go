@@ -30,12 +30,12 @@ func RunAdhocCommand(ctx context.Context, db *sql.DB, ec2 *ec2wrapper.EC2Session
 	}
 
 	s := subnet{
-		id:        411,
-		az:        "us-east-1c",
+		id:        425,
+		az:        "us-east-1d",
 		vpcID:     "vpc-4de2b628",
 		accountID: "149510111645",
-		subnetID:  "subnet-09bf4843",
-		cidr:      "100.112.0.0/16",
+		subnetID:  "subnet-1a391a47",
+		cidr:      "100.113.0.0/16",
 		region:    "us-east-1",
 	}
 	err := service.doDetatchUnusedBranchENIKyle(db, ec2, &s, branchEni, associationId)

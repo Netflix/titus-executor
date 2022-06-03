@@ -25,7 +25,7 @@ func adhocCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 			associationId := args[1]
 			err = service.RunAdhocCommand(ctx, db, sessionMgr, branchEni, associationId)
 			if err != nil {
-				return errors.Wrap(err, "Could not fix old allocations")
+				return errors.Wrap(err, "Could not run adhoc command")
 			}
 			return nil
 		},
