@@ -58,4 +58,10 @@
       'unshare',
     ],
   },
+  AllowClone3: {
+    action: 'SCMP_ACT_ALLOW',
+    names: [
+      'clone3',
+    ],
+  },
 }

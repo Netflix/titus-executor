@@ -46,6 +46,10 @@
          "subArchitectures": [
             "SCMP_ARCH_S390"
          ]
+      },
+      {
+         "architecture": "SCMP_ARCH_RISCV64",
+         "subArchitectures": null
       }
    ],
    "defaultAction": "SCMP_ACT_ERRNO",
@@ -97,6 +101,12 @@
             "umount",
             "umount2",
             "unshare"
+         ]
+      },
+      {
+         "action": "SCMP_ACT_ALLOW",
+         "names": [
+            "clone3"
          ]
       },
       {
@@ -176,6 +186,7 @@
             "ftruncate64",
             "futex",
             "futex_time64",
+            "futex_waitv",
             "futimesat",
             "getcpu",
             "getcwd",
@@ -232,6 +243,9 @@
             "io_uring_setup",
             "ipc",
             "kill",
+            "landlock_add_rule",
+            "landlock_create_ruleset",
+            "landlock_restrict_self",
             "lchown",
             "lchown32",
             "lgetxattr",
@@ -249,6 +263,7 @@
             "madvise",
             "membarrier",
             "memfd_create",
+            "memfd_secret",
             "mincore",
             "mkdir",
             "mkdirat",
@@ -296,6 +311,7 @@
             "preadv",
             "preadv2",
             "prlimit64",
+            "process_mrelease",
             "pselect6",
             "pselect6_time64",
             "pwrite64",
@@ -591,6 +607,17 @@
       {
          "action": "SCMP_ACT_ALLOW",
          "includes": {
+            "arches": [
+               "riscv64"
+            ]
+         },
+         "names": [
+            "riscv_flush_icache"
+         ]
+      },
+      {
+         "action": "SCMP_ACT_ALLOW",
+         "includes": {
             "caps": [
                "CAP_DAC_READ_SEARCH"
             ]
@@ -609,6 +636,7 @@
          "names": [
             "bpf",
             "clone",
+            "clone3",
             "fanotify_init",
             "fsconfig",
             "fsmount",
@@ -616,11 +644,13 @@
             "fspick",
             "lookup_dcookie",
             "mount",
+            "mount_setattr",
             "move_mount",
             "name_to_handle_at",
             "open_tree",
             "perf_event_open",
             "quotactl",
+            "quotactl_fd",
             "setdomainname",
             "sethostname",
             "setns",
@@ -675,6 +705,18 @@
          },
          "names": [
             "clone"
+         ]
+      },
+      {
+         "action": "SCMP_ACT_ERRNO",
+         "errnoRet": 38,
+         "excludes": {
+            "caps": [
+               "CAP_SYS_ADMIN"
+            ]
+         },
+         "names": [
+            "clone3"
          ]
       },
       {
