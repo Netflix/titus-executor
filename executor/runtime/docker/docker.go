@@ -1104,7 +1104,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 				r.registerRuntimeCleanup(cf)
 			}
 			tracehelpers.SetStatus(netErr, span)
-			return netErr
+			return fmt.Errorf("network setup error: %w", netErr)
 		})
 	} else {
 		// Don't call out to network driver for local development
@@ -2611,7 +2611,7 @@ func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Con
 			if err == nil {
 				r.registerRuntimeCleanup(cf)
 			}
-			return err
+			return fmt.Errorf("network setup error: %w", err)
 		})
 	}
 
@@ -2721,7 +2721,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	}
 
 	if !result.Success {
-		return nil, fmt.Errorf("Network setup error: %s", result.Error)
+		return nil, fmt.Errorf("titus-vpc-tool error: %s", result.Error)
 	}
 
 	netnsPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "ns", "net")
