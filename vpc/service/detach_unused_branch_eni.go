@@ -9,8 +9,11 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 )
 
@@ -105,6 +108,8 @@ LIMIT 1
 	}
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan branch ENI to delete")
+		mutators := []tag.Mutator{tag.Upsert(tag.MustNewKey("msg"), err.Error())}
+		_ = stats.RecordWithTags(ctx, mutators, metrics.ErrorScanBranchEniCount.M(1))
 		span.SetStatus(traceStatusFromError(err))
 		return timeBetweenErrors, err
 	}
