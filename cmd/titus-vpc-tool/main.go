@@ -28,7 +28,6 @@ const (
 	stateDirDefaultValue    = "/run/titus-vpc-tool"
 	serviceAddrFlagName     = "service-addr"
 	serviceAddrDefaultValue = "localhost:7001"
-	statsdAddrFlagName      = "statsd-addr"
 	zipkinURLFlagName       = "zipkin"
 	// which generation of titus-vpc-tool version to use, it must be set to 1 or 2
 	generationFlagName      = "generation"
@@ -73,22 +72,6 @@ func main() {
 	var reporter reporter.Reporter
 	rootCmd := &cobra.Command{
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if statsdAddr := v.GetString("statsd-address"); statsdAddr != "" {
-				logger.G(ctx).WithField("statsd-address", statsdAddr).Info("Setting up statsd exporter")
-				var err error
-				dd, err = datadog.NewExporter(datadog.Options{
-					StatsAddr: statsdAddr,
-					Namespace: "titus.vpcService",
-					OnError: func(ddErr error) {
-						logger.G(ctx).WithError(ddErr).Error("Error exporting metrics")
-					},
-				})
-				if err != nil {
-					return errors.Wrap(err, "Failed to create the Datadog exporter")
-				}
-				view.RegisterExporter(dd)
-			}
-
 			if err := view.Register(ocgrpc.DefaultClientViews...); err != nil {
 				return err
 			}
@@ -156,12 +139,8 @@ func main() {
 	rootCmd.PersistentFlags().String("log-level", "info", "")
 	rootCmd.PersistentFlags().Bool("journald", true, "Enable journald logging")
 	rootCmd.PersistentFlags().String("identity-provider", "ec2", "How to fetch the machine's identity")
-	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().String(zipkinURLFlagName, "", "URL To send Zipkin spans to")
 
-	if err := v.BindEnv(zipkinURLFlagName, "VPC_STATSD_ADDR"); err != nil {
-		panic(err)
-	}
 	if err := v.BindEnv(zipkinURLFlagName, "VPC_ZIPKIN"); err != nil {
 		panic(err)
 	}

@@ -42,7 +42,6 @@ import (
 
 const (
 	atlasAddrFlagName             = "atlas-addr"
-	statsdAddrFlagName            = "statsd-addr"
 	zipkinURLFlagName             = "zipkin"
 	debugAddressFlagName          = "debug-address"
 	gcTimeoutFlagName             = "gc-timeout"
@@ -152,23 +151,6 @@ func main() {
 				}
 				view.RegisterExporter(newSpectatorGoExporter(registry))
 			}
-
-			if statsdAddr := v.GetString(statsdAddrFlagName); statsdAddr != "" {
-				logger.G(ctx).WithField(statsdAddrFlagName, statsdAddr).Info("Setting up statsd exporter")
-				var err error
-				dd, err = datadog.NewExporter(datadog.Options{
-					StatsAddr: statsdAddr,
-					Namespace: "titus.vpcService",
-					OnError: func(ddErr error) {
-						logger.G(ctx).WithError(ddErr).Error("Error exporting metrics")
-					},
-				})
-				if err != nil {
-					return errors.Wrap(err, "Failed to create the Datadog exporter")
-				}
-				view.RegisterExporter(dd)
-			}
-
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -295,7 +277,6 @@ func main() {
 	rootCmd.Flags().Int(maxConcurrentRequestsFlagName, 100, "Maximum concurrent gRPC requests to allow")
 
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
-	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().String(atlasAddrFlagName, "", "Atlas aggregator address")
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
@@ -324,11 +305,6 @@ func main() {
 }
 
 func bindVariables(v *pkgviper.Viper) {
-
-	if err := v.BindEnv(statsdAddrFlagName, "STATSD_ADDR"); err != nil {
-		panic(err)
-	}
-
 	if err := v.BindEnv(zipkinURLFlagName, "ZIPKIN"); err != nil {
 		panic(err)
 	}
