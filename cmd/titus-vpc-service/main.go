@@ -26,6 +26,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service"
 	"github.com/Netflix/titus-executor/vpc/service/db"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
 	datadog "github.com/netflix-skunkworks/opencensus-go-exporter-datadog"
 	openzipkin "github.com/openzipkin/zipkin-go"
@@ -42,7 +43,6 @@ import (
 
 const (
 	atlasAddrFlagName             = "atlas-addr"
-	statsdAddrFlagName            = "statsd-addr"
 	zipkinURLFlagName             = "zipkin"
 	debugAddressFlagName          = "debug-address"
 	gcTimeoutFlagName             = "gc-timeout"
@@ -152,23 +152,6 @@ func main() {
 				}
 				view.RegisterExporter(newSpectatorGoExporter(registry))
 			}
-
-			if statsdAddr := v.GetString(statsdAddrFlagName); statsdAddr != "" {
-				logger.G(ctx).WithField(statsdAddrFlagName, statsdAddr).Info("Setting up statsd exporter")
-				var err error
-				dd, err = datadog.NewExporter(datadog.Options{
-					StatsAddr: statsdAddr,
-					Namespace: "titus.vpcService",
-					OnError: func(ddErr error) {
-						logger.G(ctx).WithError(ddErr).Error("Error exporting metrics")
-					},
-				})
-				if err != nil {
-					return errors.Wrap(err, "Failed to create the Datadog exporter")
-				}
-				view.RegisterExporter(dd)
-			}
-
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -194,7 +177,9 @@ func main() {
 				logger.G(ctx).Fatal("Cannot startup, need to run database migrations")
 			}
 
-			go collectDBMetrics(ctx, conn)
+			collector := metrics.NewCollector(ctx, conn)
+			// Start collecting metrics
+			collector.Start()
 
 			go func() {
 				c := make(chan os.Signal, 1)
@@ -295,7 +280,6 @@ func main() {
 	rootCmd.Flags().Int(maxConcurrentRequestsFlagName, 100, "Maximum concurrent gRPC requests to allow")
 
 	rootCmd.PersistentFlags().String(debugAddressFlagName, ":7003", "Address for zpages, pprof")
-	rootCmd.PersistentFlags().String(statsdAddrFlagName, "", "Statsd server address")
 	rootCmd.PersistentFlags().String(atlasAddrFlagName, "", "Atlas aggregator address")
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
@@ -324,11 +308,6 @@ func main() {
 }
 
 func bindVariables(v *pkgviper.Viper) {
-
-	if err := v.BindEnv(statsdAddrFlagName, "STATSD_ADDR"); err != nil {
-		panic(err)
-	}
-
 	if err := v.BindEnv(zipkinURLFlagName, "ZIPKIN"); err != nil {
 		panic(err)
 	}
