@@ -26,6 +26,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service"
 	"github.com/Netflix/titus-executor/vpc/service/db"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
 	datadog "github.com/netflix-skunkworks/opencensus-go-exporter-datadog"
 	openzipkin "github.com/openzipkin/zipkin-go"
@@ -176,7 +177,9 @@ func main() {
 				logger.G(ctx).Fatal("Cannot startup, need to run database migrations")
 			}
 
-			go collectDBMetrics(ctx, conn)
+			collector := metrics.NewCollector(ctx, conn)
+			// Start collecting metrics
+			collector.Start()
 
 			go func() {
 				c := make(chan os.Signal, 1)
