@@ -3,18 +3,26 @@ package metrics
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
+	"github.com/Netflix/titus-executor/logger"
+	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 )
 
 var (
 	// Gauge measures
-	maxOpenConnections = stats.Int64("db.maxOpenConnections", "Maximum number of open connections to the database", "connections")
-	openConnections    = stats.Int64("db.openConnections", "The number of established connections both in use and idle", "connections")
-	connectionsInUse   = stats.Int64("db.connectionsInUse", "The number of connections currently in use", "connections")
-	connectionsIdle    = stats.Int64("db.connectionsIdle", "The number of idle connections", "connections")
+	maxOpenConnections        = stats.Int64("db.maxOpenConnections", "Maximum number of open connections to the database", "connections")
+	openConnections           = stats.Int64("db.openConnections", "The number of established connections both in use and idle", "connections")
+	connectionsInUse          = stats.Int64("db.connectionsInUse", "The number of connections currently in use", "connections")
+	connectionsIdle           = stats.Int64("db.connectionsIdle", "The number of idle connections", "connections")
+	subnetsCount              = stats.Int64("subnets.count", "The number of rows in subnets table", stats.UnitNone)
+	branchEnisCount           = stats.Int64("branch_enis.count", "The number of rows in branch_enis table", stats.UnitNone)
+	assignmentsCount          = stats.Int64("assignments.count", "The number of rows in assignments table", stats.UnitNone)
+	branchEniAttachmentsCount = stats.Int64("branch_eni_attachments.count", "The number of rows in branch_eni_assignments table", stats.UnitNone)
+	unattachedEnisCount       = stats.Int64("unattached_enis.count", "The number of rows in branch_enis table that don't have an attachment", stats.UnitNone)
 
 	// Counter measures
 	waitCount               = stats.Int64("db.waitCount", "The total number of connections waited for", "connections")
@@ -25,7 +33,10 @@ var (
 )
 
 func init() {
-	gaugeMeasures := []stats.Measure{maxOpenConnections, openConnections, connectionsInUse, connectionsIdle}
+	gaugeMeasures := []stats.Measure{
+		maxOpenConnections, openConnections, connectionsInUse, connectionsIdle,
+		subnetsCount, branchEnisCount, assignmentsCount, branchEniAttachmentsCount, unattachedEnisCount,
+	}
 	for idx := range gaugeMeasures {
 		if err := view.Register(
 			&view.View{
@@ -57,17 +68,27 @@ func init() {
 	}
 }
 
-type Collector struct {
-	db  *sql.DB
-	ctx context.Context
+type CollectorConfig struct {
+	// The interval to collect table metrics.
+	// If 0, then disable collecting table metrics.
+	TableMetricsInterval time.Duration
 }
 
-func NewCollector(ctx context.Context, db *sql.DB) *Collector {
-	return &Collector{ctx: ctx, db: db}
+type Collector struct {
+	db     *sql.DB
+	ctx    context.Context
+	config *CollectorConfig
+}
+
+func NewCollector(ctx context.Context, db *sql.DB, config *CollectorConfig) *Collector {
+	return &Collector{ctx: ctx, db: db, config: config}
 }
 
 func (c *Collector) Start() {
 	go c.collectDbMetrics(c.ctx)
+	if c.config.TableMetricsInterval > 0 {
+		go c.collectTableMetrics(c.ctx)
+	}
 }
 
 func (c *Collector) collectDbMetrics(ctx context.Context) {
@@ -108,4 +129,61 @@ func (c *Collector) collectDbMetrics(ctx context.Context) {
 			)
 		}
 	}
+}
+
+func (c *Collector) collectTableMetrics(ctx context.Context) {
+	ticker := time.NewTicker(c.config.TableMetricsInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.recordTableCounts(ctx)
+			c.recordUnattachedEnisCount(ctx)
+		}
+	}
+}
+
+func (c *Collector) recordTableCounts(ctx context.Context) {
+	measureByName := map[string]*stats.Int64Measure{
+		"subnets":                subnetsCount,
+		"branch_enis":            branchEnisCount,
+		"assignments":            assignmentsCount,
+		"branch_eni_attachments": branchEniAttachmentsCount,
+	}
+
+	for table, measure := range measureByName {
+		count, err := c.queryCount(ctx, "SELECT COUNT(*) FROM "+table)
+		if err != nil {
+			logger.G(ctx).Warnf("failed to query count of table %s: %s", table, err)
+		} else {
+			stats.Record(ctx, measure.M(count))
+		}
+	}
+}
+
+func (c *Collector) recordUnattachedEnisCount(ctx context.Context) {
+	count, err := c.queryCount(ctx, "SELECT COUNT(*) from branch_enis b WHERE NOT EXISTS "+
+		"(SELECT * FROM branch_eni_attachments WHERE branch_eni = b.branch_eni AND state = 'attached');")
+	if err != nil {
+		logger.G(ctx).Warnf("failed to query unattached enis count: %s", err)
+	} else {
+		stats.Record(ctx, unattachedEnisCount.M(count))
+	}
+}
+
+// Run a SELECT COUNT(*) ... query in the DB
+func (c *Collector) queryCount(ctx context.Context, query string) (int64, error) {
+	row := c.db.QueryRowContext(ctx, query)
+	if row.Err() != nil {
+		return 0, errors.Wrap(row.Err(), fmt.Sprintf("failed to run query %s", query))
+	}
+
+	var count int64
+	if err := row.Scan(&count); err != nil {
+		return 0, errors.Wrap(err, fmt.Sprintf("failed to get result of query %s", query))
+	}
+	return count, nil
 }

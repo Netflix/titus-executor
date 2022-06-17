@@ -63,6 +63,8 @@ const (
 	trunkENIDescriptionFlagName   = "trunk-eni-description"
 	branchENIDescriptionFlagName  = "branch-eni-description"
 	subnetCIDRReservationFlagName = "titus-reserved"
+
+	tableMetricsIntervalFlagName = "table-metrics-interval"
 )
 
 func setupDebugServer(ctx context.Context, address string) error {
@@ -177,7 +179,9 @@ func main() {
 				logger.G(ctx).Fatal("Cannot startup, need to run database migrations")
 			}
 
-			collector := metrics.NewCollector(ctx, conn)
+			collector := metrics.NewCollector(ctx, conn, &metrics.CollectorConfig{
+				TableMetricsInterval: v.GetDuration(tableMetricsIntervalFlagName)})
+
 			// Start collecting metrics
 			collector.Start()
 
@@ -271,6 +275,7 @@ func main() {
 	rootCmd.Flags().Duration(gcTimeoutFlagName, 2*time.Minute, "How long must an IP be idle before we reclaim it")
 	rootCmd.Flags().Duration("reconcile-interval", 5*time.Minute, "How often to reconcile")
 	rootCmd.Flags().Duration(refreshIntervalFlagName, 60*time.Second, "How often to refresh IPs")
+	rootCmd.Flags().Duration(tableMetricsIntervalFlagName, 5*time.Minute, "How often to collect DB table metrics")
 	rootCmd.Flags().StringSlice(enabledTaskLoopsFlagName, service.GetTaskLoopTaskNames(), "Enabled task loops")
 	rootCmd.Flags().StringSlice(enabledLongLivedTasksFlagName, service.GetLongLivedTaskNames(), "Enabled long lived tasks")
 	rootCmd.Flags().String(trunkENIDescriptionFlagName, vpc.DefaultTrunkNetworkInterfaceDescription, "The description for trunk interfaces")
@@ -307,58 +312,27 @@ func main() {
 	}
 }
 
+func bindVariable(v *pkgviper.Viper, key, env string) {
+	if err := v.BindEnv(key, env); err != nil {
+		panic(err)
+	}
+}
+
 func bindVariables(v *pkgviper.Viper) {
-	if err := v.BindEnv(zipkinURLFlagName, "ZIPKIN"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(debugAddressFlagName, "DEBUG_ADDRESS"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(atlasAddrFlagName, "ATLAS_ADDR"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(gcTimeoutFlagName, "GC_TIMEOUT"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(maxIdleConnectionsFlagName, "DB_MAX_IDLE_CONNECTIONS"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(refreshIntervalFlagName, "REFRESH_INTERVAL"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(sslPrivateKeyFlagName, "SSL_PRIVATE_KEY"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(sslCertFlagName, "SSL_CERT"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(sslCAFlagName, "SSL_CA"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(maxOpenConnectionsFlagName, "MAX_OPEN_CONNECTIONS"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(maxConcurrentRefreshFlagName, "MAX_CONCURRENT_REFRESH"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(workerRoleFlagName, "WORKER_ROLE"); err != nil {
-		panic(err)
-	}
-
-	if err := v.BindEnv(maxConcurrentRequestsFlagName, "MAX_CONCURRENT_REQUESTS"); err != nil {
-		panic(err)
-	}
+	bindVariable(v, zipkinURLFlagName, "ZIPKIN")
+	bindVariable(v, debugAddressFlagName, "DEBUG_ADDRESS")
+	bindVariable(v, atlasAddrFlagName, "ATLAS_ADDR")
+	bindVariable(v, gcTimeoutFlagName, "GC_TIMEOUT")
+	bindVariable(v, maxIdleConnectionsFlagName, "DB_MAX_IDLE_CONNECTIONS")
+	bindVariable(v, refreshIntervalFlagName, "REFRESH_INTERVAL")
+	bindVariable(v, sslPrivateKeyFlagName, "SSL_PRIVATE_KEY")
+	bindVariable(v, sslCertFlagName, "SSL_CERT")
+	bindVariable(v, sslCAFlagName, "SSL_CA")
+	bindVariable(v, maxOpenConnectionsFlagName, "MAX_OPEN_CONNECTIONS")
+	bindVariable(v, maxConcurrentRefreshFlagName, "MAX_CONCURRENT_REFRESH")
+	bindVariable(v, workerRoleFlagName, "WORKER_ROLE")
+	bindVariable(v, maxConcurrentRequestsFlagName, "MAX_CONCURRENT_REQUESTS")
+	bindVariable(v, tableMetricsIntervalFlagName, "MAX_CONCURRENT_REQUESTS")
 }
 
 func getTLSConfig(ctx context.Context, certificateFile, privateKey string, trustedCerts ...string) (*tls.Config, error) {
