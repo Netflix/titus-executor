@@ -17,10 +17,11 @@ var (
 	connectionsIdle    = stats.Int64("db.connectionsIdle", "The number of idle connections", "connections")
 
 	// Counter measures
-	waitCount         = stats.Int64("db.waitCount", "The total number of connections waited for", "connections")
-	waitDuration      = stats.Int64("db.waitDuration", "The total time blocked waiting for a new connection", "ns")
-	maxIdleClosed     = stats.Int64("db.maxIdleClosed", "The total number of connections closed due to SetMaxIdleConns", "connections")
-	maxLifetimeClosed = stats.Int64("db.maxLifetimeClosed", "The total number of connections closed due to SetConnMaxLifetime", "connections")
+	waitCount               = stats.Int64("db.waitCount", "The total number of connections waited for", "connections")
+	waitDuration            = stats.Int64("db.waitDuration", "The total time blocked waiting for a new connection", "ns")
+	maxIdleClosed           = stats.Int64("db.maxIdleClosed", "The total number of connections closed due to SetMaxIdleConns", "connections")
+	maxLifetimeClosed       = stats.Int64("db.maxLifetimeClosed", "The total number of connections closed due to SetConnMaxLifetime", "connections")
+	ErrorScanBranchEniCount = stats.Int64("error.scanBranchEni", "ENIs that could not be cleaned up due to error in query", stats.UnitNone)
 )
 
 func init() {
@@ -38,7 +39,10 @@ func init() {
 		}
 	}
 
-	counterMeasures := []stats.Measure{waitCount, waitDuration, maxIdleClosed, maxLifetimeClosed}
+	counterMeasures := []stats.Measure{
+		waitCount, waitDuration, maxIdleClosed, maxLifetimeClosed,
+		ErrorScanBranchEniCount,
+	}
 	for idx := range counterMeasures {
 		if err := view.Register(
 			&view.View{
