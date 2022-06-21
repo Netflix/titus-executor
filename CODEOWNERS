@@ -1,11 +1,11 @@
 * @solarkennedy
 * @tych0
 
-vpc/* @aloktiagi
-vpc/* @DonavanFritz
-vpc/* @MyUmmaGumma
-vpc/* @hechaoli
-vpc/* @aloktiagi
+/vpc/ @aloktiagi
+/vpc/ @DonavanFritz
+/vpc/ @MyUmmaGumma
+/vpc/ @hechaoli
+/vpc/ @aloktiagi
 
 executor/runtime/docker/networking* @aloktiagi
 executor/runtime/docker/networking* @DonavanFritz
