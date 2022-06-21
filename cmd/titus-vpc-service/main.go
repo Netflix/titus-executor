@@ -52,6 +52,7 @@ const (
 	maxConcurrentRefreshFlagName  = "max-concurrent-refresh"
 	maxConcurrentRequestsFlagName = "max-concurrent-requests"
 	workerRoleFlagName            = "worker-role"
+	dbURLFlagName                 = "dburl"
 
 	sslCertFlagName       = "ssl-cert"
 	sslPrivateKeyFlagName = "ssl-private-key"
@@ -289,7 +290,7 @@ func main() {
 	rootCmd.PersistentFlags().Bool("debug", false, "Turn on debug logging")
 	rootCmd.PersistentFlags().Bool("journald", true, "Log exclusively to Journald")
 	rootCmd.PersistentFlags().String(zipkinURLFlagName, "", "URL To send Zipkin spans to")
-	rootCmd.PersistentFlags().String("dburl", "postgres://localhost/titusvpcservice?sslmode=disable", "Connection String for database")
+	rootCmd.PersistentFlags().String(dbURLFlagName, "postgres://localhost/titusvpcservice?sslmode=disable", "Connection String for database")
 	rootCmd.PersistentFlags().Int(maxIdleConnectionsFlagName, 100, "SetMaxIdleConns sets the maximum number of connections in the idle connection pool for the database")
 	rootCmd.PersistentFlags().Int(maxOpenConnectionsFlagName, 200, "Maximum number of open connections allows to open to the database")
 	rootCmd.PersistentFlags().Int64(maxConcurrentRefreshFlagName, 10, "The number of maximum concurrent refreshes to allow")
@@ -319,6 +320,7 @@ func bindVariable(v *pkgviper.Viper, key, env string) {
 }
 
 func bindVariables(v *pkgviper.Viper) {
+	bindVariable(v, dbURLFlagName, "DBURL")
 	bindVariable(v, zipkinURLFlagName, "ZIPKIN")
 	bindVariable(v, debugAddressFlagName, "DEBUG_ADDRESS")
 	bindVariable(v, atlasAddrFlagName, "ATLAS_ADDR")
@@ -332,7 +334,7 @@ func bindVariables(v *pkgviper.Viper) {
 	bindVariable(v, maxConcurrentRefreshFlagName, "MAX_CONCURRENT_REFRESH")
 	bindVariable(v, workerRoleFlagName, "WORKER_ROLE")
 	bindVariable(v, maxConcurrentRequestsFlagName, "MAX_CONCURRENT_REQUESTS")
-	bindVariable(v, tableMetricsIntervalFlagName, "MAX_CONCURRENT_REQUESTS")
+	bindVariable(v, tableMetricsIntervalFlagName, "TABLE_METRICS_INTERVAL")
 }
 
 func getTLSConfig(ctx context.Context, certificateFile, privateKey string, trustedCerts ...string) (*tls.Config, error) {
