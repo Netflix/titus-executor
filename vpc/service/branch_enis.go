@@ -1096,7 +1096,7 @@ UPDATE OF branch_eni_attachments SKIP LOCKED
 func (vpcService *vpcService) associateActionWorker() *actionWorker {
 	return &actionWorker{
 		db:    vpcService.db,
-		dbURL: vpcService.dbURL,
+		dbURL: vpcService.config.DBURL,
 		cb: func(ctx context.Context, tx *sql.Tx, id int) error {
 			_, err := vpcService.finishAssociation(ctx, tx, nil, id)
 			return err
@@ -1116,7 +1116,7 @@ func (vpcService *vpcService) associateActionWorker() *actionWorker {
 func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
 	return &actionWorker{
 		db:    vpcService.db,
-		dbURL: vpcService.dbURL,
+		dbURL: vpcService.config.DBURL,
 		cb: func(ctx context.Context, tx *sql.Tx, id int) error {
 			return vpcService.finishDisassociation(ctx, tx, nil, id)
 		},
@@ -1156,7 +1156,7 @@ WHERE subnets.subnet_id = $1
   FOR
   NO KEY UPDATE OF subnet_usable_prefix SKIP LOCKED
   LIMIT 1
-`, subnetID, vpcService.subnetCIDRReservationDescription)
+`, subnetID, vpcService.config.SubnetCIDRReservationDescription)
 	var prefix string
 	err := row.Scan(&prefix)
 	if err != nil {
@@ -1172,7 +1172,7 @@ WHERE subnets.subnet_id = $1
 	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
 		// Ipv6AddressCount: aws.Int64(0),
 		SubnetId:    aws.String(subnetID),
-		Description: aws.String(vpcService.branchNetworkInterfaceDescription),
+		Description: aws.String(vpcService.config.BranchNetworkInterfaceDescription),
 		Groups:      aws.StringSlice(securityGroups),
 		Ipv6Prefixes: []*ec2.Ipv6PrefixSpecificationRequest{
 			{

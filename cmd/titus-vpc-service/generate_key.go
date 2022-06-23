@@ -5,6 +5,8 @@ import (
 	"os"
 
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/config"
+	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -27,7 +29,11 @@ func generateKeyCommand(ctx context.Context, v *pkgviper.Viper) *cobra.Command {
 			}
 			pnow := timestamppb.Now()
 
-			_, db, err := newConnection(ctx, v)
+			_, db, err := wrapper.NewConnection(
+				ctx,
+				v.GetString(config.DBURLFlagName),
+				v.GetInt(config.MaxIdleConnectionsFlagName),
+				v.GetInt(config.MaxOpenConnectionsFlagName))
 			if err != nil {
 				return errors.Wrap(err, "Could not connect to database")
 			}
