@@ -32,6 +32,7 @@ func pullWithRetries(ctx context.Context, cfg config.Config, metrics metrics.Rep
 		if err == nil {
 			return nil
 		} else if isBadImageErr(err) {
+			err = fmt.Errorf("Error while pulling Docker image %s: %w", qualifiedImageName, err)
 			return &runtimeTypes.RegistryImageNotFoundError{Reason: err}
 		}
 	}

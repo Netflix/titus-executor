@@ -633,7 +633,7 @@ func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container
 				return nil, &runtimeTypes.RegistryImageNotFoundError{Reason: err}
 			}
 			tracehelpers.SetStatus(err, span)
-			return nil, err
+			return nil, fmt.Errorf("Error checking if image %s exists: %w", imgName, err)
 		}
 
 		if imgInfo != nil {
@@ -1724,7 +1724,7 @@ func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod)
 			l.Debugf("pulling other container image %s", image)
 			err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
 			if err != nil {
-				return err
+				return fmt.Errorf("Error while pulling Docker image %s: %w", image, err)
 			}
 			imageInspect, err2 := imageExists(ctx, r.client, image)
 			if err2 != nil {
