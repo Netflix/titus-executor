@@ -14,6 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod" // nolint: staticcheck
+	units "github.com/docker/go-units"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/assert"
@@ -132,7 +133,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	imgName := "titusoss/alpine"
 	imgDigest := "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
 	expectedImage := "docker.io/" + imgName + "@" + imgDigest
-	expBwLimitMbs := int64(128)
+	expBwLimitBps := int64(42 * units.MB)
 	expCapabilities := &corev1.Capabilities{
 		Add:  []corev1.Capability{"NET_ADMIN"},
 		Drop: []corev1.Capability{"SYS_TIME"},
@@ -164,7 +165,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		GPU:     1,
 		Mem:     512,
 		Disk:    10000,
-		Network: 128,
+		Network: 42,
 	}
 	expSGs := []string{"sg-1", "sg-2"}
 	expShmSize := uint32(256)
@@ -313,7 +314,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.Equal(t, c.AppName(), "appName")
 	assert.Equal(t, c.AssignIPv6Address(), true)
 	assert.Equal(t, c.EffectiveNetworkMode(), titus.NetworkConfiguration_Ipv6AndIpv4.String())
-	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimitMbs)
+	assert.DeepEqual(t, c.IngressBandwidthLimitBps(), &expBwLimitBps)
 	assert.DeepEqual(t, c.BatchPriority(), ptr.StringPtr("idle"))
 	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
 	assert.Equal(t, c.CombinedAppStackDetails(), "appName-appStack-appDetail")
@@ -350,7 +351,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		"TITUS_NUM_DISK":                    "10000",
 		"TITUS_NUM_GPU":                     "1",
 		"TITUS_NUM_MEM":                     "512",
-		"TITUS_NUM_NETWORK_BANDWIDTH":       "128",
+		"TITUS_NUM_NETWORK_BANDWIDTH":       "42",
 		"TITUS_OCI_RUNTIME":                 DefaultOciRuntime,
 		"USER_SET_ENV1":                     "var1",
 		"USER_SET_ENV2":                     "var2",

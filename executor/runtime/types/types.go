@@ -152,7 +152,7 @@ type Container interface {
 	AllowNetworkBursting() bool
 	AppArmorProfile() *string
 	AppName() string
-	BandwidthLimitMbps() *int64
+	IngressBandwidthLimitBps() *int64
 	BatchPriority() *string
 	Capabilities() *corev1.Capabilities
 	CombinedAppStackDetails() string
@@ -400,7 +400,7 @@ func ContainerTestArgs() (*corev1.Pod, *config.Config) {
 		CPU:     2,
 		GPU:     1,
 		Disk:    10000,
-		Network: 128,
+		Network: 42,
 	}
 	taskID := "taskid"
 	pod := GenerateV1TestPod(taskID, resources, cfg)
