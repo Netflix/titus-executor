@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/rand"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -69,6 +70,9 @@ func skipIfNoDocker(t *testing.T) {
 
 func TestCollectTableMetrics(t *testing.T) {
 	skipIfNoDocker(t)
+	if os.Getenv("RUN_COLLECT_TABLE_METRICS_TEST") == "" {
+		t.Skip("This test does not reliably run under CI/CD")
+	}
 	ctx := context.Background()
 	c, err := db_test.StartPostgresContainer(ctx)
 	if err != nil {
