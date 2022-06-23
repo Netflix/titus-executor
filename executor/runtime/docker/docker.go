@@ -920,7 +920,10 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 				r.registerRuntimeCleanup(cf)
 			}
 			tracehelpers.SetStatus(netErr, span)
-			return fmt.Errorf("network setup error: %w", netErr)
+			if netErr != nil {
+				return fmt.Errorf("network setup error: %w", netErr)
+			}
+			return nil
 		})
 	} else {
 		// Don't call out to network driver for local development
