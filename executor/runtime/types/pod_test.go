@@ -14,7 +14,6 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod" // nolint: staticcheck
-	"github.com/docker/go-units"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/assert"
@@ -133,7 +132,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	imgName := "titusoss/alpine"
 	imgDigest := "sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4"
 	expectedImage := "docker.io/" + imgName + "@" + imgDigest
-	expBwLimit := int64(128 * units.MB)
+	expBwLimitMbs := int64(128)
 	expCapabilities := &corev1.Capabilities{
 		Add:  []corev1.Capability{"NET_ADMIN"},
 		Drop: []corev1.Capability{"SYS_TIME"},
@@ -314,7 +313,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.Equal(t, c.AppName(), "appName")
 	assert.Equal(t, c.AssignIPv6Address(), true)
 	assert.Equal(t, c.EffectiveNetworkMode(), titus.NetworkConfiguration_Ipv6AndIpv4.String())
-	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimit)
+	assert.DeepEqual(t, c.BandwidthLimitMbps(), &expBwLimitMbs)
 	assert.DeepEqual(t, c.BatchPriority(), ptr.StringPtr("idle"))
 	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
 	assert.Equal(t, c.CombinedAppStackDetails(), "appName-appStack-appDetail")
