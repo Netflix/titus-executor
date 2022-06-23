@@ -205,8 +205,7 @@ func (c *PodContainer) BandwidthLimitMbps() *int64 {
 	if bw == nil {
 		return nil
 	}
-
-	return ptr.Int64Ptr(bw.Value())
+	return ptr.Int64Ptr(bw.Value() / units.MB)
 }
 
 func (c *PodContainer) BatchPriority() *string {
