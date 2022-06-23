@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	defaultNetworkBandwidth = 128 * MB
-	vpctoolTimeout          = 45 * time.Second
+	defaultNetworkBandwidthBps = 128 * MB
+	vpctoolTimeout             = 45 * time.Second
 )
 
 // This will setup c.Allocation
@@ -54,9 +54,9 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		return nil, err
 	}
 
-	bw := int64(defaultNetworkBandwidth)
-	if bwLim := c.BandwidthLimitMbps(); bwLim != nil && *bwLim != 0 {
-		bw = *bwLim * 1000 * 1000
+	bandwidthBps := int64(defaultNetworkBandwidthBps)
+	if bwLim := c.IngressBandwidthLimitBps(); bwLim != nil && *bwLim != 0 {
+		bandwidthBps = *bwLim
 	}
 
 	args := []string{
@@ -64,7 +64,7 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		"--device-idx", strconv.Itoa(*eniIdx),
 		"--security-groups", strings.Join(*sgIDs, ","),
 		"--task-id", c.TaskID(),
-		"--bandwidth", strconv.FormatInt(bw, 10),
+		"--bandwidth", strconv.FormatInt(bandwidthBps, 10),
 		"--network-mode", c.EffectiveNetworkMode(), // TODO: Deal with HighScale mode either here, or use the effective mode (which is fallback)
 	}
 

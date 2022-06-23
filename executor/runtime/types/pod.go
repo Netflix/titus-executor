@@ -200,12 +200,12 @@ func (c *PodContainer) AssignIPv6Address() bool {
 	return false
 }
 
-func (c *PodContainer) BandwidthLimitMbps() *int64 {
+func (c *PodContainer) IngressBandwidthLimitBps() *int64 {
 	bw := c.podConfig.IngressBandwidth
 	if bw == nil {
 		return nil
 	}
-	return ptr.Int64Ptr(bw.Value() / units.MB)
+	return ptr.Int64Ptr(bw.Value())
 }
 
 func (c *PodContainer) BatchPriority() *string {
