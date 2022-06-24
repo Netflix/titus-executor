@@ -2430,7 +2430,10 @@ func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Con
 			if err == nil {
 				r.registerRuntimeCleanup(cf)
 			}
-			return fmt.Errorf("network setup error: %w", err)
+			if err != nil {
+				return fmt.Errorf("network setup error: %w", err)
+			}
+			return nil
 		})
 	}
 
