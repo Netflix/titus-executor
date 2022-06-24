@@ -86,6 +86,14 @@ const (
 	nonTerminalDockerEvent  = false
 )
 
+const (
+	// These Special strings are used by the Titus Control Plane as special "retryable errors" (localSystemError)
+	vpcErrorString                   = "vpc network configuration error"
+	securityGroupNotFoundErrorString = "Security groups not found"
+	networkSetupErrorString          = "Network setup error"
+	dockerPullErrorString            = "Error while pulling Docker image"
+)
+
 // cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
 type cleanupFunc func() error
 
@@ -921,7 +929,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 			}
 			tracehelpers.SetStatus(netErr, span)
 			if netErr != nil {
-				return fmt.Errorf("network setup error: %w", netErr)
+				return fmt.Errorf("%s: %w", networkSetupErrorString, netErr)
 			}
 			return nil
 		})
@@ -1724,7 +1732,7 @@ func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod)
 			l.Debugf("pulling other container image %s", image)
 			err := pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
 			if err != nil {
-				return fmt.Errorf("Error while pulling Docker image %s: %w", image, err)
+				return err
 			}
 			imageInspect, err2 := imageExists(ctx, r.client, image)
 			if err2 != nil {
@@ -2430,7 +2438,7 @@ func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Con
 			if err == nil {
 				r.registerRuntimeCleanup(cf)
 			}
-			return fmt.Errorf("network setup error: %w", err)
+			return fmt.Errorf("%s: %w", networkSetupErrorString, err)
 		})
 	}
 

@@ -32,7 +32,7 @@ func pullWithRetries(ctx context.Context, cfg config.Config, metrics metrics.Rep
 		if err == nil {
 			return nil
 		} else if isBadImageErr(err) {
-			err = fmt.Errorf("Error while pulling Docker image %s: %w", qualifiedImageName, err)
+			err = fmt.Errorf("%s %s: %w", dockerPullErrorString, qualifiedImageName, err)
 			return &runtimeTypes.RegistryImageNotFoundError{Reason: err}
 		}
 	}
@@ -93,7 +93,7 @@ func doDockerPull(ctx context.Context, cfg config.Config, metrics metrics.Report
 		pullMessages = append(pullMessages, msg)
 		if errorMessage, ok := msg["error"]; ok {
 			log.Warning("Pull error message: ", msg)
-			return fmt.Errorf("Error while pulling Docker image: %s", errorMessage)
+			return fmt.Errorf("%s: %s", dockerPullErrorString, errorMessage)
 		}
 	}
 }

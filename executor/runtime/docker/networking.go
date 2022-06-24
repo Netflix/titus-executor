@@ -152,12 +152,12 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		if (strings.Contains(t.Error.Error, "invalid security groups requested for vpc id")) ||
 			(strings.Contains(t.Error.Error, "InvalidGroup.NotFound") ||
 				(strings.Contains(t.Error.Error, "InvalidSecurityGroupID.NotFound")) ||
-				(strings.Contains(t.Error.Error, "Security groups not found"))) {
+				(strings.Contains(t.Error.Error, securityGroupNotFoundErrorString))) {
 			var invalidSg runtimeTypes.InvalidSecurityGroupError
 			invalidSg.Reason = errors.New(t.Error.Error)
 			return nil, &invalidSg
 		}
-		err = fmt.Errorf("vpc network configuration error: %s", t.Error.Error)
+		err = fmt.Errorf("%s: %s", vpcErrorString, t.Error.Error)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	case *vpcapi.VPCToolResult_Assignment:
