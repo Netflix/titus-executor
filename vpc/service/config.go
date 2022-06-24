@@ -4,9 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
+	"reflect"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -15,6 +20,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/config"
 	"github.com/golang/protobuf/jsonpb" // nolint: staticcheck
 	"github.com/pkg/errors"
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
 
@@ -44,6 +50,9 @@ type Config struct {
 
 	// This is only used for testing.
 	disableRouteCache bool
+
+	// The URL from where to fetch dynamic configs
+	DynamicConfigURL string
 }
 
 func NewConfig(ctx context.Context, v *viper.Viper) (*Config, error) {
@@ -86,7 +95,84 @@ func NewConfig(ctx context.Context, v *viper.Viper) (*Config, error) {
 		WorkerRole: v.GetString(config.WorkerRoleFlagName),
 
 		ZipkinURL: v.GetString(config.ZipkinURLFlagName),
+
+		DynamicConfigURL: v.GetString(config.DynamicConfigURLFlagName),
 	}, nil
+}
+
+// Dynamic configs have a default value, which can be overriden at runtime.
+// These configs are periodically updated from the given dynamic config URL.
+// Configs put here should be those that change often such as certain timeouts.
+// Or killswitches for new features. And once those features become stable, the
+// killswitch should be removed or moved to cmdline flags or environment variables.
+type DynamicConfig struct {
+	sync.Mutex
+	configs map[string]string
+}
+
+func NewDynamicConfig() *DynamicConfig {
+	return &DynamicConfig{configs: make(map[string]string)}
+}
+
+func (dynamicConfig *DynamicConfig) fetchConfigs(ctx context.Context, url string) {
+	resp, err := http.Get(url) // nolint: gosec
+	if err != nil {
+		logger.G(ctx).Warningf("Failed to fetch dynamic configs from %s: %s", url, err)
+		return
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		logger.G(ctx).Warningf("Failed to read response of dynamic configs from url: %s", url, err)
+		return
+	}
+
+	var configs map[string]string
+	err = json.Unmarshal(bodyBytes, &configs)
+	if err != nil {
+		logger.G(ctx).Warningf("Failed to parse response of dynamic configs %s: %s", string(bodyBytes), err)
+		return
+	}
+	dynamicConfig.Lock()
+	if !reflect.DeepEqual(dynamicConfig.configs, configs) {
+		dynamicConfig.configs = configs
+		logger.G(ctx).Infof("Dynamic configs updated to %s", string(bodyBytes))
+	}
+	dynamicConfig.Unlock()
+}
+
+func (dynamicConfig *DynamicConfig) GetInt(ctx context.Context, name string, deafult int) int {
+	dynamicConfig.Lock()
+	defer dynamicConfig.Unlock()
+	if value, ok := dynamicConfig.configs[name]; ok {
+		intValue, err := cast.ToIntE(value)
+		if err != nil {
+			logger.G(ctx).Errorf("Config %s has an invalid value %s", name, value)
+		} else {
+			return intValue
+		}
+	}
+	return deafult
+}
+
+// Start fetching and updating the configs periodically
+func (dynamicConfig *DynamicConfig) Start(ctx context.Context, interval time.Duration, url string) {
+	url = strings.TrimSuffix(url, "/")
+	// Initial fetch
+	dynamicConfig.fetchConfigs(ctx, url)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				dynamicConfig.fetchConfigs(ctx, url)
+			}
+		}
+	}()
 }
 
 func getTLSConfig(ctx context.Context, v *viper.Viper) (*tls.Config, error) {

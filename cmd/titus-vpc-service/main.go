@@ -165,6 +165,7 @@ func main() {
 	rootCmd.Flags().String(config.BranchENIDescriptionFlagName, vpc.DefaultBranchNetworkInterfaceDescription, "The description for branch interfaces")
 	rootCmd.Flags().String(config.SubnetCIDRReservationFlagName, vpc.DefaultSubnetCIDRReservationDescription, "The description of CIDRs to use for SCRs")
 	rootCmd.Flags().String(config.WorkerRoleFlagName, "", "The role which to assume into to do work")
+	rootCmd.Flags().String(config.DynamicConfigURLFlagName, "", "The URL from where to fetch dynamic configs")
 	rootCmd.Flags().Int(config.MaxConcurrentRequestsFlagName, 100, "Maximum concurrent gRPC requests to allow")
 
 	rootCmd.PersistentFlags().String(config.DebugAddressFlagName, ":7003", "Address for zpages, pprof")
@@ -214,6 +215,7 @@ func bindVariables(v *pkgviper.Viper) {
 	bindVariable(v, config.WorkerRoleFlagName, "WORKER_ROLE")
 	bindVariable(v, config.MaxConcurrentRequestsFlagName, "MAX_CONCURRENT_REQUESTS")
 	bindVariable(v, config.TableMetricsIntervalFlagName, "TABLE_METRICS_INTERVAL")
+	bindVariable(v, config.DynamicConfigURLFlagName, "DYNAMIC_CONFIG_URL")
 	// TODO(hli): Consider removing it as it's dangerous. We don't know what env variables are automatically bound by this.
 	v.AutomaticEnv()
 }

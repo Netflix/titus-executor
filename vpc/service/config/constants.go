@@ -1,5 +1,6 @@
 package config
 
+// Config names for static configs, i.e. configs that don't change at runtime
 const (
 	AtlasAddrFlagName             = "atlas-addr"
 	ZipkinURLFlagName             = "zipkin"
@@ -24,4 +25,5 @@ const (
 	SubnetCIDRReservationFlagName = "titus-reserved"
 
 	TableMetricsIntervalFlagName = "table-metrics-interval"
+	DynamicConfigURLFlagName     = "dynamic-config-url"
 )
