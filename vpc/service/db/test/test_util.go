@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/db"
+	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -25,6 +28,16 @@ type PostgresContainer struct {
 	port     string // psql port
 }
 
+func stopAndRemoveContainerByName(ctx context.Context, cli *client.Client, name string) error {
+	_ = cli.ContainerStop(ctx, name, nil)
+
+	removeOptions := types.ContainerRemoveOptions{
+		RemoveVolumes: true,
+		Force:         true,
+	}
+	return cli.ContainerRemove(ctx, name, removeOptions)
+}
+
 // Start a postgres container locally for testing.
 func StartPostgresContainer(ctx context.Context) (*PostgresContainer, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
@@ -32,6 +45,10 @@ func StartPostgresContainer(ctx context.Context) (*PostgresContainer, error) {
 		return nil, err
 	}
 	defer cli.Close()
+	err = stopAndRemoveContainerByName(ctx, cli, "pgtest")
+	if err != nil && !client.IsErrNotFound(err) {
+		return nil, err
+	}
 	const IMAGE string = "postgres"
 	r, err := cli.ImagePull(ctx, IMAGE, types.ImagePullOptions{})
 	if err != nil {
@@ -114,7 +131,25 @@ func StartPostgresContainer(ctx context.Context) (*PostgresContainer, error) {
 // Connect to the test DB
 func (c *PostgresContainer) Connect(ctx context.Context) (*sql.DB, error) {
 	url := fmt.Sprintf("postgres://pgtest:%s@localhost:%s/pgtest?sslmode=disable", c.password, c.port)
-	return sql.Open("postgres", url)
+
+	_, conn, err := wrapper.NewConnection(ctx, url, 10, 20)
+	if err != nil {
+		return nil, err
+	}
+	conn.SetConnMaxIdleTime(time.Minute)
+	conn.SetConnMaxLifetime(time.Minute)
+	// Connect to DB and set up tables. Retry a couple of times in case of failure.
+	for i := 0; i < 10; i++ {
+		err = db.MigrateTo(ctx, conn, 40, false)
+		if err == nil {
+			log.Printf("Test DB has been set up after %d tries\n", i)
+			return conn, nil
+		}
+		// Retry
+		log.Printf("Failed to set up test DB: %s\n", err)
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil, err
 }
 
 // Stop and remove the container
