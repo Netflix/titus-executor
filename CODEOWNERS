@@ -1,17 +1,8 @@
 * @solarkennedy
 * @tych0
 
-/vpc/ @aloktiagi
-/vpc/ @DonavanFritz
-/vpc/ @MyUmmaGumma
-/vpc/ @hechaoli
+/vpc/ @aloktiagi @DonavanFritz @MyUmmaGumma @hechaoli
 
-/cmd/titus-vpc-service/ @aloktiagi
-/cmd/titus-vpc-service/ @DonavanFritz
-/cmd/titus-vpc-service/ @MyUmmaGumma
-/cmd/titus-vpc-service/ @hechaoli
+/cmd/titus-vpc-service/ @aloktiagi @DonavanFritz @MyUmmaGumma @hechaoli
 
-executor/runtime/docker/networking* @aloktiagi
-executor/runtime/docker/networking* @DonavanFritz
-executor/runtime/docker/networking* @MyUmmaGumma
-executor/runtime/docker/networking* @hechaoli
+executor/runtime/docker/networking* @aloktiagi @DonavanFritz @MyUmmaGumma @hechaoli
