@@ -1,8 +1,11 @@
 package runner
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -211,6 +214,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 		return
 	}
 	logger.G(ctx).Infof("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
+	r.monitorKernelLogsForStuckTasks(ctx)
 
 	err = r.maybeSetupExternalLogger(ctx, logDir)
 	if err != nil {
@@ -469,4 +473,55 @@ func (r *Runner) getPlatformSidecarStatuses() []corev1.ContainerStatus {
 		statuses = append(statuses, c.Status)
 	}
 	return statuses
+}
+
+func (r *Runner) monitorKernelLogsForStuckTasks(ctx context.Context) {
+	l := logger.G(ctx)
+	ch := make(chan string, 20)
+
+	go func() {
+		kmsg, err := os.Open("/dev/kmsg")
+		if err != nil {
+			l.Info("couldn't open /dev/kmsg (%v), not monitoring for stuck tasks", err)
+			close(ch)
+			return
+		}
+		defer kmsg.Close()
+
+		// seek to the end of the file... otherwise kmsg will happily
+		// tell us about everything in its buffer, which we do not
+		// really care about.
+		_, err = kmsg.Seek(0, io.SeekEnd)
+		if err != nil {
+			close(ch)
+			l.Info("couldn't seek /dev/kmsg (%v), not monitoring for stuck tasks", err)
+			return
+		}
+
+		scanner := bufio.NewScanner(kmsg)
+		for scanner.Scan() {
+			line := scanner.Text()
+			ch <- line
+		}
+
+		if scanner.Err() != nil {
+			l.Info("problem reading from /dev/kmsg: %v", err)
+			close(ch)
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-r.killChan:
+				return
+			case kernelLogLine, more := <-ch:
+				parseBlockedTaskKernelLogLine(l, kernelLogLine, r.container.TaskID())
+				if !more {
+					// some problem occurred reading kmsg...
+					return
+				}
+			}
+		}
+	}()
 }
