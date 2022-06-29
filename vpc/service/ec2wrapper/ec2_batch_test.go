@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"golang.org/x/sync/errgroup"
 	"gotest.tools/assert"
 	is "gotest.tools/assert/cmp"
@@ -20,8 +22,11 @@ func TestEC2BatchTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 	var describes int64
-	bed := NewBatchENIDescriber(ctx, 100*time.Millisecond, 3, nil)
-	bed.runDescribe = func(ctx context.Context, session *session.Session, items []*batchRequestResponse) {
+	session, err := session.NewSession()
+	assert.NilError(t, err)
+	bed := NewBatchENIDescriber(ctx, 100*time.Millisecond, 3, session,
+		func(p client.ConfigProvider, cfgs ...*aws.Config) ec2iface.EC2API { return ec2.New(p, cfgs...) })
+	bed.runDescribe = func(ctx context.Context, ec2client ec2iface.EC2API, items []*batchRequestResponse) {
 		atomic.AddInt64(&describes, 1)
 		t.Log("Described: ", items)
 		result := make([]*ec2.NetworkInterface, len(items))

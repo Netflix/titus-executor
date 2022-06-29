@@ -210,7 +210,7 @@ func (vpcService *vpcService) serve(
 	return grpcServer.Serve(listener)
 }
 
-func newvpcService(ctx context.Context, config *Config) (*vpcService, error) {
+func newVpcService(ctx context.Context, config *Config) (*vpcService, error) {
 	// Make sure all configs are valid
 	err := validateConfig(config)
 	if err != nil {
@@ -236,7 +236,6 @@ func newvpcService(ctx context.Context, config *Config) (*vpcService, error) {
 		}
 		if needsMigration {
 			logger.G(ctx).Fatal("Cannot startup, need to run database migrations")
-
 		}
 	}
 
@@ -308,7 +307,7 @@ func validateConfig(config *Config) error {
 }
 
 func Run(ctx context.Context, config *Config, address string) error {
-	vpcService, err := newvpcService(ctx, config)
+	vpcService, err := newVpcService(ctx, config)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create VPC service")
 	}

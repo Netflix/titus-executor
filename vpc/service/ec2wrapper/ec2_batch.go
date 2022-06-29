@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
@@ -41,7 +43,8 @@ type BatchDescriber struct {
 	requests    chan *batchRequestResponse
 	maxDeadline time.Duration
 
-	runDescribe func(ctx context.Context, session *session.Session, items []*batchRequestResponse)
+	newEC2      func(p client.ConfigProvider, cfgs ...*aws.Config) ec2iface.EC2API
+	runDescribe func(ctx context.Context, ec2client ec2iface.EC2API, items []*batchRequestResponse)
 }
 
 type BatchENIDescriber struct {
@@ -49,11 +52,18 @@ type BatchENIDescriber struct {
 }
 
 // TODO: This currently leaks goroutines.
-func NewBatchENIDescriber(ctx context.Context, maxDeadline time.Duration, maxItems int, session *session.Session) *BatchENIDescriber {
+func NewBatchENIDescriber(
+	ctx context.Context,
+	maxDeadline time.Duration,
+	maxItems int,
+	session *session.Session,
+	newEC2 func(p client.ConfigProvider, cfgs ...*aws.Config) ec2iface.EC2API) *BatchENIDescriber {
 	describer := &BatchENIDescriber{
 		BatchDescriber{
-			session:     session,
-			requests:    make(chan *batchRequestResponse, maxItems*10),
+			session:  session,
+			requests: make(chan *batchRequestResponse, maxItems*10),
+
+			newEC2:      newEC2,
 			runDescribe: runDescribeENIs,
 			maxDeadline: maxDeadline,
 		},
@@ -64,7 +74,7 @@ func NewBatchENIDescriber(ctx context.Context, maxDeadline time.Duration, maxIte
 	return describer
 }
 
-func runDescribeENIs(ctx context.Context, session *session.Session, items []*batchRequestResponse) { // nolint:dupl
+func runDescribeENIs(ctx context.Context, ec2client ec2iface.EC2API, items []*batchRequestResponse) { // nolint:dupl
 	if len(items) == 0 {
 		panic("Asked to run describe with 0 items")
 	}
@@ -86,7 +96,7 @@ func runDescribeENIs(ctx context.Context, session *session.Session, items []*bat
 	}
 
 	span.AddAttributes(trace.StringAttribute("enis", fmt.Sprint(eniSet.List())))
-	ec2client := ec2.New(session)
+
 	/*
 	 * We take this approach because we cannot rely entirely on retries. The number 2 comes from the fact that 500
 	 * microseconds is the median latency we see in prod, and ~1ish second is the 99%.
@@ -184,7 +194,8 @@ func (b *BatchDescriber) finishInnerLoop(ctx context.Context, items []*batchRequ
 	for idx := range items {
 		close(items[idx].triggeredChannel)
 	}
-	b.runDescribe(ctx, b.session, items)
+	ec2client := b.newEC2(b.session)
+	b.runDescribe(ctx, ec2client, items)
 }
 
 func (b *BatchENIDescriber) DescribeNetworkInterfaces(ctx context.Context, networkInterfaceID string) (*ec2.NetworkInterface, error) {
@@ -252,7 +263,7 @@ type BatchInstanceDescriber struct {
 	BatchDescriber
 }
 
-func runDescribeInstances(ctx context.Context, session *session.Session, items []*batchRequestResponse) { // nolint:dupl
+func runDescribeInstances(ctx context.Context, ec2client ec2iface.EC2API, items []*batchRequestResponse) { // nolint:dupl
 	if len(items) == 0 {
 		panic("Asked to run describe with 0 items")
 	}
@@ -274,7 +285,6 @@ func runDescribeInstances(ctx context.Context, session *session.Session, items [
 	}
 
 	span.AddAttributes(trace.StringAttribute("instances", fmt.Sprint(instancesSet.List())))
-	ec2client := ec2.New(session)
 	delays := []time.Duration{0, 2 * time.Second, 15 * time.Second}
 	req := func(ctx2 context.Context) (interface{}, error) {
 		return ec2client.DescribeInstancesWithContext(ctx2, &ec2.DescribeInstancesInput{
@@ -298,13 +308,19 @@ func runDescribeInstances(ctx context.Context, session *session.Session, items [
 }
 
 // TODO: This currently leaks goroutines.
-func NewBatchInstanceDescriber(ctx context.Context, maxDeadline time.Duration, maxItems int, session *session.Session) *BatchInstanceDescriber {
+func NewBatchInstanceDescriber(
+	ctx context.Context,
+	maxDeadline time.Duration,
+	maxItems int,
+	session *session.Session,
+	newEC2 func(p client.ConfigProvider, cfgs ...*aws.Config) ec2iface.EC2API) *BatchInstanceDescriber {
 	describer := &BatchInstanceDescriber{
 		BatchDescriber{
 			session:     session,
 			requests:    make(chan *batchRequestResponse, maxItems*10),
 			runDescribe: runDescribeInstances,
 			maxDeadline: maxDeadline,
+			newEC2:      newEC2,
 		},
 	}
 

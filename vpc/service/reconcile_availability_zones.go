@@ -37,7 +37,7 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 		"accountID": account.accountID,
 	}).Info("Beginning reconcilation of availability zones")
 
-	ec2client := ec2.New(session.Session)
+	ec2client := vpcService.ec2.NewEC2(session.Session)
 	describeAvailabilityZonesOutput, err := ec2client.DescribeAvailabilityZonesWithContext(ctx, &ec2.DescribeAvailabilityZonesInput{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not describe availability zones")
