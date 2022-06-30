@@ -256,7 +256,7 @@ func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec
 	defer span.End()
 
 	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
-		Description:      aws.String(vpcService.trunkNetworkInterfaceDescription),
+		Description:      aws.String(vpcService.config.TrunkNetworkInterfaceDescription),
 		InterfaceType:    aws.String("trunk"),
 		Ipv6AddressCount: aws.Int64(0),
 		SubnetId:         subnetID,

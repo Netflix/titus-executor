@@ -6,11 +6,15 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/pkg/errors"
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -194,4 +198,39 @@ func (c *connectionWrapper) enhanceQuery(ctx context.Context, query string) (fun
 type QueryMetadata struct {
 	SpanID   string `json:"spanID,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
+}
+
+func NewConnection(ctx context.Context, dburl string, maxIdleConnections, maxOpenConnections int) (string, *sql.DB, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", nil, errors.Wrap(err, "Unable to get hostname")
+	}
+
+	rawurl, err := url.Parse(dburl)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot parse dburl")
+		return "", nil, err
+	}
+
+	if rawurl.Port() == "" {
+		rawurl.Host = net.JoinHostPort(rawurl.Host, "5432")
+	}
+
+	fullDBURL := rawurl.String()
+
+	connector, err := pq.NewConnector(fullDBURL)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot create connector")
+		return "", nil, err
+	}
+
+	db := sql.OpenDB(NewConnectorWrapper(connector, ConnectorWrapperConfig{
+		Hostname:                        hostname,
+		MaxConcurrentSerialTransactions: 10,
+	}))
+
+	db.SetMaxIdleConns(maxIdleConnections)
+	db.SetMaxOpenConns(maxOpenConnections)
+
+	return fullDBURL, db, nil
 }

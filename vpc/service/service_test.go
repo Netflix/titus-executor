@@ -24,6 +24,8 @@ func TestService(t *testing.T) {
 	defer cancel()
 	listener, err := net.Listen("tcp", "localhost:0")
 	assert.NilError(t, err)
+	addr := listener.Addr().String()
+	listener.Close()
 	_, privatekey, err := ed25519.GenerateKey(nil)
 	assert.NilError(t, err)
 
@@ -38,14 +40,11 @@ func TestService(t *testing.T) {
 	}
 
 	go func() {
-		serverErr := Run(ctx, &Config{
-			Listener:              listener,
-			DB:                    nil,
-			Key:                   key, // nolint: govet
+		vpcServiceConfig := &Config{
+			DBURL:                 "",
+			Key:                   key, // nolint:govet
 			MaxConcurrentRefresh:  10,
-			GCTimeout:             2 * time.Minute,
 			ReconcileInterval:     5 * time.Minute,
-			RefreshInterval:       30 * time.Second,
 			TLSConfig:             nil,
 			EnabledTaskLoops:      []string{},
 			EnabledLongLivedTasks: []string{},
@@ -55,16 +54,18 @@ func TestService(t *testing.T) {
 			BranchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
 
 			disableRouteCache: true,
-		})
-		if serverErr != nil && serverErr != context.Canceled {
-			panic(serverErr)
+		}
+		err := Run(ctx, vpcServiceConfig, addr)
+		if err != nil {
+			panic(err)
 		}
 	}()
+	time.Sleep(time.Second * 2)
 	t.Run("Healthcheck", func(t2 *testing.T) {
-		testHealthcheck(ctx, t2, listener.Addr().String())
+		testHealthcheck(ctx, t2, addr)
 	})
 	t.Run("HTTPHealthcheck", func(t2 *testing.T) {
-		testHTTPHealthcheck(ctx, t2, listener.Addr().String())
+		testHTTPHealthcheck(ctx, t2, addr)
 	})
 }
 
@@ -101,5 +102,4 @@ func testHTTPHealthcheck(ctx context.Context, t *testing.T, addr string) {
 	defer response.Body.Close()
 	_, err = ioutil.ReadAll(response.Body)
 	assert.NilError(t, err)
-
 }

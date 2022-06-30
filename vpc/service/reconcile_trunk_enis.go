@@ -93,7 +93,7 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccount(ctx context.Con
 		Filters: []*ec2.Filter{
 			{
 				Name:   aws.String("description"),
-				Values: aws.StringSlice([]string{vpcService.trunkNetworkInterfaceDescription}),
+				Values: aws.StringSlice([]string{vpcService.config.TrunkNetworkInterfaceDescription}),
 			},
 			{
 				Name:   aws.String("owner-id"),
@@ -201,7 +201,7 @@ func (vpcService *vpcService) reconcileOrphanedTrunkENI(ctx context.Context, ses
 		return err
 	}
 
-	eniExists, err := doesENIExist(ctx, session, eni, vpcService.trunkNetworkInterfaceDescription)
+	eniExists, err := doesENIExist(ctx, session, eni, vpcService.config.TrunkNetworkInterfaceDescription)
 	if err != nil {
 		err = errors.Wrap(err, "Could not find out if branch ENI exists")
 		return ec2wrapper.HandleEC2Error(err, span)

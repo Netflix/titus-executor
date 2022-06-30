@@ -104,19 +104,20 @@ func newTestServiceInstance(t *testing.T) *vpcService {
 	})
 	db := sql.OpenDB(wrappedConnector)
 	assert.NilError(t, db.Ping())
+	vpcServiceConfig := &Config{
+		DBURL:                             dbURL,
+		BranchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
+		TrunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
+		SubnetCIDRReservationDescription:  vpc.DefaultSubnetCIDRReservationDescription,
+	}
 	return &vpcService{
 		db:       db,
-		dbURL:    dbURL,
 		hostname: hostname,
 		ec2:      ec2wrapper.NewEC2SessionManager(workerRole),
 
-		branchNetworkInterfaceDescription: vpc.DefaultBranchNetworkInterfaceDescription,
-		trunkNetworkInterfaceDescription:  vpc.DefaultTrunkNetworkInterfaceDescription,
-		subnetCIDRReservationDescription:  vpc.DefaultSubnetCIDRReservationDescription,
-
+		config:                    vpcServiceConfig,
 		trunkTracker:              newTrunkTrackerCache(),
 		invalidSecurityGroupCache: ccache.New(ccache.Configure()),
-		subnetCacheExpirationTime: time.Second * 10,
 	}
 }
 
@@ -1037,7 +1038,7 @@ func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetad
 	group, ctx := errgroup.WithContext(ctx)
 	testActionWorker := &actionWorker{
 		db:    service.db,
-		dbURL: service.dbURL,
+		dbURL: service.config.DBURL,
 		cb: func(ctx context.Context, tx *sql.Tx, id int) (retErr error) {
 			ctx, span := trace.StartSpan(ctx, "testActionCallbackSpan")
 			defer span.End()
