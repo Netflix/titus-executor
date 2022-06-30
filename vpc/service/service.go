@@ -53,6 +53,11 @@ import (
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 )
 
+const (
+	// Update dynamic configs every 5 minutes
+	dynamicConfigUpdateInterval = 5 * time.Minute
+)
+
 var (
 	grpcRequest   = stats.Int64("grpcRequest", "Statistics about gRPC requests", "")
 	grpcRequestNs = stats.Int64("grpcRequestNs", "Time of gRPC Request", "ns")
@@ -86,6 +91,7 @@ type vpcService struct {
 	db *sql.DB
 
 	config                 *Config
+	dynamicConfig          *DynamicConfig
 	authoritativePublicKey ed25519.PublicKey
 	hostPublicKeySignature []byte
 	hostPrivateKey         ed25519.PrivateKey
@@ -204,7 +210,7 @@ func (vpcService *vpcService) serve(
 	return grpcServer.Serve(listener)
 }
 
-func newVpcService(ctx context.Context, config *Config) (*vpcService, error) {
+func newvpcService(ctx context.Context, config *Config) (*vpcService, error) {
 	// Make sure all configs are valid
 	err := validateConfig(config)
 	if err != nil {
@@ -302,14 +308,14 @@ func validateConfig(config *Config) error {
 }
 
 func Run(ctx context.Context, config *Config, address string) error {
-	vpcService, err := newVpcService(ctx, config)
+	vpcService, err := newvpcService(ctx, config)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create VPC service")
 	}
 	return vpcService.run(ctx, address)
 }
 
-func (vpcService *vpcService) run(ctx context.Context, address string) error {
+func (vpcService *vpcService) setupInstrument(ctx context.Context) error {
 	if vpcService.db != nil {
 		collector := metrics.NewCollector(ctx, vpcService.db, &metrics.CollectorConfig{
 			TableMetricsInterval: vpcService.config.TableMetricsInterval})
@@ -331,7 +337,19 @@ func (vpcService *vpcService) run(ctx context.Context, address string) error {
 		logger.G(ctx).WithField("endpoint", endpoint).WithField("url", vpcService.config.ZipkinURL).Info("Setting up tracing")
 		trace.RegisterExporter(zipkin.NewExporter(reporter, endpoint))
 	}
+	return nil
+}
 
+func (vpcService *vpcService) run(ctx context.Context, address string) error {
+	if vpcService.config.DynamicConfigURL != "" {
+		vpcService.dynamicConfig = NewDynamicConfig()
+		vpcService.dynamicConfig.Start(ctx, dynamicConfigUpdateInterval, vpcService.config.DynamicConfigURL)
+	}
+
+	err := vpcService.setupInstrument(ctx)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
