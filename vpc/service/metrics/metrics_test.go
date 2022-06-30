@@ -4,12 +4,10 @@ import (
 	"context"
 	"math/rand"
 	"net"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/Netflix/titus-executor/vpc/service/db"
 	db_test "github.com/Netflix/titus-executor/vpc/service/db/test"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
@@ -70,9 +68,6 @@ func skipIfNoDocker(t *testing.T) {
 
 func TestCollectTableMetrics(t *testing.T) {
 	skipIfNoDocker(t)
-	if os.Getenv("RUN_COLLECT_TABLE_METRICS_TEST") == "" {
-		t.Skip("This test does not reliably run under CI/CD")
-	}
 	ctx := context.Background()
 	c, err := db_test.StartPostgresContainer(ctx)
 	if err != nil {
@@ -86,14 +81,9 @@ func TestCollectTableMetrics(t *testing.T) {
 	}()
 	testDb, err := c.Connect(ctx)
 	if err != nil {
-		t.Fatalf("failed to connect to test DB: %s", err)
+		t.Skipf("failed to connect to test DB: %s", err)
 	}
 	defer testDb.Close()
-	// Set up tables
-	err = db.MigrateTo(ctx, testDb, 40, false)
-	if err != nil {
-		t.Fatalf("failed to set up tables: %s", err)
-	}
 
 	numSubnets := rand.Intn(100) + 1     // nolint: gosec
 	numAssignments := rand.Intn(100) + 1 // nolint: gosec
