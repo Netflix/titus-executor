@@ -50,7 +50,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 		return errors.Wrap(err, "Could not create temporary table for known eips")
 	}
 
-	ec2client := ec2.New(session.Session)
+	ec2client := vpcService.ec2.NewEC2(session.Session)
 	describeAddressesInput := ec2.DescribeAddressesInput{}
 	describeAddressesOutput, err := ec2client.DescribeAddressesWithContext(ctx, &describeAddressesInput)
 	if err != nil {

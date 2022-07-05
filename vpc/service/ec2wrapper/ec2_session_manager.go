@@ -11,28 +11,18 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go/service/sts/stsiface"
 	ccache "github.com/karlseguin/ccache/v2"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/singleflight"
-)
-
-type CacheStrategy int
-
-const (
-	NoCache                       = 0
-	InvalidateCache CacheStrategy = 1 << iota
-	StoreInCache    CacheStrategy = 1 << iota
-	FetchFromCache  CacheStrategy = 1 << iota
-)
-
-const (
-	UseCache CacheStrategy = StoreInCache | FetchFromCache
 )
 
 var (
@@ -59,6 +49,8 @@ func NewEC2SessionManager(workerRole string) *EC2SessionManager {
 		sessions:     &sync.Map{},
 		singleflight: &singleflight.Group{},
 		workerRole:   workerRole,
+		NewSts:       func(p client.ConfigProvider, cfgs ...*aws.Config) stsiface.STSAPI { return sts.New(p, cfgs...) },
+		NewEC2:       func(p client.ConfigProvider, cfgs ...*aws.Config) ec2iface.EC2API { return ec2.New(p, cfgs...) },
 	}
 
 	return sessionManager
@@ -76,6 +68,10 @@ func (k Key) String() string {
 type EC2SessionManager struct {
 	workerRole  string
 	baseSession *session.Session
+	// Function used to create a new STS service client
+	NewSts func(p client.ConfigProvider, cfgs ...*aws.Config) stsiface.STSAPI
+	// Function used to create a new EC2 service client
+	NewEC2 func(p client.ConfigProvider, cfgs ...*aws.Config) ec2iface.EC2API
 
 	sessions     *sync.Map
 	singleflight *singleflight.Group
@@ -134,7 +130,7 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 		if err != nil {
 			return nil, err
 		}
-		output, err := sts.New(ec2Session.Session).GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
+		output, err := sessionManager.NewSts(ec2Session.Session).GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
 		if err != nil {
 			return nil, err
 		}
@@ -155,9 +151,10 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 			}
 		}()
 		newCtx := logger.WithLogger(context.Background(), logger.G(ctx))
-		ec2Session.batchENIDescriber = NewBatchENIDescriber(newCtx, time.Second, 50, ec2Session.Session)
-		ec2Session.batchInstancesDescriber = NewBatchInstanceDescriber(newCtx, time.Second, 50, ec2Session.Session)
-		ec2Session.ec2client = ec2.New(ec2Session.Session)
+		newEC2 := sessionManager.NewEC2
+		ec2Session.batchENIDescriber = NewBatchENIDescriber(newCtx, time.Second, 50, ec2Session.Session, newEC2)
+		ec2Session.batchInstancesDescriber = NewBatchInstanceDescriber(newCtx, time.Second, 50, ec2Session.Session, newEC2)
+		ec2Session.newEC2 = newEC2
 
 		sessionManager.sessions.Store(sessionKey.String(), ec2Session)
 		return ec2Session, nil

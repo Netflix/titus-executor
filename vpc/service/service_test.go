@@ -11,6 +11,7 @@ import (
 
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	db_test "github.com/Netflix/titus-executor/vpc/service/db/test"
 	"golang.org/x/crypto/ed25519"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -18,14 +19,34 @@ import (
 	"gotest.tools/assert"
 )
 
+func waitForServerPortOpen(t *testing.T, addr string) {
+	done := make(chan bool)
+	go func() {
+		for {
+			conn, err := net.DialTimeout("tcp", addr, time.Second)
+			if err == nil {
+				conn.Close()
+				done <- true
+				return
+			}
+			time.Sleep(time.Millisecond * 100)
+		}
+	}()
+	// Wait until the server runs on the address
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Server not running after 2s")
+	}
+}
+
 func TestService(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	listener, err := net.Listen("tcp", "localhost:0")
+	port, err := db_test.RandomPort()
 	assert.NilError(t, err)
-	addr := listener.Addr().String()
-	listener.Close()
+	addr := ":" + port
 	_, privatekey, err := ed25519.GenerateKey(nil)
 	assert.NilError(t, err)
 
@@ -60,7 +81,7 @@ func TestService(t *testing.T) {
 			panic(err)
 		}
 	}()
-	time.Sleep(time.Second * 2)
+	waitForServerPortOpen(t, addr)
 	t.Run("Healthcheck", func(t2 *testing.T) {
 		testHealthcheck(ctx, t2, addr)
 	})

@@ -39,13 +39,13 @@ func stopAndRemoveContainerByName(ctx context.Context, cli *client.Client, name 
 }
 
 // Start a postgres container locally for testing.
-func StartPostgresContainer(ctx context.Context) (*PostgresContainer, error) {
+func StartPostgresContainer(ctx context.Context, name string) (*PostgresContainer, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}
 	defer cli.Close()
-	err = stopAndRemoveContainerByName(ctx, cli, "pgtest")
+	err = stopAndRemoveContainerByName(ctx, cli, name)
 	if err != nil && !client.IsErrNotFound(err) {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func StartPostgresContainer(ctx context.Context) (*PostgresContainer, error) {
 		return nil, err
 	}
 
-	port, err := randomPort()
+	port, err := RandomPort()
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func StartPostgresContainer(ctx context.Context) (*PostgresContainer, error) {
 				{HostPort: port},
 			},
 		},
-	}, nil, "pgtest")
+	}, nil, name)
 	if err != nil {
 		return nil, err
 	}
@@ -128,9 +128,13 @@ func StartPostgresContainer(ctx context.Context) (*PostgresContainer, error) {
 	}
 }
 
+func (c *PostgresContainer) DBURL() string {
+	return fmt.Sprintf("postgres://pgtest:%s@localhost:%s/pgtest?sslmode=disable", c.password, c.port)
+}
+
 // Connect to the test DB
 func (c *PostgresContainer) Connect(ctx context.Context) (*sql.DB, error) {
-	url := fmt.Sprintf("postgres://pgtest:%s@localhost:%s/pgtest?sslmode=disable", c.password, c.port)
+	url := c.DBURL()
 
 	_, conn, err := wrapper.NewConnection(ctx, url, 10, 20)
 	if err != nil {
@@ -180,7 +184,7 @@ func randomPassword() (string, error) {
 	return string(b), nil
 }
 
-func randomPort() (string, error) {
+func RandomPort() (string, error) {
 	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		return "", err

@@ -69,7 +69,7 @@ func skipIfNoDocker(t *testing.T) {
 func TestCollectTableMetrics(t *testing.T) {
 	skipIfNoDocker(t)
 	ctx := context.Background()
-	c, err := db_test.StartPostgresContainer(ctx)
+	c, err := db_test.StartPostgresContainer(ctx, "metrics_test_db")
 	if err != nil {
 		t.Fatalf("failed to start postgress container: %s", err)
 	}

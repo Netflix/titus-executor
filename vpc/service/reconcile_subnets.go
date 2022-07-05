@@ -90,7 +90,7 @@ func (vpcService *vpcService) doReconcileSubnetsForRegionAccount(ctx context.Con
 		"accountID": account.accountID,
 	}).Info("Beginning reconcilation of subnets")
 
-	ec2client := ec2.New(session.Session)
+	ec2client := vpcService.ec2.NewEC2(session.Session)
 
 	describeSubnetsInput := ec2.DescribeSubnetsInput{
 		Filters: []*ec2.Filter{
