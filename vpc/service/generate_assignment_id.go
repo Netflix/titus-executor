@@ -113,7 +113,7 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 	span.AddAttributes(trace.StringAttribute("assignmentID", req.assignmentID))
 	var err error
 	// fastTx = isolation level serial -- work must be done quickly (side effects not appreciated)
-	// slowTx = isolation level read repeatable -- work
+	// slowTx = isolation level read committed -- work
 
 	/* Preload the "heavy" work */
 	if req.trunkENISession == nil {
@@ -131,15 +131,10 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 			return nil, err
 		}
 	}
-
-	if req.assignmentID == "" {
-		return nil, fmt.Errorf("%q is in invalid assignment ID", req.assignmentID)
-	}
-
 	sort.Strings(req.securityGroups)
 
-	// Let's validate the security groups
-	err = vpcService.validateSecurityGroups(ctx, req.branchENISession, req.subnet, req.securityGroups, &regionAccount{
+	// Let's reconcile the security groups
+	err = vpcService.reconcileSecurityGroups(ctx, req.branchENISession, req.subnet, req.securityGroups, &regionAccount{
 		accountID: req.branchENIAccount,
 		region:    req.region,
 	})
@@ -209,8 +204,8 @@ func (vpcService *vpcService) deleteAssignment(ctx context.Context, ass *assignm
 	}
 }
 
-func (vpcService *vpcService) validateSecurityGroups(ctx context.Context, session *ec2wrapper.EC2Session, s *subnet, securityGroups []string, account *regionAccount) error {
-	ctx, span := trace.StartSpan(ctx, "validateSecurityGroups")
+func (vpcService *vpcService) reconcileSecurityGroups(ctx context.Context, session *ec2wrapper.EC2Session, s *subnet, securityGroups []string, account *regionAccount) error {
+	ctx, span := trace.StartSpan(ctx, "reconcileSecurityGroups")
 	defer span.End()
 
 	span.AddAttributes(trace.StringAttribute("securityGroups", fmt.Sprintf("%v", securityGroups)))

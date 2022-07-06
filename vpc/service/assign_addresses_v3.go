@@ -174,7 +174,7 @@ LIMIT 1
 	ret := subnet{}
 	err = row.Scan(&ret.az, &ret.vpcID, &ret.accountID, &ret.subnetID, &ret.cidr, &ret.region)
 	if err == sql.ErrNoRows {
-		if len(subnetIDs) == 0 {
+		if len(subnetIDs) > 0 {
 			err = newNotFoundError(fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az))
 		} else {
 			err = newNotFoundError(fmt.Errorf("No subnet found in account %s in az %s", accountID, az))
@@ -454,6 +454,22 @@ func (vpcService *vpcService) GetAssignment(ctx context.Context, req *vpcapi.Get
 	return &ret, nil
 }
 
+// Returns an error if the request is invalid. Returns nil otherwise.
+func validateAssignIPV3Request(req *vpcapi.AssignIPRequestV3) error {
+	if req.InstanceIdentity == nil || req.InstanceIdentity.InstanceID == "" {
+		return status.Error(codes.InvalidArgument, "Instance ID is not specified")
+	}
+
+	if req.TaskId == "" {
+		return status.Error(codes.InvalidArgument, "Task ID is not specified")
+	}
+
+	if len(req.SecurityGroupIds) == 0 {
+		return status.Error(codes.InvalidArgument, "No security groups specified")
+	}
+	return nil
+}
+
 func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.AssignIPRequestV3) (*vpcapi.AssignIPResponseV3, error) {
 	// 1. Get the trunk ENI
 	// 2. Choose the subnet we're "scheduling" into
@@ -467,34 +483,18 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
-	if req.InstanceIdentity == nil || req.InstanceIdentity.InstanceID == "" {
-		err := status.Error(codes.InvalidArgument, "Instance ID is not specified")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"instance": req.InstanceIdentity.InstanceID,
-	})
-	span.AddAttributes(
-		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID))
-
-	if req.TaskId == "" {
-		err := status.Error(codes.InvalidArgument, "Task ID is not specified")
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	}
-
-	if len(req.SecurityGroupIds) == 0 {
-		err := status.Error(codes.InvalidArgument, "No security groups specified")
+	err := validateAssignIPV3Request(req)
+	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"taskID": req.TaskId,
+		"instance": req.InstanceIdentity.InstanceID,
+		"taskID":   req.TaskId,
 	})
 	span.AddAttributes(
+		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 		trace.StringAttribute("taskID", req.TaskId),
 		trace.StringAttribute("assignmentID", req.TaskId))
 
@@ -1146,7 +1146,6 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 
 	if unusedIPAddresses.Len() > 0 {
 		unusedIPv4AddressesList := unusedIPAddresses.List()
-
 		rows, err := tx.QueryContext(ctx, "SELECT ip_address FROM ip_addresses WHERE host(ip_address) = any($1) AND subnet_id = $2", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.SubnetId))
 		if err != nil {
 			err = errors.Wrap(err, "Cannot fetch statically assigned IP addresses")
