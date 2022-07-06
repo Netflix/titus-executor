@@ -223,7 +223,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		// TODO: Consider updating the table state here
 		if vpcerrors.IsPersistentError(err) {
 			logger.G(ctx).WithError(err).Error("Experienced persistent error, still committing database state (assuming function updated state to failed)")
-		} else if errors.Is(err, &irrecoverableError{}) {
+		} else if errors.Is(err, &vpcerrors.IrrecoverableError{}) {
 			logger.G(ctx).WithError(err).Errorf("Experienced irrecoverable error, still committing database state (assuming function updated state to failed)")
 		} else if err != nil {
 			tracehelpers.SetStatus(err, span)

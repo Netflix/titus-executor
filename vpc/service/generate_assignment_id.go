@@ -435,7 +435,7 @@ retry:
 	}(fastTx)
 
 	err = populateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
-	if isSerializationFailure(err) || vpcerrors.IsRetryable(err) || isConcurrencyError(err) {
+	if vpcerrors.IsSerializationFailure(err) || vpcerrors.IsRetryable(err) || vpcerrors.IsConcurrencyError(err) {
 		_ = fastTx.Rollback()
 		err2 := backOff(ctx, err)
 		if err2 != nil {
@@ -446,14 +446,14 @@ retry:
 		goto retry
 	}
 
-	if errors.Is(err, &methodNotPossible{}) {
+	if errors.Is(err, &vpcerrors.MethodNotPossible{}) {
 		logger.G(ctx).WithError(err).Warning("Got method not possible error from populateAssignmentUsingAlreadyAttachedENI, trying to get ENI and attach")
 		// getENIAndAttach consumes fastTx
 		err2 := vpcService.getENIAndAttach(ctx, req, ass, fastTx, slowTx, trunkLock)
 		if err2 == nil {
 			goto retry
 		}
-		if isSerializationFailure(err2) || vpcerrors.IsRetryable(err2) || errors.Is(err2, &concurrencyError{}) {
+		if vpcerrors.IsSerializationFailure(err2) || vpcerrors.IsRetryable(err2) || errors.Is(err2, &vpcerrors.ConcurrencyError{}) {
 			_ = fastTx.Rollback()
 			logger.G(ctx).WithError(err2).Warning("Experienced retryable error doing get eni and attach")
 			err3 := backOff(ctx, err2)
@@ -476,7 +476,7 @@ retry:
 	}
 
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err != nil {
@@ -589,7 +589,7 @@ ORDER BY c DESC, branch_eni_attached_at ASC
 LIMIT 1`, req.subnet.SubnetID, req.trunkENI)
 	err = row.Scan(&ass.branch.intid, &ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx)
 	if err == sql.ErrNoRows {
-		err = newMethodNotPossibleError("populateAssignmentUsingAlreadyAttachedENI")
+		err = vpcerrors.NewMethodNotPossibleError("populateAssignmentUsingAlreadyAttachedENI")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
@@ -753,7 +753,7 @@ func (vpcService *vpcService) attachENI(ctx context.Context, req getENIRequest, 
 	row = fastTx.QueryRowContext(ctx, "SELECT count(*) FROM branch_eni_attachments WHERE state = 'attaching' AND trunk_eni = $1", req.trunkENI)
 	var count int
 	err = row.Scan(&count)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -774,7 +774,7 @@ func (vpcService *vpcService) attachENI(ctx context.Context, req getENIRequest, 
 
 	row = fastTx.QueryRowContext(ctx, "SELECT array_agg(idx)::int[] FROM branch_eni_attachments WHERE trunk_eni = $1 AND (state = 'attached' OR state = 'attaching' OR state = 'unattaching')", req.trunkENI)
 	err = row.Scan(pq.Array(&usedIndexSlice))
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}

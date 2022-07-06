@@ -11,6 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
@@ -207,7 +208,7 @@ get_eni:
      OFFSET $2
 `, subnet.SubnetID, warmPoolSize, minTimeExisting.Seconds())
 	err = row.Scan(&branchENI)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationFailuresGetENI++
 		goto get_eni
 	}
@@ -221,7 +222,7 @@ get_eni:
 		return false, err
 	}
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationFailuresGetENI++
 		goto get_eni
 	}
@@ -294,7 +295,7 @@ WHERE branch_eni = $1
        OR state = 'attaching'
        OR state = 'unattaching')
 `, branchENI)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		deleteENISerializationErrors++
 		goto delete_eni
 	}
@@ -316,7 +317,7 @@ WHERE branch_eni = $1
 		return false, err
 	}
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		deleteENISerializationErrors++
 		goto delete_eni
 	}

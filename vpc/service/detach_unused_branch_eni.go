@@ -119,7 +119,7 @@ LIMIT 1
 
 	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
 	if err != nil {
-		if errors.Is(err, &irrecoverableError{}) || vpcerrors.IsPersistentError(err) {
+		if errors.Is(err, &vpcerrors.IrrecoverableError{}) || vpcerrors.IsPersistentError(err) {
 			err2 := tx.Commit()
 			if err2 != nil {
 				err2 = errors.Wrap(err2, "Could not commit transaction during irrecoverableError / persistentError")

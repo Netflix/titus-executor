@@ -14,6 +14,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -158,9 +159,9 @@ LIMIT 1
 	err = row.Scan(&ret.Az, &ret.VpcID, &ret.AccountID, &ret.SubnetID, &ret.Cidr, &ret.Region)
 	if err == sql.ErrNoRows {
 		if len(subnetIDs) > 0 {
-			err = newNotFoundError(fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az))
+			err = vpcerrors.NewNotFoundError(fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az))
 		} else {
-			err = newNotFoundError(fmt.Errorf("No subnet found in account %s in az %s", accountID, az))
+			err = vpcerrors.NewNotFoundError(fmt.Errorf("No subnet found in account %s in az %s", accountID, az))
 		}
 		tracehelpers.SetStatus(err, span)
 		// explicitly not returning stale subnet here

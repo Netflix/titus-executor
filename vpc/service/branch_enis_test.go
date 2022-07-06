@@ -35,14 +35,14 @@ func TestBackoff(t *testing.T) {
 	defer cancel()
 	err := errors.New("base error")
 	assert.Assert(t, !vpcerrors.IsSleep(err))
-	assert.Assert(t, !errors.Is(err, &concurrencyError{}))
-	err = &concurrencyError{err: err}
+	assert.Assert(t, !errors.Is(err, &vpcerrors.ConcurrencyError{}))
+	err = vpcerrors.NewConcurrencyError(err)
 
 	assert.Assert(t, !vpcerrors.IsSleep(err))
-	assert.Assert(t, errors.Is(err, &concurrencyError{}))
+	assert.Assert(t, errors.Is(err, &vpcerrors.ConcurrencyError{}))
 	err = vpcerrors.NewWithSleep(err)
 	assert.Assert(t, vpcerrors.IsSleep(err))
-	assert.Assert(t, errors.Is(err, &concurrencyError{}))
+	assert.Assert(t, errors.Is(err, &vpcerrors.ConcurrencyError{}))
 	cancel()
 	assert.ErrorContains(t, backOff(ctx, err), "expired")
 	assert.NilError(t, backOff(ctx, errors.New("")))

@@ -1,4 +1,4 @@
-package service
+package vpcerrors
 
 import (
 	"context"
@@ -15,16 +15,16 @@ func TestErrGroupish(t *testing.T) {
 	defer cancel()
 
 	errFake := errors.New("test error")
-	group := newErrGroupIsh()
+	group := NewErrGroupIsh()
 	var done bool
 	start := time.Now()
-	group.run(func() error {
+	group.Run(func() error {
 		time.Sleep(time.Second)
 		done = true
 		return errFake
 	})
 
-	err := group.wait(ctx)
+	err := group.Wait(ctx)
 	assert.Assert(t, done)
 	assert.Assert(t, err != nil)
 	assert.Assert(t, time.Since(start) >= time.Second)
@@ -36,12 +36,12 @@ func TestErrGroupishNoErr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	group := newErrGroupIsh()
-	group.run(func() error {
+	group := NewErrGroupIsh()
+	group.Run(func() error {
 		return nil
 	})
 
-	err := group.wait(ctx)
+	err := group.Wait(ctx)
 	assert.NilError(t, err)
 }
 
@@ -51,25 +51,25 @@ func TestErrGroupishMany(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	group := newErrGroupIsh()
+	group := NewErrGroupIsh()
 	var done1, done2, done3 bool
-	group.run(func() error {
+	group.Run(func() error {
 		time.Sleep(time.Second)
 		done1 = true
 		return nil
 	})
-	group.run(func() error {
+	group.Run(func() error {
 		time.Sleep(2 * time.Second)
 		done2 = true
 		return nil
 	})
-	group.run(func() error {
+	group.Run(func() error {
 		time.Sleep(3 * time.Second)
 		done3 = true
 		return nil
 	})
 
-	err := group.wait(ctx)
+	err := group.Wait(ctx)
 	assert.NilError(t, err)
 	assert.Assert(t, done1)
 	assert.Assert(t, done2)

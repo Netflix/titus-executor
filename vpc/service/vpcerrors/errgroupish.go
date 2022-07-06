@@ -1,4 +1,4 @@
-package service
+package vpcerrors
 
 import (
 	"context"
@@ -6,19 +6,19 @@ import (
 	"github.com/hashicorp/go-multierror"
 )
 
-type errGroupish struct {
+type ErrGroupish struct {
 	dispatched int
 	errCh      chan error
 }
 
-func (e *errGroupish) run(f func() error) {
+func (e *ErrGroupish) Run(f func() error) {
 	e.dispatched++
 	go func() {
 		e.errCh <- f()
 	}()
 }
 
-func (e *errGroupish) wait(ctx context.Context) error {
+func (e *ErrGroupish) Wait(ctx context.Context) error {
 	var result *multierror.Error
 	for e.dispatched > 0 {
 		select {
@@ -34,8 +34,8 @@ out:
 	return result.ErrorOrNil()
 }
 
-func newErrGroupIsh() *errGroupish {
-	return &errGroupish{
+func NewErrGroupIsh() *ErrGroupish {
+	return &ErrGroupish{
 		errCh: make(chan error, 10),
 	}
 }
