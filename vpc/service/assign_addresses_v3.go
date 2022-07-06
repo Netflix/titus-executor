@@ -13,8 +13,8 @@ import (
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
+	"github.com/Netflix/titus-executor/vpc/service/db"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -83,10 +83,10 @@ type branchENI struct {
 	idx           int
 }
 
-func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*data.Subnet, error) {
+func (vpcService *vpcService) getLeastUsedSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*data.Subnet, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "getSubnet")
+	ctx, span := trace.StartSpan(ctx, "getLeastUsedSubnet")
 	defer span.End()
 
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
@@ -101,88 +101,17 @@ func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID strin
 		_ = tx.Rollback()
 	}()
 
-	var row *sql.Row
-	if len(subnetIDs) == 0 {
-		row = tx.QueryRowContext(ctx, `
-WITH usable_subnets AS
-  (SELECT subnets.az,
-          subnets.vpc_id,
-          subnets.account_id,
-          subnets.subnet_id,
-          subnets.cidr,
-          availability_zones.region
-   FROM subnets
-   JOIN account_mapping ON subnets.subnet_id = account_mapping.subnet_id
-   JOIN availability_zones ON subnets.az = availability_zones.zone_name
-   AND subnets.account_id = availability_zones.account_id
-   WHERE subnets.account_id = $1
-     AND subnets.az = $2)
-SELECT *
-FROM usable_subnets
-ORDER BY
-  (SELECT count(ipv4addr)
-   FROM branch_enis
-   LEFT JOIN branch_eni_attachments bea ON branch_enis.branch_eni = bea.branch_eni
-   LEFT JOIN assignments ON bea.association_id = branch_eni_association
-   WHERE subnet_id = usable_subnets.subnet_id
-     AND bea.state = 'attached' ) ASC
-LIMIT 1
-`,
-			accountID, az)
-	} else {
-		row = tx.QueryRowContext(ctx, `
-WITH usable_subnets AS
-  (SELECT subnets.az,
-          subnets.vpc_id,
-          subnets.account_id,
-          subnets.subnet_id,
-          subnets.cidr,
-          availability_zones.region
-   FROM subnets
-   JOIN availability_zones ON subnets.az = availability_zones.zone_name
-   AND subnets.account_id = availability_zones.account_id
-   WHERE subnets.az = $1
-     AND subnets.subnet_id = any($2))
-SELECT *
-FROM usable_subnets
-ORDER BY
-  (SELECT count(ipv4addr)
-   FROM branch_enis
-   LEFT JOIN branch_eni_attachments bea ON branch_enis.branch_eni = bea.branch_eni
-   LEFT JOIN assignments ON bea.association_id = branch_eni_association
-   WHERE subnet_id = usable_subnets.subnet_id
-     AND bea.state = 'attached' ) ASC
-LIMIT 1
-`, az, pq.Array(subnetIDs))
-	}
-	ret := data.Subnet{}
-	err = row.Scan(&ret.Az, &ret.VpcID, &ret.AccountID, &ret.SubnetID, &ret.Cidr, &ret.Region)
-	if err == sql.ErrNoRows {
-		if len(subnetIDs) > 0 {
-			err = vpcerrors.NewNotFoundError(fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az))
-		} else {
-			err = vpcerrors.NewNotFoundError(fmt.Errorf("No subnet found in account %s in az %s", accountID, az))
-		}
-		tracehelpers.SetStatus(err, span)
-		// explicitly not returning stale subnet here
-		return nil, err
-	}
+	subnet, err := db.GetLeastUsedSubnet(ctx, tx, az, accountID, subnetIDs)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot fetch subnet ID from database")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
 
-	return &ret, nil
+	return subnet, nil
 }
 
-type staticAllocation struct {
-	az       string
-	region   string
-	subnetID string
-}
-
-func (vpcService *vpcService) getStaticAllocation(ctx context.Context, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation) (*staticAllocation, error) {
+func (vpcService *vpcService) getStaticAllocation(ctx context.Context, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation) (*data.StaticAllocation, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "getStaticAllocation")
@@ -200,16 +129,13 @@ func (vpcService *vpcService) getStaticAllocation(ctx context.Context, alloc *vp
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, "SELECT az, region, subnet_id FROM ip_addresses WHERE id = $1", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
-	var retAlloc staticAllocation
-	err = row.Scan(&retAlloc.az, &retAlloc.region, &retAlloc.subnetID)
+	staticAllocation, err := db.GetStaticAllocationByID(ctx, tx, alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Cannot read static allocation").Error())
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-
-	return &retAlloc, nil
+	return staticAllocation, nil
 }
 
 func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, assignmentID string, deleteUnfinishedAssignment bool) (*vpcapi.AssignIPResponseV3, error) {
@@ -517,13 +443,13 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 			return nil, err
 		}
 		if len(req.Subnets) > 0 {
-			if !sets.NewString(req.Subnets...).Has(alloc.subnetID) {
-				err = fmt.Errorf("Allocation in subnet %s, but request asked for in subnet ids %q", alloc.subnetID, req.Subnets)
+			if !sets.NewString(req.Subnets...).Has(alloc.SubnetID) {
+				err = fmt.Errorf("Allocation in subnet %s, but request asked for in subnet ids %q", alloc.SubnetID, req.Subnets)
 				span.SetStatus(traceStatusFromError(err))
 				return nil, err
 			}
 		}
-		req.Subnets = []string{alloc.subnetID}
+		req.Subnets = []string{alloc.SubnetID}
 	}
 
 	accountID := aws.StringValue(trunkENI.OwnerId)
@@ -531,7 +457,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		accountID = req.AccountID
 	}
 
-	subnet, err := vpcService.getSubnet(ctx, aws.StringValue(instance.Placement.AvailabilityZone), accountID, req.Subnets)
+	subnet, err := vpcService.getLeastUsedSubnet(ctx, aws.StringValue(instance.Placement.AvailabilityZone), accountID, req.Subnets)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err
