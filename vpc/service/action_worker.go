@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/lib/pq"
@@ -53,7 +54,7 @@ type actionWorker struct {
 	readyCond *sync.Cond
 }
 
-func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) error {
+func (actionWorker *actionWorker) loop(ctx context.Context, item data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

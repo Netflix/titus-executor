@@ -7,6 +7,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -14,7 +15,7 @@ import (
 	"go.opencensus.io/trace"
 )
 
-func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx context.Context, protoAccount keyedItem, tx *sql.Tx) error {
+func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx context.Context, protoAccount data.KeyedItem, tx *sql.Tx) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileAvailabilityZonesRegionAccount")

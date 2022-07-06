@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -25,7 +26,7 @@ const (
 	timeBetweenBranchENIReconcilation = time.Minute
 )
 
-func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

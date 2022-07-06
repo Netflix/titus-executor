@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -58,7 +59,7 @@ type getENIRequest struct {
 	branchENISession *ec2wrapper.EC2Session
 
 	assignmentID   string
-	subnet         *subnet
+	subnet         *data.Subnet
 	securityGroups []string
 
 	maxBranchENIs  int
@@ -80,7 +81,7 @@ type assignment struct {
 	trunk          string
 	branch         branchENI
 	securityGroups []string
-	subnet         *subnet
+	subnet         *data.Subnet
 	bandwidth      uint64
 	ceil           uint64
 	jumbo          bool
@@ -107,7 +108,7 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 		"trunkENIAccount":  req.trunkENIAccount,
 		"branchENIAccount": req.branchENIAccount,
 		"assignmentID":     req.assignmentID,
-		"subnet":           req.subnet.subnetID,
+		"subnet":           req.subnet.SubnetID,
 	})
 
 	span.AddAttributes(trace.StringAttribute("assignmentID", req.assignmentID))
@@ -204,7 +205,7 @@ func (vpcService *vpcService) deleteAssignment(ctx context.Context, ass *assignm
 	}
 }
 
-func (vpcService *vpcService) reconcileSecurityGroups(ctx context.Context, session *ec2wrapper.EC2Session, s *subnet, securityGroups []string, account *regionAccount) error {
+func (vpcService *vpcService) reconcileSecurityGroups(ctx context.Context, session *ec2wrapper.EC2Session, s *data.Subnet, securityGroups []string, account *regionAccount) error {
 	ctx, span := trace.StartSpan(ctx, "reconcileSecurityGroups")
 	defer span.End()
 
@@ -234,7 +235,7 @@ func (vpcService *vpcService) reconcileSecurityGroups(ctx context.Context, sessi
 		}
 
 		var securityGroupsFound int
-		row := tx.QueryRowContext(ctx, "SELECT count(*) FROM security_groups WHERE vpc_id = $1 AND group_id = $2", s.vpcID, securityGroups[idx])
+		row := tx.QueryRowContext(ctx, "SELECT count(*) FROM security_groups WHERE vpc_id = $1 AND group_id = $2", s.VpcID, securityGroups[idx])
 		err = row.Scan(&securityGroupsFound)
 		if err != nil {
 			err = fmt.Errorf("Could not scan row: %w", err)
@@ -541,7 +542,7 @@ FROM
      AND state = 'attached') valid_branch_enis
 WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
-LIMIT 1`, ass.subnet.subnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxIPAddresses)
+LIMIT 1`, ass.subnet.SubnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxIPAddresses)
 
 	err := row.Scan(&ass.branch.intid, &ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx, &ass.assignmentChangedSecurityGroups)
 	if err == nil {
@@ -585,7 +586,7 @@ FROM
      AND state = 'attached') valid_branch_enis
 WHERE c = 0
 ORDER BY c DESC, branch_eni_attached_at ASC
-LIMIT 1`, req.subnet.subnetID, req.trunkENI)
+LIMIT 1`, req.subnet.SubnetID, req.trunkENI)
 	err = row.Scan(&ass.branch.intid, &ass.branch.id, &ass.branch.associationID, &ass.branch.az, &ass.branch.accountID, &ass.branch.idx)
 	if err == sql.ErrNoRows {
 		err = newMethodNotPossibleError("populateAssignmentUsingAlreadyAttachedENI")
@@ -839,7 +840,7 @@ WHERE branch_enis.subnet_id = $1
                      'unattaching')) IS NULL
   AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
 ORDER BY branch_enis.security_groups = $3::text[] DESC 
-LIMIT 1`, req.subnet.subnetID, req.trunkENIAccount, pq.Array(req.securityGroups))
+LIMIT 1`, req.subnet.SubnetID, req.trunkENIAccount, pq.Array(req.securityGroups))
 	err := row.Scan(&eni.id, &eni.az, &eni.accountID)
 	if err == nil {
 		span.AddAttributes(
@@ -855,7 +856,7 @@ LIMIT 1`, req.subnet.subnetID, req.trunkENIAccount, pq.Array(req.securityGroups)
 	logger.G(ctx).Warning("Could not find warm ENI, rolling back fast TX, and creating new branch ENI in slowTX")
 
 	trunkLock.release()
-	_, err = vpcService.createBranchENI(ctx, slowTx, req.branchENISession, req.subnet.subnetID, req.securityGroups)
+	_, err = vpcService.createBranchENI(ctx, slowTx, req.branchENISession, req.subnet.SubnetID, req.securityGroups)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return nil, err

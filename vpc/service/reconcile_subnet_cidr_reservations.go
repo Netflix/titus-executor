@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -30,16 +31,16 @@ func (vpcService *vpcService) reconcileSubnetCIDRReservationsLongLivedTask() lon
 	}
 }
 
-func (vpcService *vpcService) reconcileSubnetCIDRReservationsLoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) reconcileSubnetCIDRReservationsLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	item := protoItem.(*subnet)
+	item := protoItem.(*data.Subnet)
 	for {
 		var resetTime time.Duration
 		err := vpcService.doReconcileSubnetCIDRReservations(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithField("region", item.region).WithField("accountID", item.accountID).WithError(err).Error("Failed to reconcile subnet CIDR Reservations")
+			logger.G(ctx).WithField("region", item.Region).WithField("accountID", item.AccountID).WithError(err).Error("Failed to reconcile subnet CIDR Reservations")
 			resetTime = timeBetweenErrors
 		} else {
 			resetTime = timeBetweenSubnetCIDRReservationReconcilation
@@ -51,29 +52,29 @@ func (vpcService *vpcService) reconcileSubnetCIDRReservationsLoop(ctx context.Co
 	}
 }
 
-func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Context, subnet *subnet) error {
+func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Context, subnet *data.Subnet) error {
 	ctx, span := trace.StartSpan(ctx, "doReconcileSubnetCIDRReservations")
 	defer span.End()
 	span.AddAttributes(
-		trace.StringAttribute("subnet", subnet.subnetID),
-		trace.StringAttribute("accountID", subnet.accountID),
-		trace.StringAttribute("az", subnet.az),
+		trace.StringAttribute("subnet", subnet.SubnetID),
+		trace.StringAttribute("accountID", subnet.AccountID),
+		trace.StringAttribute("az", subnet.Az),
 	)
 	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"subnet":    subnet.subnetID,
-		"accountID": subnet.accountID,
-		"az":        subnet.az,
+		"subnet":    subnet.SubnetID,
+		"accountID": subnet.AccountID,
+		"az":        subnet.Az,
 	})
 	logger.G(ctx).Debug("Beginning reconcilation of Subnet CIDR Reservations")
 
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.accountID, Region: subnet.region})
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.AccountID, Region: subnet.Region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get EC2 session")
 		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
 
-	reservations, err := session.GetSubnetCidrReservations(ctx, subnet.subnetID)
+	reservations, err := session.GetSubnetCidrReservations(ctx, subnet.SubnetID)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return err
@@ -112,7 +113,7 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 		_ = tx.Rollback()
 	}()
 
-	rows, err := tx.QueryContext(ctx, "SELECT reservation_id FROM subnet_cidr_reservations_v6 WHERE subnet_id = $1", subnet.id)
+	rows, err := tx.QueryContext(ctx, "SELECT reservation_id FROM subnet_cidr_reservations_v6 WHERE subnet_id = $1", subnet.ID)
 	if err != nil {
 		err = fmt.Errorf("Cannot query subnet_cidr_reservations_v6: %w", err)
 		tracehelpers.SetStatus(err, span)
@@ -156,7 +157,7 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 INSERT INTO subnet_cidr_reservations_v6 (reservation_id, subnet_id, prefix, type, description) VALUES ($1, $2, $3, $4, $5)
 `,
 			aws.StringValue(reservation.SubnetCidrReservationId),
-			subnet.id,
+			subnet.ID,
 			aws.StringValue(reservation.Cidr),
 			aws.StringValue(reservation.ReservationType),
 			aws.StringValue(reservation.Description),
@@ -169,7 +170,7 @@ INSERT INTO subnet_cidr_reservations_v6 (reservation_id, subnet_id, prefix, type
 	}
 
 	v4reservationsInDB := sets.NewString()
-	rows, err = tx.QueryContext(ctx, "SELECT reservation_id FROM subnet_cidr_reservations_v4 WHERE subnet_id = $1", subnet.id)
+	rows, err = tx.QueryContext(ctx, "SELECT reservation_id FROM subnet_cidr_reservations_v4 WHERE subnet_id = $1", subnet.ID)
 	if err != nil {
 		err = fmt.Errorf("Cannot query subnet_cidr_reservations_v4: %w", err)
 		tracehelpers.SetStatus(err, span)
@@ -213,7 +214,7 @@ INSERT INTO subnet_cidr_reservations_v6 (reservation_id, subnet_id, prefix, type
 INSERT INTO subnet_cidr_reservations_v4 (reservation_id, subnet_id, prefix, type, description) VALUES ($1, $2, $3, $4, $5)
 `,
 			aws.StringValue(reservation.SubnetCidrReservationId),
-			subnet.id,
+			subnet.ID,
 			aws.StringValue(reservation.Cidr),
 			aws.StringValue(reservation.ReservationType),
 			aws.StringValue(reservation.Description),

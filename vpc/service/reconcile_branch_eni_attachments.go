@@ -11,6 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -22,7 +23,7 @@ const (
 	timeBetweenBranchENIAttachmentReconcilation = time.Minute
 )
 
-func (vpcService *vpcService) reconcileBranchENIAttachmentLoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) reconcileBranchENIAttachmentLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -300,7 +301,7 @@ func (vpcService *vpcService) reconcileBranchENIAttachment(ctx context.Context, 
 	return nil
 }
 
-func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]keyedItem, error) {
+func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]data.KeyedItem, error) {
 	ctx, span := trace.StartSpan(ctx, "getBranchENIRegionAccounts")
 	defer span.End()
 
@@ -326,7 +327,7 @@ GROUP BY availability_zones.region, branch_enis.account_id
 		return nil, err
 	}
 
-	ret := []keyedItem{}
+	ret := []data.KeyedItem{}
 	for rows.Next() {
 		var ra regionAccount
 		err = rows.Scan(&ra.region, &ra.accountID)

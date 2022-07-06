@@ -10,6 +10,7 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -39,7 +40,7 @@ const (
 
 // getAllRegionAccounts gets regions accounts of the trunk ENI ("accounts"), as well as the
 // branch ENI accounts
-func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]keyedItem, error) {
+func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]data.KeyedItem, error) {
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
@@ -55,7 +56,7 @@ func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]keyed
 		return nil, fmt.Errorf("Could not query accounts table: %w", err)
 	}
 
-	ret := []keyedItem{}
+	ret := []data.KeyedItem{}
 	for rows.Next() {
 		var ra regionAccount
 		err = rows.Scan(&ra.region, &ra.accountID)
@@ -189,7 +190,7 @@ AND gc_tombstone < now() - INTERVAL '30 minutes'
 
 // This function, once invoked, is meant to run forever until context is cancelled
 // Make this adjustable so it's not done every minute?
-func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	item := protoItem.(*regionAccount)
 	for {
 		err := vpcService.doGCENIs(ctx, item)

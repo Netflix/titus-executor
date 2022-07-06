@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -21,7 +22,7 @@ func (t Tags) Value() (driver.Value, error) {
 	return j, err
 }
 
-func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context, protoAccount keyedItem, tx *sql.Tx) (retErr error) {
+func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context, protoAccount data.KeyedItem, tx *sql.Tx) (retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileEIPsForRegionAccount")

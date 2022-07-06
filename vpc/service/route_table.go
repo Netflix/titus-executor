@@ -11,6 +11,7 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -58,12 +59,12 @@ func (vpcService *vpcService) monitorRouteTables(ctx context.Context) error {
 		return err
 	}
 
-	keys := map[ec2wrapper.Key][]*subnet{}
+	keys := map[ec2wrapper.Key][]*data.Subnet{}
 	for idx := range subnets {
-		s := subnets[idx].(*subnet)
+		s := subnets[idx].(*data.Subnet)
 		key := ec2wrapper.Key{
-			AccountID: s.accountID,
-			Region:    s.region,
+			AccountID: s.AccountID,
+			Region:    s.Region,
 		}
 		keys[key] = append(keys[key], s)
 	}
@@ -94,7 +95,7 @@ func (vpcService *vpcService) monitorRouteTables(ctx context.Context) error {
 	return nil
 }
 
-func (vpcService *vpcService) monitorRouteTable(ctx context.Context, key ec2wrapper.Key, subnets []*subnet) error {
+func (vpcService *vpcService) monitorRouteTable(ctx context.Context, key ec2wrapper.Key, subnets []*data.Subnet) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "monitorRouteTable")
@@ -122,10 +123,10 @@ func (vpcService *vpcService) monitorRouteTable(ctx context.Context, key ec2wrap
 	for _, s := range subnets {
 		routeTable := getRouteTable(s, routeTables)
 		if routeTable != nil {
-			vpcService.routesCache.Store(s.subnetID, convertRouteTable(ctx, routeTable))
+			vpcService.routesCache.Store(s.SubnetID, convertRouteTable(ctx, routeTable))
 		} else {
-			logger.G(ctx).WithField("subnet", s.subnetID).Error("Could not find route table")
-			merr = multierror.Append(merr, fmt.Errorf("Could not determine route table for subnet %s", s.subnetID))
+			logger.G(ctx).WithField("subnet", s.SubnetID).Error("Could not find route table")
+			merr = multierror.Append(merr, fmt.Errorf("Could not determine route table for subnet %s", s.SubnetID))
 		}
 	}
 
@@ -243,7 +244,7 @@ func getCustomRoute(route *ec2.Route) (*vpcapi.AssignIPResponseV3_Route, error) 
 	return vpcroute, nil
 }
 
-func getRouteTable(s *subnet, routeTables []*ec2.RouteTable) *ec2.RouteTable {
+func getRouteTable(s *data.Subnet, routeTables []*ec2.RouteTable) *ec2.RouteTable {
 	// This has a couple short-comings:
 	// * If there are multiple route tables somehow associated with a single subnet, it wont work.
 	// * If route tables are in a middle-state of associating / disassociating, it wont work.
@@ -252,7 +253,7 @@ func getRouteTable(s *subnet, routeTables []*ec2.RouteTable) *ec2.RouteTable {
 	for idx := range routeTables {
 		routeTable := routeTables[idx]
 		for _, association := range routeTable.Associations {
-			if aws.StringValue(association.SubnetId) == s.subnetID &&
+			if aws.StringValue(association.SubnetId) == s.SubnetID &&
 				association.AssociationState != nil &&
 				aws.StringValue(association.AssociationState.State) == tableAssociated {
 				return routeTable
@@ -265,7 +266,7 @@ func getRouteTable(s *subnet, routeTables []*ec2.RouteTable) *ec2.RouteTable {
 		routeTable := routeTables[idx]
 		for _, association := range routeTable.Associations {
 			if aws.BoolValue(association.Main) {
-				if aws.StringValue(routeTable.VpcId) == s.vpcID &&
+				if aws.StringValue(routeTable.VpcId) == s.VpcID &&
 					association.AssociationState != nil &&
 					aws.StringValue(association.AssociationState.State) == tableAssociated {
 					return routeTable

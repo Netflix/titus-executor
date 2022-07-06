@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -72,24 +73,6 @@ func (vpcService *vpcService) getSessionAndTrunkInterface(ctx context.Context, i
 	return instanceSession, instance, trunkENI, nil
 }
 
-type subnet struct {
-	id        int
-	az        string
-	vpcID     string
-	accountID string
-	subnetID  string
-	cidr      string
-	region    string
-}
-
-func (s *subnet) key() string {
-	return fmt.Sprintf("%s_%s_%s", s.region, s.accountID, s.subnetID)
-}
-
-func (s *subnet) String() string {
-	return fmt.Sprintf("Subnet{id=%d vpc=%s, az=%s, subnet=%s, account=%s}", s.id, s.vpcID, s.az, s.subnetID, s.accountID)
-}
-
 type branchENI struct {
 	intid         int64
 	id            string
@@ -99,7 +82,7 @@ type branchENI struct {
 	idx           int
 }
 
-func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*subnet, error) {
+func (vpcService *vpcService) getSubnet(ctx context.Context, az, accountID string, subnetIDs []string) (*data.Subnet, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "getSubnet")
@@ -171,8 +154,8 @@ ORDER BY
 LIMIT 1
 `, az, pq.Array(subnetIDs))
 	}
-	ret := subnet{}
-	err = row.Scan(&ret.az, &ret.vpcID, &ret.accountID, &ret.subnetID, &ret.cidr, &ret.region)
+	ret := data.Subnet{}
+	err = row.Scan(&ret.Az, &ret.VpcID, &ret.AccountID, &ret.SubnetID, &ret.Cidr, &ret.Region)
 	if err == sql.ErrNoRows {
 		if len(subnetIDs) > 0 {
 			err = newNotFoundError(fmt.Errorf("No subnet found matching IDs %s in az %s", subnetIDs, az))
@@ -552,7 +535,7 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
-	span.AddAttributes(trace.StringAttribute("subnet", subnet.subnetID))
+	span.AddAttributes(trace.StringAttribute("subnet", subnet.SubnetID))
 	logger.G(ctx).WithField("subnet", subnet).Debug("Chose subnet to schedule into")
 
 	maxIPAddresses, err := vpc.GetMaxIPAddresses(aws.StringValue(instance.InstanceType))
@@ -581,11 +564,11 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	_, transitionRequested := req.Ipv4.(*vpcapi.AssignIPRequestV3_TransitionRequested)
 
 	ass, err := vpcService.generateAssignmentID(ctx, getENIRequest{
-		region:           subnet.region,
+		region:           subnet.Region,
 		trunkENI:         aws.StringValue(trunkENI.NetworkInterfaceId),
 		trunkENIAccount:  aws.StringValue(trunkENI.OwnerId),
 		trunkENISession:  instanceSession,
-		branchENIAccount: subnet.accountID,
+		branchENIAccount: subnet.AccountID,
 		assignmentID:     req.TaskId,
 		subnet:           subnet,
 		securityGroups:   req.SecurityGroupIds,
@@ -762,7 +745,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 			return nil, err
 		}
 	case *vpcapi.AssignIPRequestV3_Ipv4AddressRequested:
-		resp.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, iface, maxIPAddresses, ass.subnet.cidr, ass.branch, ass.branchENISession)
+		resp.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, iface, maxIPAddresses, ass.subnet.Cidr, ass.branch, ass.branchENISession)
 		if err != nil {
 			span.SetStatus(traceStatusFromError(err))
 			return nil, err
@@ -770,7 +753,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	case *vpcapi.AssignIPRequestV3_TransitionRequested:
 		resp.TransitionAssignment = &vpcapi.AssignIPResponseV3_TransitionAssignment{
 			AssignmentId: transitionAss.assignmentID,
-			Routes:       vpcService.getRoutes(ctx, ass.subnet.subnetID),
+			Routes:       vpcService.getRoutes(ctx, ass.subnet.SubnetID),
 		}
 		if transitionAss.ipv4addr.Valid {
 			_, ipnet, err := net.ParseCIDR(transitionAss.cidr)
@@ -858,12 +841,12 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	resp.BranchNetworkInterface = &vpcapi.NetworkInterface{
-		SubnetId:           ass.subnet.subnetID,
+		SubnetId:           ass.subnet.SubnetID,
 		AvailabilityZone:   ass.branch.az,
 		MacAddress:         aws.StringValue(iface.MacAddress),
 		NetworkInterfaceId: ass.branch.id,
 		OwnerAccountId:     ass.branch.accountID,
-		VpcId:              ass.subnet.vpcID,
+		VpcId:              ass.subnet.VpcID,
 	}
 	resp.VlanId = uint32(ass.branch.idx)
 
@@ -901,7 +884,7 @@ WHERE id =
 		return nil, err
 	}
 
-	resp.Routes = vpcService.getRoutes(ctx, ass.subnet.subnetID)
+	resp.Routes = vpcService.getRoutes(ctx, ass.subnet.SubnetID)
 	return &resp, nil
 }
 
@@ -1501,9 +1484,9 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2.NetworkInterface, maxIPAddresses int, alloc *vpcapi.AssignIPRequestV3_Ipv4SignedAddressAllocation, ass *assignment) (*vpcapi.UsableAddress, error) {
 	ctx, span := trace.StartSpan(ctx, "assignSpecificIPv4AddressV3")
 
-	_, ipnet, err := net.ParseCIDR(ass.subnet.cidr)
+	_, ipnet, err := net.ParseCIDR(ass.subnet.Cidr)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot parse cidr %s", ass.subnet.cidr)
+		err = errors.Wrapf(err, "Cannot parse cidr %s", ass.subnet.Cidr)
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
