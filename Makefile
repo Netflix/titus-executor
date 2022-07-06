@@ -37,7 +37,7 @@ build: vpc/service/db/migrations/bindata.go | $(clean) $(builder)
 	mkdir -p $(PWD)/build/distributions
 	$(DOCKER_RUN) -v $(PWD):$(PWD) -u $(UID):$(GID) -w $(PWD) \
 	-e "BUILD_HOST=$(JENKINS_URL)" -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e BUILDKITE_BRANCH \
-	-e ENABLE_DEV -e GOCACHE=$(PWD)/.cache \
+	-e ENABLE_DEV -e GOCACHE=$(PWD)/.cache -e GOPATH=/tmp/gopath \
 	titusoss/titus-executor-builder
 
 .PHONY: build-standalone
