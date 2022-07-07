@@ -236,17 +236,8 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, tas
 	}
 
 	if assignment.IPv4Addr.Valid {
-		var subnetCIDR string
-		row = tx.QueryRowContext(ctx, "SELECT cidr FROM subnets WHERE subnet_id = $1", resp.BranchNetworkInterface.SubnetId)
-		err = row.Scan(&subnetCIDR)
+		_, ipnet, err := db.GetCIDRBySubnet(ctx, tx, resp.BranchNetworkInterface.SubnetId)
 		if err != nil {
-			err = fmt.Errorf("Could not scan subnet CIDR %q: %w", resp.BranchNetworkInterface.SubnetId, err)
-			tracehelpers.SetStatus(err, span)
-			return nil, err
-		}
-		_, ipnet, err := net.ParseCIDR(subnetCIDR)
-		if err != nil {
-			err = fmt.Errorf("Could not parse subnet CIDR %q: %w", subnetCIDR, err)
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}

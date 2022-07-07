@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 
 	"github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
@@ -153,4 +154,20 @@ func GetBranchENI(ctx context.Context, tx *sql.Tx, branchENI string) (*api.Netwo
 		return nil, err
 	}
 	return nif, nil
+}
+
+func GetCIDRBySubnet(ctx context.Context, tx *sql.Tx, subnetID string) (net.IP, *net.IPNet, error) {
+	var subnetCIDR string
+	row := tx.QueryRowContext(ctx, "SELECT cidr FROM subnets WHERE subnet_id = $1", subnetID)
+	err := row.Scan(&subnetCIDR)
+	if err != nil {
+		err = fmt.Errorf("could not find CIDR by subnet %q: %w", subnetID, err)
+		return nil, nil, err
+	}
+	ip, ipnet, err := net.ParseCIDR(subnetCIDR)
+	if err != nil {
+		err = fmt.Errorf("could not parse subnet CIDR %q: %w", subnetCIDR, err)
+		return nil, nil, err
+	}
+	return ip, ipnet, err
 }
