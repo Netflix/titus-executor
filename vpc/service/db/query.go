@@ -187,3 +187,33 @@ func GetCIDRBySubnet(ctx context.Context, tx *sql.Tx, subnetID string) (net.IP, 
 	}
 	return ip, ipnet, err
 }
+
+func GetElasticAddressByTaskID(ctx context.Context, tx *sql.Tx, taskID string) (*api.ElasticAddress, error) {
+	row := tx.QueryRowContext(ctx, `
+	SELECT elastic_ip_attachments.elastic_ip_allocation_id,
+		   association_id,
+		   public_ip
+	FROM elastic_ip_attachments
+	JOIN elastic_ips ON elastic_ip_attachments.elastic_ip_allocation_id = elastic_ips.allocation_id
+	WHERE assignment_id = $1`, taskID)
+	var elasticIPAllocationID, elasticIPAssociationID, publicIP string
+	err := row.Scan(&elasticIPAllocationID, &elasticIPAssociationID, &publicIP)
+	if err != nil {
+		return nil, err
+	}
+	return &api.ElasticAddress{
+		Ip:             publicIP,
+		AllocationId:   elasticIPAllocationID,
+		AssociationdId: elasticIPAssociationID,
+	}, nil
+}
+
+func GetClassIDByAssignmentID(ctx context.Context, tx *sql.Tx, assignmentID int) (uint32, error) {
+	row := tx.QueryRowContext(ctx, "SELECT class_id FROM htb_classid WHERE assignment_id = $1", assignmentID)
+	var classID uint32
+	var err = row.Scan(&classID)
+	if err != nil {
+		return 0, err
+	}
+	return classID, nil
+}

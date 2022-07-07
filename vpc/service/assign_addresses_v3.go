@@ -253,31 +253,16 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, tas
 		}
 	}
 
-	row := tx.QueryRowContext(ctx, `
-SELECT elastic_ip_attachments.elastic_ip_allocation_id,
-       association_id,
-       public_ip
-FROM elastic_ip_attachments
-JOIN elastic_ips ON elastic_ip_attachments.elastic_ip_allocation_id = elastic_ips.allocation_id
-WHERE assignment_id = $1`, taskID)
-	var elasticIPAllocationID, elasticIPAssociationID, publicIP string
-	err = row.Scan(&elasticIPAllocationID, &elasticIPAssociationID, &publicIP)
-	if err == nil {
-		resp.ElasticAddress = &vpcapi.ElasticAddress{
-			Ip:             publicIP,
-			AllocationId:   elasticIPAllocationID,
-			AssociationdId: elasticIPAssociationID,
-		}
-	} else if err != sql.ErrNoRows {
-		err = errors.Wrap(err, "Could not select from elastic IP allocations table")
+	resp.ElasticAddress, err = db.GetElasticAddressByTaskID(ctx, tx, taskID)
+	if err != nil && err != sql.ErrNoRows {
+		err = errors.Wrap(err, "Could not get elastic IP from DB")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	row = tx.QueryRowContext(ctx, "SELECT class_id FROM htb_classid WHERE assignment_id = $1", assignment.ID)
-	err = row.Scan(&resp.ClassId)
+	resp.ClassId, err = db.GetClassIDByAssignmentID(ctx, tx, assignment.ID)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot get HTB class ID for assignment %d", assignment.ID)
+		err = errors.Wrapf(err, "Cannot get HTB class ID for assignment %d from DB", assignment.ID)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
