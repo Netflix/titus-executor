@@ -1251,9 +1251,8 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2
 	}
 	prefixlength, _ := ipnet.Mask.Size()
 
-	row := tx.QueryRowContext(ctx, "SELECT id, ip_address, subnet_id FROM ip_addresses WHERE id = $1 FOR UPDATE", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
-	var id, ip, subnetID string
-	err = row.Scan(&id, &ip, &subnetID)
+	id := alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid
+	staticAllocation, err := db.GetStaticAllocationByIDAndLock(ctx, tx, id)
 	if err == sql.ErrNoRows {
 		err = errors.Wrapf(err, "Could not find allocation: %s", alloc.Ipv4SignedAddressAllocation.AddressAllocation.Uuid)
 		span.SetStatus(trace.Status{Code: trace.StatusCodeNotFound, Message: err.Error()})
@@ -1265,8 +1264,8 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2
 		return nil, err
 	}
 
-	if subnetID != aws.StringValue(branchENI.SubnetId) {
-		err = fmt.Errorf("Branch ENI in subnet %s, but IP allocation in subnet %s", aws.StringValue(branchENI.SubnetId), subnetID)
+	if staticAllocation.SubnetID != aws.StringValue(branchENI.SubnetId) {
+		err = fmt.Errorf("Branch ENI in subnet %s, but IP allocation in subnet %s", aws.StringValue(branchENI.SubnetId), staticAllocation.SubnetID)
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
@@ -1280,7 +1279,7 @@ func assignSpecificIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec2
 
 	assignPrivateIPAddressesInput := ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId: branchENI.NetworkInterfaceId,
-		PrivateIpAddresses: aws.StringSlice([]string{ip}),
+		PrivateIpAddresses: aws.StringSlice([]string{staticAllocation.IP}),
 		AllowReassignment:  aws.Bool(true),
 	}
 

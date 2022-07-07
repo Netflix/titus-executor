@@ -108,6 +108,17 @@ func GetStaticAllocationByID(ctx context.Context, tx *sql.Tx, id string) (*data.
 	return &staticAllocation, nil
 }
 
+// Get the static allocation by ID and lock the row until the end of the given transaction
+func GetStaticAllocationByIDAndLock(ctx context.Context, tx *sql.Tx, id string) (*data.StaticAllocation, error) {
+	row := tx.QueryRowContext(ctx, "SELECT ip_address, subnet_id FROM ip_addresses WHERE id = $1 FOR UPDATE", id)
+	staticAllocation := &data.StaticAllocation{}
+	err := row.Scan(&staticAllocation.IP, &staticAllocation.SubnetID)
+	if err == sql.ErrNoRows {
+		return nil, err
+	}
+	return staticAllocation, nil
+}
+
 // Returns (Assignment, completed, error) and lock the assignment row until the
 func GetAndLockAssignmentByTaskID(ctx context.Context, tx *sql.Tx, taskID string) (*data.Assignment, bool, error) {
 	row := tx.QueryRowContext(ctx, `
