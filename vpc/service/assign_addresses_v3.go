@@ -850,16 +850,13 @@ func getBorderGroupForENI(ctx context.Context, tx *sql.Tx, eni *ec2.NetworkInter
 	defer span.End()
 
 	az := aws.StringValue(eni.AvailabilityZone)
-	ownerID := aws.StringValue(eni.OwnerId)
-	row := tx.QueryRowContext(ctx, "SELECT network_border_group FROM availability_zones WHERE zone_name = $1 AND account_id = $2", az, ownerID)
-	var borderGroup string
-	err := row.Scan(&borderGroup)
+	accountID := aws.StringValue(eni.OwnerId)
+	borderGroup, err := db.GetBorderGroupByAzAndAccount(ctx, tx, az, accountID)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot get border group for AZ %s, and owner ID %s", az, ownerID)
+		err = errors.Wrapf(err, "Cannot get border group for AZ %s in account %s", az, accountID)
 		span.SetStatus(traceStatusFromError(err))
 		return "", err
 	}
-
 	return borderGroup, nil
 }
 

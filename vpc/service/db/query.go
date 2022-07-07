@@ -305,3 +305,18 @@ UPDATE of elastic_ips
 	}
 	return &elasticAddress, nil
 }
+
+func GetBorderGroupByAzAndAccount(
+	ctx context.Context,
+	tx *sql.Tx,
+	az string,
+	accountID string) (string, error) {
+	row := tx.QueryRowContext(ctx, "SELECT network_border_group FROM availability_zones WHERE zone_name = $1 AND account_id = $2",
+		az, accountID)
+	var borderGroup string
+	err := row.Scan(&borderGroup)
+	if err != nil {
+		return "", err
+	}
+	return borderGroup, nil
+}
