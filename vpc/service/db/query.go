@@ -156,6 +156,22 @@ func GetBranchENI(ctx context.Context, tx *sql.Tx, branchENI string) (*api.Netwo
 	return nif, nil
 }
 
+func GetTrunkENI(ctx context.Context, tx *sql.Tx, trunkENI string) (*api.NetworkInterface, error) {
+	nif := &api.NetworkInterface{}
+	row := tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1",
+		trunkENI)
+	err := row.Scan(&nif.SubnetId,
+		&nif.AvailabilityZone,
+		&nif.MacAddress,
+		&nif.NetworkInterfaceId,
+		&nif.OwnerAccountId,
+		&nif.VpcId)
+	if err != nil {
+		return nil, err
+	}
+	return nif, nil
+}
+
 func GetCIDRBySubnet(ctx context.Context, tx *sql.Tx, subnetID string) (net.IP, *net.IPNet, error) {
 	var subnetCIDR string
 	row := tx.QueryRowContext(ctx, "SELECT cidr FROM subnets WHERE subnet_id = $1", subnetID)

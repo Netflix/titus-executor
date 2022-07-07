@@ -222,15 +222,9 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, tas
 		return nil, err
 	}
 
-	row := tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1", assignment.TrunkENI)
-	err = row.Scan(&resp.TrunkNetworkInterface.SubnetId,
-		&resp.TrunkNetworkInterface.AvailabilityZone,
-		&resp.TrunkNetworkInterface.MacAddress,
-		&resp.TrunkNetworkInterface.NetworkInterfaceId,
-		&resp.TrunkNetworkInterface.OwnerAccountId,
-		&resp.TrunkNetworkInterface.VpcId)
+	resp.TrunkNetworkInterface, err = db.GetTrunkENI(ctx, tx, assignment.TrunkENI)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot select trunk_eni")
+		err = errors.Wrap(err, "Cannot get trunk ENI from DB")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -259,7 +253,7 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, tas
 		}
 	}
 
-	row = tx.QueryRowContext(ctx, `
+	row := tx.QueryRowContext(ctx, `
 SELECT elastic_ip_attachments.elastic_ip_allocation_id,
        association_id,
        public_ip
