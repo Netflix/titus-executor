@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/lib/pq"
@@ -136,4 +137,20 @@ WHERE assignment_id = $1
 		return nil, false, err
 	}
 	return assignment, completed, nil
+}
+
+func GetBranchENI(ctx context.Context, tx *sql.Tx, branchENI string) (*api.NetworkInterface, error) {
+	nif := &api.NetworkInterface{}
+	row := tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1",
+		branchENI)
+	err := row.Scan(&nif.SubnetId,
+		&nif.AvailabilityZone,
+		&nif.MacAddress,
+		&nif.NetworkInterfaceId,
+		&nif.OwnerAccountId,
+		&nif.VpcId)
+	if err != nil {
+		return nil, err
+	}
+	return nif, nil
 }

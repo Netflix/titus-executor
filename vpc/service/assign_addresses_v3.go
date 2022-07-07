@@ -215,20 +215,14 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, tas
 
 	resp.Routes = vpcService.getRoutes(ctx, assignment.SubnetID.String)
 
-	row := tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1", assignment.BranchENI)
-	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
-		&resp.BranchNetworkInterface.AvailabilityZone,
-		&resp.BranchNetworkInterface.MacAddress,
-		&resp.BranchNetworkInterface.NetworkInterfaceId,
-		&resp.BranchNetworkInterface.OwnerAccountId,
-		&resp.BranchNetworkInterface.VpcId)
+	resp.BranchNetworkInterface, err = db.GetBranchENI(ctx, tx, assignment.BranchENI)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot select branch_eni")
+		err = errors.Wrap(err, "Cannot get branch ENI from DB")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
-	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1", assignment.TrunkENI)
+	row := tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1", assignment.TrunkENI)
 	err = row.Scan(&resp.TrunkNetworkInterface.SubnetId,
 		&resp.TrunkNetworkInterface.AvailabilityZone,
 		&resp.TrunkNetworkInterface.MacAddress,
