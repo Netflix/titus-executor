@@ -235,3 +235,15 @@ func GetClassIDByAssignmentID(ctx context.Context, tx *sql.Tx, assignmentID int)
 	}
 	return classID, nil
 }
+
+// Get security groups of the given branch ENI and lock the row
+func GetSecurityGroupsAndLockBranchENI(ctx context.Context, tx *sql.Tx, branchENI string) ([]string, error) {
+	// This locks the branch ENI making this whole process "exclusive"
+	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", branchENI)
+	var securityGroups []string
+	err := row.Scan(pq.Array(&securityGroups))
+	if err != nil {
+		return nil, err
+	}
+	return securityGroups, nil
+}

@@ -540,11 +540,9 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 
 	// This locks the branch ENI making this whole process "exclusive"
-	row := tx.QueryRowContext(ctx, "SELECT security_groups FROM branch_enis WHERE branch_eni = $1 FOR NO KEY UPDATE", ass.branch.id)
-	var dbSecurityGroups []string
-	err = row.Scan(pq.Array(&dbSecurityGroups))
+	dbSecurityGroups, err := db.GetSecurityGroupsAndLockBranchENI(ctx, tx, ass.branch.id)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot query assigned SGs to ENI in database")
+		err = errors.Wrap(err, "Cannot get SGs assigned to branch ENI in DB")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -699,7 +697,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 	}
 	resp.VlanId = uint32(ass.branch.idx)
 
-	row = tx.QueryRowContext(ctx, `
+	row := tx.QueryRowContext(ctx, `
 UPDATE htb_classid
 SET assignment_id = $1
 WHERE id =
