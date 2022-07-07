@@ -343,3 +343,24 @@ func GetUsedIPv4AddressesByENIAssociation(
 	}
 	return usedIPAddresses, nil
 }
+
+// For the given IPv4 addresses, find those are static IPs and return
+func GetStaticIPv4Addresses(
+	ctx context.Context,
+	tx *sql.Tx, ips []string, subnetID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT ip_address FROM ip_addresses WHERE host(ip_address) = any($1) AND subnet_id = $2",
+		pq.Array(ips), subnetID)
+	if err != nil {
+		return nil, err
+	}
+	staticIPAddresses := make([]string, 0)
+	for rows.Next() {
+		var staticIPAddress string
+		err = rows.Scan(&staticIPAddress)
+		if err != nil {
+			return nil, err
+		}
+		staticIPAddresses = append(staticIPAddresses, staticIPAddress)
+	}
+	return staticIPAddresses, nil
+}
