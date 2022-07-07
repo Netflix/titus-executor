@@ -482,35 +482,18 @@ func (vpcService *vpcService) getRoutes(ctx context.Context, subnetID string) []
 	}
 }
 
-type sqlAssignment struct {
-	assignmentID string
-	ipv4addr     sql.NullString
-	ipv6addr     sql.NullString
-	cidr         string
-}
-
-func lockAssignment(ctx context.Context, tx *sql.Tx, assignmentID int) (*sqlAssignment, error) {
+func lockAssignment(ctx context.Context, tx *sql.Tx, id int) (*data.Assignment, error) {
 	ctx, span := trace.StartSpan(ctx, "lockAssignment")
 	defer span.End()
-	span.AddAttributes(trace.Int64Attribute("assignmentID", int64(assignmentID)))
+	span.AddAttributes(trace.Int64Attribute("assignmentID", int64(id)))
 
-	var ass sqlAssignment
-	row := tx.QueryRowContext(ctx, `
-SELECT assignment_id, cidr, ipv4addr, ipv6addr
-FROM assignments 
-JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
-JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
-JOIN subnets on branch_enis.subnet_id = subnets.subnet_id
-WHERE assignments.id = $1 FOR NO KEY UPDATE OF assignments
-`, assignmentID)
-	err := row.Scan(&ass.assignmentID, &ass.cidr, &ass.ipv4addr, &ass.ipv6addr)
+	assignment, err := db.GetAndLockAssignmentByID(ctx, tx, id)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot select assignment for no key update")
+		err = errors.Wrap(err, "Cannot get and lock assignment in DB")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
-
-	return &ass, nil
+	return assignment, nil
 }
 
 func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.AssignIPRequestV3, ass *assignment, maxIPAddresses int) (*vpcapi.AssignIPResponseV3, error) { // nolint: gocyclo
@@ -546,7 +529,7 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		return nil, err
 	}
 
-	var transitionAss *sqlAssignment
+	var transitionAss *data.Assignment
 	if ass.transitionAssignmentID > 0 {
 		transitionAss, err = lockAssignment(ctx, tx, ass.transitionAssignmentID)
 		if err != nil {
@@ -618,13 +601,13 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 		}
 	case *vpcapi.AssignIPRequestV3_TransitionRequested:
 		resp.TransitionAssignment = &vpcapi.AssignIPResponseV3_TransitionAssignment{
-			AssignmentId: transitionAss.assignmentID,
+			AssignmentId: transitionAss.AssignmentID,
 			Routes:       vpcService.getRoutes(ctx, ass.subnet.SubnetID),
 		}
-		if transitionAss.ipv4addr.Valid {
-			_, ipnet, err := net.ParseCIDR(transitionAss.cidr)
+		if transitionAss.IPv4Addr.Valid {
+			_, ipnet, err := net.ParseCIDR(transitionAss.CIDR)
 			if err != nil {
-				err = fmt.Errorf("Cannot parse cidr %q: %w", transitionAss.cidr, err)
+				err = fmt.Errorf("Cannot parse cidr %q: %w", transitionAss.CIDR, err)
 				tracehelpers.SetStatus(err, span)
 				return nil, err
 			}
@@ -632,12 +615,12 @@ func (vpcService *vpcService) assignIPsToENI(ctx context.Context, req *vpcapi.As
 
 			resp.TransitionAssignment.Ipv4Address = &vpcapi.UsableAddress{
 				Address: &vpcapi.Address{
-					Address: transitionAss.ipv4addr.String,
+					Address: transitionAss.IPv4Addr.String,
 				},
 				PrefixLength: uint32(prefixlength),
 			}
 		} else {
-			resp.TransitionAssignment.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, iface, maxIPAddresses, transitionAss.cidr, ass.branch, ass.branchENISession)
+			resp.TransitionAssignment.Ipv4Address, err = assignArbitraryIPv4AddressV3(ctx, tx, iface, maxIPAddresses, transitionAss.CIDR, ass.branch, ass.branchENISession)
 			if err != nil {
 				err = fmt.Errorf("Could not assign IPv4 address for transition assignment: %w", err)
 				tracehelpers.SetStatus(err, span)

@@ -140,6 +140,24 @@ WHERE assignment_id = $1
 	return assignment, completed, nil
 }
 
+// Get the assignment and lock
+func GetAndLockAssignmentByID(ctx context.Context, tx *sql.Tx, id int) (*data.Assignment, error) {
+	assignment := &data.Assignment{ID: id}
+	row := tx.QueryRowContext(ctx, `
+SELECT assignment_id, cidr, ipv4addr, ipv6addr
+FROM assignments 
+JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
+JOIN subnets on branch_enis.subnet_id = subnets.subnet_id
+WHERE assignments.id = $1 FOR NO KEY UPDATE OF assignments
+`, id)
+	err := row.Scan(&assignment.AssignmentID, &assignment.CIDR, &assignment.IPv4Addr, &assignment.IPv6Addr)
+	if err != nil {
+		return nil, err
+	}
+	return assignment, nil
+}
+
 func GetBranchENI(ctx context.Context, tx *sql.Tx, branchENI string) (*api.NetworkInterface, error) {
 	nif := &api.NetworkInterface{}
 	row := tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1",

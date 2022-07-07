@@ -6,6 +6,7 @@ type Assignment struct {
 	// Row ID of the assignment in the DB table
 	ID int
 	// For a normal assignment, this will be the task ID.
+	// For a transition assignment, this will be the UUID.
 	AssignmentID string
 
 	// Branch ENI used in this assignment
@@ -24,6 +25,9 @@ type Assignment struct {
 	IPv6Addr sql.NullString
 	// Subnet ID that the branch ENI belongs to
 	SubnetID sql.NullString
+
+	// CIDR of the subnet
+	CIDR string
 
 	Jumbo     bool
 	Bandwidth uint64
