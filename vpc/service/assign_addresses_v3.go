@@ -941,9 +941,7 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	if l := unusedIPAddresses.Len(); l > 0 {
 		unusedIPv4AddressesList := unusedIPAddresses.List()
 
-		row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2  ORDER BY last_seen ASC LIMIT 1", pq.Array(unusedIPv4AddressesList), aws.StringValue(branchENI.VpcId))
-		var ipAddress string
-		err = row.Scan(&ipAddress)
+		ipAddress, err := db.GetOldestAvailableIPv4(ctx, tx, unusedIPv4AddressesList, aws.StringValue(branchENI.VpcId))
 		if err == sql.ErrNoRows {
 			// Effectively choose a random one.
 			ipAddress = unusedIPv4AddressesList[rand.Intn(l)] // nolint: gosec

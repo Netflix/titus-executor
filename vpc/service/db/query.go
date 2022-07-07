@@ -364,3 +364,15 @@ func GetStaticIPv4Addresses(
 	}
 	return staticIPAddresses, nil
 }
+
+// For the given list of IPs, find an available one with the oldest last_seen value
+func GetOldestAvailableIPv4(ctx context.Context, tx *sql.Tx, ips []string, vpcID string) (string, error) {
+	row := tx.QueryRowContext(ctx, "SELECT ip_address FROM ip_last_used_v3 WHERE ip_address = any($1::inet[]) AND vpc_id = $2 ORDER BY last_seen ASC LIMIT 1",
+		pq.Array(ips), vpcID)
+	var ipAddress string
+	err := row.Scan(&ipAddress)
+	if err != nil {
+		return "", err
+	}
+	return ipAddress, nil
+}
