@@ -1,5 +1,7 @@
 package db
 
+// This file contains all DB queries used by VPC Service
+
 import (
 	"context"
 	"database/sql"
@@ -101,4 +103,37 @@ func GetStaticAllocationByID(ctx context.Context, tx *sql.Tx, id string) (*data.
 		return nil, err
 	}
 	return &staticAllocation, nil
+}
+
+// Returns (Assignment, completed, error) and lock the assignment row until the
+func GetAndLockAssignmentByTaskID(ctx context.Context, tx *sql.Tx, taskID string) (*data.Assignment, bool, error) {
+	row := tx.QueryRowContext(ctx, `
+SELECT assignments.id,
+       bea.branch_eni,
+       bea.trunk_eni,
+       bea.idx,
+       assignments.branch_eni_association,
+       ipv4addr,
+       ipv6addr,
+       completed,
+       jumbo,
+       bandwidth,
+       ceil,
+       be.subnet_id
+FROM assignments
+JOIN branch_eni_attachments bea ON assignments.branch_eni_association = bea.association_id
+JOIN branch_enis be on bea.branch_eni = be.branch_eni
+WHERE assignment_id = $1
+  FOR NO KEY
+  UPDATE OF assignments`, taskID)
+	var completed bool
+
+	assignment := &data.Assignment{AssignmentID: taskID}
+	err := row.Scan(&assignment.ID, &assignment.BranchENI, &assignment.TrunkENI, &assignment.VlanID,
+		&assignment.AssociationID, &assignment.IPv4Addr, &assignment.IPv6Addr, &completed,
+		&assignment.Jumbo, &assignment.Bandwidth, &assignment.Ceil, &assignment.SubnetID)
+	if err != nil {
+		return nil, false, err
+	}
+	return assignment, completed, nil
 }

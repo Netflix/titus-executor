@@ -138,12 +138,12 @@ func (vpcService *vpcService) getStaticAllocation(ctx context.Context, alloc *vp
 	return staticAllocation, nil
 }
 
-func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, assignmentID string, deleteUnfinishedAssignment bool) (*vpcapi.AssignIPResponseV3, error) {
+func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, taskID string, deleteUnfinishedAssignment bool) (*vpcapi.AssignIPResponseV3, error) {
 	ctx, span := trace.StartSpan(ctx, "fetchIdempotentAssignment")
 	defer span.End()
 
 	span.AddAttributes(
-		trace.StringAttribute("assignmentID", assignmentID),
+		trace.StringAttribute("taskID", taskID),
 		trace.BoolAttribute("deleteUnfinishedAssignment", deleteUnfinishedAssignment),
 	)
 
@@ -157,32 +157,7 @@ func (vpcService *vpcService) fetchIdempotentAssignment(ctx context.Context, ass
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, `
-SELECT assignments.id,
-       bea.branch_eni,
-       bea.trunk_eni,
-       bea.idx,
-       assignments.branch_eni_association,
-       ipv4addr,
-       ipv6addr,
-       completed,
-       jumbo,
-       bandwidth,
-       ceil,
-       be.subnet_id
-FROM assignments
-JOIN branch_eni_attachments bea ON assignments.branch_eni_association = bea.association_id
-JOIN branch_enis be on bea.branch_eni = be.branch_eni
-WHERE assignment_id = $1
-  FOR NO KEY
-  UPDATE OF assignments`, assignmentID)
-	var branchENI, trunkENI, associationID string
-	var ipv4addr, ipv6addr, subnetID sql.NullString
-	var idx, assignmentRowID int
-	var completed, jumbo bool
-	var bandwidth, ceil uint64
-	err = row.Scan(&assignmentRowID, &branchENI, &trunkENI, &idx, &associationID, &ipv4addr, &ipv6addr, &completed,
-		&jumbo, &bandwidth, &ceil, &subnetID)
+	assignment, completed, err := db.GetAndLockAssignmentByTaskID(ctx, tx, taskID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
@@ -194,7 +169,7 @@ WHERE assignment_id = $1
 	if !completed {
 		if deleteUnfinishedAssignment {
 			// Delete the assignment
-			_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1", assignmentID)
+			_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1", taskID)
 			if err != nil {
 				err = errors.Wrap(err, "Cannot delete incomplete assignment")
 				tracehelpers.SetStatus(err, span)
@@ -207,7 +182,7 @@ WHERE assignment_id = $1
 				return nil, err
 			}
 		} else {
-			err = status.Errorf(codes.FailedPrecondition, "Assignment %s is not completed", assignmentID)
+			err = status.Errorf(codes.FailedPrecondition, "Assignment for task %s is not completed", taskID)
 			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
@@ -231,16 +206,16 @@ WHERE assignment_id = $1
 			// NetworkInterfaceAttachment is not used in assignipv3
 			NetworkInterfaceAttachment: nil,
 		},
-		VlanId: uint32(idx),
+		VlanId: uint32(assignment.VlanID),
 		Bandwidth: &vpcapi.AssignIPResponseV3_Bandwidth{
-			Bandwidth: bandwidth,
-			Burst:     ceil,
+			Bandwidth: assignment.Bandwidth,
+			Burst:     assignment.Ceil,
 		},
 	}
 
-	resp.Routes = vpcService.getRoutes(ctx, subnetID.String)
+	resp.Routes = vpcService.getRoutes(ctx, assignment.SubnetID.String)
 
-	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1", branchENI)
+	row := tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, branch_eni, account_id, vpc_id FROM branch_enis WHERE branch_eni = $1", assignment.BranchENI)
 	err = row.Scan(&resp.BranchNetworkInterface.SubnetId,
 		&resp.BranchNetworkInterface.AvailabilityZone,
 		&resp.BranchNetworkInterface.MacAddress,
@@ -253,7 +228,7 @@ WHERE assignment_id = $1
 		return nil, err
 	}
 
-	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1", trunkENI)
+	row = tx.QueryRowContext(ctx, "SELECT subnet_id, az, mac, trunk_eni, account_id, vpc_id FROM trunk_enis WHERE trunk_eni = $1", assignment.TrunkENI)
 	err = row.Scan(&resp.TrunkNetworkInterface.SubnetId,
 		&resp.TrunkNetworkInterface.AvailabilityZone,
 		&resp.TrunkNetworkInterface.MacAddress,
@@ -266,7 +241,7 @@ WHERE assignment_id = $1
 		return nil, err
 	}
 
-	if ipv4addr.Valid {
+	if assignment.IPv4Addr.Valid {
 		var subnetCIDR string
 		row = tx.QueryRowContext(ctx, "SELECT cidr FROM subnets WHERE subnet_id = $1", resp.BranchNetworkInterface.SubnetId)
 		err = row.Scan(&subnetCIDR)
@@ -284,16 +259,16 @@ WHERE assignment_id = $1
 		ones, _ := ipnet.Mask.Size()
 		resp.Ipv4Address = &vpcapi.UsableAddress{
 			Address: &vpcapi.Address{
-				Address: ipv4addr.String,
+				Address: assignment.IPv4Addr.String,
 			},
 			PrefixLength: uint32(ones),
 		}
 	}
 
-	if ipv6addr.Valid {
+	if assignment.IPv6Addr.Valid {
 		resp.Ipv6Address = &vpcapi.UsableAddress{
 			Address: &vpcapi.Address{
-				Address: ipv6addr.String,
+				Address: assignment.IPv6Addr.String,
 			},
 			PrefixLength: 128,
 		}
@@ -305,7 +280,7 @@ SELECT elastic_ip_attachments.elastic_ip_allocation_id,
        public_ip
 FROM elastic_ip_attachments
 JOIN elastic_ips ON elastic_ip_attachments.elastic_ip_allocation_id = elastic_ips.allocation_id
-WHERE assignment_id = $1`, assignmentID)
+WHERE assignment_id = $1`, taskID)
 	var elasticIPAllocationID, elasticIPAssociationID, publicIP string
 	err = row.Scan(&elasticIPAllocationID, &elasticIPAssociationID, &publicIP)
 	if err == nil {
@@ -320,10 +295,10 @@ WHERE assignment_id = $1`, assignmentID)
 		return nil, err
 	}
 
-	row = tx.QueryRowContext(ctx, "SELECT class_id FROM htb_classid WHERE assignment_id = $1", assignmentRowID)
+	row = tx.QueryRowContext(ctx, "SELECT class_id FROM htb_classid WHERE assignment_id = $1", assignment.ID)
 	err = row.Scan(&resp.ClassId)
 	if err != nil {
-		err = errors.Wrapf(err, "Cannot get HTB class ID for assignment %d", assignmentRowID)
+		err = errors.Wrapf(err, "Cannot get HTB class ID for assignment %d", assignment.ID)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
