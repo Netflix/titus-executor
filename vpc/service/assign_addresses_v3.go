@@ -905,22 +905,11 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	}
 	prefixlength, _ := ipnet.Mask.Size()
 
-	usedIPAddresses := sets.NewString()
-	rows, err := tx.QueryContext(ctx, "SELECT ipv4addr FROM assignments WHERE ipv4addr IS NOT NULL AND branch_eni_association = $1", branch.associationID)
+	usedIPAddresses, err := db.GetUsedIPv4AddressesByENIAssociation(ctx, tx, branch.associationID)
 	if err != nil {
-		err = errors.Wrap(err, "Cannot query ipv4addrs already assigned to interface")
+		err = errors.Wrap(err, "Cannot get ipv4addrs already assigned to interface from DB")
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
-	}
-	for rows.Next() {
-		var address string
-		err = rows.Scan(&address)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot scan rows")
-			span.SetStatus(traceStatusFromError(err))
-			return nil, err
-		}
-		usedIPAddresses.Insert(address)
 	}
 
 	allInterfaceIPAddresses := sets.NewString()
@@ -1014,7 +1003,7 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 		return nil, err
 	}
 
-	rows, err = tx.QueryContext(ctx, "SELECT ip_address FROM ip_addresses WHERE host(ip_address) = any($1) AND subnet_id = $2", pq.Array(newPrivateAddresses), aws.StringValue(branchENI.SubnetId))
+	rows, err := tx.QueryContext(ctx, "SELECT ip_address FROM ip_addresses WHERE host(ip_address) = any($1) AND subnet_id = $2", pq.Array(newPrivateAddresses), aws.StringValue(branchENI.SubnetId))
 	if err != nil {
 		err = errors.Wrap(err, "Cannot fetch statically assigned IP addresses")
 		span.SetStatus(traceStatusFromError(err))

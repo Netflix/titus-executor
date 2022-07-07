@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/lib/pq"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 func getLeastUsedSubnetByAccount(ctx context.Context, tx *sql.Tx, accountID, az string) *sql.Row {
@@ -319,4 +320,26 @@ func GetBorderGroupByAzAndAccount(
 		return "", err
 	}
 	return borderGroup, nil
+}
+
+// Get all IPv4 addresses of the given ENI assocation that are already assigned to continers.
+func GetUsedIPv4AddressesByENIAssociation(
+	ctx context.Context,
+	tx *sql.Tx,
+	branchENIAssociationID string) (sets.String, error) {
+
+	usedIPAddresses := sets.NewString()
+	rows, err := tx.QueryContext(ctx, "SELECT ipv4addr FROM assignments WHERE ipv4addr IS NOT NULL AND branch_eni_association = $1", branchENIAssociationID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var address string
+		err = rows.Scan(&address)
+		if err != nil {
+			return nil, err
+		}
+		usedIPAddresses.Insert(address)
+	}
+	return usedIPAddresses, nil
 }
