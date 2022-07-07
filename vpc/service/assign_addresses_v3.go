@@ -751,33 +751,19 @@ func assignElasticAddressesBasedOnIDs(ctx context.Context, tx *sql.Tx, session *
 		return nil, errZeroAddresses
 	}
 
-	row := tx.QueryRowContext(ctx, `
-SELECT allocation_id, public_ip
-FROM elastic_ips
-WHERE account_id = $1
-  AND allocation_id NOT IN
-    (SELECT elastic_ip_allocation_id
-     FROM elastic_ip_attachments)
-  AND network_border_group = $2
-  AND allocation_id = any($3)
-LIMIT 1
-FOR
-UPDATE OF elastic_ips
-`, aws.StringValue(branchENI.OwnerId), borderGroup, pq.Array(addresses))
-	var allocationID, publicIP string
-	err = row.Scan(&allocationID, &publicIP)
-	if err == sql.ErrNoRows {
-		err = fmt.Errorf("No EIP in list %s free", addresses)
-		span.SetStatus(traceStatusFromError(err))
-		return nil, err
-	} else if err != nil {
-		err = errors.Wrap(err, "Cannot query for free elastic IPs")
+	elasticAddress, err := db.GetAvailableElasticAddressByAllocationIDsAndLock(
+		ctx, tx, aws.StringValue(branchENI.OwnerId), borderGroup, addresses)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			err = fmt.Errorf("no EIP in list %s free", addresses)
+		} else {
+			err = errors.Wrap(err, "Cannot query for free elastic IPs")
+		}
 		span.SetStatus(traceStatusFromError(err))
 		return nil, err
 	}
-
-	row = tx.QueryRowContext(ctx, "INSERT INTO elastic_ip_attachments(elastic_ip_allocation_id, assignment_id) VALUES ($1, $2) RETURNING id",
-		allocationID, assignmentID)
+	row := tx.QueryRowContext(ctx, "INSERT INTO elastic_ip_attachments(elastic_ip_allocation_id, assignment_id) VALUES ($1, $2) RETURNING id",
+		elasticAddress.AllocationId, assignmentID)
 	var id int
 	err = row.Scan(&id)
 	if err != nil {
@@ -787,7 +773,7 @@ UPDATE OF elastic_ips
 	}
 
 	associateAddressOutput, err := session.AssociateAddress(ctx, ec2.AssociateAddressInput{
-		AllocationId:       aws.String(allocationID),
+		AllocationId:       aws.String(elasticAddress.AllocationId),
 		AllowReassociation: aws.Bool(true),
 		NetworkInterfaceId: branchENI.NetworkInterfaceId,
 		PrivateIpAddress:   aws.String(ipv4Address.Address.Address),
@@ -795,6 +781,7 @@ UPDATE OF elastic_ips
 	if err != nil {
 		return nil, ec2wrapper.HandleEC2Error(err, span)
 	}
+	elasticAddress.AssociationdId = aws.StringValue(associateAddressOutput.AssociationId)
 
 	_, err = tx.ExecContext(ctx, "UPDATE elastic_ip_attachments SET association_id = $1 WHERE id = $2", aws.StringValue(associateAddressOutput.AssociationId), id)
 	if err != nil {
@@ -803,11 +790,7 @@ UPDATE OF elastic_ips
 		return nil, err
 	}
 
-	return &vpcapi.ElasticAddress{
-		AllocationId:   allocationID,
-		Ip:             publicIP,
-		AssociationdId: aws.StringValue(associateAddressOutput.AssociationId),
-	}, nil
+	return elasticAddress, nil
 }
 
 func assignElasticAddressesBasedOnGroupName(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, branchENI *ec2.NetworkInterface, ipv4Address *vpcapi.UsableAddress, groupName, assignmentID string) (*vpcapi.ElasticAddress, error) {

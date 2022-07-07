@@ -247,3 +247,32 @@ func GetSecurityGroupsAndLockBranchENI(ctx context.Context, tx *sql.Tx, branchEN
 	}
 	return securityGroups, nil
 }
+
+// Get one available elastic IP from the given allocationID list
+// Also lock the IP until the end of given transaction.
+func GetAvailableElasticAddressByAllocationIDsAndLock(
+	ctx context.Context,
+	tx *sql.Tx,
+	accountID string,
+	borderGroup string,
+	allocationIDs []string) (*api.ElasticAddress, error) {
+	row := tx.QueryRowContext(ctx, `
+SELECT allocation_id, public_ip
+FROM elastic_ips
+WHERE account_id = $1
+  AND allocation_id NOT IN
+    (SELECT elastic_ip_allocation_id
+     FROM elastic_ip_attachments)
+  AND network_border_group = $2
+  AND allocation_id = any($3)
+LIMIT 1
+FOR
+UPDATE OF elastic_ips
+`, accountID, borderGroup, pq.Array(allocationIDs))
+	elasticAddress := api.ElasticAddress{}
+	err := row.Scan(&elasticAddress.AllocationId, &elasticAddress.Ip)
+	if err != nil {
+		return nil, err
+	}
+	return &elasticAddress, nil
+}
