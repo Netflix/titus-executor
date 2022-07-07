@@ -7,15 +7,18 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/lib/pq"
+	"go.opencensus.io/stats"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 func getLeastUsedSubnetByAccount(ctx context.Context, tx *sql.Tx, accountID, az string) *sql.Row {
+	start := time.Now()
 	row := tx.QueryRowContext(ctx, `
 	WITH usable_subnets AS
 	  (SELECT subnets.az,
@@ -42,10 +45,12 @@ func getLeastUsedSubnetByAccount(ctx context.Context, tx *sql.Tx, accountID, az 
 	LIMIT 1
 	`,
 		accountID, az)
+	stats.Record(ctx, getLeastUsedSubnetByAccountLatency.M(time.Since(start).Milliseconds()))
 	return row
 }
 
 func getLeastUsedSubnetBySubnetIDs(ctx context.Context, tx *sql.Tx, subnetIDs []string, az string) *sql.Row {
+	start := time.Now()
 	row := tx.QueryRowContext(ctx, `
 	WITH usable_subnets AS
 	  (SELECT subnets.az,
@@ -70,6 +75,7 @@ func getLeastUsedSubnetBySubnetIDs(ctx context.Context, tx *sql.Tx, subnetIDs []
 	     AND bea.state = 'attached' ) ASC
 	LIMIT 1
 	`, az, pq.Array(subnetIDs))
+	stats.Record(ctx, getLeastUsedSubnetBySubnetIDsLatency.M(time.Since(start).Milliseconds()))
 	return row
 }
 
@@ -121,6 +127,7 @@ func GetStaticAllocationByIDAndLock(ctx context.Context, tx *sql.Tx, id string) 
 
 // Returns (Assignment, completed, error) and lock the assignment row until the
 func GetAndLockAssignmentByTaskID(ctx context.Context, tx *sql.Tx, taskID string) (*data.Assignment, bool, error) {
+	start := time.Now()
 	row := tx.QueryRowContext(ctx, `
 SELECT assignments.id,
        bea.branch_eni,
@@ -140,6 +147,7 @@ JOIN branch_enis be on bea.branch_eni = be.branch_eni
 WHERE assignment_id = $1
   FOR NO KEY
   UPDATE OF assignments`, taskID)
+	stats.Record(ctx, getAndLockAssignmentByTaskIDLatency.M(time.Since(start).Milliseconds()))
 	var completed bool
 
 	assignment := &data.Assignment{AssignmentID: taskID}
@@ -155,6 +163,7 @@ WHERE assignment_id = $1
 // Get the assignment and lock
 func GetAndLockAssignmentByID(ctx context.Context, tx *sql.Tx, id int) (*data.Assignment, error) {
 	assignment := &data.Assignment{ID: id}
+	start := time.Now()
 	row := tx.QueryRowContext(ctx, `
 SELECT assignment_id, cidr, ipv4addr, ipv6addr
 FROM assignments 
@@ -163,6 +172,7 @@ JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
 JOIN subnets on branch_enis.subnet_id = subnets.subnet_id
 WHERE assignments.id = $1 FOR NO KEY UPDATE OF assignments
 `, id)
+	stats.Record(ctx, getAndLockAssignmentByAssignmentIDLatency.M(time.Since(start).Milliseconds()))
 	err := row.Scan(&assignment.AssignmentID, &assignment.CIDR, &assignment.IPv4Addr, &assignment.IPv6Addr)
 	if err != nil {
 		return nil, err
