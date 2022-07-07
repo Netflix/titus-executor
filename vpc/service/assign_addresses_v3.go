@@ -1198,9 +1198,7 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		return nil, err
 	}
 
-	row = tx.QueryRowContext(ctx, "SELECT vpc_id, branch_enis.branch_eni FROM branch_enis JOIN branch_eni_attachments ON branch_eni_attachments.branch_eni = branch_enis.branch_eni WHERE branch_eni_attachments.association_id = $1", association)
-	var vpcID, branchENIID string
-	err = row.Scan(&vpcID, &branchENIID)
+	vpcID, branchENI, err := db.GetVpcIDAndBranchENIByAssociationID(ctx, tx, association)
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not get VPC ID / Branch ENI ID from database").Error())
 		span.SetStatus(traceStatusFromError(err))
@@ -1216,7 +1214,7 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		}
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_used = now() WHERE branch_eni = $1", branchENIID)
+	_, err = tx.ExecContext(ctx, "UPDATE branch_enis SET last_used = now() WHERE branch_eni = $1", branchENI)
 	if err != nil {
 		err = fmt.Errorf("Could not update last_used on branch ENI: %w", err)
 		tracehelpers.SetStatus(err, span)

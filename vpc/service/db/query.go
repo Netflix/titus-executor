@@ -429,3 +429,17 @@ WHERE ip_address_attachments.assignment_id = $1
 	}
 	return staticIPAddress, nil
 }
+
+// Returns (vpcID, branchENI, error)
+func GetVpcIDAndBranchENIByAssociationID(ctx context.Context, tx *sql.Tx, associationID string) (string, string, error) {
+	row := tx.QueryRowContext(ctx, `
+	SELECT vpc_id, branch_enis.branch_eni FROM branch_enis 
+	JOIN branch_eni_attachments ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
+	WHERE branch_eni_attachments.association_id = $1`, associationID)
+	var vpcID, branchENI string
+	err := row.Scan(&vpcID, &branchENI)
+	if err != nil {
+		return "", "", err
+	}
+	return vpcID, branchENI, nil
+}
