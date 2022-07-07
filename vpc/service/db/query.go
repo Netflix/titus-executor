@@ -276,3 +276,32 @@ UPDATE OF elastic_ips
 	}
 	return &elasticAddress, nil
 }
+
+// Get one available elastic IP from the given group
+// Also lock the IP until the end of given transaction.
+func GetAvailableElasticAddressByGroupAndLock(
+	ctx context.Context,
+	tx *sql.Tx,
+	accountID string,
+	borderGroup string,
+	groupName string) (*api.ElasticAddress, error) {
+	row := tx.QueryRowContext(ctx, `
+SELECT allocation_id, public_ip
+FROM elastic_ips
+WHERE account_id = $1
+  AND allocation_id NOT IN
+    (SELECT elastic_ip_allocation_id
+     FROM elastic_ip_attachments)
+  AND network_border_group = $2
+  AND tags->>'titus_vpc_pool' = $3
+LIMIT 1
+FOR
+UPDATE of elastic_ips
+`, accountID, borderGroup, groupName)
+	elasticAddress := api.ElasticAddress{}
+	err := row.Scan(&elasticAddress.AllocationId, &elasticAddress.Ip)
+	if err != nil {
+		return nil, err
+	}
+	return &elasticAddress, nil
+}
