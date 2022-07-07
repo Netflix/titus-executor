@@ -227,6 +227,25 @@ func GetElasticAddressByTaskID(ctx context.Context, tx *sql.Tx, taskID string) (
 	}, nil
 }
 
+func GetElasticIPAttachmentByTaskID(ctx context.Context, tx *sql.Tx, taskID string) (*data.ElasticIPAttachment, error) {
+	row := tx.QueryRowContext(ctx, `
+SELECT elastic_ip_attachments.id,
+       account_id,
+       region,
+       association_id
+FROM elastic_ip_attachments
+JOIN elastic_ips ON elastic_ip_attachments.elastic_ip_allocation_id = elastic_ips.allocation_id
+WHERE elastic_ip_attachments.assignment_id = $1
+`, taskID)
+	elasticIPAttachment := &data.ElasticIPAttachment{}
+	err := row.Scan(&elasticIPAttachment.ID, &elasticIPAttachment.AccountID,
+		&elasticIPAttachment.Region, &elasticIPAttachment.AssociationID)
+	if err != nil {
+		return nil, err
+	}
+	return elasticIPAttachment, nil
+}
+
 func GetClassIDByAssignmentID(ctx context.Context, tx *sql.Tx, assignmentID int) (uint32, error) {
 	row := tx.QueryRowContext(ctx, "SELECT class_id FROM htb_classid WHERE assignment_id = $1", assignmentID)
 	var classID uint32

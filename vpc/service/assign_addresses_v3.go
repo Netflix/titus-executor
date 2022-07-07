@@ -1076,7 +1076,7 @@ func (vpcService *vpcService) unassignStaticAddress(ctx context.Context, taskID 
 	return true, nil
 }
 
-func (vpcService *vpcService) unassignElasticAddress(ctx context.Context, assignmentID string) error {
+func (vpcService *vpcService) unassignElasticAddress(ctx context.Context, taskID string) error {
 	ctx, span := trace.StartSpan(ctx, "unassignElasticAddress")
 	defer span.End()
 
@@ -1090,29 +1090,19 @@ func (vpcService *vpcService) unassignElasticAddress(ctx context.Context, assign
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, `
-SELECT elastic_ip_attachments.id,
-       account_id,
-       region,
-       association_id
-FROM elastic_ip_attachments
-JOIN elastic_ips ON elastic_ip_attachments.elastic_ip_allocation_id = elastic_ips.allocation_id
-WHERE elastic_ip_attachments.assignment_id = $1
-`, assignmentID)
-	var id int
-	var accountID, region, associationID string
-	err = row.Scan(&id, &accountID, &region, &associationID)
+	elasticIPAttachment, err := db.GetElasticIPAttachmentByTaskID(ctx, tx, taskID)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 
 	if err != nil {
-		err = errors.Wrap(err, "Could not scan elastic IP associations")
+		err = errors.Wrap(err, "Could not get elastic IP associations from DB")
 		span.SetStatus(traceStatusFromError(err))
 		return err
 	}
 
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: region})
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(
+		ctx, ec2wrapper.Key{AccountID: elasticIPAttachment.AccountID, Region: elasticIPAttachment.Region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get AWS session")
 		span.SetStatus(traceStatusFromError(err))
@@ -1120,7 +1110,7 @@ WHERE elastic_ip_attachments.assignment_id = $1
 	}
 
 	_, err = session.DisassociateAddress(ctx, ec2.DisassociateAddressInput{
-		AssociationId: aws.String(associationID),
+		AssociationId: aws.String(elasticIPAttachment.AssociationID),
 	})
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok {
@@ -1133,7 +1123,7 @@ WHERE elastic_ip_attachments.assignment_id = $1
 	}
 
 	// This will automagically cascade and delete the static attachment as well
-	_, err = tx.ExecContext(ctx, "DELETE FROM elastic_ip_attachments WHERE id = $1", id)
+	_, err = tx.ExecContext(ctx, "DELETE FROM elastic_ip_attachments WHERE id = $1", elasticIPAttachment.ID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot delete elastic ip attachment from elastic ip attachments table")
 		span.SetStatus(traceStatusFromError(err))
