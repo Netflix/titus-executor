@@ -1016,7 +1016,7 @@ func assignArbitraryIPv4AddressV3(ctx context.Context, tx *sql.Tx, branchENI *ec
 	}, nil
 }
 
-func (vpcService *vpcService) unassignStaticAddress(ctx context.Context, assignmentID string) (bool, error) {
+func (vpcService *vpcService) unassignStaticAddress(ctx context.Context, taskID string) (bool, error) {
 	ctx, span := trace.StartSpan(ctx, "unassignStaticAddress")
 	defer span.End()
 
@@ -1030,31 +1030,18 @@ func (vpcService *vpcService) unassignStaticAddress(ctx context.Context, assignm
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, `
-SELECT branch_enis.branch_eni,
-       branch_enis.az,
-       branch_enis.account_id,
-       ip_address,
-       home_eni
-FROM ip_address_attachments
-JOIN ip_addresses ON ip_address_attachments.ip_address_uuid = ip_addresses.id
-JOIN assignments ON ip_address_attachments.assignment_id = assignments.assignment_id
-JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
-JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
-WHERE ip_address_attachments.assignment_id = $1
-`, assignmentID)
-	var branchENI, az, accountID, ipAddress, homeEni string
-	err = row.Scan(&branchENI, &az, &accountID, &ipAddress, &homeEni)
+	statciIPAddress, err := db.GetAssignedStaticIPAddressByTaskID(ctx, tx, taskID)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
 	if err != nil {
-		err = errors.Wrap(err, "Cannot query assignment for static addresses")
+		err = errors.Wrap(err, "Cannot query static addresses assignment from DB")
 		span.SetStatus(traceStatusFromError(err))
 		return false, err
 	}
 
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: accountID, Region: azToRegionRegexp.FindString(az)})
+	region := azToRegionRegexp.FindString(statciIPAddress.AZ)
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: statciIPAddress.AccountID, Region: region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get AWS session")
 		span.SetStatus(traceStatusFromError(err))
@@ -1062,8 +1049,8 @@ WHERE ip_address_attachments.assignment_id = $1
 	}
 
 	_, err = session.AssignPrivateIPAddresses(ctx, ec2.AssignPrivateIpAddressesInput{
-		NetworkInterfaceId: aws.String(branchENI),
-		PrivateIpAddresses: aws.StringSlice([]string{ipAddress}),
+		NetworkInterfaceId: aws.String(statciIPAddress.BranchENI),
+		PrivateIpAddresses: aws.StringSlice([]string{statciIPAddress.IP}),
 		AllowReassignment:  aws.Bool(true),
 	})
 	if err != nil {
@@ -1071,7 +1058,7 @@ WHERE ip_address_attachments.assignment_id = $1
 	}
 
 	// This will automagically cascade and delete the static attachment as well
-	_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1", assignmentID)
+	_, err = tx.ExecContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1", taskID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot delete assignment from assignments table")
 		span.SetStatus(traceStatusFromError(err))

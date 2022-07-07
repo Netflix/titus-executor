@@ -376,3 +376,26 @@ func GetOldestAvailableIPv4(ctx context.Context, tx *sql.Tx, ips []string, vpcID
 	}
 	return ipAddress, nil
 }
+
+// Given a task ID, get the static IP assigned to the task
+func GetAssignedStaticIPAddressByTaskID(ctx context.Context, tx *sql.Tx, taskID string) (*data.StaticIPAddress, error) {
+	row := tx.QueryRowContext(ctx, `
+SELECT branch_enis.branch_eni,
+       branch_enis.az,
+       branch_enis.account_id,
+       ip_address,
+       home_eni
+FROM ip_address_attachments
+JOIN ip_addresses ON ip_address_attachments.ip_address_uuid = ip_addresses.id
+JOIN assignments ON ip_address_attachments.assignment_id = assignments.assignment_id
+JOIN branch_eni_attachments ON assignments.branch_eni_association = branch_eni_attachments.association_id
+JOIN branch_enis ON branch_eni_attachments.branch_eni = branch_enis.branch_eni
+WHERE ip_address_attachments.assignment_id = $1
+`, taskID)
+	staticIPAddress := &data.StaticIPAddress{}
+	err := row.Scan(&staticIPAddress.BranchENI, &staticIPAddress.AZ, &staticIPAddress.AccountID, &staticIPAddress.IP, &staticIPAddress.HomeENI)
+	if err != nil {
+		return nil, err
+	}
+	return staticIPAddress, nil
+}
