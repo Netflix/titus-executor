@@ -21,6 +21,7 @@ type UserIPServiceClient interface {
 	// Static IP Address flow
 	AllocateAddress(ctx context.Context, in *AllocateAddressRequest, opts ...grpc.CallOption) (*AllocateAddressResponse, error)
 	GetAllocation(ctx context.Context, in *GetAllocationRequest, opts ...grpc.CallOption) (*GetAllocationResponse, error)
+	DeallocateAddress(ctx context.Context, in *DeallocateAddressRequest, opts ...grpc.CallOption) (*DeallocateAddressResponse, error)
 }
 
 type userIPServiceClient struct {
@@ -49,6 +50,15 @@ func (c *userIPServiceClient) GetAllocation(ctx context.Context, in *GetAllocati
 	return out, nil
 }
 
+func (c *userIPServiceClient) DeallocateAddress(ctx context.Context, in *DeallocateAddressRequest, opts ...grpc.CallOption) (*DeallocateAddressResponse, error) {
+	out := new(DeallocateAddressResponse)
+	err := c.cc.Invoke(ctx, "/com.netflix.titus.UserIPService/DeallocateAddress", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserIPServiceServer is the server API for UserIPService service.
 // All implementations must embed UnimplementedUserIPServiceServer
 // for forward compatibility
@@ -56,6 +66,7 @@ type UserIPServiceServer interface {
 	// Static IP Address flow
 	AllocateAddress(context.Context, *AllocateAddressRequest) (*AllocateAddressResponse, error)
 	GetAllocation(context.Context, *GetAllocationRequest) (*GetAllocationResponse, error)
+	DeallocateAddress(context.Context, *DeallocateAddressRequest) (*DeallocateAddressResponse, error)
 	mustEmbedUnimplementedUserIPServiceServer()
 }
 
@@ -68,6 +79,9 @@ func (UnimplementedUserIPServiceServer) AllocateAddress(context.Context, *Alloca
 }
 func (UnimplementedUserIPServiceServer) GetAllocation(context.Context, *GetAllocationRequest) (*GetAllocationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllocation not implemented")
+}
+func (UnimplementedUserIPServiceServer) DeallocateAddress(context.Context, *DeallocateAddressRequest) (*DeallocateAddressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeallocateAddress not implemented")
 }
 func (UnimplementedUserIPServiceServer) mustEmbedUnimplementedUserIPServiceServer() {}
 
@@ -118,6 +132,24 @@ func _UserIPService_GetAllocation_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserIPService_DeallocateAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeallocateAddressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserIPServiceServer).DeallocateAddress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.netflix.titus.UserIPService/DeallocateAddress",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserIPServiceServer).DeallocateAddress(ctx, req.(*DeallocateAddressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserIPService_ServiceDesc is the grpc.ServiceDesc for UserIPService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -132,6 +164,10 @@ var UserIPService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAllocation",
 			Handler:    _UserIPService_GetAllocation_Handler,
+		},
+		{
+			MethodName: "DeallocateAddress",
+			Handler:    _UserIPService_DeallocateAddress_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

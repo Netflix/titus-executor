@@ -107,11 +107,6 @@ func allocateStaticSubnetCidrReservations(ctx context.Context, tx *sql.Tx, sessi
 		return fmt.Errorf("Could not update prefixes: %w", err)
 	}
 
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("Could not commit transaction: %w", err)
-	}
-
 	return nil
 }
 
@@ -143,8 +138,8 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 		return nil, status.Error(codes.InvalidArgument, "AddressAllocation.Address must be unset")
 	}
 
-	if rq.Family != titus.Family_FAMILY_V4 {
-		return nil, status.Errorf(codes.Unimplemented, "Address family %s not yet implemented", rq.Family.String())
+	if rq.Family != titus.Family_FAMILY_V4 && rq.Family != titus.Family_FAMILY_V6 {
+		return nil, status.Errorf(codes.Unimplemented, "Address family %s is not supported", rq.Family.String())
 	}
 
 	if rq.AddressAllocation.AddressLocation.SubnetId == "" {
@@ -180,8 +175,8 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 		return nil, err
 	}
 
-	row := tx.QueryRowContext(ctx, "SELECT id, az, vpc_id, account_id FROM subnets WHERE subnet_id = $1", rq.AddressAllocation.AddressLocation.SubnetId)
-	err = row.Scan(&alloc.subnetID, &alloc.az, &alloc.vpc, &alloc.account)
+	row := tx.QueryRowContext(ctx, "SELECT id, subnet_id, az, vpc_id, account_id FROM subnets WHERE subnet_id = $1", rq.AddressAllocation.AddressLocation.SubnetId)
+	err = row.Scan(&alloc.subnetID, &alloc.subnet, &alloc.az, &alloc.vpc, &alloc.account)
 	if err == sql.ErrNoRows {
 		err = status.Errorf(codes.NotFound, "Could not find subnet ID %s", rq.AddressAllocation.AddressLocation.SubnetId)
 		span.SetStatus(traceStatusFromError(err))
@@ -436,6 +431,79 @@ func (vpcService *vpcService) ValidateAllocation(ctx context.Context, req *titus
 	return &titus.ValidationResponse{}, nil
 }
 
+func (vpcService *vpcService) DeallocateAddress(ctx context.Context, req *titus.DeallocateAddressRequest) (*titus.DeallocateAddressResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+	var rows *sql.Rows
+	var err error
+	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not start database transaction")
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	rows, err = tx.QueryContext(ctx,
+		`SELECT
+       ip_addresses.region, subnets.account_id, ip_addresses.v4prefix, ip_addresses.v6prefix
+FROM ip_addresses
+JOIN subnets ON ip_addresses.subnet_id = subnets.subnet_id
+WHERE ip_addresses.id = $1`, req.Uuid)
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not run SQL query")
+	}
+
+	if !rows.Next() {
+		return nil, errAllocationNotFound
+	}
+	var region, accountid, v4prefix, v6prefix string
+	err = rows.Scan(&region, &accountid, &v4prefix, &v6prefix)
+	if err == sql.ErrNoRows {
+		return nil, errAllocationNotFound
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not deserialize row")
+	}
+	rows.Close()
+
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
+		Region:    region,
+		AccountID: accountid,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot get AWS session")
+	}
+
+	_, err = session.DeleteSubnetCidrReservation(ctx, ec2.DeleteSubnetCidrReservationInput{
+		SubnetCidrReservationId: aws.String(v4prefix),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot delete subnet cidr reservation for IPv4 addr")
+	}
+
+	_, err = session.DeleteSubnetCidrReservation(ctx, ec2.DeleteSubnetCidrReservationInput{
+		SubnetCidrReservationId: aws.String(v6prefix),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot delete subnet cidr reservation for IPv6 addr")
+	}
+
+	_, err = tx.ExecContext(ctx, "DELETE FROM ip_addresses WHERE id = $1", req.Uuid)
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot delete address from addresses table")
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not commit transaction")
+	}
+
+	return &titus.DeallocateAddressResponse{}, nil
+}
+
 type allocation struct {
 	id       string
 	region   string
@@ -556,6 +624,11 @@ func fixAllocation(ctx context.Context, db *sql.DB, sessionMgr *ec2wrapper.EC2Se
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Could not delete titus static dummy interface")
 		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("Could not commit transaction: %w", err)
 	}
 
 	return nil
