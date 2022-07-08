@@ -272,7 +272,7 @@ func cleanupCgroups(cgroupPath string) error {
 	}
 	for _, mount := range allCgroupMounts {
 		path := filepath.Join(mount.Mountpoint, cgroupPath)
-		err = os.RemoveAll(path)
+		err = cgroups.RemovePath(path)
 		if err != nil {
 			logrus.Warn("Cannot remove cgroup mount: ", err)
 		}
