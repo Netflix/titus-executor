@@ -52,9 +52,9 @@ func getDummyStaticInterface(ctx context.Context, session *ec2wrapper.EC2Session
 	return createNetworkInterfaceOutput.NetworkInterface, nil
 }
 
-func allocateStaticSubnetCidrReservations(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, v4addr net.IP, v6addr net.IP, alloc allocation) error {
+func allocateStaticSubnetCidrReservations(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, v4addr string, v6addr string, alloc allocation) error {
 	v6output, err := session.CreateSubnetCidrReservation(ctx, ec2.CreateSubnetCidrReservationInput{
-		Cidr:            aws.String(fmt.Sprintf("%s/128", v6addr.String())),
+		Cidr:            aws.String(fmt.Sprintf("%s/128", v6addr)),
 		Description:     aws.String(staticReservationDescription),
 		ReservationType: aws.String("explicit"),
 		SubnetId:        aws.String(alloc.subnet),
@@ -64,7 +64,7 @@ func allocateStaticSubnetCidrReservations(ctx context.Context, tx *sql.Tx, sessi
 	}
 
 	v4output, err := session.CreateSubnetCidrReservation(ctx, ec2.CreateSubnetCidrReservationInput{
-		Cidr:            aws.String(fmt.Sprintf("%s/32", v4addr.String())),
+		Cidr:            aws.String(fmt.Sprintf("%s/32", v4addr)),
 		Description:     aws.String(staticReservationDescription),
 		ReservationType: aws.String("explicit"),
 		SubnetId:        aws.String(alloc.subnet),
@@ -206,8 +206,8 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 		return nil, err
 	}
 
-	ipv4Address := net.ParseIP(*iface.PrivateIpAddress)
-	ipv6Address := net.ParseIP(*iface.Ipv6Addresses[0].Ipv6Address)
+	ipv4Address := aws.StringValue(iface.PrivateIpAddress)
+	ipv6Address := aws.StringValue(iface.Ipv6Addresses[0].Ipv6Address)
 
 	err = allocateStaticSubnetCidrReservations(ctx, tx, session, ipv4Address, ipv6Address, alloc)
 	if err != nil {
@@ -221,8 +221,8 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 			SubnetId:         aws.StringValue(iface.SubnetId),
 		},
 		Uuid:        alloc.id,
-		Address:     ipv4Address.String(),
-		Ipv6Address: ipv6Address.String(),
+		Address:     ipv4Address,
+		Ipv6Address: ipv6Address,
 	}
 
 	bytes, err := proto.Marshal(allocation)
@@ -613,7 +613,7 @@ func fixAllocation(ctx context.Context, db *sql.DB, sessionMgr *ec2wrapper.EC2Se
 		}
 	}
 
-	err = allocateStaticSubnetCidrReservations(ctx, tx, session, v4addr, v6addr, alloc)
+	err = allocateStaticSubnetCidrReservations(ctx, tx, session, v4addr.String(), v6addr.String(), alloc)
 	if err != nil {
 		return fmt.Errorf("Could not allocate static subnet cidr reservations: %w", err)
 	}
