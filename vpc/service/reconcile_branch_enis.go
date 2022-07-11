@@ -11,7 +11,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -25,7 +27,7 @@ const (
 	timeBetweenBranchENIReconcilation = time.Minute
 )
 
-func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -313,7 +315,7 @@ retry:
 	var dbSecurityGroups []string
 	var dirtySecurityGroups bool
 	err = row.Scan(pq.Array(&dbSecurityGroups), &dirtySecurityGroups)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationErrors++
 		goto retry
 	}
@@ -327,7 +329,7 @@ retry:
 		// Without the "complicated" tombstoning behaviour we do for trunk ENIs, we just check again if it exists in a little bit.
 		logger.G(ctx).Info("ENI not found in database, marking ENI to be rechecked, and potentially inserted into the database")
 		err = fastTx.Commit()
-		if isSerializationFailure(err) {
+		if vpcerrors.IsSerializationFailure(err) {
 			goto retry
 		}
 		if err != nil {
@@ -355,7 +357,7 @@ retry:
 	securityGroupsMatch := sets.NewString(dbSecurityGroups...).Equal(sets.NewString(networkInterfaceSecurityGroups...))
 	if securityGroupsMatch {
 		err = fastTx.Commit()
-		if isSerializationFailure(err) {
+		if vpcerrors.IsSerializationFailure(err) {
 			serializationErrors++
 			goto retry
 		}
@@ -367,7 +369,7 @@ retry:
 		return false, nil
 	} else if !dirtySecurityGroups {
 		_, err = fastTx.ExecContext(ctx, "UPDATE branch_enis SET dirty_security_groups = true WHERE branch_eni = $1", branch)
-		if isSerializationFailure(err) {
+		if vpcerrors.IsSerializationFailure(err) {
 			goto retry
 		}
 		if err != nil {
@@ -379,7 +381,7 @@ retry:
 
 	row = fastTx.QueryRowContext(ctx, "SELECT state, association_id FROM branch_eni_attachments WHERE branch_eni = $1 AND (state = 'attaching' OR state = 'attached' OR state = 'unattaching')", branch)
 	err = row.Scan(&state, &associationID)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err == sql.ErrNoRows {
@@ -391,7 +393,7 @@ retry:
 	} else {
 		ctx = logger.WithField(ctx, "state", state)
 		rows, err = fastTx.QueryContext(ctx, "SELECT assignment_id FROM assignments WHERE branch_eni_association = $1", associationID)
-		if isSerializationFailure(err) {
+		if vpcerrors.IsSerializationFailure(err) {
 			goto retry
 		}
 		if err != nil {
@@ -412,7 +414,7 @@ retry:
 	}
 
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err != nil {
@@ -484,7 +486,7 @@ retry:
 
 	row = fastTx.QueryRowContext(ctx, "SELECT count(*) FROM branch_enis WHERE branch_eni = $1", aws.StringValue(networkInterface.NetworkInterfaceId))
 	err = row.Scan(&count)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err != nil {
@@ -493,7 +495,7 @@ retry:
 		return err
 	}
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err != nil {

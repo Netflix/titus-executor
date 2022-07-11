@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/lib/pq"
@@ -53,7 +54,7 @@ type actionWorker struct {
 	readyCond *sync.Cond
 }
 
-func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) error {
+func (actionWorker *actionWorker) loop(ctx context.Context, item data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -222,7 +223,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		// TODO: Consider updating the table state here
 		if vpcerrors.IsPersistentError(err) {
 			logger.G(ctx).WithError(err).Error("Experienced persistent error, still committing database state (assuming function updated state to failed)")
-		} else if errors.Is(err, &irrecoverableError{}) {
+		} else if errors.Is(err, &vpcerrors.IrrecoverableError{}) {
 			logger.G(ctx).WithError(err).Errorf("Experienced irrecoverable error, still committing database state (assuming function updated state to failed)")
 		} else if err != nil {
 			tracehelpers.SetStatus(err, span)

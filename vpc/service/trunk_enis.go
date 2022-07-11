@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -340,7 +341,7 @@ RETURNING id
 	return id, err
 }
 
-func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]keyedItem, error) {
+func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]data.KeyedItem, error) {
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
@@ -356,7 +357,7 @@ func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]
 		return nil, err
 	}
 
-	ret := []keyedItem{}
+	ret := []data.KeyedItem{}
 	for rows.Next() {
 		var ra regionAccount
 		err = rows.Scan(&ra.region, &ra.accountID)

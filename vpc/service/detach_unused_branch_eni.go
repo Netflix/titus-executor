@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -25,30 +26,19 @@ const (
 	contextTimeout         = 10 * time.Minute
 )
 
-type nilItem struct {
+func nilItemEnumerator(ctx context.Context) ([]data.KeyedItem, error) {
+	return []data.KeyedItem{&data.NilItem{}}, nil
 }
 
-func (n *nilItem) key() string {
-	return "nilitem"
-}
-
-func (n *nilItem) String() string {
-	return "Nilitem{}"
-}
-
-func nilItemEnumerator(ctx context.Context) ([]keyedItem, error) {
-	return []keyedItem{&nilItem{}}, nil
-}
-
-func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	item := protoItem.(*subnet)
+	item := protoItem.(*data.Subnet)
 	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"subnet":    item.subnetID,
-		"accountID": item.accountID,
-		"az":        item.az,
+		"subnet":    item.SubnetID,
+		"accountID": item.AccountID,
+		"az":        item.Az,
 	})
 	for {
 		resetTime, err := vpcService.doDetatchUnusedBranchENI(ctx, item)
@@ -64,7 +54,7 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 	}
 }
 
-func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context, subnet *subnet) (time.Duration, error) {
+func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context, subnet *data.Subnet) (time.Duration, error) {
 	ctx, cancel := context.WithTimeout(ctx, contextTimeout)
 	defer cancel()
 
@@ -99,7 +89,7 @@ WHERE NOT EXISTS (SELECT branch_eni_association from assignments where branch_en
 	AND branch_enis.subnet_id = $3
 ORDER BY COALESCE(branch_enis.last_assigned_to, TIMESTAMP 'EPOCH') ASC
 LIMIT 1
-`, minTimeAttached.Seconds(), minTimeUnused.Seconds(), subnet.subnetID)
+`, minTimeAttached.Seconds(), minTimeUnused.Seconds(), subnet.SubnetID)
 	var branchENI, associationID, region, accountID string
 	err = row.Scan(&branchENI, &associationID, &region, &accountID)
 	if err == sql.ErrNoRows {
@@ -129,7 +119,7 @@ LIMIT 1
 
 	err = vpcService.disassociateNetworkInterface(ctx, tx, session, associationID, false)
 	if err != nil {
-		if errors.Is(err, &irrecoverableError{}) || vpcerrors.IsPersistentError(err) {
+		if errors.Is(err, &vpcerrors.IrrecoverableError{}) || vpcerrors.IsPersistentError(err) {
 			err2 := tx.Commit()
 			if err2 != nil {
 				err2 = errors.Wrap(err2, "Could not commit transaction during irrecoverableError / persistentError")

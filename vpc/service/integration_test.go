@@ -23,6 +23,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/db/wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -290,13 +291,13 @@ func branchENITests(ctx context.Context, t *testing.T, md integrationTestMetadat
 		accountID: md.account,
 	}
 
-	subnet := &subnet{
-		az:        md.az,
-		vpcID:     md.vpc,
-		accountID: md.account,
-		subnetID:  md.subnetID,
-		cidr:      "", // This isn't needed for what we're doing
-		region:    md.region,
+	subnet := &data.Subnet{
+		Az:        md.az,
+		VpcID:     md.vpc,
+		AccountID: md.account,
+		SubnetID:  md.subnetID,
+		Cidr:      "", // This isn't needed for what we're doing
+		Region:    md.region,
 	}
 
 	group, groupCtx := errgroup.WithContext(ctx)
@@ -509,13 +510,13 @@ func testGenerateAssignmentIDBranchENIsStress(ctx context.Context, t *testing.T,
 	g1, g2 := startAssociationAndDisassociationWorkers(workerCtx, t, service)
 
 	assert.NilError(t, g1.Wait())
-	subnet, err := service.getSubnet(ctx, md.az, md.account, md.subnetIDs)
+	subnet, err := service.getLeastUsedSubnet(ctx, md.az, md.account, md.subnetIDs)
 	assert.NilError(t, err)
 
-	row := service.db.QueryRowContext(ctx, "SELECT count(*) FROM branch_enis WHERE subnet_id = $1 AND branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments WHERE state = 'attached')", subnet.subnetID)
+	row := service.db.QueryRowContext(ctx, "SELECT count(*) FROM branch_enis WHERE subnet_id = $1 AND branch_eni NOT IN (SELECT branch_eni FROM branch_eni_attachments WHERE state = 'attached')", subnet.SubnetID)
 	var count int
 	assert.NilError(t, row.Scan(&count))
-	t.Logf("Initial number of free ENIs in subnet %s is %d", subnet.subnetID, count)
+	t.Logf("Initial number of free ENIs in subnet %s is %d", subnet.SubnetID, count)
 
 	req := getENIRequest{
 		region:           md.region,
@@ -528,7 +529,7 @@ func testGenerateAssignmentIDBranchENIsStress(ctx context.Context, t *testing.T,
 	const numberOfBranchesToGenerate = 120
 	trunks := make([]*ec2.NetworkInterface, (numberOfBranchesToGenerate/req.maxBranchENIs)+1)
 	for idx := range trunks {
-		trunkENI, err := service.createNewTrunkENI(ctx, session, &subnet.subnetID, 3)
+		trunkENI, err := service.createNewTrunkENI(ctx, session, &subnet.SubnetID, 3)
 		assert.NilError(t, err)
 		defer func() {
 			assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
@@ -604,7 +605,7 @@ func testGenerateAssignmentIDStressTest(ctx context.Context, t *testing.T, md in
 	g1, g2 := startAssociationAndDisassociationWorkers(workerCtx, t, service)
 
 	trunkENIs := make([]*ec2.NetworkInterface, len(md.subnetIDs))
-	subnets := make([]*subnet, len(md.subnetIDs))
+	subnets := make([]*data.Subnet, len(md.subnetIDs))
 	for idx := range trunkENIs {
 		trunkENI, err := service.createNewTrunkENI(ctx, session, &md.subnetIDs[idx], 3)
 		assert.NilError(t, err)
@@ -612,7 +613,7 @@ func testGenerateAssignmentIDStressTest(ctx context.Context, t *testing.T, md in
 			assert.NilError(t, service.deleteTrunkInterface(ctx, session, aws.StringValue(trunkENI.NetworkInterfaceId)))
 		}()
 		trunkENIs[idx] = trunkENI
-		subnets[idx], err = service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+		subnets[idx], err = service.getLeastUsedSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
 		assert.NilError(t, err)
 	}
 
@@ -693,7 +694,7 @@ func testGenerateAssignmentIDWithFault(ctx context.Context, t *testing.T, md int
 
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
-	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	subnet, err := service.getLeastUsedSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
 	assert.NilError(t, err)
 
 	req := getENIRequest{
@@ -774,7 +775,7 @@ func testGenerateAssignmentIDNewSG(ctx context.Context, t *testing.T, md integra
 
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
-	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	subnet, err := service.getLeastUsedSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
 	assert.NilError(t, err)
 
 	var securityGroupID string
@@ -828,7 +829,7 @@ func testResetSecurityGroup(ctx context.Context, t *testing.T, md integrationTes
 
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
-	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	subnet, err := service.getLeastUsedSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
 	assert.NilError(t, err)
 
 	req := getENIRequest{
@@ -917,7 +918,7 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
-	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	subnet, err := service.getLeastUsedSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
 	assert.NilError(t, err)
 
 	req := getENIRequest{
@@ -1075,7 +1076,7 @@ func testActionWorker(ctx context.Context, t *testing.T, md integrationTestMetad
 	}
 
 	group.Go(func() error {
-		err := testActionWorker.loop(ctx, &nilItem{})
+		err := testActionWorker.loop(ctx, &data.NilItem{})
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("test action worker exited")
 		}
@@ -1146,7 +1147,7 @@ func testGenerateAssignmentIDWithTransitionNS(ctx context.Context, t *testing.T,
 
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
-	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	subnet, err := service.getLeastUsedSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
 	assert.NilError(t, err)
 
 	req := getENIRequest{
@@ -1215,7 +1216,7 @@ func testGenerateAssignmentIDWithAddress(ctx context.Context, t *testing.T, md i
 
 	logger.G(ctx).WithField("trunkENI", trunkENI.String()).Debug("Created test trunk ENI")
 
-	subnet, err := service.getSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
+	subnet, err := service.getLeastUsedSubnet(ctx, aws.StringValue(trunkENI.AvailabilityZone), md.account, []string{})
 	assert.NilError(t, err)
 
 	req := getENIRequest{

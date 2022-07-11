@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -21,7 +22,7 @@ const (
 	securityGroupReconcilationTimeout     = 10 * time.Minute
 )
 
-func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccountLoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccountLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -42,7 +43,7 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccountLoop(ctx co
 	}
 }
 
-func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccount(ctx context.Context, protoAccount keyedItem) error {
+func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccount(ctx context.Context, protoAccount data.KeyedItem) error {
 	ctx, cancel := context.WithTimeout(ctx, securityGroupReconcilationTimeout)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileSecurityGroupsForRegionAccount")

@@ -10,7 +10,9 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
@@ -39,7 +41,7 @@ const (
 
 // getAllRegionAccounts gets regions accounts of the trunk ENI ("accounts"), as well as the
 // branch ENI accounts
-func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]keyedItem, error) {
+func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]data.KeyedItem, error) {
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
@@ -55,7 +57,7 @@ func (vpcService *vpcService) getAllRegionAccounts(ctx context.Context) ([]keyed
 		return nil, fmt.Errorf("Could not query accounts table: %w", err)
 	}
 
-	ret := []keyedItem{}
+	ret := []data.KeyedItem{}
 	for rows.Next() {
 		var ra regionAccount
 		err = rows.Scan(&ra.region, &ra.accountID)
@@ -189,7 +191,7 @@ AND gc_tombstone < now() - INTERVAL '30 minutes'
 
 // This function, once invoked, is meant to run forever until context is cancelled
 // Make this adjustable so it's not done every minute?
-func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	item := protoItem.(*regionAccount)
 	for {
 		err := vpcService.doGCENIs(ctx, item)
@@ -468,7 +470,7 @@ FOR NO KEY UPDATE OF branch_enis
 		return err
 	}
 
-	group := newErrGroupIsh()
+	group := vpcerrors.NewErrGroupIsh()
 	var result *multierror.Error
 	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, session, iface, interfaceIPv4Addresses, group)
 	if err != nil {
@@ -481,7 +483,7 @@ FOR NO KEY UPDATE OF branch_enis
 		ip := iface.PrivateIpAddresses[idx]
 		if aws.BoolValue(ip.Primary) && ip.Association != nil {
 			association := ip.Association
-			group.run(func() error {
+			group.Run(func() error {
 				return removeAssociation(ctx, session, association)
 			})
 		}
@@ -499,7 +501,7 @@ FOR NO KEY UPDATE OF branch_enis
 		result = multierror.Append(result, removeIPv6Addresses(ctx, tx, session, iface, interfaceIPv6Addresses.UnsortedList(), group))
 	}
 
-	return multierror.Append(result, group.wait(ctx)).ErrorOrNil()
+	return multierror.Append(result, group.Wait(ctx)).ErrorOrNil()
 }
 
 func (vpcService *vpcService) doGCAttachedENI(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, interfaceIPv4Addresses, interfaceIPv6Addresses sets.String) error {
@@ -532,7 +534,7 @@ WHERE branch_eni_attachments.branch_eni = $1
 		return err
 	}
 
-	group := newErrGroupIsh()
+	group := vpcerrors.NewErrGroupIsh()
 	var result *multierror.Error
 	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, session, iface, interfaceIPv4Addresses, group)
 	if err != nil {
@@ -607,7 +609,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 		// We have no idea why this association is here.
 		if c == 0 {
 			association := ip.Association
-			group.run(func() error {
+			group.Run(func() error {
 				return removeAssociation(ctx, session, association)
 			})
 		}
@@ -664,10 +666,10 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 		}
 	}
 
-	return multierror.Append(result, group.wait(ctx)).ErrorOrNil()
+	return multierror.Append(result, group.Wait(ctx)).ErrorOrNil()
 }
 
-func removeStaticAddresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, interfaceIPv4Addresses sets.String, groupish *errGroupish) (sets.String, error) {
+func removeStaticAddresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, interfaceIPv4Addresses sets.String, groupish *vpcerrors.ErrGroupish) (sets.String, error) {
 	removedStaticAddresses := sets.NewString()
 	if interfaceIPv4Addresses.Len() == 0 {
 		return removedStaticAddresses, nil
@@ -704,7 +706,7 @@ FROM unassigned_ip_addresses
 			return nil, err
 		}
 		removedStaticAddresses.Insert(ipAddress)
-		groupish.run(func() error {
+		groupish.Run(func() error {
 			return relocateIPAddress(ctx, session, iface, ipAddress, homeENI)
 		})
 	}
@@ -815,7 +817,7 @@ func removeAssociation(ctx context.Context, session *ec2wrapper.EC2Session, asso
 	return err
 }
 
-func removeIPv4Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, ipv4AddressesToRemove []string, group *errGroupish) error {
+func removeIPv4Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, ipv4AddressesToRemove []string, group *vpcerrors.ErrGroupish) error {
 	ctx, span := trace.StartSpan(ctx, "removeIPv4Addresses")
 	span.AddAttributes(trace.StringAttribute("ipv4AddressesToRemove", fmt.Sprint(ipv4AddressesToRemove)))
 
@@ -842,7 +844,7 @@ WHERE ipv4addr = any($1::inet[])
 		}
 	}
 
-	group.run(func() error {
+	group.Run(func() error {
 		defer span.End()
 		logger.G(ctx).WithField("ipv4AddressesToRemove", ipv4AddressesToRemove).Debug("Removing IPv4 Addresses")
 		_, err := session.UnassignPrivateIPAddresses(ctx, ec2.UnassignPrivateIpAddressesInput{
@@ -857,7 +859,7 @@ WHERE ipv4addr = any($1::inet[])
 	return nil
 }
 
-func removeIPv6Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, ipv6AddressesToRemove []string, group *errGroupish) error {
+func removeIPv6Addresses(ctx context.Context, tx *sql.Tx, session *ec2wrapper.EC2Session, iface *ec2.NetworkInterface, ipv6AddressesToRemove []string, group *vpcerrors.ErrGroupish) error {
 	ctx, span := trace.StartSpan(ctx, "removeIPv6Addresses")
 	span.AddAttributes(trace.StringAttribute("ipv6AddressesToRemove", fmt.Sprint(ipv6AddressesToRemove)))
 
@@ -884,7 +886,7 @@ WHERE ipv6addr = any($1::inet[])
 		}
 	}
 
-	group.run(func() error {
+	group.Run(func() error {
 		defer span.End()
 		logger.G(ctx).WithField("ipv6AddressesToRemove", ipv6AddressesToRemove).Debug("Removing IPv6 Addresses")
 

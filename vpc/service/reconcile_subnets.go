@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -24,7 +25,7 @@ const (
 	timeBetweenSubnetReconcilation = 2 * time.Minute
 )
 
-func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]keyedItem, error) {
+func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]data.KeyedItem, error) {
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
@@ -40,7 +41,7 @@ func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]keyedIte
 		return nil, err
 	}
 
-	ret := []keyedItem{}
+	ret := []data.KeyedItem{}
 	for rows.Next() {
 		var ra regionAccount
 		err = rows.Scan(&ra.region, &ra.accountID)
@@ -54,7 +55,7 @@ func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]keyedIte
 	return ret, nil
 }
 
-func (vpcService *vpcService) doReconcileSubnetsForRegionAccountLoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) doReconcileSubnetsForRegionAccountLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	item := protoItem.(*regionAccount)
 	for {
 		err := vpcService.doReconcileSubnetsForRegionAccount(ctx, item)

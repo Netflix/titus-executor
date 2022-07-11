@@ -11,6 +11,7 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -150,16 +151,11 @@ func (vpcService *vpcService) PreemptLock(ctx context.Context, req *vpcapi.Preem
 	return &empty.Empty{}, nil
 }
 
-type keyedItem interface {
-	key() string
-	String() string
-}
+type itemLister func(context.Context) ([]data.KeyedItem, error)
+type workFunc func(context.Context, data.KeyedItem) error
 
-type itemLister func(context.Context) ([]keyedItem, error)
-type workFunc func(context.Context, keyedItem) error
-
-func generateLockName(taskName string, item keyedItem) string {
-	return fmt.Sprintf("%s_%s", taskName, item.key())
+func generateLockName(taskName string, item data.KeyedItem) string {
+	return fmt.Sprintf("%s_%s", taskName, item.Key())
 }
 
 func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context, taskName string, lister itemLister, wf workFunc) error {
@@ -178,8 +174,8 @@ func (vpcService *vpcService) runFunctionUnderLongLivedLock(ctx context.Context,
 		} else {
 			for idx := range items {
 				item := items[idx]
-				if !startedLockers.Has(item.key()) {
-					startedLockers.Insert(item.key())
+				if !startedLockers.Has(item.Key()) {
+					startedLockers.Insert(item.Key())
 					ctx2 := logger.WithFields(ctx, map[string]interface{}{
 						"taskName": taskName,
 					})

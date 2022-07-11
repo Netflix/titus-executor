@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -16,7 +17,7 @@ const (
 	howManyUnusedIPsToKeep = 200000
 )
 
-func (vpcService *vpcService) pruneLastUsedIPAddresses(ctx context.Context, null keyedItem, tx *sql.Tx) (retErr error) {
+func (vpcService *vpcService) pruneLastUsedIPAddresses(ctx context.Context, null data.KeyedItem, tx *sql.Tx) (retErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "pruneLastUsedIPAddresses")

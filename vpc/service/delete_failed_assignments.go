@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -15,7 +16,7 @@ const (
 	timeBetweenDeleteFailedAssignments = 5 * time.Minute
 )
 
-func (vpcService *vpcService) deleteFailedAssignments(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) deleteFailedAssignments(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

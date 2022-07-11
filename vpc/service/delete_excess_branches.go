@@ -9,7 +9,9 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
@@ -25,7 +27,7 @@ const (
 	minTimeExisting              = assignTimeout
 )
 
-func (vpcService *vpcService) getSubnets(ctx context.Context) ([]keyedItem, error) {
+func (vpcService *vpcService) getSubnets(ctx context.Context) ([]data.KeyedItem, error) {
 	ctx, span := trace.StartSpan(ctx, "getSubnets")
 	defer span.End()
 
@@ -56,10 +58,10 @@ JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets
 		return nil, err
 	}
 
-	ret := []keyedItem{}
+	ret := []data.KeyedItem{}
 	for rows.Next() {
-		var s subnet
-		err = rows.Scan(&s.id, &s.az, &s.vpcID, &s.accountID, &s.subnetID, &s.cidr, &s.region)
+		var s data.Subnet
+		err = rows.Scan(&s.ID, &s.Az, &s.VpcID, &s.AccountID, &s.SubnetID, &s.Cidr, &s.Region)
 		if err != nil {
 			return nil, err
 		}
@@ -76,16 +78,16 @@ JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets
 	return ret, nil
 }
 
-func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, protoItem keyedItem) error {
+func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	item := protoItem.(*subnet)
+	item := protoItem.(*data.Subnet)
 	for {
 		var resetTime time.Duration
 		branchesDeleted, err := vpcService.doDeleteExcessBranches(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithField("region", item.region).WithField("accountID", item.accountID).WithError(err).Error("Failed to delete excess branches")
+			logger.G(ctx).WithField("region", item.Region).WithField("accountID", item.AccountID).WithError(err).Error("Failed to delete excess branches")
 			resetTime = timeBetweenErrors
 		} else if branchesDeleted {
 			resetTime = timeBetweenDeletions
@@ -99,7 +101,7 @@ func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, pro
 	}
 }
 
-func (vpcService *vpcService) getWarmPoolSize(ctx context.Context, subnet *subnet) (int, error) {
+func (vpcService *vpcService) getWarmPoolSize(ctx context.Context, subnet *data.Subnet) (int, error) {
 	ctx, span := trace.StartSpan(ctx, "getWarmPoolSize")
 	defer span.End()
 
@@ -115,13 +117,13 @@ func (vpcService *vpcService) getWarmPoolSize(ctx context.Context, subnet *subne
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	row := tx.QueryRowContext(ctx, "SELECT warm_pool_size FROM warm_pool_override WHERE subnet_id = $1", subnet.subnetID)
+	row := tx.QueryRowContext(ctx, "SELECT warm_pool_size FROM warm_pool_override WHERE subnet_id = $1", subnet.SubnetID)
 	var warmPoolSize int
 	err = row.Scan(&warmPoolSize)
 	if err == sql.ErrNoRows {
 		warmPoolSize = defaultWarmPoolPerSubnet
 	} else if err != nil {
-		err = fmt.Errorf("Could not query warm pool override for subnet %q: %w", subnet.subnetID, err)
+		err = fmt.Errorf("Could not query warm pool override for subnet %q: %w", subnet.SubnetID, err)
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -142,31 +144,31 @@ func (vpcService *vpcService) getWarmPoolSize(ctx context.Context, subnet *subne
 	return warmPoolSize, nil
 }
 
-func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet *subnet) (bool, error) {
+func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet *data.Subnet) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, deleteExcessBranchENITimeout)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "doDeleteExcessBranches")
 	defer span.End()
 	span.AddAttributes(
-		trace.StringAttribute("subnet", subnet.subnetID),
-		trace.StringAttribute("accountID", subnet.accountID),
-		trace.StringAttribute("az", subnet.az),
+		trace.StringAttribute("subnet", subnet.SubnetID),
+		trace.StringAttribute("accountID", subnet.AccountID),
+		trace.StringAttribute("az", subnet.Az),
 	)
 	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"subnet":    subnet.subnetID,
-		"accountID": subnet.accountID,
-		"az":        subnet.az,
+		"subnet":    subnet.SubnetID,
+		"accountID": subnet.AccountID,
+		"az":        subnet.Az,
 	})
 	logger.G(ctx).Debug("Beginning GC of excess branch ENIs")
 
 	warmPoolSize, err := vpcService.getWarmPoolSize(ctx, subnet)
 	if err != nil {
-		err = fmt.Errorf("Could not get warm pool size for subnet %q: %w", subnet.subnetID, err)
+		err = fmt.Errorf("Could not get warm pool size for subnet %q: %w", subnet.SubnetID, err)
 		tracehelpers.SetStatus(err, span)
 	}
 
-	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.accountID, Region: subnet.region})
+	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.AccountID, Region: subnet.Region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get EC2 session")
 		span.SetStatus(traceStatusFromError(err))
@@ -204,9 +206,9 @@ get_eni:
      ORDER BY last_assigned_to ASC, id DESC
      LIMIT 1
      OFFSET $2
-`, subnet.subnetID, warmPoolSize, minTimeExisting.Seconds())
+`, subnet.SubnetID, warmPoolSize, minTimeExisting.Seconds())
 	err = row.Scan(&branchENI)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationFailuresGetENI++
 		goto get_eni
 	}
@@ -220,7 +222,7 @@ get_eni:
 		return false, err
 	}
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationFailuresGetENI++
 		goto get_eni
 	}
@@ -293,7 +295,7 @@ WHERE branch_eni = $1
        OR state = 'attaching'
        OR state = 'unattaching')
 `, branchENI)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		deleteENISerializationErrors++
 		goto delete_eni
 	}
@@ -315,7 +317,7 @@ WHERE branch_eni = $1
 		return false, err
 	}
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		deleteENISerializationErrors++
 		goto delete_eni
 	}

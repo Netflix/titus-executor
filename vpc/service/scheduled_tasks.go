@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
@@ -86,7 +87,7 @@ func (vpcService *vpcService) runScheduledTask(ctx context.Context, taskName str
 	return cb(ctx, tx)
 }
 
-type taskLoopWorkFunc func(context.Context, keyedItem, *sql.Tx) error
+type taskLoopWorkFunc func(context.Context, data.KeyedItem, *sql.Tx) error
 
 func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Duration, taskPrefix string, lister itemLister, cb taskLoopWorkFunc) error {
 	ctx = logger.WithField(ctx, "taskPrefix", taskPrefix)
@@ -103,7 +104,7 @@ func (vpcService *vpcService) taskLoop(ctx context.Context, interval time.Durati
 	}
 }
 
-func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]keyedItem, error), cb func(context.Context, keyedItem, *sql.Tx) error) error {
+func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duration, taskPrefix string, itemLister func(ctx context.Context) ([]data.KeyedItem, error), cb func(context.Context, data.KeyedItem, *sql.Tx) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, taskPrefix)
@@ -117,7 +118,7 @@ func (vpcService *vpcService) runTask(ctx context.Context, interval time.Duratio
 	logger.G(ctx).Info(items)
 	for idx := range items {
 		item := items[idx]
-		taskName := fmt.Sprintf("%s_%s", taskPrefix, item.key())
+		taskName := fmt.Sprintf("%s_%s", taskPrefix, item.Key())
 		// rebind this so it doesn't get overwritten on the subsequent loop
 		err := vpcService.runScheduledTask(ctx, taskName, interval, func(ctx2 context.Context, tx *sql.Tx) error {
 			return cb(ctx2, item, tx)
@@ -134,7 +135,7 @@ type regionAccount struct {
 	region    string
 }
 
-func (ra *regionAccount) key() string {
+func (ra *regionAccount) Key() string {
 	return fmt.Sprintf("%s_%s", ra.region, ra.accountID)
 }
 

@@ -13,6 +13,7 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
@@ -187,7 +188,7 @@ func TestAPIPreemptLockNotFound(t *testing.T) {
 }
 
 // TODO: Write a proper version of tryToAcquireLock which safely preempts the lock
-func (vpcService *vpcService) preemptLock(ctx context.Context, item keyedItem, llt longLivedTask) error {
+func (vpcService *vpcService) preemptLock(ctx context.Context, item data.KeyedItem, llt longLivedTask) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

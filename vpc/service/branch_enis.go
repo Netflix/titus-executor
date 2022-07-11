@@ -112,7 +112,7 @@ startAssociation:
 		return nil, err
 	}
 	id, err = vpcService.startAssociation(ctx, fastTx, tx, branchENI, trunkENI, idx)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		logger.G(ctx).WithError(pqErr).Debug("Retrying transaction")
 		goto startAssociation
 	}
@@ -235,7 +235,7 @@ WHERE branch_eni_attachments.id = $1
 	err = row.Scan(&token, &associationID, &trunk, &idx, &errorCode, &errorMessage, &state, &accountID, &region,
 		&branch, &branchENIAccountID)
 	if err == sql.ErrNoRows {
-		err = &irrecoverableError{err: fmt.Errorf("Work item %d not found", id)}
+		err = vpcerrors.NewIrrecoverableError(fmt.Errorf("Work item %d not found", id))
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	} else if err != nil {
@@ -339,7 +339,7 @@ WHERE branch_eni_attachments.id = $1
 				"UPDATE branch_eni_attachments SET state = 'failed', attachment_completed_by = $1, attachment_completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4 AND state = $5",
 				vpcService.hostname, "Unknown", err.Error(), id, state)
 		}
-		if isSerializationFailure(databaseError) {
+		if vpcerrors.IsSerializationFailure(databaseError) {
 			goto insertFailure
 		}
 		if databaseError != nil {
@@ -365,7 +365,7 @@ WHERE branch_eni_attachments.id = $1
 		}
 
 		databaseError = fastTx.Commit()
-		if isSerializationFailure(databaseError) {
+		if vpcerrors.IsSerializationFailure(databaseError) {
 			goto insertFailure
 		}
 		if databaseError != nil {
@@ -414,7 +414,7 @@ retry_update:
 	}(fastTx)
 
 	_, err = fastTx.ExecContext(ctx, "SELECT pg_notify('branch_eni_attachments_finished', $1)", strconv.Itoa(id))
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationFailures++
 		goto retry_update
 	}
@@ -428,7 +428,7 @@ retry_update:
 	result, err = fastTx.ExecContext(ctx,
 		"UPDATE branch_eni_attachments SET state = 'attached', attachment_completed_by = $1, attachment_completed_at = now(), association_id = $2 WHERE id = $3 AND state = $4",
 		vpcService.hostname, aws.StringValue(assoc), id, state)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationFailures++
 		goto retry_update
 	}
@@ -452,7 +452,7 @@ retry_update:
 	}
 
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		serializationFailures++
 		goto retry_update
 	}
@@ -503,9 +503,9 @@ VALUES ($1, $2, $3, $4, $5, now(), 'attaching') RETURNING id
 `, branchENI, trunkENI, idx, clientToken, vpcService.hostname)
 	var id int
 	err = row.Scan(&id)
-	pqErr := pqError(err)
+	pqErr := vpcerrors.PqError(err)
 	if pqErr != nil && pqErr.Code.Name() == "unique_violation" && (pqErr.Constraint == "branch_eni_attachments_branch_eni_trunk_eni_idx_uindex" || pqErr.Constraint == "branch_eni_attachments_trunk_eni_idx_uindex" || pqErr.Constraint == "branch_eni_attachments_branch_eni_uindex") {
-		err = vpcerrors.NewWithSleep(newConcurrencyError(pqErr))
+		err = vpcerrors.NewWithSleep(vpcerrors.NewConcurrencyError(pqErr))
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -681,7 +681,7 @@ retry:
 
 	row = fastTx.QueryRowContext(ctx, "SELECT id, state, trunk_eni, branch_eni FROM branch_eni_attachments WHERE association_id = $1", associationID)
 	err = row.Scan(&id, &state, &trunk, &branch)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err != nil {
@@ -697,7 +697,7 @@ retry:
 	if state == unattaching {
 		logger.G(ctx).Debug("Disassociation already in progress")
 		err = fastTx.Commit()
-		if isSerializationFailure(err) {
+		if vpcerrors.IsSerializationFailure(err) {
 			goto retry
 		}
 		if err != nil {
@@ -716,7 +716,7 @@ retry:
 	if state == unattached {
 		logger.G(ctx).Debug("Disassociation already complete")
 		err = fastTx.Commit()
-		if isSerializationFailure(err) {
+		if vpcerrors.IsSerializationFailure(err) {
 			goto retry
 		}
 		if err != nil {
@@ -729,7 +729,7 @@ retry:
 
 	if !force {
 		err = hasAssignments(ctx, fastTx, associationID)
-		if isSerializationFailure(err) {
+		if vpcerrors.IsSerializationFailure(err) {
 			goto retry
 		}
 		if err != nil {
@@ -760,7 +760,7 @@ WHERE association_id = $4`, clientToken, vpcService.hostname, force, association
 	}
 
 	_, err = fastTx.ExecContext(ctx, "SELECT pg_notify('branch_eni_unattachments_created', $1)", strconv.Itoa(id))
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err != nil {
@@ -770,7 +770,7 @@ WHERE association_id = $4`, clientToken, vpcService.hostname, force, association
 	}
 
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry
 	}
 	if err != nil {
@@ -897,7 +897,7 @@ WHERE branch_eni_attachments.id = $1
 			_, err2 = slowTx.ExecContext(ctx,
 				"UPDATE branch_eni_attachments SET state = 'attached', unattachment_completed_by = $1, unattachment_completed_at = now(), error_code = $2, error_message = $3  WHERE id = $4",
 				vpcService.hostname, "hasAssignments", err.Error(), id)
-			if isSerializationFailure(err2) {
+			if vpcerrors.IsSerializationFailure(err2) {
 				goto restart
 			}
 			if err2 != nil {
@@ -908,7 +908,7 @@ WHERE branch_eni_attachments.id = $1
 			}
 
 			err2 = fastTx.Commit()
-			if isSerializationFailure(err2) {
+			if vpcerrors.IsSerializationFailure(err2) {
 				goto restart
 			}
 			if err2 != nil {
@@ -918,7 +918,7 @@ WHERE branch_eni_attachments.id = $1
 				return err2
 			}
 
-			err = newIrrecoverableError(err)
+			err = vpcerrors.NewIrrecoverableError(err)
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
@@ -989,7 +989,7 @@ retry_update:
 	}(fastTx)
 
 	_, err = fastTx.ExecContext(ctx, "UPDATE branch_eni_attachments SET state = 'unattached', unattachment_completed_by = $2, unattachment_completed_at = now() WHERE id = $1", id, vpcService.hostname)
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry_update
 	}
 	if err != nil {
@@ -999,7 +999,7 @@ retry_update:
 	}
 
 	_, err = fastTx.ExecContext(ctx, "SELECT pg_notify('branch_eni_unattachments_finished', $1)", strconv.Itoa(id))
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry_update
 	}
 	if err != nil {
@@ -1010,7 +1010,7 @@ retry_update:
 	}
 
 	err = fastTx.Commit()
-	if isSerializationFailure(err) {
+	if vpcerrors.IsSerializationFailure(err) {
 		goto retry_update
 	}
 	if err != nil {
