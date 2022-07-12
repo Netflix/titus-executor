@@ -69,6 +69,20 @@ if [[ $(uname) == "Darwin" ]]; then
   metatron_cert_mnt="-v ${HOME}/.metatron:/mnt/metatron"
 fi
 
+docker run $TTYFLAG --privileged \
+  --cgroupns private \
+  -v ${PWD}:${PWD} \
+  -w ${PWD} \
+  --label "$run_id" \
+  --rm --name "$titus_agent_name" \
+  -d titusoss/titus-agent
+
+docker exec $TTYFLAG --privileged -e DIND=true -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
+  go test -timeout ${TEST_TIMEOUT:-20m} ${TEST_FLAGS:-} \
+    ./executor/runner/... -short=false 2>&1 | redact_secrets | tee test-runner.log
+
+docker rm -f "$titus_agent_name"
+
 log "Running a docker daemon named $titus_agent_name"
 docker run $TTYFLAG --privileged --security-opt seccomp=unconfined \
   -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
