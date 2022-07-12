@@ -4,7 +4,7 @@ all: seccomp.go test fmt
 
 .PHONY: clean
 clean:
-	rm *.json
+	rm *.json seccomp.go
 
 .PHONY: fmt
 fmt:
