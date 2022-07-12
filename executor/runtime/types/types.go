@@ -21,9 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-
-	// The purpose of this is to tell gometalinter to keep vendoring this package
-	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 )
 
 const (

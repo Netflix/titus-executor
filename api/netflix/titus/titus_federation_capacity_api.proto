@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+// Titus FederatedCapacityGroup API specification.
+package com.netflix.titus;
+
+import "netflix/titus/titus_base.proto";
+
+option go_package = "./netflix/titus";
+
+// An entity representing combined capacity requirement for a collection of
+// workloads referencing it. The capacity requirement is defined in the form of
+// resource dimensions for an instance of the workload, number of such instances
+// and their preferred percent distribution across given Titus deployment cells.
+// The latter is orchestrated by a federation control plane layer.
+message FederatedCapacityGroup {
+  // Name of the federated CapacityGroup resource. This is used to uniquely
+  // identify existing resources.
+  string capacityGroupName = 1;
+
+  // This information contains the shape of a resource and a count of such
+  // resources reflective of the capacity
+  FederatedCapacity federatedCapacity = 2;
+
+  // Resource pool to associate with the described capacity requirement. Each
+  // resource pool corresponds to a varying degree of guaranteed availability of
+  // the Compute capacity.
+  string resourcePool = 3;
+
+  // A map containing Titus deployment cell name key and desired percent
+  // distribution value. Sum of all distribution values should equal to 100%.
+  map<string, uint32> cellPercentDist = 4;
+
+  // Original name represents the "classic" name of the capacity group, before
+  // Fedv2.
+  string originalName = 5;
+
+  // Tier: Critical|Flex, is a setting that is pushed down to the capacity groups
+  // created on each cell
+  string tier = 6;
+};
+
+message FederatedCapacity {
+  // Total number of instances of the referenced ResourceDimension expected to
+  // use Compute capacity at the same time.
+  int32 instanceCount = 1;
+
+  // Expected resource requirement for each instance referencing the capacity
+  // group.
+  ResourceDimension resourceDimension = 2;
+};
+
+message CreateFederatedCapacityGroupRequest {
+  // FederatedCapacityGroup resource to create
+  FederatedCapacityGroup federatedCapacityGroup = 1;
+};
+
+message CreateFederatedCapacityGroupResponse {};
+
+message UpdateFederatedCapacityRequest {
+  // Name of the FederatedCapacityGroup to perform the update for
+  string capacityGroupName = 1;
+
+  // New value for the FederatedCapacity to update
+  FederatedCapacity federatedCapacity = 2;
+};
+
+message UpdateFederatedCapacityResponse {};
+
+message DeleteFederatedCapacityGroupRequest {
+  // Name of the FederatedCapacityGroup resource to delete
+  string capacityGroupName = 1;
+};
+message DeleteFederatedCapacityGroupResponse {};
+
+message GetFederatedCapacityGroupRequest {
+  // FederatedCapacityGroups to read by name. Unspecified field value will be
+  // interpreted as all existing resources.
+  repeated string capacityGroupNames = 1;
+};
+
+message GetFederatedCapacityGroupResponse {
+  repeated FederatedCapacityGroup federatedCapacityGroups = 1;
+};
+
+service FederatedCapacityGroupService {
+  // Creates a FederatedCapacityGroup resource
+  rpc CreateFederatedCapacityGroup(CreateFederatedCapacityGroupRequest)
+      returns (CreateFederatedCapacityGroupResponse) {}
+
+  // Updates capacity on an existing FederatedCapacityGroup resource
+  rpc UpdateFederatedCapacity(UpdateFederatedCapacityRequest)
+      returns (UpdateFederatedCapacityResponse) {}
+
+  // Deletes an existing FederatedCapacityGroup resource
+  rpc DeleteFederatedCapacityGroup(DeleteFederatedCapacityGroupRequest)
+      returns (DeleteFederatedCapacityGroupResponse) {}
+
+  // Retrieves existing FederatedCapacityGroup resources
+  rpc GetFederatedCapacityGroup(GetFederatedCapacityGroupRequest)
+      returns (GetFederatedCapacityGroupResponse) {}
+}

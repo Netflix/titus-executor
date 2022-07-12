@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+// Titus job activity API specification.
+//
+
+package com.netflix.titus;
+
+import "netflix/titus/titus_job_api.proto";
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "JobActivityHistoryProto";
+
+option go_package = "./netflix/titus";
+
+// This is an experimental API for JobActivityHistory service.
+//  It is currently in alpha testing phase.
+// Backward compatibility is NOT guaranteed
+
+message JobActivityQuery { string jobId = 1; }
+
+message ActivityRecord {
+
+  message Caller {
+
+    // (Required) A caller identifier. Depending on the user identity (a user
+    // or an application), the format
+    // of the id may be different. For example a user's id could be their email
+    // address, and application's id its name.
+    string id = 1;
+
+    // (Optional) The caller type.
+    CallerType type = 2;
+
+    // (Optional) Additional data associated with the caller. Key names
+    // starting with 'titus' are reserved for Titus.
+    //  Predefined context keys:
+    //  * 'titus.service.name' - name of the service that is invoked
+    //  * 'titus.service.method' - nome of the method that is invoked
+    //  * 'titus.transport.type' - transport type (HTTP/GRPC)
+    //  * 'titus.transport.secure' - true for TLS, false for plain text
+    map<string, string> context = 3;
+  }
+
+  enum CallerType {
+    Unknown = 0;
+
+    Application = 1;
+
+    User = 2;
+  }
+
+  message TaskInfo {
+    string taskId = 1;
+    string taskState = 2;
+  }
+
+  message Capacity {
+    // Minimum number of tasks to run (min >= 0)
+    uint32 min = 1;
+
+    // Maximum number of tasks that can be run (max >= desired)
+    uint32 max = 2;
+
+    // Desired number of tasks to run (min <= desired <= max)
+    uint32 desired = 3;
+  }
+
+  // job id
+  string jobId = 1;
+
+  // job state
+  string jobState = 2;
+
+  // time when the state transition occurred
+  uint64 timestamp = 3;
+
+  // The first item in the list is the original caller, followed by a sequence
+  // of intermediaries via which the
+  // original call was relayed.
+  repeated Caller callers = 4;
+
+  // call reason
+  string callReason = 5;
+
+  // (Optional) An identifier of an event that caused a transition to this
+  // state. Each job manager can introduce its own
+  //  set of reason codes. As of now, there are no common reason codes defined
+  //  for jobs.
+  string reasonCode = 6;
+
+  // (Optional) Textual description accompanying the 'reasonCode'.
+  string reasonMessage = 7;
+
+  // Capacity information
+  Capacity capacity = 8;
+
+  // (Optional) Task info
+  TaskInfo taskInfo = 9;
+}
+
+message ActivityQueryResult { repeated ActivityRecord items = 1; }
+
+// Alpha version, backward compatibility not guaranteed
+service JobActivityHistoryService {
+  // Return a collection of activity records for a given job
+  rpc ViewScalingActivities(JobId) returns (ActivityQueryResult) {}
+}

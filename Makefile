@@ -138,7 +138,7 @@ push-titus-agent: titus-agent
 
 ## Protobuf and source code generation
 
-PROTO_DIR     = vendor/github.com/Netflix/titus-api-definitions/src/main/proto
+PROTO_DIR     = api
 PROTOS        := $(PROTO_DIR)/netflix/titus/titus_base.proto $(PROTO_DIR)/netflix/titus/titus_agent_api.proto $(PROTO_DIR)/netflix/titus/agent.proto $(PROTO_DIR)/netflix/titus/titus_vpc_api.proto $(PROTO_DIR)/netflix/titus/titus_job_api.proto $(PROTO_DIR)/netflix/titus/titus_volumes.proto $(PROTO_DIR)/netflix/titus/titus_containers.proto
 PROTOS_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%.pb.go,$(PROTOS))
 GRPC_OUT	  := $(patsubst $(PROTO_DIR)/%.proto,api/%_grpc.pb.go,$(PROTOS))
@@ -146,12 +146,8 @@ PROTO_MAP	:= Mnetflix/titus/titus_base.proto=github.com/Netflix/titus-executor/a
 .PHONY: protogen
 protogen: $(PROTOS_OUT) vpc/api/vpc.pb.go metadataserver/api/iam.pb.go | $(clean) $(clean-proto-defs)
 
-vendor: vendor/modules.txt
-vendor/modules.txt: go.mod
-	go mod vendor
-
-$(PROTOS): vendor
-$(GRPC_OUT) $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+$(PROTOS):
+$(GRPC_OUT) $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) | $(clean) $(clean-proto-defs)
 	mkdir -p api/netflix/titus
 	$(eval PROTO := $(patsubst api/%.pb.go,$(PROTO_DIR)/%.proto,$@))
 	protoc \
@@ -168,7 +164,7 @@ $(GRPC_OUT) $(PROTOS_OUT): $(PROTOS) $(GOBIN_TOOL) vendor | $(clean) $(clean-pro
 	$(GOIMPORT_TOOL) $@
 
 ## TODO: Use git wildcard functionality to "automatically"
-vpc/api/vpc_grpc.pb.go vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+vpc/api/vpc_grpc.pb.go vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) | $(clean) $(clean-proto-defs)
 	mkdir -p vpc/api
 	protoc \
 		--plugin=protoc-gen-titusgrpc=$(shell $(GOBIN_TOOL) -p google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1) \
@@ -184,7 +180,7 @@ vpc/api/vpc_grpc.pb.go vpc/api/vpc.pb.go: vpc/proto/vpc.proto $(GOBIN_TOOL) vend
 		vpc/proto/vpc.proto
 	$(GOIMPORT_TOOL) $@
 
-metadataserver/api/iam_grpc.pb.go metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) vendor | $(clean) $(clean-proto-defs)
+metadataserver/api/iam_grpc.pb.go metadataserver/api/iam.pb.go: metadataserver/proto/iam.proto $(GOBIN_TOOL) | $(clean) $(clean-proto-defs)
 	mkdir -p metadataserver/api
 	protoc \
 		--plugin=protoc-gen-titusgrpc=$(shell $(GOBIN_TOOL) -p google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1) \
