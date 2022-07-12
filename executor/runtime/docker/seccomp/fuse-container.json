@@ -803,7 +803,8 @@
          "names": [
             "settimeofday",
             "stime",
-            "clock_settime"
+            "clock_settime",
+            "clock_settime64"
          ]
       },
       {
