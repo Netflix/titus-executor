@@ -88,11 +88,6 @@ func (vpcService *vpcService) reconcileBranchAttachmentsENIsForRegionAccount(ctx
 	associationIDs := sets.NewString()
 	// 1. Check that there aren't any stray associations that we do not know about
 	for _, assoc := range associations {
-		ctx2 := logger.WithField(ctx, "associationID", aws.StringValue(assoc.AssociationId))
-		err = vpcService.reconcileBranchENIAttachment(ctx2, session, assoc)
-		if err != nil {
-			logger.G(ctx2).WithError(err).Error("Could not reconcile association")
-		}
 		associationIDs.Insert(aws.StringValue(assoc.AssociationId))
 	}
 
@@ -240,65 +235,6 @@ WHERE trunk_enis.account_id = $1
 	}
 
 	return orphanedENIAttachments, nil
-}
-
-func (vpcService *vpcService) reconcileBranchENIAttachment(ctx context.Context, session *ec2wrapper.EC2Session, association *ec2.TrunkInterfaceAssociation) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "reconcileBranchENIAttachment")
-	defer span.End()
-
-	associationID := aws.StringValue(association.AssociationId)
-	span.AddAttributes(trace.StringAttribute("assocationID", associationID))
-	// 1. Do we know about this association?
-	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{
-		// TODO: Consider making this level serializable
-	})
-	if err != nil {
-		err = errors.Wrap(err, "Could not start database transaction")
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	row := tx.QueryRowContext(ctx, "SELECT branch_eni, trunk_eni, idx FROM branch_eni_attachments WHERE association_id = $1", associationID)
-	var branchENI, trunkENI string
-	var idx int
-	err = row.Scan(&branchENI, &trunkENI, &idx)
-	if err == sql.ErrNoRows {
-		if err != nil {
-			// The one case where this could be a real thing is if it was an association when we did the describe
-			// but the association has been deleted while the describe loop was running. We don't really account
-			// for that.
-			err = errors.Wrapf(err, "Could not reconcile eni attachment %q not found in database", associationID)
-			logger.G(ctx).WithError(err).Error("Cannot reconcile attachment")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
-
-		err = tx.Commit()
-		if err != nil {
-			err = errors.Wrap(err, "Could not commit transaction")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
-
-		return nil
-	} else if err != nil {
-		err = errors.Wrap(err, "Could not scan branch ENI attachment row")
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		err = errors.Wrap(err, "Could not commit transaction")
-		tracehelpers.SetStatus(err, span)
-		return err
-	}
-	return nil
 }
 
 func (vpcService *vpcService) getBranchENIRegionAccounts(ctx context.Context) ([]data.KeyedItem, error) {
