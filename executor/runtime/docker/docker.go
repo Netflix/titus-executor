@@ -498,7 +498,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		// seccomp profile will automatically adjust based on the capabilities.
 		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
 	} else {
-		err = setupAdditionalCapabilities(c, hostCfg)
+		err = setupAdditionalCapabilities(c, hostCfg, runtimeTypes.MainContainerName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1992,7 +1992,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 	}
 
 	// Security options are inherited from the main container's configuration
-	err := setupAdditionalCapabilities(r.c, dockerHostConfig)
+	err := setupAdditionalCapabilities(r.c, dockerHostConfig, c.Name)
 	if err != nil {
 		return nil, nil, nil, err
 	}

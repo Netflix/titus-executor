@@ -153,6 +153,7 @@ type Container interface {
 	IngressBandwidthLimitBps() *int64
 	BatchPriority() *string
 	Capabilities() *corev1.Capabilities
+	ContainerCapabilities(containerName string) ([]titus.ContainerCapability, error)
 	CombinedAppStackDetails() string
 	SyntheticContainerInfo() (*titus.ContainerInfo, error)
 	EBSInfo() EBSInfo
@@ -162,7 +163,6 @@ type Container interface {
 	ElasticIPs() *string
 	ExtraUserContainers() []*ExtraContainer
 	ExtraPlatformContainers() []*ExtraContainer
-	FuseEnabled() bool
 	GPUInfo() GPUContainer
 	HostnameStyle() *string
 	IamRole() *string
