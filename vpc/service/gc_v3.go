@@ -293,7 +293,14 @@ JOIN availability_zones ON subnets.account_id = availability_zones.account_id
 AND subnets.az = availability_zones.zone_name
 WHERE (branch_enis.branch_eni NOT IN
          (SELECT branch_eni
-          FROM attached_enis))
+          FROM attached_enis)
+       OR
+         (SELECT generation
+          FROM trunk_enis
+          WHERE trunk_eni =
+              (SELECT trunk_eni
+               FROM attached_enis
+               WHERE branch_eni = branch_enis.branch_eni)) = 3)
   AND branch_enis.account_id = $1
   AND availability_zones.region = $2
 ORDER BY RANDOM()
