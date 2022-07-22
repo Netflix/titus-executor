@@ -305,7 +305,7 @@ func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cre
 		// controller path to do memory accounting.
 		controllerPath := cgroupInfo[2]
 		fsPath := filepath.Join(sysFsCgroup, controllerType, controllerPath)
-		logrus.Infof("chowning cgroup path: %s to %d %d", fsPath, cred.uid, cred.gid)
+		logrus.Debugf("chowning cgroup path: %s to %d %d", fsPath, cred.uid, cred.gid)
 		err = os.Chown(fsPath, int(cred.uid), int(cred.gid))
 		if err != nil {
 			logrus.WithError(err).Error("Could not chown systemd cgroup path")
