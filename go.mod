@@ -1,6 +1,6 @@
 module github.com/Netflix/titus-executor
 
-go 1.13
+go 1.17
 
 require (
 	contrib.go.opencensus.io/exporter/zipkin v0.1.1

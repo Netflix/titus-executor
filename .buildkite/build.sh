@@ -7,7 +7,7 @@ log() {
 
 apt-get -y install shellcheck libseccomp-dev pkg-config
 
-GO_VERSION=1.16.15
+GO_VERSION=1.17.12
 GO_INSTALL_DIR=${HOME}/go_installs/${GO_VERSION}
 if [[ ! -d ${GO_INSTALL_DIR}/go ]]; then
     mkdir -p ${GO_INSTALL_DIR}
