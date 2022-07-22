@@ -362,7 +362,7 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	mainContainer := &pod.Spec.Containers[0]
 	if jobInput.mainContainerPreStopHook != nil {
 		pod.Spec.Containers[0].Lifecycle = &corev1.Lifecycle{
-			PreStop: &corev1.Handler{
+			PreStop: &corev1.LifecycleHandler{
 				Exec: jobInput.mainContainerPreStopHook,
 			},
 		}

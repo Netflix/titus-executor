@@ -1407,7 +1407,7 @@ func TestBasicMultiContainerFailingHealthcheck(t *testing.T) {
 				Command: []string{"/bin/sh", "-c"},
 				Args:    []string{"/bin/sleep 600"},
 				LivenessProbe: &corev1.Probe{
-					Handler: corev1.Handler{
+					ProbeHandler: corev1.ProbeHandler{
 						Exec: &badHealthcheckCommand,
 					},
 					TimeoutSeconds:   1,
