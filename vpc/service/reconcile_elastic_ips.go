@@ -9,6 +9,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
@@ -36,7 +37,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 	})
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -47,7 +48,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 
 	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_elastic_ips (allocation_id TEXT PRIMARY KEY, account_id text, public_ip inet, tags jsonb, network_border_group text) ON COMMIT DROP")
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return errors.Wrap(err, "Could not create temporary table for known eips")
 	}
 
@@ -74,7 +75,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 		)
 		if err != nil {
 			err = errors.Wrap(err, "Could not update known_elastic_ips")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 	}
@@ -95,7 +96,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 
 	if err != nil {
 		err = errors.Wrap(err, "Could not insert new elastic IPs")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -111,7 +112,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 
 	if err != nil {
 		err = errors.Wrap(err, "Could not delete elastic IPs")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 

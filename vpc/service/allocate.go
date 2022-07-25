@@ -8,6 +8,7 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
@@ -45,7 +46,7 @@ func getDummyStaticInterface(ctx context.Context, session *ec2wrapper.EC2Session
 	createNetworkInterfaceOutput, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)
 	if err != nil {
 		err = fmt.Errorf("Cannot create dummy static network interface: %w", err)
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -171,7 +172,7 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	_, err = tx.ExecContext(ctx, "INSERT INTO ip_addresses (id) VALUES ($1)", alloc.id)
 	if err != nil {
 		err = errors.Wrapf(err, "Cannot insert allocation record for UUID %s", alloc.id)
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -179,12 +180,12 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	err = row.Scan(&alloc.subnetID, &alloc.subnet, &alloc.az, &alloc.vpc, &alloc.account)
 	if err == sql.ErrNoRows {
 		err = status.Errorf(codes.NotFound, "Could not find subnet ID %s", rq.AddressAllocation.AddressLocation.SubnetId)
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	if err != nil {
 		err = errors.Wrap(err, "Cannot query subnet")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -195,14 +196,14 @@ func (vpcService *vpcService) AllocateAddress(ctx context.Context, rq *titus.All
 	})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get AWS session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	iface, err := getDummyStaticInterface(ctx, session, rq.AddressAllocation.AddressLocation.SubnetId)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get AWS session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 

@@ -109,7 +109,7 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccount(ctx context.Con
 		describeNetworkInterfacesOutput, err := session.DescribeNetworkInterfaces(ctx, describeNetworkInterfacesInput)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot describe network interfaces")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 

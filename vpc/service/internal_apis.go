@@ -127,7 +127,7 @@ func (vpcService *vpcService) doAssociateTrunkNetworkInterface(ctx context.Conte
 		accountID: branchENIAccountID,
 	})
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -145,7 +145,7 @@ func (vpcService *vpcService) doAssociateTrunkNetworkInterface(ctx context.Conte
 				logger.G(ctx).WithError(err2).Error("Failed to commit transaction early due to persistent AWS error")
 			}
 		}
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -202,7 +202,7 @@ func (vpcService *vpcService) doDisassociateTrunkNetworkInterface(ctx context.Co
 				logger.G(ctx).WithError(err2).Error("Failed to commit transaction early")
 			}
 		}
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -394,7 +394,7 @@ func (vpcService *vpcService) doDetachBranchNetworkInterface(ctx context.Context
 				logger.G(ctx).WithError(err2).Error("Failed to commit transaction early")
 			}
 		}
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 

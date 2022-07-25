@@ -578,7 +578,7 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 	err := row.Scan(&permissions)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot retrieve from branch ENI permissions")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 	if permissions > 0 {
@@ -600,7 +600,7 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 	_, err = tx.ExecContext(ctx, "INSERT INTO eni_permissions(branch_eni, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING ", eni.id, trunkENIAccountID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot insert network interface permission into database")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -1075,11 +1075,11 @@ UPDATE OF branch_eni_attachments SKIP LOCKED
 
 	err := row.Scan(&idx, &branchENI, &associationID)
 	if err == sql.ErrNoRows {
-		span.SetStatus(traceStatusFromError(errAllENIsInUse))
+		tracehelpers.SetStatus(errAllENIsInUse, span)
 		return 0, "", "", errAllENIsInUse
 	} else if err != nil {
 		err = errors.Wrap(err, "Cannot get unused branch ENI to detach")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return 0, "", "", err
 	}
 

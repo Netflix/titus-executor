@@ -70,7 +70,7 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.AccountID, Region: subnet.Region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get EC2 session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
