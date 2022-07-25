@@ -290,16 +290,9 @@ func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec
 	defer func() {
 		_ = tx.Rollback()
 	}()
-	id, err := insertTrunkENIIntoDB(ctx, tx, createNetworkInterfaceResult.NetworkInterface, generation)
+	err = insertTrunkENIIntoDB(ctx, tx, createNetworkInterfaceResult.NetworkInterface, generation)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update trunk enis")
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
-
-	_, err = tx.ExecContext(ctx, "INSERT INTO htb_classid(trunk_eni, class_id) SELECT $1, generate_series(10010, 11000)", id)
-	if err != nil {
-		err = errors.Wrap(err, "Cannot get generate HTB class ID slots")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
@@ -315,7 +308,7 @@ func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec
 }
 
 // inserts an ENI into the database in a non-conflicting way, and tombstones it
-func insertTrunkENIIntoDB(ctx context.Context, tx *sql.Tx, eni *ec2.NetworkInterface, generation int) (int, error) {
+func insertTrunkENIIntoDB(ctx context.Context, tx *sql.Tx, eni *ec2.NetworkInterface, generation int) error {
 	// TODO: Use the availability_zones table
 	region := azToRegionRegexp.FindString(aws.StringValue(eni.AvailabilityZone))
 
@@ -338,7 +331,17 @@ RETURNING id
 
 	var id int
 	err := row.Scan(&id)
-	return id, err
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO htb_classid(trunk_eni, class_id) SELECT $1, generate_series(10010, 11000)", id)
+	if err != nil {
+		err = errors.Wrap(err, "Cannot get generate HTB class ID slots")
+		return err
+	}
+
+	return err
 }
 
 func (vpcService *vpcService) getTrunkENIRegionAccounts(ctx context.Context) ([]data.KeyedItem, error) {

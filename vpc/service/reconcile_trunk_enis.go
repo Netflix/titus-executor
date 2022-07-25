@@ -302,7 +302,7 @@ func (vpcService *vpcService) reconcileAttachedTrunkENI(ctx context.Context, ses
 	}()
 
 	// Generation is only set at ENI creation time, not updated
-	_, err = insertTrunkENIIntoDB(ctx, tx, networkInterface, 0)
+	err = insertTrunkENIIntoDB(ctx, tx, networkInterface, 0)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot update trunk enis")
 		tracehelpers.SetStatus(err, span)
