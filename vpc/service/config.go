@@ -27,7 +27,6 @@ import (
 type Config struct {
 	DBURL                 string
 	Key                   vpcapi.PrivateKey
-	MaxConcurrentRefresh  int64
 	MaxConcurrentRequests int
 	MaxIdleConnections    int
 	MaxOpenConnections    int
@@ -77,7 +76,6 @@ func NewConfig(ctx context.Context, v *viper.Viper) (*Config, error) {
 	return &Config{
 		DBURL:                 v.GetString(config.DBURLFlagName),
 		Key:                   signingKey, // nolint:govet
-		MaxConcurrentRefresh:  v.GetInt64(config.MaxConcurrentRefreshFlagName),
 		MaxConcurrentRequests: v.GetInt(config.MaxConcurrentRequestsFlagName),
 		MaxIdleConnections:    v.GetInt(config.MaxIdleConnectionsFlagName),
 		MaxOpenConnections:    v.GetInt(config.MaxOpenConnectionsFlagName),

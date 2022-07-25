@@ -64,7 +64,6 @@ func TestService(t *testing.T) {
 		vpcServiceConfig := &Config{
 			DBURL:                 "",
 			Key:                   key, // nolint:govet
-			MaxConcurrentRefresh:  10,
 			ReconcileInterval:     5 * time.Minute,
 			TLSConfig:             nil,
 			EnabledTaskLoops:      []string{},

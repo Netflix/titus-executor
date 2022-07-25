@@ -126,7 +126,6 @@ func runVpcService(ctx context.Context, t *testing.T, addr string,
 	vpcServiceConfig := &Config{
 		DBURL:                 dbContainer.DBURL(),
 		Key:                   key, // nolint:govet
-		MaxConcurrentRefresh:  10,
 		ReconcileInterval:     5 * time.Minute,
 		TLSConfig:             nil,
 		EnabledTaskLoops:      []string{},

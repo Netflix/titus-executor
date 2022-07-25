@@ -7,7 +7,6 @@ const (
 	DebugAddressFlagName          = "debug-address"
 	MaxIdleConnectionsFlagName    = "max-idle-connections"
 	MaxOpenConnectionsFlagName    = "max-open-connections"
-	MaxConcurrentRefreshFlagName  = "max-concurrent-refresh"
 	MaxConcurrentRequestsFlagName = "max-concurrent-requests"
 	WorkerRoleFlagName            = "worker-role"
 	DBURLFlagName                 = "dburl"
