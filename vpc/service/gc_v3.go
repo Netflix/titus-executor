@@ -94,7 +94,24 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 	ctx = logger.WithLogger(ctx, log)
 	ctx = logger.WithFields(ctx, map[string]interface{}{
 		"instance": req.InstanceIdentity.InstanceID,
+		"taskIds":  req.RunningTaskIDs,
 	})
+
+	resp, err := vpcService.doGCV3(ctx, req)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Failed to get assignments to GC")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (vpcService *vpcService) doGCV3(ctx context.Context, req *vpcapi.GCRequestV3) (*vpcapi.GCResponseV3, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "doGCV3")
+	defer span.End()
+
 	span.AddAttributes(
 		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 	)
