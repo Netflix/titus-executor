@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"math/rand"
 	"net"
+	"regexp"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -32,6 +33,7 @@ import (
 const (
 	invalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
 	assignTimeout                = 5 * time.Minute
+	batchSize                    = 4
 )
 
 var (
@@ -39,6 +41,19 @@ var (
 	errOnlyStaticAddressesAssigned = errors.New("We only found static IP addresses on this interface, and there are no free dynamic IPs")
 	errZeroAddresses               = errors.New("Zero addresses in Elastic IP list")
 )
+
+var (
+	azToRegionRegexp = regexp.MustCompile("[a-z]+-[a-z]+-[0-9]+")
+)
+
+func (vpcService *vpcService) getTrunkENI(instance *ec2.Instance) *ec2.InstanceNetworkInterface {
+	for _, iface := range instance.NetworkInterfaces {
+		if aws.StringValue(iface.InterfaceType) == "trunk" {
+			return iface
+		}
+	}
+	return nil
+}
 
 func (vpcService *vpcService) getSessionAndTrunkInterface(ctx context.Context, instanceIdentity *vpcapi.InstanceIdentity) (*ec2wrapper.EC2Session, *ec2.Instance, *ec2.InstanceNetworkInterface, error) {
 	ctx, cancel := context.WithCancel(ctx)
