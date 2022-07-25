@@ -11,6 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
+	"github.com/Netflix/titus-executor/vpc/service/db"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/aws/aws-sdk-go/aws"
@@ -295,34 +296,18 @@ func (vpcService *vpcService) getAllENIs(ctx context.Context, region, accountID 
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `
-	SELECT branch_enis.branch_eni
-	FROM branch_enis
-	JOIN subnets ON branch_enis.subnet_id = subnets.subnet_id
-	JOIN availability_zones ON subnets.account_id = availability_zones.account_id
-	AND subnets.az = availability_zones.zone_name
-	WHERE branch_enis.account_id = $1
-	  AND availability_zones.region = $2
-	ORDER BY RANDOM()
-	  `, accountID, region)
+	enis, err := db.GetAllBranchENIsByAccountRegion(ctx, tx, accountID, region)
 	if err != nil {
-		err = errors.Wrap(err, "Could not start database query to enumerate attached ENIs")
+		err = errors.Wrap(err, "Failed to get all branch ENIs from DB")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	for rows.Next() {
-		var eni string
-		err = rows.Scan(&eni)
-		if err != nil {
-			err = errors.Wrap(err, "Could scan eni ID")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
+	for _, eni := range enis {
 		select {
 		case ch <- eni:
 		case <-ctx.Done():
-			err = fmt.Errorf("Context done while trying to write to gc-able ENIs: %w", ctx.Err())
+			err = fmt.Errorf("Context done while trying to write to ENIs channel: %w", ctx.Err())
 			tracehelpers.SetStatus(err, span)
 			return err
 		}
