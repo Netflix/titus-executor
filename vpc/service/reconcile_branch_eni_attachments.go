@@ -35,7 +35,7 @@ func (vpcService *vpcService) reconcileBranchENIAttachmentLoop(ctx context.Conte
 	for {
 		err := vpcService.reconcileBranchAttachmentsENIsForRegionAccount(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Failed to reconcile branch ENIs")
+			logger.G(ctx).WithError(err).Error("Failed to reconcile branch ENI attachments")
 		}
 		err = waitFor(ctx, timeBetweenBranchENIAttachmentReconcilation)
 		if err != nil {

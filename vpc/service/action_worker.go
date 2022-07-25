@@ -99,7 +99,7 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item data.KeyedItem)
 		case <-ctx.Done():
 			return ctx.Err()
 		case err = <-errCh:
-			logger.G(ctx).WithError(err).Error("Worker exiting")
+			logger.G(ctx).WithError(err).Error("Worker failed")
 			return err
 		case <-pingTimer.C:
 			go func() {

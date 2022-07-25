@@ -35,12 +35,17 @@ func (vpcService *vpcService) reconcileSubnetCIDRReservationsLoop(ctx context.Co
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	item := protoItem.(*data.Subnet)
+	subnet := protoItem.(*data.Subnet)
 	for {
 		var resetTime time.Duration
-		err := vpcService.doReconcileSubnetCIDRReservations(ctx, item)
+		ctx = logger.WithFields(ctx, map[string]interface{}{
+			"subnet":    subnet.SubnetID,
+			"accountID": subnet.AccountID,
+			"az":        subnet.Az,
+		})
+		err := vpcService.doReconcileSubnetCIDRReservations(ctx, subnet)
 		if err != nil {
-			logger.G(ctx).WithField("region", item.Region).WithField("accountID", item.AccountID).WithError(err).Error("Failed to reconcile subnet CIDR Reservations")
+			logger.G(ctx).WithError(err).Error("Failed to reconcile subnet CIDR Reservations")
 			resetTime = timeBetweenErrors
 		} else {
 			resetTime = timeBetweenSubnetCIDRReservationReconcilation
@@ -60,11 +65,6 @@ func (vpcService *vpcService) doReconcileSubnetCIDRReservations(ctx context.Cont
 		trace.StringAttribute("accountID", subnet.AccountID),
 		trace.StringAttribute("az", subnet.Az),
 	)
-	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"subnet":    subnet.SubnetID,
-		"accountID": subnet.AccountID,
-		"az":        subnet.Az,
-	})
 	logger.G(ctx).Debug("Beginning reconcilation of Subnet CIDR Reservations")
 
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.AccountID, Region: subnet.Region})

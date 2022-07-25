@@ -58,9 +58,13 @@ func (vpcService *vpcService) getRegionAccounts(ctx context.Context) ([]data.Key
 func (vpcService *vpcService) doReconcileSubnetsForRegionAccountLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	item := protoItem.(*regionAccount)
 	for {
+		ctx = logger.WithFields(ctx, map[string]interface{}{
+			"region":    item.region,
+			"accountID": item.accountID,
+		})
 		err := vpcService.doReconcileSubnetsForRegionAccount(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithField("region", item.region).WithField("accountID", item.accountID).WithError(err).Error("Failed to reconcile subnets")
+			logger.G(ctx).WithError(err).Error("Failed to reconcile subnets")
 		}
 		err = waitFor(ctx, timeBetweenSubnetReconcilation)
 		if err != nil {
@@ -86,10 +90,7 @@ func (vpcService *vpcService) doReconcileSubnetsForRegionAccount(ctx context.Con
 		return err
 	}
 
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"region":    account.region,
-		"accountID": account.accountID,
-	}).Info("Beginning reconcilation of subnets")
+	logger.G(ctx).Info("Beginning reconcilation of subnets")
 
 	ec2client := vpcService.ec2.NewEC2(session.Session)
 
