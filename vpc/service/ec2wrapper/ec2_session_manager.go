@@ -34,7 +34,6 @@ var (
 	getInstanceCount            = stats.Int64("getInstance.count", "How many times getInstance was called", "")
 	getInstanceSuccess          = stats.Int64("getInstance.success.count", "How many times getInstance succeeded", "")
 	cachedInstances             = stats.Int64("cache.instances", "How many instances are cached", "")
-	cachedSubnets               = stats.Int64("cache.subnets", "How many subnets are cached", "")
 	cachedInstancesFreed        = stats.Int64("cache.instance.freed", "How many instances have been evicted from cache", "")
 )
 
@@ -140,13 +139,11 @@ func (sessionManager *EC2SessionManager) GetSessionFromAccountAndRegion(ctx cont
 		ec2Session.instanceCache.OnDelete(func(*ccache.Item) {
 			stats.Record(ctx, cachedInstancesFreed.M(1))
 		})
-		ec2Session.subnetCache = ccache.New(ccache.Configure().MaxSize(1000).ItemsToPrune(10))
 
 		go func() {
 			mutators := []tag.Mutator{tag.Upsert(keyRegion, sessionKey.Region), tag.Upsert(keyAccountID, sessionKey.AccountID)}
 			for {
 				time.Sleep(time.Second)
-				_ = stats.RecordWithTags(ctx, mutators, cachedSubnets.M(int64(ec2Session.subnetCache.ItemCount())))
 				_ = stats.RecordWithTags(ctx, mutators, cachedInstances.M(int64(ec2Session.instanceCache.ItemCount())))
 			}
 		}()
