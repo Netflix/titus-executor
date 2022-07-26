@@ -46,6 +46,25 @@ var (
 	ErrorReconcileSGsCount                    = stats.Int64("error.reconcileSGs", "The number of time failing to reconcile security groups", stats.UnitNone)
 	ErrorReconcileSubnetCIDRReservationsCount = stats.Int64("error.reconcileSubnetCIDRReservations", "The number of time failing to reconcile subnet CIDR reservations", stats.UnitNone)
 	ErrorMonitorRouteTableCount               = stats.Int64("error.monitorRouteTable", "The number of time failing to monitor route table", stats.UnitNone)
+
+	// Distribution measures
+
+	ReconcileEIPsLatency                   = stats.Int64("loop.reconcileEIPs.latency", "The latency to reconcile elastic IPs", stats.UnitMilliseconds)
+	ReconcileAZsLatency                    = stats.Int64("loop.reconcileAZs.latency", "The latency to reconcile availability zones", stats.UnitMilliseconds)
+	PruneLastUsedIPsLatency                = stats.Int64("loop.pruneLastUsedIPs.latency", "The latency to prune last used IPs", stats.UnitMilliseconds)
+	ReconcileBranchENIAttachmentsLatency   = stats.Int64("loop.reconcileBranchENIAttachments.latency", "The latency to reconcile branch ENI attachments", stats.UnitMilliseconds)
+	GCBranchENIsLatency                    = stats.Int64("loop.gcBranchENIs.latency", "The latency to GC branch ENIs", stats.UnitMilliseconds)
+	DeleteExcessBranchENIsLatency          = stats.Int64("loop.deleteExcessBranchENIs.latency", "The latency to delete excess branch ENIs", stats.UnitMilliseconds)
+	DetachUnusedBranchENIsLatency          = stats.Int64("loop.detachUnusedBranchENIs.latency", "The latency to detach unused branch ENIs", stats.UnitMilliseconds)
+	DeleteFailedAssignmentsLatency         = stats.Int64("loop.deleteFailedAssignments.latency", "The latency to delete failed assignments", stats.UnitMilliseconds)
+	ReconcileSubnetsLatency                = stats.Int64("loop.reconcileSubnets.latency", "The latency to reconcile subnets", stats.UnitMilliseconds)
+	ReconcileBranchENIsLatency             = stats.Int64("loop.reconcileBranchENIs.latency", "The latency to reconcile branch ENIs", stats.UnitMilliseconds)
+	ReconcileTrunkENIsLatency              = stats.Int64("loop.reconcileTrunkENIs.latency", "The latency to reconcile trunk ENIs", stats.UnitMilliseconds)
+	AssociateBranchENILatency              = stats.Int64("loop.associateBranchENI.latency", "The latency to associate branch ENI", stats.UnitMilliseconds)
+	DisassociateBranchENILatency           = stats.Int64("loop.disassociateBranchENI.latency", "The latency to disassociate branch ENI", stats.UnitMilliseconds)
+	ReconcileSGsLatency                    = stats.Int64("loop.reconcileSGs.latency", "The latency to reconcile security groups", stats.UnitMilliseconds)
+	ReconcileSubnetCIDRReservationsLatency = stats.Int64("loop.reconcileSubnetCIDRReservations.latency", "The latency to reconcile subnet CIDR reservations", stats.UnitMilliseconds)
+	MonitorRouteTableLatency               = stats.Int64("loop.monitorRouteTable.latency", "The latency to monitor route table", stats.UnitMilliseconds)
 )
 
 func init() {
@@ -92,6 +111,38 @@ func init() {
 				Description: counterMeasures[idx].Description(),
 				Measure:     counterMeasures[idx],
 				Aggregation: view.Count(),
+			},
+		); err != nil {
+			panic(err)
+		}
+	}
+
+	distributionMeasures := []stats.Measure{
+		ReconcileEIPsLatency,
+		ReconcileAZsLatency,
+		PruneLastUsedIPsLatency,
+		ReconcileBranchENIAttachmentsLatency,
+		GCBranchENIsLatency,
+		DeleteExcessBranchENIsLatency,
+		DetachUnusedBranchENIsLatency,
+		DeleteFailedAssignmentsLatency,
+		ReconcileSubnetsLatency,
+		ReconcileBranchENIsLatency,
+		ReconcileTrunkENIsLatency,
+		AssociateBranchENILatency,
+		DisassociateBranchENILatency,
+		ReconcileSGsLatency,
+		ReconcileSubnetCIDRReservationsLatency,
+		MonitorRouteTableLatency,
+	}
+
+	for idx := range distributionMeasures {
+		if err := view.Register(
+			&view.View{
+				Name:        distributionMeasures[idx].Name(),
+				Description: distributionMeasures[idx].Description(),
+				Measure:     distributionMeasures[idx],
+				Aggregation: view.Distribution(),
 			},
 		); err != nil {
 			panic(err)

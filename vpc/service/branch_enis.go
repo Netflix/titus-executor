@@ -1107,7 +1107,8 @@ func (vpcService *vpcService) associateActionWorker() *actionWorker {
 		name:            "associateWorker2",
 		table:           "branch_eni_attachments",
 		maxWorkTime:     30 * time.Second,
-		errorCounter:    metrics.ErrorAssociateBranchENICount,
+		errorMeasure:    metrics.ErrorAssociateBranchENICount,
+		latencyMeasure:  metrics.AssociateBranchENILatency,
 
 		pendingState: attaching,
 
@@ -1127,7 +1128,8 @@ func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
 		name:            "disassociateWorker2",
 		table:           "branch_eni_attachments",
 		maxWorkTime:     30 * time.Second,
-		errorCounter:    metrics.ErrorDisassociateBranchENICount,
+		errorMeasure:    metrics.ErrorDisassociateBranchENICount,
+		latencyMeasure:  metrics.DisassociateBranchENILatency,
 
 		pendingState: unattaching,
 

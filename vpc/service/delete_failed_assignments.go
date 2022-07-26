@@ -23,10 +23,13 @@ func (vpcService *vpcService) deleteFailedAssignments(ctx context.Context, proto
 	defer cancel()
 
 	for {
+		start := time.Now()
 		err := vpcService.doDeleteFailedAssignments(ctx)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to delete failed assignments")
 			stats.Record(ctx, metrics.ErrorDeleteFailedAssignmentsCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.DeleteFailedAssignmentsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, timeBetweenDeleteFailedAssignments)
 		if err != nil {

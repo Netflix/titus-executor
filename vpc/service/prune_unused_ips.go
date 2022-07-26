@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
@@ -25,6 +26,7 @@ func (vpcService *vpcService) pruneLastUsedIPAddresses(ctx context.Context, null
 	ctx, span := trace.StartSpan(ctx, "pruneLastUsedIPAddresses")
 	defer span.End()
 
+	start := time.Now()
 	err := vpcService.doPruneLastUsedIPAddresses(ctx, tx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Failed to prune laste used IPs")
@@ -32,6 +34,7 @@ func (vpcService *vpcService) pruneLastUsedIPAddresses(ctx context.Context, null
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+	stats.Record(ctx, metrics.PruneLastUsedIPsLatency.M(time.Since(start).Milliseconds()))
 	return nil
 }
 

@@ -34,10 +34,13 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccountLoop(ctx co
 		"accountID": account.accountID,
 	})
 	for {
+		start := time.Now()
 		err := vpcService.reconcileSecurityGroupsForRegionAccount(ctx, account)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile security groups")
 			stats.Record(ctx, metrics.ErrorReconcileSGsCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.ReconcileSGsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, timeBetweenSecurityGroupReconcilation)
 		if err != nil {

@@ -91,15 +91,19 @@ func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, pro
 			"region":    subnet.Region,
 			"accountID": subnet.AccountID,
 		})
+		start := time.Now()
 		branchesDeleted, err := vpcService.doDeleteExcessBranches(ctx, subnet)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to delete excess branches")
 			stats.Record(ctx, metrics.ErrorDeleteExcessBranchENIsCount.M(1))
 			resetTime = timeBetweenErrors
-		} else if branchesDeleted {
-			resetTime = timeBetweenDeletions
 		} else {
-			resetTime = timeBetweenNoDeletions
+			stats.Record(ctx, metrics.DeleteExcessBranchENIsLatency.M(time.Since(start).Milliseconds()))
+			if branchesDeleted {
+				resetTime = timeBetweenDeletions
+			} else {
+				resetTime = timeBetweenNoDeletions
+			}
 		}
 		err = waitFor(ctx, resetTime)
 		if err != nil {

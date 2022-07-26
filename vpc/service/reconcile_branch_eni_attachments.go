@@ -35,10 +35,13 @@ func (vpcService *vpcService) reconcileBranchENIAttachmentLoop(ctx context.Conte
 		"accountID": item.accountID,
 	})
 	for {
+		start := time.Now()
 		err := vpcService.reconcileBranchAttachmentsENIsForRegionAccount(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile branch ENI attachments")
 			stats.Record(ctx, metrics.ErrorReconcileBranchENIAttachmentsCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.ReconcileBranchENIAttachmentsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, timeBetweenBranchENIAttachmentReconcilation)
 		if err != nil {

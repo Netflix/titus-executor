@@ -40,12 +40,14 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 		"az":        item.Az,
 	})
 	for {
+		start := time.Now()
 		resetTime, err := vpcService.doDetatchUnusedBranchENI(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to detach unused branch ENIs")
 			stats.Record(ctx, metrics.ErrorDetachUnusedBranchENIsCount.M(1))
 		} else {
 			logger.G(ctx).WithField("resetTime", resetTime).Debug("Waiting to recheck")
+			stats.Record(ctx, metrics.DetachUnusedBranchENIsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, resetTime)
 		if err != nil {

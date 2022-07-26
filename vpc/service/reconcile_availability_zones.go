@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
@@ -28,6 +29,7 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 		"region":    account.region,
 		"accountID": account.accountID,
 	})
+	start := time.Now()
 	err := vpcService.doReconcileAvailabilityZonesRegionAccount(ctx, account, tx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Failed to reconcile availability zones")
@@ -35,6 +37,7 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+	stats.Record(ctx, metrics.ReconcileAZsLatency.M(time.Since(start).Milliseconds()))
 	return nil
 }
 

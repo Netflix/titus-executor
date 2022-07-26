@@ -39,10 +39,13 @@ func (vpcService *vpcService) reconcileBranchENILoop(ctx context.Context, protoI
 		"accountID": item.accountID,
 	})
 	for {
+		start := time.Now()
 		err := vpcService.reconcileBranchENIsForRegionAccount(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile branch ENIs")
 			stats.Record(ctx, metrics.ErrorReconcileBranchENIsCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.ReconcileBranchENIsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, timeBetweenBranchENIReconcilation)
 		if err != nil {

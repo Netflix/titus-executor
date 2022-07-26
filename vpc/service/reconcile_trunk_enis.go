@@ -35,10 +35,13 @@ func (vpcService *vpcService) reconcileTrunkENIsForRegionAccountLoop(ctx context
 	})
 
 	for {
+		start := time.Now()
 		err := vpcService.reconcileTrunkENIsForRegionAccount(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile trunk ENIs")
 			stats.Record(ctx, metrics.ErrorReconcileTrunkENIsCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.ReconcileTrunkENIsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, timeBetweenTrunkENIReconcilation)
 		if err != nil {

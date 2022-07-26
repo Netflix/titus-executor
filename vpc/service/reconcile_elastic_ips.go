@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"time"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
@@ -36,6 +37,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 		"region":    account.region,
 		"accountID": account.accountID,
 	})
+	start := time.Now()
 	err := vpcService.doReconcileEIPsForRegionAccount(ctx, account, tx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Failed to reconcile EIPs")
@@ -43,6 +45,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+	stats.Record(ctx, metrics.ReconcileEIPsLatency.M(time.Since(start).Milliseconds()))
 	return nil
 }
 

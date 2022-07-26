@@ -45,12 +45,14 @@ func (vpcService *vpcService) reconcileSubnetCIDRReservationsLoop(ctx context.Co
 			"accountID": subnet.AccountID,
 			"az":        subnet.Az,
 		})
+		start := time.Now()
 		err := vpcService.doReconcileSubnetCIDRReservations(ctx, subnet)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile subnet CIDR Reservations")
 			stats.Record(ctx, metrics.ErrorReconcileSubnetCIDRReservationsCount.M(1))
 			resetTime = timeBetweenErrors
 		} else {
+			stats.Record(ctx, metrics.ReconcileSubnetCIDRReservationsLatency.M(time.Since(start).Milliseconds()))
 			resetTime = timeBetweenSubnetCIDRReservationReconcilation
 		}
 		err = waitFor(ctx, resetTime)

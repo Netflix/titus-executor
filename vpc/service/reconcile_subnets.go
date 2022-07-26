@@ -64,10 +64,13 @@ func (vpcService *vpcService) doReconcileSubnetsForRegionAccountLoop(ctx context
 			"region":    item.region,
 			"accountID": item.accountID,
 		})
+		start := time.Now()
 		err := vpcService.doReconcileSubnetsForRegionAccount(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile subnets")
 			stats.Record(ctx, metrics.ErrorReconcileSubnetsCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.ReconcileSubnetsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, timeBetweenSubnetReconcilation)
 		if err != nil {

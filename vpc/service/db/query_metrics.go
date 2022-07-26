@@ -26,7 +26,7 @@ func init() {
 				Name:        measure.Name(),
 				Description: measure.Description(),
 				Measure:     measure,
-				Aggregation: view.Count(),
+				Aggregation: view.Distribution(),
 			},
 		); err != nil {
 			panic(err)

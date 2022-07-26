@@ -418,9 +418,12 @@ func (vpcService *vpcService) gcWorker(ctx context.Context, session *ec2wrapper.
 			if !ok {
 				return
 			}
+			start := time.Now()
 			if err := vpcService.doGCENI(ctx, session, eni, vpcService.dbRateLimiter); err != nil {
 				logger.G(ctx).WithField("eni", eni).WithError(err).Error("Failed to GC ENI")
 				stats.Record(ctx, metrics.ErrorGCBranchENIsCount.M(1))
+			} else {
+				stats.Record(ctx, metrics.GCBranchENIsLatency.M(time.Since(start).Milliseconds()))
 			}
 		}
 	}

@@ -39,7 +39,8 @@ type actionWorker struct {
 	finishedChanel  string
 	name            string
 	table           string
-	errorCounter    *stats.Int64Measure
+	errorMeasure    *stats.Int64Measure
+	latencyMeasure  *stats.Int64Measure
 
 	maxWorkTime time.Duration
 
@@ -221,6 +222,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		 * worker loop (for the most part). We do not want to cause these things failing to cause the entire action
 		 * worker to bail.
 		 */
+		start := time.Now()
 		err = actionWorker.cb(ctx, tx, id)
 		// TODO: Consider updating the table state here
 		if vpcerrors.IsPersistentError(err) {
@@ -230,10 +232,12 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		} else if err != nil {
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error("Failed to process item")
-			stats.Record(ctx, actionWorker.errorCounter.M(1))
+			stats.Record(ctx, actionWorker.errorMeasure.M(1))
 			wq.AddRateLimited(item)
 			return nil
 		}
+		stats.Record(ctx, actionWorker.latencyMeasure.M(time.Since(start).Milliseconds()))
+
 		err = tx.Commit()
 		if err != nil {
 			err = errors.Wrap(err, "Could not commit database transaction")
