@@ -9,10 +9,12 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/lib/pq"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -35,6 +37,7 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccountLoop(ctx co
 		err := vpcService.reconcileSecurityGroupsForRegionAccount(ctx, account)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile security groups")
+			stats.Record(ctx, metrics.ErrorReconcileSGsCount.M(1))
 		}
 		err = waitFor(ctx, timeBetweenSecurityGroupReconcilation)
 		if err != nil {

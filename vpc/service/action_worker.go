@@ -14,6 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 	"golang.org/x/time/rate"
 	"k8s.io/client-go/util/workqueue"
@@ -38,6 +39,7 @@ type actionWorker struct {
 	finishedChanel  string
 	name            string
 	table           string
+	errorCounter    *stats.Int64Measure
 
 	maxWorkTime time.Duration
 
@@ -228,6 +230,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		} else if err != nil {
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error("Failed to process item")
+			stats.Record(ctx, actionWorker.errorCounter.M(1))
 			wq.AddRateLimited(item)
 			return nil
 		}

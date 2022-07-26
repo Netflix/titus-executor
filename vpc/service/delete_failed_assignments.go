@@ -7,8 +7,10 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 )
 
@@ -23,7 +25,8 @@ func (vpcService *vpcService) deleteFailedAssignments(ctx context.Context, proto
 	for {
 		err := vpcService.doDeleteFailedAssignments(ctx)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Unable to delete failed assignments")
+			logger.G(ctx).WithError(err).Error("Failed to delete failed assignments")
+			stats.Record(ctx, metrics.ErrorDeleteFailedAssignmentsCount.M(1))
 		}
 		err = waitFor(ctx, timeBetweenDeleteFailedAssignments)
 		if err != nil {

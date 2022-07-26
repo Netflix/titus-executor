@@ -10,11 +10,13 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -46,6 +48,7 @@ func (vpcService *vpcService) reconcileSubnetCIDRReservationsLoop(ctx context.Co
 		err := vpcService.doReconcileSubnetCIDRReservations(ctx, subnet)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile subnet CIDR Reservations")
+			stats.Record(ctx, metrics.ErrorReconcileSubnetCIDRReservationsCount.M(1))
 			resetTime = timeBetweenErrors
 		} else {
 			resetTime = timeBetweenSubnetCIDRReservationReconcilation

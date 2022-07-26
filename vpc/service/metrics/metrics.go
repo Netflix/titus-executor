@@ -25,11 +25,27 @@ var (
 	unattachedEnisCount       = stats.Int64("unattached_enis.count", "The number of rows in branch_enis table that don't have an attachment", stats.UnitNone)
 
 	// Counter measures
-	waitCount               = stats.Int64("db.waitCount", "The total number of connections waited for", "connections")
-	waitDuration            = stats.Int64("db.waitDuration", "The total time blocked waiting for a new connection", "ns")
-	maxIdleClosed           = stats.Int64("db.maxIdleClosed", "The total number of connections closed due to SetMaxIdleConns", "connections")
-	maxLifetimeClosed       = stats.Int64("db.maxLifetimeClosed", "The total number of connections closed due to SetConnMaxLifetime", "connections")
-	ErrorScanBranchEniCount = stats.Int64("error.scanBranchEni", "ENIs that could not be cleaned up due to error in query", stats.UnitNone)
+	waitCount         = stats.Int64("db.waitCount", "The total number of connections waited for", "connections")
+	waitDuration      = stats.Int64("db.waitDuration", "The total time blocked waiting for a new connection", "ns")
+	maxIdleClosed     = stats.Int64("db.maxIdleClosed", "The total number of connections closed due to SetMaxIdleConns", "connections")
+	maxLifetimeClosed = stats.Int64("db.maxLifetimeClosed", "The total number of connections closed due to SetConnMaxLifetime", "connections")
+
+	ErrorReconcileEIPsCount                   = stats.Int64("error.reconcileEIPs", "The number of time failing to reconcile elastic IPs", stats.UnitNone)
+	ErrorReconcileAZsCount                    = stats.Int64("error.reconcileAZs", "The number of time failing to reconcile availability zones", stats.UnitNone)
+	ErrorPruneLastUsedIPsCount                = stats.Int64("error.pruneLastUsedIPs", "The number of time failing to prune last used IP addreses", stats.UnitNone)
+	ErrorReconcileBranchENIAttachmentsCount   = stats.Int64("error.reconcileBranchENIAttachments", "The number of time failing to reconcile branch ENI attachments", stats.UnitNone)
+	ErrorGCBranchENIsCount                    = stats.Int64("error.gcBranchENIs", "The number of time failing to GC branch ENIs", stats.UnitNone)
+	ErrorDeleteExcessBranchENIsCount          = stats.Int64("error.deleteExcessBranchENIs", "The number of time failing to delete excess branch ENIs", stats.UnitNone)
+	ErrorDetachUnusedBranchENIsCount          = stats.Int64("error.detachUnusedBranchENIs", "The number of time failing to detach unused branch ENIs", stats.UnitNone)
+	ErrorDeleteFailedAssignmentsCount         = stats.Int64("error.deleteFailedAssignments", "The number of time failing to delete failed assignments", stats.UnitNone)
+	ErrorReconcileSubnetsCount                = stats.Int64("error.reconcileSubnets", "The number of time failing to reconcile subnets", stats.UnitNone)
+	ErrorReconcileBranchENIsCount             = stats.Int64("error.reconcileBranchENIs", "The number of time failing to reconcile branch ENIs", stats.UnitNone)
+	ErrorReconcileTrunkENIsCount              = stats.Int64("error.reconcileTrunkENIs", "The number of time failing to reconcile trunk ENIs", stats.UnitNone)
+	ErrorAssociateBranchENICount              = stats.Int64("error.associateBranchENI", "The number of time failing to finish branch ENI association", stats.UnitNone)
+	ErrorDisassociateBranchENICount           = stats.Int64("error.disassociateBranchENI", "The number of time failing to finish branch ENI disassociation", stats.UnitNone)
+	ErrorReconcileSGsCount                    = stats.Int64("error.reconcileSGs", "The number of time failing to reconcile security groups", stats.UnitNone)
+	ErrorReconcileSubnetCIDRReservationsCount = stats.Int64("error.reconcileSubnetCIDRReservations", "The number of time failing to reconcile subnet CIDR reservations", stats.UnitNone)
+	ErrorMonitorRouteTableCount               = stats.Int64("error.monitorRouteTable", "The number of time failing to monitor route table", stats.UnitNone)
 )
 
 func init() {
@@ -52,7 +68,22 @@ func init() {
 
 	counterMeasures := []stats.Measure{
 		waitCount, waitDuration, maxIdleClosed, maxLifetimeClosed,
-		ErrorScanBranchEniCount,
+		ErrorReconcileEIPsCount,
+		ErrorReconcileAZsCount,
+		ErrorPruneLastUsedIPsCount,
+		ErrorReconcileBranchENIAttachmentsCount,
+		ErrorGCBranchENIsCount,
+		ErrorDeleteExcessBranchENIsCount,
+		ErrorDetachUnusedBranchENIsCount,
+		ErrorDeleteFailedAssignmentsCount,
+		ErrorReconcileSubnetsCount,
+		ErrorReconcileBranchENIsCount,
+		ErrorReconcileTrunkENIsCount,
+		ErrorAssociateBranchENICount,
+		ErrorDisassociateBranchENICount,
+		ErrorReconcileSGsCount,
+		ErrorReconcileSubnetCIDRReservationsCount,
+		ErrorMonitorRouteTableCount,
 	}
 	for idx := range counterMeasures {
 		if err := view.Register(

@@ -6,8 +6,10 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 )
 
@@ -26,6 +28,7 @@ func (vpcService *vpcService) pruneLastUsedIPAddresses(ctx context.Context, null
 	err := vpcService.doPruneLastUsedIPAddresses(ctx, tx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Failed to prune laste used IPs")
+		stats.Record(ctx, metrics.ErrorPruneLastUsedIPsCount.M(1))
 		tracehelpers.SetStatus(err, span)
 		return err
 	}

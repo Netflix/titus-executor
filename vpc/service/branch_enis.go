@@ -12,6 +12,7 @@ import (
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
@@ -1106,6 +1107,7 @@ func (vpcService *vpcService) associateActionWorker() *actionWorker {
 		name:            "associateWorker2",
 		table:           "branch_eni_attachments",
 		maxWorkTime:     30 * time.Second,
+		errorCounter:    metrics.ErrorAssociateBranchENICount,
 
 		pendingState: attaching,
 
@@ -1124,8 +1126,8 @@ func (vpcService *vpcService) disassociateActionWorker() *actionWorker {
 		finishedChanel:  "branch_eni_unattachments_finished",
 		name:            "disassociateWorker2",
 		table:           "branch_eni_attachments",
-
-		maxWorkTime: 30 * time.Second,
+		maxWorkTime:     30 * time.Second,
+		errorCounter:    metrics.ErrorDisassociateBranchENICount,
 
 		pendingState: unattaching,
 

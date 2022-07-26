@@ -13,9 +13,11 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 )
 
@@ -36,6 +38,7 @@ func (vpcService *vpcService) reconcileBranchENIAttachmentLoop(ctx context.Conte
 		err := vpcService.reconcileBranchAttachmentsENIsForRegionAccount(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile branch ENI attachments")
+			stats.Record(ctx, metrics.ErrorReconcileBranchENIAttachmentsCount.M(1))
 		}
 		err = waitFor(ctx, timeBetweenBranchENIAttachmentReconcilation)
 		if err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/db"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -20,6 +21,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
@@ -209,7 +211,7 @@ AND gc_tombstone < now() - INTERVAL '30 minutes'
 
 // This function, once invoked, is meant to run forever until context is cancelled
 // Make this adjustable so it's not done every minute?
-func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem data.KeyedItem) error {
+func (vpcService *vpcService) doGCENIsLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	item := protoItem.(*regionAccount)
 	for {
 		ctx = logger.WithFields(ctx, map[string]interface{}{
@@ -218,7 +220,8 @@ func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoIte
 		})
 		err := vpcService.doGCENIs(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Failed to adequately GC interfaces")
+			logger.G(ctx).WithError(err).Error("Failed to GC ENIs")
+			stats.Record(ctx, metrics.ErrorGCBranchENIsCount.M(1))
 		}
 		err = waitFor(ctx, timeBetweenGCs)
 		if err != nil {
@@ -416,7 +419,8 @@ func (vpcService *vpcService) gcWorker(ctx context.Context, session *ec2wrapper.
 				return
 			}
 			if err := vpcService.doGCENI(ctx, session, eni, vpcService.dbRateLimiter); err != nil {
-				logger.G(ctx).WithError(err).Error("Cannot GC ENI")
+				logger.G(ctx).WithField("eni", eni).WithError(err).Error("Failed to GC ENI")
+				stats.Record(ctx, metrics.ErrorGCBranchENIsCount.M(1))
 			}
 		}
 	}

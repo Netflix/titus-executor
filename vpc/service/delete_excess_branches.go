@@ -11,10 +11,12 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 )
 
@@ -82,12 +84,17 @@ func (vpcService *vpcService) deleteExccessBranchesLoop(ctx context.Context, pro
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	item := protoItem.(*data.Subnet)
+	subnet := protoItem.(*data.Subnet)
 	for {
 		var resetTime time.Duration
-		branchesDeleted, err := vpcService.doDeleteExcessBranches(ctx, item)
+		ctx = logger.WithFields(ctx, map[string]interface{}{
+			"region":    subnet.Region,
+			"accountID": subnet.AccountID,
+		})
+		branchesDeleted, err := vpcService.doDeleteExcessBranches(ctx, subnet)
 		if err != nil {
-			logger.G(ctx).WithField("region", item.Region).WithField("accountID", item.AccountID).WithError(err).Error("Failed to delete excess branches")
+			logger.G(ctx).WithError(err).Error("Failed to delete excess branches")
+			stats.Record(ctx, metrics.ErrorDeleteExcessBranchENIsCount.M(1))
 			resetTime = timeBetweenErrors
 		} else if branchesDeleted {
 			resetTime = timeBetweenDeletions

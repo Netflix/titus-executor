@@ -449,7 +449,7 @@ func (vpcService *vpcService) getLongLivedTasks() []longLivedTask {
 		{
 			taskName:   "gc_enis2",
 			itemLister: vpcService.getBranchENIRegionAccounts,
-			workFunc:   vpcService.doGCAttachedENIsLoop,
+			workFunc:   vpcService.doGCENIsLoop,
 		},
 		vpcService.deleteExcessBranchesLongLivedTask(),
 		{

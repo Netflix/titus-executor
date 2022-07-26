@@ -6,15 +6,14 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/vpc/service/data"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
-	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 )
 
@@ -43,7 +42,8 @@ func (vpcService *vpcService) detatchUnusedBranchENILoop(ctx context.Context, pr
 	for {
 		resetTime, err := vpcService.doDetatchUnusedBranchENI(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithError(err).Error("Unable to detach ENI")
+			logger.G(ctx).WithError(err).Error("Failed to detach unused branch ENIs")
+			stats.Record(ctx, metrics.ErrorDetachUnusedBranchENIsCount.M(1))
 		} else {
 			logger.G(ctx).WithField("resetTime", resetTime).Debug("Waiting to recheck")
 		}
@@ -98,8 +98,6 @@ LIMIT 1
 	}
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan branch ENI to delete")
-		mutators := []tag.Mutator{tag.Upsert(tag.MustNewKey("msg"), err.Error())}
-		_ = stats.RecordWithTags(ctx, mutators, metrics.ErrorScanBranchEniCount.M(1))
 		tracehelpers.SetStatus(err, span)
 		return timeBetweenErrors, err
 	}
