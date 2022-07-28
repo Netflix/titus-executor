@@ -125,7 +125,7 @@ func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
 	return nil
 }
 
-func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cfg config.Config) error { // nolint: gocyclo
+func setupSystemServices(parentCtx context.Context, systemServices []*runtimeTypes.ServiceOpts, c runtimeTypes.Container, cfg config.Config) error { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
 
@@ -135,11 +135,6 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	}
 	defer conn.Close()
 
-	// TODO: it would be nice not to fetch this twice
-	systemServices, err := c.SystemServices()
-	if err != nil {
-		return err
-	}
 	// TODO: Can we somehow make sure titus-container always starts first?
 	for _, svc := range systemServices {
 		if svc.EnabledCheck != nil && !svc.EnabledCheck(&cfg, c) {
@@ -147,6 +142,11 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 			continue
 		}
 		if svc.UnitName == "" {
+			continue
+		}
+
+		if svc.Image != "" && svc.ContainerName == "" {
+			logrus.Infof("Not starting %s, its container creation failed", svc.ServiceName)
 			continue
 		}
 

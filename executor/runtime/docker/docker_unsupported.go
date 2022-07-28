@@ -23,7 +23,7 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 	return false
 }
 
-func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cfg config.Config) error {
+func setupSystemServices(parentCtx context.Context, systemServices []*runtimeTypes.ServiceOpts, c runtimeTypes.Container, cfg config.Config) error {
 	return nil
 }
 
