@@ -142,6 +142,7 @@ type DockerRuntime struct { // nolint: golint
 	startTime        time.Time
 	gpuManager       runtimeTypes.GPUManager
 	volumeContainers []string
+	systemServices   []*runtimeTypes.ServiceOpts
 }
 
 type Opt func(ctx context.Context, runtime *DockerRuntime) error
@@ -714,6 +715,10 @@ func (r *DockerRuntime) createVolumeContainerFunc(sOpts *runtimeTypes.ServiceOpt
 				return errors.Wrapf(createErr, "Unable to setup required %s container '%s'", sOpts.ServiceName, sOpts.ContainerName)
 			}
 			logger.G(ctx).WithField("serviceName", sOpts.ServiceName).Warnf("Unable to setup optional %s container '%s': %s", sOpts.ServiceName, sOpts.ContainerName, createErr)
+
+			// zero ContainerName to indicate that the container
+			// was not set up correctly, so we shouldn't start it
+			sOpts.ContainerName = ""
 			return nil
 		}
 		return nil
@@ -835,7 +840,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 		r.registerRuntimeCleanup(r.cleanupAllPodMounts)
 	}
 
-	systemServices, err := r.c.SystemServices()
+	r.systemServices, err = r.c.SystemServices()
 	if err != nil {
 		return err
 	}
@@ -871,14 +876,13 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 		})
 	}
 
-	for _, sidecarConfig := range systemServices {
+	for _, sidecarConfig := range r.systemServices {
 		if sidecarConfig.Volumes != nil && sidecarConfig.EnabledCheck != nil && sidecarConfig.EnabledCheck(&r.cfg, r.c) {
-			sidecarConfig.ContainerName = sidecarConfig.ServiceName
 			group.Go(r.createVolumeContainerFunc(sidecarConfig))
 		}
 	}
 
-	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(r.systemServices, runtimeTypes.SidecarSeccompAgent).EnabledCheck(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
 			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
 			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
@@ -905,7 +909,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 		})
 	}
 
-	if runtimeTypes.GetSidecarConfig(systemServices, runtimeTypes.SidecarTrafficSteering).EnabledCheck(&r.cfg, r.c) {
+	if runtimeTypes.GetSidecarConfig(r.systemServices, runtimeTypes.SidecarTrafficSteering).EnabledCheck(&r.cfg, r.c) {
 		r.c.SetEnvs(map[string]string{
 			"TITUS_SECCOMP_AGENT_HANDLE_TRAFFIC_STEERING": "true",
 		})
@@ -966,7 +970,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 		return err
 	}
 
-	for _, sidecarConfig := range systemServices {
+	for _, sidecarConfig := range r.systemServices {
 		if sidecarConfig.ContainerName == "" {
 			// This indicates that the systemService doesn't have a container at all,
 			// and should not assume it has a volume container
@@ -1447,7 +1451,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 		return "", nil, statusMessageChan, err
 	}
 
-	err = setupSystemServices(ctx, r.c, r.cfg)
+	err = setupSystemServices(ctx, r.systemServices, r.c, r.cfg)
 	if err != nil {
 		log.WithError(err).Error("Unable to launch system services")
 		eventCancel()
