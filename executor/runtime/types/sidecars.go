@@ -54,7 +54,7 @@ var systemServices = []ServiceOpts{
 		ServiceName:  SidecarServiceSpectatord,
 		UnitName:     "titus-sidecar-spectatord",
 		EnabledCheck: shouldStartSpectatord,
-		Required:     false,
+		Required:     true,
 		Volumes: map[string]struct{}{
 			"/titus/spectatord": {},
 		},
@@ -72,7 +72,7 @@ var systemServices = []ServiceOpts{
 		ServiceName:  SidecarServiceAtlasTitusAgent,
 		UnitName:     "titus-sidecar-atlas-titus-agent",
 		EnabledCheck: shouldStartAtlasTitusAgent,
-		Required:     false,
+		Required:     true,
 		Volumes: map[string]struct{}{
 			"/titus/atlas-titus-agent": {},
 		},
