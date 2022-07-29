@@ -23,6 +23,19 @@ func (vpcService *vpcService) pruneLastUsedIPAddresses(ctx context.Context, null
 	ctx, span := trace.StartSpan(ctx, "pruneLastUsedIPAddresses")
 	defer span.End()
 
+	err := vpcService.doPruneLastUsedIPAddresses(ctx, tx)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Failed to prune laste used IPs")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	return nil
+}
+
+func (vpcService *vpcService) doPruneLastUsedIPAddresses(ctx context.Context, tx *sql.Tx) (retErr error) {
+	ctx, span := trace.StartSpan(ctx, "pruneLastUsedIPAddresses")
+	defer span.End()
+
 	logger.G(ctx).Debug("Beginning purge of last used ip addresses")
 	result, err := tx.ExecContext(ctx,
 		`WITH addresses_by_family AS

@@ -26,13 +26,13 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccountLoop(ctx co
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	item := protoItem.(*regionAccount)
+	account := protoItem.(*regionAccount)
 	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"region":    item.region,
-		"accountID": item.accountID,
+		"region":    account.region,
+		"accountID": account.accountID,
 	})
 	for {
-		err := vpcService.reconcileSecurityGroupsForRegionAccount(ctx, item)
+		err := vpcService.reconcileSecurityGroupsForRegionAccount(ctx, account)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile security groups")
 		}
@@ -43,13 +43,12 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccountLoop(ctx co
 	}
 }
 
-func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccount(ctx context.Context, protoAccount data.KeyedItem) error {
+func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccount(ctx context.Context, account *regionAccount) error {
 	ctx, cancel := context.WithTimeout(ctx, securityGroupReconcilationTimeout)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "reconcileSecurityGroupsForRegionAccount")
 	defer span.End()
 
-	account := protoAccount.(*regionAccount)
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
@@ -61,10 +60,7 @@ func (vpcService *vpcService) reconcileSecurityGroupsForRegionAccount(ctx contex
 		return err
 	}
 
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"region":    account.region,
-		"accountID": account.accountID,
-	}).Info("Beginning reconcilation of security groups")
+	logger.G(ctx).Info("Beginning reconcilation of security groups")
 
 	securityGroups := []*ec2.SecurityGroup{}
 	describeSecurityGroupsInput := ec2.DescribeSecurityGroupsInput{

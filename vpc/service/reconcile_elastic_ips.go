@@ -30,6 +30,23 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 	defer span.End()
 
 	account := protoAccount.(*regionAccount)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"region":    account.region,
+		"accountID": account.accountID,
+	})
+	err := vpcService.doReconcileEIPsForRegionAccount(ctx, account, tx)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Failed to reconcile EIPs")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	return nil
+}
+
+func (vpcService *vpcService) doReconcileEIPsForRegionAccount(ctx context.Context, account *regionAccount, tx *sql.Tx) error {
+	ctx, span := trace.StartSpan(ctx, "doReconcileEIPsForRegionAccount")
+	defer span.End()
+
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
@@ -41,10 +58,7 @@ func (vpcService *vpcService) reconcileEIPsForRegionAccount(ctx context.Context,
 		return err
 	}
 
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"region":    account.region,
-		"accountID": account.accountID,
-	}).Info("Beginning reconcilation of EIPs")
+	logger.G(ctx).Info("Beginning reconcilation of EIPs")
 
 	_, err = tx.ExecContext(ctx, "CREATE TEMPORARY TABLE IF NOT EXISTS known_elastic_ips (allocation_id TEXT PRIMARY KEY, account_id text, public_ip inet, tags jsonb, network_border_group text) ON COMMIT DROP")
 	if err != nil {

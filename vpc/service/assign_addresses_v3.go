@@ -335,6 +335,27 @@ func validateAssignIPV3Request(req *vpcapi.AssignIPRequestV3) error {
 }
 
 func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.AssignIPRequestV3) (*vpcapi.AssignIPResponseV3, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "AssignIPv3")
+	defer span.End()
+	log := ctxlogrus.Extract(ctx)
+	ctx = logger.WithLogger(ctx, log)
+
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"instance": req.InstanceIdentity.InstanceID,
+		"taskID":   req.TaskId,
+	})
+	resp, err := vpcService.doAssignIPV3(ctx, req)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Failed to assign IP")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (vpcService *vpcService) doAssignIPV3(ctx context.Context, req *vpcapi.AssignIPRequestV3) (*vpcapi.AssignIPResponseV3, error) {
 	// 1. Get the trunk ENI
 	// 2. Choose the subnet we're "scheduling" into
 	// 3. Check if there are any branch ENIs already attached to the trunk ENI with the subnet + security groups wanted, and have fewer than 50 assignments (for share)
@@ -342,10 +363,8 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 	// 5. Attach an ENI that fulfills the requirements
 	ctx, cancel := context.WithTimeout(ctx, assignTimeout)
 	defer cancel()
-	ctx, span := trace.StartSpan(ctx, "AssignIPv3")
+	ctx, span := trace.StartSpan(ctx, "doAssignIPV3")
 	defer span.End()
-	log := ctxlogrus.Extract(ctx)
-	ctx = logger.WithLogger(ctx, log)
 
 	err := validateAssignIPV3Request(req)
 	if err != nil {
@@ -353,10 +372,6 @@ func (vpcService *vpcService) AssignIPV3(ctx context.Context, req *vpcapi.Assign
 		return nil, err
 	}
 
-	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"instance": req.InstanceIdentity.InstanceID,
-		"taskID":   req.TaskId,
-	})
 	span.AddAttributes(
 		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 		trace.StringAttribute("taskID", req.TaskId),
@@ -1161,11 +1176,26 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "UnassignIPV3")
 	defer span.End()
-
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
-	span.AddAttributes(trace.StringAttribute("assignmentID", req.TaskId))
+	ctx = logger.WithField(ctx, "taskID", req.TaskId)
+	resp, err := vpcService.doUnassignIPV3(ctx, req)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Failed to unassign IP")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (vpcService *vpcService) doUnassignIPV3(ctx context.Context, req *vpcapi.UnassignIPRequestV3) (*vpcapi.UnassignIPResponseV3, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "doUnassignIPV3")
+	defer span.End()
+
+	span.AddAttributes(trace.StringAttribute("taskID", req.TaskId))
 	resp := vpcapi.UnassignIPResponseV3{}
 
 	if err := vpcService.concurrentRequests.Acquire(ctx, 1); err != nil {

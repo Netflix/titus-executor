@@ -24,9 +24,11 @@ func (vpcService *vpcService) ProvisionInstanceV3(ctx context.Context, req *vpca
 	log := ctxlogrus.Extract(ctx)
 	ctx = logger.WithLogger(ctx, log)
 
+	ctx = logger.WithField(ctx, "instance", req.InstanceIdentity.InstanceID)
 	networkInterface, err := vpcService.provisionInstanceShared(ctx, req.InstanceIdentity, 3)
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
+		logger.G(ctx).WithError(err).Error("Failed to provision instance")
 		return nil, err
 	}
 

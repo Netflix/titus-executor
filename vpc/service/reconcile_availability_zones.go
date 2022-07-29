@@ -22,6 +22,23 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 	defer span.End()
 
 	account := protoAccount.(*regionAccount)
+	ctx = logger.WithFields(ctx, map[string]interface{}{
+		"region":    account.region,
+		"accountID": account.accountID,
+	})
+	err := vpcService.doReconcileAvailabilityZonesRegionAccount(ctx, account, tx)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Failed to reconcile availability zones")
+		tracehelpers.SetStatus(err, span)
+		return err
+	}
+	return nil
+}
+
+func (vpcService *vpcService) doReconcileAvailabilityZonesRegionAccount(ctx context.Context, account *regionAccount, tx *sql.Tx) error {
+	ctx, span := trace.StartSpan(ctx, "doReconcileAvailabilityZonesRegionAccount")
+	defer span.End()
+
 	span.AddAttributes(trace.StringAttribute("region", account.region), trace.StringAttribute("account", account.accountID))
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{
 		AccountID: account.accountID,
@@ -33,10 +50,7 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 		return err
 	}
 
-	logger.G(ctx).WithFields(map[string]interface{}{
-		"region":    account.region,
-		"accountID": account.accountID,
-	}).Info("Beginning reconcilation of availability zones")
+	logger.G(ctx).Info("Beginning reconcilation of availability zones")
 
 	ec2client := vpcService.ec2.NewEC2(session.Session)
 	describeAvailabilityZonesOutput, err := ec2client.DescribeAvailabilityZonesWithContext(ctx, &ec2.DescribeAvailabilityZonesInput{})

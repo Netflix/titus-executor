@@ -94,7 +94,24 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 	ctx = logger.WithLogger(ctx, log)
 	ctx = logger.WithFields(ctx, map[string]interface{}{
 		"instance": req.InstanceIdentity.InstanceID,
+		"taskIds":  req.RunningTaskIDs,
 	})
+
+	resp, err := vpcService.doGCV3(ctx, req)
+	if err != nil {
+		logger.G(ctx).WithError(err).Error("Failed to get assignments to GC")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (vpcService *vpcService) doGCV3(ctx context.Context, req *vpcapi.GCRequestV3) (*vpcapi.GCResponseV3, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ctx, span := trace.StartSpan(ctx, "doGCV3")
+	defer span.End()
+
 	span.AddAttributes(
 		trace.StringAttribute("instance", req.InstanceIdentity.InstanceID),
 	)
@@ -194,9 +211,13 @@ AND gc_tombstone < now() - INTERVAL '30 minutes'
 func (vpcService *vpcService) doGCAttachedENIsLoop(ctx context.Context, protoItem data.KeyedItem) error {
 	item := protoItem.(*regionAccount)
 	for {
+		ctx = logger.WithFields(ctx, map[string]interface{}{
+			"region":    item.region,
+			"accountID": item.accountID,
+		})
 		err := vpcService.doGCENIs(ctx, item)
 		if err != nil {
-			logger.G(ctx).WithField("region", item.region).WithField("accountID", item.accountID).WithError(err).Error("Failed to adequately GC interfaces")
+			logger.G(ctx).WithError(err).Error("Failed to adequately GC interfaces")
 		}
 		err = waitFor(ctx, timeBetweenGCs)
 		if err != nil {
@@ -221,10 +242,6 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 		trace.StringAttribute("region", item.region),
 		trace.StringAttribute("accountID", item.accountID),
 	)
-	ctx = logger.WithFields(ctx, map[string]interface{}{
-		"region":    item.region,
-		"accountID": item.accountID,
-	})
 	logger.G(ctx).Info("Beginning GC of ENIs")
 
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: item.accountID, Region: item.region})
