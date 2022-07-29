@@ -483,6 +483,7 @@ func (vpcService *vpcService) doAssignIPV3(ctx context.Context, req *vpcapi.Assi
 
 	resp, err := vpcService.assignIPsToENI(ctx, req, ass, maxIPAddresses)
 	if err != nil {
+		logger.G(ctx).WithField("subnet", subnet).WithError(err).Error("Cannot assign IP out of subnet")
 		err = fmt.Errorf("Could not assign IPs to ENI: %w", err)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
