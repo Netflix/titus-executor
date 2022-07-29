@@ -13,10 +13,12 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/hashicorp/go-multierror"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 )
 
@@ -39,9 +41,13 @@ func (vpcService *vpcService) monitorRouteTableLoop(ctx context.Context) {
 			return
 		}
 
+		start := time.Now()
 		err = vpcService.monitorRouteTables(ctx)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Route table monitoring attempt failed!")
+			stats.Record(ctx, metrics.ErrorMonitorRouteTableCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.MonitorRouteTableLatency.M(time.Since(start).Milliseconds()))
 		}
 	}
 }

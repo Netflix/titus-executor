@@ -11,12 +11,14 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/m7shapan/cidr"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -62,9 +64,13 @@ func (vpcService *vpcService) doReconcileSubnetsForRegionAccountLoop(ctx context
 			"region":    item.region,
 			"accountID": item.accountID,
 		})
+		start := time.Now()
 		err := vpcService.doReconcileSubnetsForRegionAccount(ctx, item)
 		if err != nil {
 			logger.G(ctx).WithError(err).Error("Failed to reconcile subnets")
+			stats.Record(ctx, metrics.ErrorReconcileSubnetsCount.M(1))
+		} else {
+			stats.Record(ctx, metrics.ReconcileSubnetsLatency.M(time.Since(start).Milliseconds()))
 		}
 		err = waitFor(ctx, timeBetweenSubnetReconcilation)
 		if err != nil {

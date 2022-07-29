@@ -3,15 +3,18 @@ package service
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
+	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 )
 
@@ -26,12 +29,15 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 		"region":    account.region,
 		"accountID": account.accountID,
 	})
+	start := time.Now()
 	err := vpcService.doReconcileAvailabilityZonesRegionAccount(ctx, account, tx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Failed to reconcile availability zones")
+		stats.Record(ctx, metrics.ErrorReconcileAZsCount.M(1))
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
+	stats.Record(ctx, metrics.ReconcileAZsLatency.M(time.Since(start).Milliseconds()))
 	return nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/trace"
 	"golang.org/x/time/rate"
 	"k8s.io/client-go/util/workqueue"
@@ -38,6 +39,8 @@ type actionWorker struct {
 	finishedChanel  string
 	name            string
 	table           string
+	errorMeasure    *stats.Int64Measure
+	latencyMeasure  *stats.Int64Measure
 
 	maxWorkTime time.Duration
 
@@ -219,6 +222,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		 * worker loop (for the most part). We do not want to cause these things failing to cause the entire action
 		 * worker to bail.
 		 */
+		start := time.Now()
 		err = actionWorker.cb(ctx, tx, id)
 		// TODO: Consider updating the table state here
 		if vpcerrors.IsPersistentError(err) {
@@ -228,9 +232,12 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 		} else if err != nil {
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error("Failed to process item")
+			stats.Record(ctx, actionWorker.errorMeasure.M(1))
 			wq.AddRateLimited(item)
 			return nil
 		}
+		stats.Record(ctx, actionWorker.latencyMeasure.M(time.Since(start).Milliseconds()))
+
 		err = tx.Commit()
 		if err != nil {
 			err = errors.Wrap(err, "Could not commit database transaction")
