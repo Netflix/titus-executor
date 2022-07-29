@@ -97,8 +97,6 @@ type vpcService struct {
 	hostPrivateKey         ed25519.PrivateKey
 	hostPublicKey          ed25519.PublicKey
 
-	refreshLock *semaphore.Weighted
-
 	dbRateLimiter *rate.Limiter
 
 	trunkTracker              *trunkTrackerCache
@@ -279,8 +277,6 @@ func newVpcService(ctx context.Context, config *Config) (*vpcService, error) {
 		hostPrivateKey:         privateKey,
 		hostPublicKey:          publicKey,
 		hostPublicKeySignature: hostPublicKeySignature,
-
-		refreshLock: semaphore.NewWeighted(config.MaxConcurrentRefresh),
 
 		dbRateLimiter: rate.NewLimiter(1000, 1),
 

@@ -64,7 +64,7 @@ func (vpcService *vpcService) doDetatchUnusedBranchENI(ctx context.Context, subn
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return timeBetweenErrors, err
 	}
 	defer func() {
@@ -100,7 +100,7 @@ LIMIT 1
 		err = errors.Wrap(err, "Cannot scan branch ENI to delete")
 		mutators := []tag.Mutator{tag.Upsert(tag.MustNewKey("msg"), err.Error())}
 		_ = stats.RecordWithTags(ctx, mutators, metrics.ErrorScanBranchEniCount.M(1))
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return timeBetweenErrors, err
 	}
 	span.AddAttributes(trace.StringAttribute("eni", branchENI))
@@ -113,7 +113,7 @@ LIMIT 1
 	})
 	if err != nil {
 		err = errors.Wrap(err, "Could not get AWS session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return timeBetweenErrors, err
 	}
 
@@ -136,7 +136,7 @@ LIMIT 1
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Could not commit transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return timeBetweenErrors, err
 	}
 	return timeBetweenDetaches, nil

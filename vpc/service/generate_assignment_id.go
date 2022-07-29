@@ -848,7 +848,7 @@ LIMIT 1`, req.subnet.SubnetID, req.trunkENIAccount, pq.Array(req.securityGroups)
 		)
 		return &eni, nil
 	} else if err != sql.ErrNoRows {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 

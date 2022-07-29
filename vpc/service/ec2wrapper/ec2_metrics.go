@@ -32,13 +32,6 @@ func init() {
 			TagKeys:     []tag.Key{keyRegion, keyAccountID},
 			Measure:     cachedInstances,
 			Aggregation: view.LastValue(),
-		},
-		&view.View{
-			Name:        cachedSubnets.Name(),
-			Description: cachedSubnets.Description(),
-			TagKeys:     []tag.Key{keyRegion, keyAccountID},
-			Measure:     cachedSubnets,
-			Aggregation: view.LastValue(),
 		}); err != nil {
 		panic(err)
 	}

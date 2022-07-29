@@ -276,7 +276,7 @@ GROUP BY availability_zones.region, branch_enis.account_id
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Cannot commit transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 

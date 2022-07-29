@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
+	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -52,7 +53,7 @@ func (vpcService *vpcService) GetLocks(ctx context.Context, req *vpcapi.GetLocks
 		ReadOnly: true,
 	})
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, errors.Wrap(err, "Could not start database transaction")
 	}
 	defer func() {
@@ -61,7 +62,7 @@ func (vpcService *vpcService) GetLocks(ctx context.Context, req *vpcapi.GetLocks
 
 	rows, err := tx.QueryContext(ctx, "SELECT id, lock_name, held_by, held_until FROM long_lived_locks LIMIT 1000")
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	defer rows.Close()
@@ -70,7 +71,7 @@ func (vpcService *vpcService) GetLocks(ctx context.Context, req *vpcapi.GetLocks
 	for rows.Next() {
 		lock, err := vpcService.scanLock(rows)
 		if err != nil {
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 		locks = append(locks, lock)
@@ -88,10 +89,10 @@ func (vpcService *vpcService) GetLock(ctx context.Context, id *vpcapi.LockId) (*
 	lock, err := vpcService.scanLock(row)
 	if err == sql.ErrNoRows {
 		err = status.Error(codes.NotFound, "lock not found")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	} else if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -104,19 +105,19 @@ func (vpcService *vpcService) DeleteLock(ctx context.Context, id *vpcapi.LockId)
 
 	res, err := vpcService.db.ExecContext(ctx, "DELETE FROM long_lived_locks WHERE id = $1", id.GetId())
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	affected, err := res.RowsAffected()
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	if affected == 0 {
 		err = status.Error(codes.NotFound, "lock not found")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -132,19 +133,19 @@ func (vpcService *vpcService) PreemptLock(ctx context.Context, req *vpcapi.Preem
 	// by setting held_until to sometime in the past, we allow a new holder to acquire the lock
 	res, err := vpcService.db.ExecContext(ctx, "UPDATE long_lived_locks SET held_by = null, held_until = now() - (30 * interval '1 sec') WHERE lock_name = $1", req.GetLockName())
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	affected, err := res.RowsAffected()
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
 	if affected == 0 {
 		err = status.Error(codes.NotFound, "lock not found")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -237,7 +238,7 @@ func (vpcService *vpcService) tryToAcquireLock(ctx context.Context, hostname, lo
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, 0, err
 	}
 
@@ -259,14 +260,14 @@ WHERE long_lived_locks.held_until < now() RETURNING id
 		return false, 0, nil
 	} else if err != nil {
 		err = errors.Wrap(err, "Could not insert into long lived locks")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, 0, err
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Could not commit transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, 0, err
 	}
 
@@ -284,7 +285,7 @@ func (vpcService *vpcService) tryToHoldLock(ctx context.Context, hostname string
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -295,26 +296,26 @@ func (vpcService *vpcService) tryToHoldLock(ctx context.Context, hostname string
 	result, err := tx.ExecContext(ctx, "UPDATE long_lived_locks SET held_until = now() + ($1 * interval '1 sec') WHERE id = $2 AND held_by = $3", lockTime.Seconds(), id, hostname)
 	if err != nil {
 		err = errors.Wrap(err, "Could update lock time")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
 		err = errors.Wrap(err, "Could not get rows affected")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	if n != 1 {
 		err = fmt.Errorf("Unexpected number of rows updated: %d", n)
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Could not commit transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 

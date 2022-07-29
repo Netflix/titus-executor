@@ -24,8 +24,6 @@ import (
 )
 
 const (
-	minSubnetExpirationTime   = 90 * time.Minute
-	maxSubnetExpirationTime   = 180 * time.Minute
 	minInstanceExpirationTime = 45 * time.Minute
 	maxInstanceExpirationTime = 75 * time.Minute
 )
@@ -39,7 +37,6 @@ var (
 type EC2Session struct {
 	Session                 *session.Session
 	instanceCache           *ccache.Cache
-	subnetCache             *ccache.Cache
 	batchENIDescriber       *BatchENIDescriber
 	batchInstancesDescriber *BatchInstanceDescriber
 
@@ -56,44 +53,6 @@ func (s *EC2Session) Region(ctx context.Context) (string, error) {
 		return "us-east-1", nil
 	}
 	return *s.Session.Config.Region, nil
-}
-
-func (s *EC2Session) GetSubnetByID(ctx context.Context, subnetID string) (*ec2.Subnet, error) {
-	ctx, span := trace.StartSpan(ctx, "getSubnetbyID")
-	defer span.End()
-
-	item := s.subnetCache.Get(subnetID)
-	if item != nil {
-		span.AddAttributes(trace.BoolAttribute("cached", true))
-		if !item.Expired() {
-			span.AddAttributes(trace.BoolAttribute("expired", false))
-
-			val := item.Value().(*ec2.Subnet)
-			return val, nil
-		}
-		span.AddAttributes(trace.BoolAttribute("expired", true))
-	} else {
-		span.AddAttributes(trace.BoolAttribute("cached", false))
-	}
-
-	ec2client := s.newEC2(s.Session)
-	describeSubnetsOutput, err := ec2client.DescribeSubnetsWithContext(ctx, &ec2.DescribeSubnetsInput{
-		SubnetIds: []*string{&subnetID},
-	})
-	if err != nil {
-		logger.G(ctx).WithField("subnetID", subnetID).Error("Could not get Subnet")
-		if item != nil {
-			span.AddAttributes(trace.BoolAttribute("stale", true))
-			return item.Value().(*ec2.Subnet), nil
-		}
-		return nil, HandleEC2Error(err, span)
-	}
-	span.AddAttributes(trace.BoolAttribute("stale", false))
-
-	subnet := describeSubnetsOutput.Subnets[0]
-	subnetExpirationTime := time.Nanosecond * time.Duration(minSubnetExpirationTime.Nanoseconds()+rand.Int63n(maxSubnetExpirationTime.Nanoseconds()-minSubnetExpirationTime.Nanoseconds())) // nolint: gosec
-	s.subnetCache.Set(subnetID, subnet, subnetExpirationTime)
-	return subnet, nil
 }
 
 func (s *EC2Session) GetNetworkInterfaceByID(ctx context.Context, networkInterfaceID string, deadline time.Duration) (*ec2.NetworkInterface, error) {

@@ -71,7 +71,7 @@ JOIN availability_zones ON subnets.az = availability_zones.zone_name AND subnets
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Cannot commit transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -171,7 +171,7 @@ func (vpcService *vpcService) doDeleteExcessBranches(ctx context.Context, subnet
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: subnet.AccountID, Region: subnet.Region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get EC2 session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, err
 	}
 
@@ -188,7 +188,7 @@ get_eni:
 	})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot start serialized, readonly database transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, err
 	}
 	defer func(tx *sql.Tx) {
@@ -241,7 +241,7 @@ get_eni:
 	iface, err := session.GetNetworkInterfaceByID(ctx, branchENI, 500*time.Millisecond)
 	if err != nil {
 		err = errors.Wrap(err, "Could not describe network interface")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, err
 	}
 
@@ -255,13 +255,13 @@ get_eni:
 	}
 
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, err
 	}
 
 	if l := len(iface.PrivateIpAddresses); l > 1 {
 		err = fmt.Errorf("Could not GC interface, had %d IPv4 addresses still assigned", l)
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return false, err
 	}
 

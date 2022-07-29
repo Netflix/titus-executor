@@ -29,7 +29,7 @@ func (vpcService *vpcService) reconcileAvailabilityZonesRegionAccount(ctx contex
 	})
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 

@@ -101,7 +101,7 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 
 	_, _, trunkENI, err := vpcService.getSessionAndTrunkInterface(ctx, req.InstanceIdentity)
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 
@@ -111,7 +111,7 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = status.Error(codes.Unknown, errors.Wrap(err, "Could not start database transaction").Error())
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	defer func() {
@@ -230,7 +230,7 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 	session, err := vpcService.ec2.GetSessionFromAccountAndRegion(ctx, ec2wrapper.Key{AccountID: item.accountID, Region: item.region})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get EC2 session")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -275,7 +275,7 @@ func (vpcService *vpcService) getGCableENIs(ctx context.Context, region, account
 
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction to enumerate ENIs")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 	rows, err := tx.QueryContext(ctx, `
@@ -307,7 +307,7 @@ ORDER BY RANDOM()
   `, accountID, region)
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database query to enumerate attached ENIs")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -316,7 +316,7 @@ ORDER BY RANDOM()
 		err = rows.Scan(&eni)
 		if err != nil {
 			err = errors.Wrap(err, "Could scan eni ID")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 		select {
@@ -331,7 +331,7 @@ ORDER BY RANDOM()
 	err = tx.Commit()
 	if err != nil {
 		err = errors.Wrap(err, "Could not commit db txn")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -453,20 +453,20 @@ FOR NO KEY UPDATE OF branch_enis
 
 	if err != nil {
 		err = errors.Wrap(err, "Cannot query branch ENI")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	n, err := sqlResult.RowsAffected()
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get rows affected")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	if n == 0 {
 		err = fmt.Errorf("ENI %q was not found in unattached ENIs", aws.StringValue(iface.NetworkInterfaceId))
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -475,7 +475,7 @@ FOR NO KEY UPDATE OF branch_enis
 	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, session, iface, interfaceIPv4Addresses, group)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot remove static addresses")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -524,13 +524,13 @@ WHERE branch_eni_attachments.branch_eni = $1
 	err := row.Scan(&associationID)
 	if err == sql.ErrNoRows {
 		err = fmt.Errorf("ENI %q was not in v3 attachments", aws.StringValue(iface.NetworkInterfaceId))
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	if err != nil {
 		err = errors.Wrap(err, "Cannot scan row")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -539,7 +539,7 @@ WHERE branch_eni_attachments.branch_eni = $1
 	removedStaticAddresses, err := removeStaticAddresses(ctx, tx, session, iface, interfaceIPv4Addresses, group)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot remove static addresses")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -568,7 +568,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 `, pq.Array(interfaceIPv4Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId))
 		if err != nil {
 			err = errors.Wrap(err, "Cannot query for unused IPv4 addresses")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 
@@ -577,7 +577,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 			err = rows.Scan(&ipAddress)
 			if err != nil {
 				err = errors.Wrap(err, "Cannot scan unused IPv4 addresses")
-				span.SetStatus(traceStatusFromError(err))
+				tracehelpers.SetStatus(err, span)
 				return err
 			}
 			ipv4AddressesToRemove.Insert(ipAddress)
@@ -603,7 +603,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 		err = row.Scan(&c)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot scan row")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 		// We have no idea why this association is here.
@@ -638,7 +638,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 `, pq.Array(interfaceIPv6Addresses.UnsortedList()), associationID, aws.StringValue(iface.VpcId))
 		if err != nil {
 			err = errors.Wrap(err, "Cannot query for unused IPv6 addresses")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return err
 		}
 
@@ -648,7 +648,7 @@ WHERE last_seen < now() - INTERVAL '2 minutes' OR last_seen IS NULL
 			err = rows.Scan(&ipAddress)
 			if err != nil {
 				err = errors.Wrap(err, "Cannot scan unused IPv6 addresses")
-				span.SetStatus(traceStatusFromError(err))
+				tracehelpers.SetStatus(err, span)
 				return err
 			}
 			ipv6AddressesToRemove = append(ipv6AddressesToRemove, ipAddress)
@@ -694,7 +694,7 @@ FROM unassigned_ip_addresses
 `, pq.Array(interfaceIPv4Addresses.UnsortedList()), aws.StringValue(iface.VpcId), aws.StringValue(iface.SubnetId))
 	if err != nil {
 		err = errors.Wrap(err, "Cannot query for unused static IPv4 addresses")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
 	for rows.Next() {
@@ -702,7 +702,7 @@ FROM unassigned_ip_addresses
 		err = rows.Scan(&ipAddress, &homeENI)
 		if err != nil {
 			err = errors.Wrap(err, "Cannot scan static (unused) ip address")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			return nil, err
 		}
 		removedStaticAddresses.Insert(ipAddress)
@@ -723,7 +723,7 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, session *ec2wrapper.E
 	err := limiter.Wait(ctx)
 	if err != nil {
 		err = errors.Wrap(err, "Unable to pass database rate limiter")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -734,7 +734,7 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, session *ec2wrapper.E
 	tx, err := vpcService.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		err = errors.Wrap(err, "Could not start database transaction")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		logger.G(ctx).WithError(err).Error()
 		return err
 	}
@@ -769,12 +769,12 @@ func (vpcService *vpcService) doGCENI(ctx context.Context, session *ec2wrapper.E
 	}
 
 	if err != nil {
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
 	err = tx.Commit()
-	span.SetStatus(traceStatusFromError(err))
+	tracehelpers.SetStatus(err, span)
 	return err
 }
 
@@ -790,7 +790,7 @@ func relocateIPAddress(ctx context.Context, session *ec2wrapper.EC2Session, ifac
 	if err != nil {
 		err = errors.Wrap(err, "Cannot unassign static address")
 		logger.G(ctx).WithError(err).Debug("Unassigned address")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
@@ -813,7 +813,7 @@ func removeAssociation(ctx context.Context, session *ec2wrapper.EC2Session, asso
 		AssociationId: association.AssociationId,
 	})
 	logger.G(ctx).WithError(err).Debug("Removed association")
-	span.SetStatus(traceStatusFromError(err))
+	tracehelpers.SetStatus(err, span)
 	return err
 }
 
@@ -832,13 +832,13 @@ WHERE ipv4addr = any($1::inet[])
 		var ipsAssigned int
 		if err := row.Scan(&ipsAssigned); err != nil {
 			err = errors.Wrap(err, "Cannot query / scan assigned IPs")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			span.End()
 			return err
 		}
 		if ipsAssigned > 0 {
 			err := fmt.Errorf("Consistency violation detected, trying to unassign %d assigned IP addresses", ipsAssigned)
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			span.End()
 			return err
 		}
@@ -852,7 +852,7 @@ WHERE ipv4addr = any($1::inet[])
 			NetworkInterfaceId: iface.NetworkInterfaceId,
 		})
 		logger.G(ctx).WithError(err).Debug("Removed IPv4 Addresses")
-		span.SetStatus(traceStatusFromError(err))
+		tracehelpers.SetStatus(err, span)
 		return err
 	})
 
@@ -874,13 +874,13 @@ WHERE ipv6addr = any($1::inet[])
 		var ipsAssigned int
 		if err := row.Scan(&ipsAssigned); err != nil {
 			err = errors.Wrap(err, "Cannot query / scan assigned IPs")
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			span.End()
 			return err
 		}
 		if ipsAssigned > 0 {
 			err := fmt.Errorf("Consistency violation detected, trying to unassign %d assigned IP addresses", ipsAssigned)
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 			span.End()
 			return err
 		}
@@ -897,7 +897,7 @@ WHERE ipv6addr = any($1::inet[])
 		logger.G(ctx).WithError(err).Debug("Removed IPv6 Addresses")
 
 		if err != nil {
-			span.SetStatus(traceStatusFromError(err))
+			tracehelpers.SetStatus(err, span)
 		}
 		return err
 	})
