@@ -11,6 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/service/data"
+	"github.com/Netflix/titus-executor/vpc/service/db"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/aws/aws-sdk-go/aws"
@@ -256,7 +257,7 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 	describeWQ := make(chan []string, 100)
 	gcWQ := make(chan *ec2.NetworkInterface, 10000)
 	group.Go(func() error {
-		return vpcService.getGCableENIs(ctx, item.region, item.accountID, eniWQ)
+		return vpcService.getAllENIs(ctx, item.region, item.accountID, eniWQ)
 	})
 
 	group.Go(func() error {
@@ -277,8 +278,8 @@ func (vpcService *vpcService) doGCENIs(ctx context.Context, item *regionAccount)
 	return group.Wait()
 }
 
-func (vpcService *vpcService) getGCableENIs(ctx context.Context, region, accountID string, ch chan string) error {
-	ctx, span := trace.StartSpan(ctx, "getGCableENIs")
+func (vpcService *vpcService) getAllENIs(ctx context.Context, region, accountID string, ch chan string) error {
+	ctx, span := trace.StartSpan(ctx, "getAllENIs")
 	defer span.End()
 
 	defer close(ch)
@@ -295,51 +296,18 @@ func (vpcService *vpcService) getGCableENIs(ctx context.Context, region, account
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `
-WITH attached_enis AS
-  (SELECT branch_eni,
-          trunk_eni
-   FROM branch_eni_attachments
-   WHERE state = 'attaching'
-     OR state = 'attached'
-     OR state = 'unattaching')
-SELECT branch_enis.branch_eni
-FROM branch_enis
-JOIN subnets ON branch_enis.subnet_id = subnets.subnet_id
-JOIN availability_zones ON subnets.account_id = availability_zones.account_id
-AND subnets.az = availability_zones.zone_name
-WHERE (branch_enis.branch_eni NOT IN
-         (SELECT branch_eni
-          FROM attached_enis)
-       OR
-         (SELECT generation
-          FROM trunk_enis
-          WHERE trunk_eni =
-              (SELECT trunk_eni
-               FROM attached_enis
-               WHERE branch_eni = branch_enis.branch_eni)) = 3)
-  AND branch_enis.account_id = $1
-  AND availability_zones.region = $2
-ORDER BY RANDOM()
-  `, accountID, region)
+	enis, err := db.GetAllBranchENIsByAccountRegion(ctx, tx, accountID, region)
 	if err != nil {
-		err = errors.Wrap(err, "Could not start database query to enumerate attached ENIs")
+		err = errors.Wrap(err, "Failed to get all branch ENIs from DB")
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
 
-	for rows.Next() {
-		var eni string
-		err = rows.Scan(&eni)
-		if err != nil {
-			err = errors.Wrap(err, "Could scan eni ID")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
+	for _, eni := range enis {
 		select {
 		case ch <- eni:
 		case <-ctx.Done():
-			err = fmt.Errorf("Context done while trying to write to gc-able ENIs: %w", ctx.Err())
+			err = fmt.Errorf("Context done while trying to write to ENIs channel: %w", ctx.Err())
 			tracehelpers.SetStatus(err, span)
 			return err
 		}

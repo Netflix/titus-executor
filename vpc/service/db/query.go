@@ -13,6 +13,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/lib/pq"
+	"github.com/pkg/errors"
 	"go.opencensus.io/stats"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -452,4 +453,32 @@ func GetVpcIDAndBranchENIByAssociationID(ctx context.Context, tx *sql.Tx, associ
 		return "", "", err
 	}
 	return vpcID, branchENI, nil
+}
+
+func GetAllBranchENIsByAccountRegion(ctx context.Context, tx *sql.Tx, accountID, region string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+	SELECT branch_enis.branch_eni
+	FROM branch_enis
+	JOIN availability_zones ON branch_enis.account_id = availability_zones.account_id
+	  AND branch_enis.az = availability_zones.zone_name
+	WHERE branch_enis.account_id = $1
+	  AND availability_zones.region = $2
+	ORDER BY RANDOM()
+	  `, accountID, region)
+	if err != nil {
+		err = errors.Wrap(err, "Could not get all branch ENIs from DB")
+		return nil, err
+	}
+
+	enis := make([]string, 0)
+	for rows.Next() {
+		var eni string
+		err = rows.Scan(&eni)
+		if err != nil {
+			err = errors.Wrap(err, "Could not scan branch eni ID")
+			return nil, err
+		}
+		enis = append(enis, eni)
+	}
+	return enis, nil
 }
