@@ -139,7 +139,7 @@ func (dynamicConfig *DynamicConfig) fetchConfigs(ctx context.Context, url string
 	dynamicConfig.Unlock()
 }
 
-func (dynamicConfig *DynamicConfig) GetInt(ctx context.Context, name string, deafult int) int {
+func (dynamicConfig *DynamicConfig) GetInt(ctx context.Context, name string, defaultValue int) int {
 	dynamicConfig.Lock()
 	defer dynamicConfig.Unlock()
 	if value, ok := dynamicConfig.configs[name]; ok {
@@ -150,7 +150,21 @@ func (dynamicConfig *DynamicConfig) GetInt(ctx context.Context, name string, dea
 			return intValue
 		}
 	}
-	return deafult
+	return defaultValue
+}
+
+func (dynamicConfig *DynamicConfig) GetBool(ctx context.Context, name string, defaultValue bool) bool {
+	dynamicConfig.Lock()
+	defer dynamicConfig.Unlock()
+	if value, ok := dynamicConfig.configs[name]; ok {
+		boolValue, err := cast.ToBoolE(value)
+		if err != nil {
+			logger.G(ctx).Errorf("Config %s has an invalid value %s", name, value)
+		} else {
+			return boolValue
+		}
+	}
+	return defaultValue
 }
 
 // Start fetching and updating the configs periodically
