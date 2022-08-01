@@ -542,10 +542,10 @@ func testGenerateAssignmentIDBranchENIsStress(ctx context.Context, t *testing.T,
 	var success int64
 
 	group := &multierror.Group{}
-	trunkENIIDs := make([]string, len(trunks))
+	trunkBranchENIs := make([]string, len(trunks))
 	for idx := range trunks {
 		trunkENI := trunks[idx]
-		trunkENIIDs[idx] = aws.StringValue(trunkENI.NetworkInterfaceId)
+		trunkBranchENIs[idx] = aws.StringValue(trunkENI.NetworkInterfaceId)
 		for i := 0; i < req.maxBranchENIs; i++ {
 			myGetENIRequest := req
 			myGetENIRequest.assignmentID = fmt.Sprintf("testGenerateAssignmentIDBranchENIsStress-%d-%s", i, uuid.New().String())
@@ -568,7 +568,7 @@ func testGenerateAssignmentIDBranchENIsStress(ctx context.Context, t *testing.T,
 	assert.NilError(t, mErr.ErrorOrNil())
 
 	associationIDs := []string{}
-	rows, err := service.db.QueryContext(ctx, "SELECT association_id FROM branch_eni_attachments WHERE trunk_eni = any($1) AND state = 'attached'", pq.Array(trunkENIIDs))
+	rows, err := service.db.QueryContext(ctx, "SELECT association_id FROM branch_eni_attachments WHERE trunk_eni = any($1) AND state = 'attached'", pq.Array(trunkBranchENIs))
 	assert.NilError(t, err)
 	for rows.Next() {
 		var associationID string
@@ -663,7 +663,7 @@ func testGenerateAssignmentIDStressTest(ctx context.Context, t *testing.T, md in
 
 	branchENIs := sets.NewString()
 	for idx := range assignments {
-		branchENIs.Insert(assignments[idx].branch.id)
+		branchENIs.Insert(assignments[idx].branch.BranchENI)
 	}
 	t.Logf("branch ENIs: %v", branchENIs.List())
 	t.Log(assignments)
@@ -960,7 +960,7 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	assert.Assert(t, is.Equal(count, 1))
 
 	describeNetworkInterfacesOutput, err := session.DescribeNetworkInterfaces(ctx, ec2.DescribeNetworkInterfacesInput{
-		NetworkInterfaceIds: []*string{&assignmentIDs[0].branch.id},
+		NetworkInterfaceIds: []*string{&assignmentIDs[0].branch.BranchENI},
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, is.Len(describeNetworkInterfacesOutput.NetworkInterfaces, 1))
@@ -978,7 +978,7 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	t.Logf("assignmentIDs: %s", assignmentIDs)
 	t.Logf("oneExtraAssignmentResponse: %s", oneExtraAssignmentResponse)
 
-	assert.Assert(t, oneExtraAssignmentResponse.branch.id != assignmentIDs[0].branch.id)
+	assert.Assert(t, oneExtraAssignmentResponse.branch.BranchENI != assignmentIDs[0].branch.BranchENI)
 
 	_, err = service.db.ExecContext(ctx, "DELETE FROM assignments WHERE id = $1", oneExtraAssignmentResponse.assignmentID)
 	assert.NilError(t, err)
@@ -989,9 +989,9 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	sgChangeAssignmentResponse, err := service.generateAssignmentID(ctx, sgChangeAssignmentRequest)
 	assert.NilError(t, err)
 
-	assert.Assert(t, is.Equal(sgChangeAssignmentResponse.branch.id, oneExtraAssignmentResponse.branch.id))
+	assert.Assert(t, is.Equal(sgChangeAssignmentResponse.branch.BranchENI, oneExtraAssignmentResponse.branch.BranchENI))
 	describeNetworkInterfacesOutput, err = session.DescribeNetworkInterfaces(ctx, ec2.DescribeNetworkInterfacesInput{
-		NetworkInterfaceIds: []*string{&sgChangeAssignmentResponse.branch.id},
+		NetworkInterfaceIds: []*string{&sgChangeAssignmentResponse.branch.BranchENI},
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, is.Len(describeNetworkInterfacesOutput.NetworkInterfaces, 1))
@@ -999,7 +999,7 @@ func testGenerateAssignmentID(ctx context.Context, t *testing.T, md integrationT
 	assert.Assert(t, is.Equal(aws.StringValue(describeNetworkInterfacesOutput.NetworkInterfaces[0].Groups[0].GroupId), md.testSecurityGroupID))
 
 	describeTrunkInterfaceAssociationsOutput, err := session.DescribeTrunkInterfaceAssociations(ctx, ec2.DescribeTrunkInterfaceAssociationsInput{
-		AssociationIds: aws.StringSlice([]string{sgChangeAssignmentResponse.branch.associationID, assignmentIDs[0].branch.associationID}),
+		AssociationIds: aws.StringSlice([]string{sgChangeAssignmentResponse.branch.AssociationID, assignmentIDs[0].branch.AssociationID}),
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, is.Len(describeTrunkInterfaceAssociationsOutput.InterfaceAssociations, 2))
