@@ -512,7 +512,11 @@ VALUES ($1, $2, $3, $4, $5, now(), 'attaching') RETURNING id
 	}
 	if err != nil {
 		// These errors might largely be recoverable, so you know, deal with that
-		err = errors.Wrap(err, "Unable to insert and scan into branch_eni_attachments")
+		if pqErr != nil {
+			err = errors.Wrapf(err, "Unable to insert and scan into branch_eni_attachments: %s", pqErr.Detail)
+		} else {
+			err = errors.Wrap(err, "Unable to insert and scan into branch_eni_attachments")
+		}
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -540,7 +544,12 @@ VALUES ($1, $2, $3, $4, $5, now(), 'attaching') RETURNING id
 
 	err = fastTx.Commit()
 	if err != nil {
-		err = errors.Wrap(err, "Unable to commit transaction")
+		pqErr := vpcerrors.PqError(err)
+		if pqErr != nil {
+			err = errors.Wrapf(err, "Unable to commit transaction: %s", pqErr.Detail)
+		} else {
+			err = errors.Wrap(err, "Unable to commit transaction")
+		}
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
@@ -775,7 +784,12 @@ WHERE association_id = $4`, clientToken, vpcService.hostname, force, association
 		goto retry
 	}
 	if err != nil {
-		err = errors.Wrap(err, "Unable to commit transaction")
+		pqErr := vpcerrors.PqError(err)
+		if pqErr != nil {
+			err = errors.Wrapf(err, "Unable to commit transaction: %s", pqErr.Detail)
+		} else {
+			err = errors.Wrap(err, "Unable to commit transaction")
+		}
 		tracehelpers.SetStatus(err, span)
 		return 0, err
 	}
