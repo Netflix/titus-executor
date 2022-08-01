@@ -435,7 +435,7 @@ retry:
 		_ = tx.Rollback()
 	}(fastTx)
 
-	err = populateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
+	err = vpcService.populateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
 	if vpcerrors.IsSerializationFailure(err) || vpcerrors.IsRetryable(err) || vpcerrors.IsConcurrencyError(err) {
 		_ = fastTx.Rollback()
 		err2 := backOff(ctx, err)
@@ -510,7 +510,7 @@ func backOff(ctx context.Context, err error) error {
 	return nil
 }
 
-func populateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRequest, ass *assignment, fastTx *sql.Tx) error {
+func (vpcService *vpcService) populateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRequest, ass *assignment, fastTx *sql.Tx) error {
 	ctx, span := trace.StartSpan(ctx, "populateAssignmentUsingAlreadyAttachedENI")
 	defer span.End()
 
@@ -561,7 +561,8 @@ LIMIT 1`, ass.subnet.SubnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxI
 	}
 	logger.G(ctx).Debug("Falling back to trying to find ENI with any security groups")
 
-	ass.branch, err = db.GetOldestUnassignedBranchENI(ctx, fastTx, req.subnet.SubnetID, req.trunkENI)
+	randomBranchENI := vpcService.dynamicConfig.GetBool(ctx, "ENABLE_RANDOM_BRANCH_ENI", false)
+	ass.branch, err = db.GetUnassignedBranchENI(ctx, fastTx, req.subnet.SubnetID, req.trunkENI, randomBranchENI)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			err = vpcerrors.NewMethodNotPossibleError("populateAssignmentUsingAlreadyAttachedENI")
