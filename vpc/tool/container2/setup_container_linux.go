@@ -662,6 +662,7 @@ func setupClass(ctx context.Context, assignmentBandwidth *vpcapi.AssignIPRespons
 		Ceil:    ceil,
 		Buffer:  uint32(math.Ceil(bytespersecond/netlink.Hz()+float64(mtu)) + 1),
 		Cbuffer: uint32(math.Ceil(ceilbytespersecond/netlink.Hz()+10*float64(mtu)) + 1),
+		Quantum: uint32(mtu) + framingOverhead,
 	}
 	class := netlink.NewHtbClass(classattrs, htbclassattrs)
 	logger.G(ctx).Debug("Setting up HTB class: ", class)
