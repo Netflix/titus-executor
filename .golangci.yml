@@ -17,3 +17,4 @@ run:
     - vpc/service/db/migrations
     - vpc/bpf/filter
     - vpc/bpf2
+    - cmd/virtual-kubelet-backend-mock
