@@ -762,6 +762,48 @@ func TeardownNetwork(ctx context.Context, assignment *vpcapi.AssignIPResponseV3)
 	result = multierror.Append(result, deleteFromBPFMaps(ctx, assignment))
 	return result.ErrorOrNil()
 }
+
+func TeardownTransitionNetwork(ctx context.Context, transitionNamespaceDir string, transitionNamespaceID string) error {
+	logger.G(ctx).Infof("Tearing down transition network %s", transitionNamespaceID)
+	_, cleanup, err := transition.LockTransitionNamespaces(ctx, transitionNamespaceDir)
+	if err != nil {
+		return fmt.Errorf("Could not lock transition namespace dir: %w", err)
+	}
+	defer cleanup()
+
+	filePath := filepath.Join(transitionNamespaceDir, transitionNamespaceID)
+	err = unix.Unmount(filePath, 0)
+	if err != nil {
+		if err == syscall.ENOENT {
+			// We may hit this condition in the following case:
+			// 1) VPC tool calls VPC Service GCV3 API, which returns transition assignment A to be removed.
+			// 2) VPC tool unmounts A and removes the file.
+			// 3) VPC tool calls VPC Service UnassignIPV3 API to delete the assignment.
+			// 4) There is something wrong with VPC Servie, say, a bug that causes the UnassignIPV3 API to fail.
+			// 5) When the next GC starts, VPC tool calls VPC Service GCV3 API, which again returns transition assignment A.
+			// 6) VPC tool tries to unmount A but should get a ENOENT error.
+			logger.G(ctx).WithError(err).Warningf("Transition namespace %s doesn't exist", transitionNamespaceID)
+		} else {
+			logger.G(ctx).WithError(err).Errorf("Failed to unmount transition namespace %s", transitionNamespaceID)
+			return err
+		}
+	}
+
+	err = os.Remove(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Same as above.
+			logger.G(ctx).WithError(err).Warningf("Transition namespace %s doesn't exist", transitionNamespaceID)
+		} else {
+			logger.G(ctx).WithError(err).Errorf("Failed to unmount transition namespace %s", transitionNamespaceID)
+			return err
+		}
+	}
+
+	logger.G(ctx).Infof("Tore down transition network %s", transitionNamespaceID)
+	return nil
+}
+
 func deleteFromBPFMaps(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) error {
 	var result *multierror.Error
 	result = multierror.Append(result, deleteFromIPv4BPFMap(ctx, assignment))

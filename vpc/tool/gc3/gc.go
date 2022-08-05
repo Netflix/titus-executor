@@ -3,6 +3,7 @@ package gc3
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/utils/k8s"
@@ -21,8 +22,9 @@ import (
 )
 
 type Args struct {
-	KubernetesPodsURL string
-	SourceOfTruth     string
+	KubernetesPodsURL      string
+	SourceOfTruth          string
+	TransitionNamespaceDir string
 }
 
 func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider identity.InstanceIdentityProvider, conn *grpc.ClientConn, args Args) error {
@@ -72,28 +74,38 @@ func GC(ctx context.Context, timeout time.Duration, instanceIdentityProvider ide
 		logger.G(ctx).WithField("removedAssignments", resp.AssignmentsToRemove).Info("Recieved assignments to remove")
 	}
 	var result *multierror.Error
-	for _, taskID := range resp.AssignmentsToRemove {
-		logger.G(ctx).WithField("assignment", taskID).Info("Removing assignment")
-		assignment, err := client.GetAssignment(ctx, &vpcapi.GetAssignmentRequest{
-			TaskId: taskID,
-		})
-		if err != nil {
-			result = multierror.Append(result, errors.Wrapf(err, "Unable to get assignment %s", taskID))
-			continue
-		}
-		err = container2.TeardownNetwork(ctx, assignment.Assignment)
-		if err != nil {
-			result = multierror.Append(result, errors.Wrapf(err, "Unable to tear down network %s", taskID))
-			continue
+	for _, assignmentID := range resp.AssignmentsToRemove {
+		logger.G(ctx).WithField("assignment", assignmentID).Info("Removing assignment")
+		// Tear down transition network
+		if strings.HasPrefix(assignmentID, "t-") {
+			err = container2.TeardownTransitionNetwork(ctx, args.TransitionNamespaceDir, assignmentID)
+			if err != nil {
+				result = multierror.Append(result, errors.Wrapf(err, "Unable to tear down transition network %s", assignmentID))
+				continue
+			}
+		} else {
+			taskID := assignmentID
+			assignment, err := client.GetAssignment(ctx, &vpcapi.GetAssignmentRequest{
+				TaskId: taskID,
+			})
+			if err != nil {
+				result = multierror.Append(result, errors.Wrapf(err, "Unable to get assignment %s", taskID))
+				continue
+			}
+			err = container2.TeardownNetwork(ctx, assignment.Assignment)
+			if err != nil {
+				result = multierror.Append(result, errors.Wrapf(err, "Unable to tear down network %s", taskID))
+				continue
+			}
 		}
 		_, err = client.UnassignIPV3(ctx, &vpcapi.UnassignIPRequestV3{
-			TaskId: taskID,
+			TaskId: assignmentID,
 		})
 		if err != nil {
-			result = multierror.Append(result, errors.Wrapf(err, "Unable to unassign from vpc service %s", taskID))
+			result = multierror.Append(result, errors.Wrapf(err, "Unable to unassign from vpc service %s", assignmentID))
+			continue
 		}
-		logger.G(ctx).WithField("assignment", taskID).Info("Successfully removed assignment")
-
+		logger.G(ctx).WithField("assignment", assignmentID).Info("Successfully removed assignment")
 	}
 
 	err = result.ErrorOrNil()

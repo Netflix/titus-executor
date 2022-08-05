@@ -34,8 +34,9 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 					iipGetter(),
 					conn,
 					gc3.Args{
-						KubernetesPodsURL: v.GetString("kubernetes-pods-url"),
-						SourceOfTruth:     v.GetString(sourceOfTruthFlagName),
+						KubernetesPodsURL:      v.GetString("kubernetes-pods-url"),
+						SourceOfTruth:          v.GetString(sourceOfTruthFlagName),
+						TransitionNamespaceDir: v.GetString(transitionNSDirFlagName),
 					},
 				)
 			default:
@@ -47,6 +48,7 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 	cmd.Flags().Duration("timeout", 10*time.Minute, "How long to allow the GC to run for")
 	cmd.Flags().String(sourceOfTruthFlagName, "kubernetes", "What to use as the source of truth?")
 	cmd.Flags().String("kubernetes-pods-url", "https://localhost:10250/pods", "The source of truth URL (pods or state.json)")
+	cmd.Flags().String(transitionNSDirFlagName, transitionNSDirDefaultValue, "Directory that transition namespaces are mounted into")
 	addSharedFlags(cmd.Flags())
 
 	return cmd
