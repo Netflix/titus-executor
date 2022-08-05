@@ -218,6 +218,7 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not start setup command")
 	}
+	defer setupCommand.Wait() // nolint: errcheck
 
 	allocation := c.VPCAllocation()
 	marshaler := protojson.MarshalOptions{
