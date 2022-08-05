@@ -206,3 +206,6 @@ $(GOBIN_TOOL):
 vpc/service/db/migrations/bindata.go: vpc/service/db/migrations/generate.go vpc/service/db/migrations/*.sql
 	go generate ./vpc/service/db/migrations/
 	make fmt
+.PHONY: mock
+mock:
+	go build -o build/virtual-kubelet-backend-mock ./cmd/virtual-kubelet-backend-mock
