@@ -797,7 +797,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 }
 
 // Prepare host state (pull images, create fs, create container, etc...)
-func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { // nolint: gocyclo
+func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: gocyclo
 	var volumeContainers []string
 
 	ctx, cancel := context.WithTimeout(ctx, r.dockerCfg.prepareTimeout)
@@ -1019,7 +1019,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 	ctx = logger.WithField(ctx, "containerID", r.c.ID())
 	logger.G(ctx).Info("Main Container successfully created")
 
-	if len(pod.Spec.Containers) > 1 {
+	if len(r.c.Pod().Spec.Containers) > 1 {
 		mainContainerRoot, err = r.inspectAndGetMainContainerRoot(ctx)
 		if err != nil {
 			return err
@@ -1033,7 +1033,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 		if err != nil {
 			return err
 		}
-		err = r.createAllExtraContainers(ctx, pod, r.c.ID(), mainContainerRoot)
+		err = r.createAllExtraContainers(ctx, r.c.Pod(), r.c.ID(), mainContainerRoot)
 		if err != nil {
 			return err
 		}
@@ -1336,7 +1336,7 @@ func (r *DockerRuntime) setupLogsAndMisc(ctx context.Context, typedConn *net.Uni
 
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
 // valid if err == nil, otherwise it will block indefinitely.
-func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "Start")
