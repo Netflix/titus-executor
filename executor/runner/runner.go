@@ -43,7 +43,6 @@ type Runner struct {
 	metricsTagger tagger // the presence of tagger indicates extra Atlas tag is enabled
 	runtime       runtimeTypes.Runtime
 	config        config.Config
-	pod           *corev1.Pod
 
 	container runtimeTypes.Container
 	watcher   *filesystems.Watcher
@@ -72,7 +71,6 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
 		container:     container,
-		pod:           task.Pod,
 	}
 
 	rt, err := rp(ctx, runner.container, startTime)
@@ -187,7 +185,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
-	containerNames := getContainerNames(r.pod)
+	containerNames := getContainerNames(r.container.Pod())
 	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
 	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 
