@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"math/big"
 	"math/rand"
 	"net"
@@ -489,6 +490,7 @@ func (vpcService *vpcService) doAssignIPV3(ctx context.Context, req *vpcapi.Assi
 		return nil, err
 	}
 	resp.TrunkNetworkInterface = instanceNetworkInterface(*instance, *trunkENI)
+	log.WithField("taskId", req.TaskId).WithField("response", resp).Info("AssignIPV3 completed")
 	return resp, nil
 }
 

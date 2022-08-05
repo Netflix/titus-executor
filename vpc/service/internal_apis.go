@@ -530,6 +530,7 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 
 	defaultSgIDS := make([]string, 0)
 	defaultSgIDS = append(defaultSgIDS, defaultSecurityGroupID)
+	logger.G(ctx).WithField("resetSg", sgToDelete).Info("Calling AWS to change interface SG to default SG.")
 
 	//lock eni no key update and then call the AWS API (still dirty and sg is default), and reset the dirty flag to false
 	for _, branchEni := range enisWithSgToUpdate {
@@ -540,7 +541,7 @@ WHERE ARRAY[$1] <@ security_groups AND branch_eni IN
 			return &titus.ResetSecurityGroupResponse{}, err
 		}
 	}
-	logger.G(ctx).WithField("resetSg", sgToDelete).Debug("Reset SG succeeded.")
+	logger.G(ctx).WithField("resetSg", sgToDelete).Info("Reset SG succeeded.")
 	return &titus.ResetSecurityGroupResponse{}, nil
 }
 
