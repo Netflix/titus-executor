@@ -171,11 +171,6 @@ func (b *Backend) run(ctx context.Context) (*runner.Runner, error) {
 	r, err := runner.StartTaskWithRuntime(ctx, runner.Task{
 		TaskID:  b.pod.GetName(),
 		Pod:     b.pod,
-		Mem:     b.memory.Value(),
-		CPU:     b.cpu.Value(),
-		Gpu:     b.gpu.Value(),
-		Disk:    b.disk.Value(),
-		Network: b.network.Value(),
 	}, b.m, b.rp, *b.cfg)
 	b.readyErr = err
 

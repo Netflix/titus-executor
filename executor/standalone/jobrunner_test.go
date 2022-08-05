@@ -525,11 +525,6 @@ func StartTestTask(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobR
 	}
 
 	task := runner.Task{
-		Mem:     memMiB,
-		CPU:     cpu,
-		Gpu:     gpu,
-		Disk:    diskMiB,
-		Network: network,
 		TaskID:  taskID,
 	}
 
