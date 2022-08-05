@@ -106,6 +106,9 @@ func (vpcService *vpcService) GCV3(ctx context.Context, req *vpcapi.GCRequestV3)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+	if len(resp.AssignmentsToRemove) > 0 {
+		logger.G(ctx).WithField("assignments", resp.AssignmentsToRemove).Info("Fetched assignments to remove")
+	}
 	return resp, nil
 }
 
@@ -145,7 +148,48 @@ WHERE assignments.id = unused_assignments.id
 	return n, nil
 }
 
-// Get all assignments that can be removed. An assignment can be removed if it meets all following conditions:
+// Set gc_tombstone time to now() on any transition assginments that match the following condition:
+// 1) The transition assignment uses the given trunk ENI.
+// 2) is_transition_assignment is true.
+// 3) The transition assignment is not used by any of the given running task.
+// 4) The transition assignment has not been used for more than 5 minutes.
+// 5) The gc_tombstone is not already set.
+func tombstoneUnusedTransitionAssignments(ctx context.Context, tx *sql.Tx, trunkENI string, runningTasks []string) (int64, error) {
+	rowsAffected, err := tx.ExecContext(ctx, `
+		WITH 
+		used_transition_assignments AS (
+			SELECT transition_assignment AS id FROM assignments WHERE assignment_id IN (SELECT unnest($2::text[]))
+		),
+		unused_transition_assignments AS (
+			SELECT assignments.id 
+			FROM assignments
+			JOIN branch_eni_attachments ON branch_eni_attachments.association_id = assignments.branch_eni_association
+			WHERE trunk_eni = $1
+			AND assignments.is_transition_assignment
+			AND NOT EXISTS (
+				SELECT id from used_transition_assignments where used_transition_assignments.id = assignments.id
+			)
+			AND assignments.transition_last_used < now() - INTERVAL '5 minutes'
+			AND assignments.gc_tombstone IS NULL)
+		UPDATE assignments
+		SET gc_tombstone = now()
+		FROM unused_transition_assignments
+		WHERE assignments.id = unused_transition_assignments.id
+	`, trunkENI, pq.Array(runningTasks))
+	if err != nil {
+		err = fmt.Errorf("Could not tombstone unused transition assignments: %w", err)
+		return 0, err
+	}
+
+	n, err := rowsAffected.RowsAffected()
+	if err != nil {
+		err = fmt.Errorf("Could not find rows affected: %w", err)
+		return 0, err
+	}
+	return n, nil
+}
+
+// Get all assignments, including transition assignments that can be removed. An assignment can be removed if it meets all following conditions:
 // 1) The assignment uses the given trunk ENI.
 // 2) The assignment_id is not in the given running task list.
 // 3) The gc_tombstone on the assignment has been set for more than 30 minutes
@@ -210,11 +254,19 @@ func (vpcService *vpcService) doGCV3(ctx context.Context, req *vpcapi.GCRequestV
 
 	n, err := tombstoneUnusedAssignments(ctx, tx, aws.StringValue(trunkENI.NetworkInterfaceId), req.RunningTaskIDs)
 	if err != nil {
-		err = fmt.Errorf("Could not tombstone unused assignments: %w", err)
+		err = fmt.Errorf("could not tombstone unused assignments: %w", err)
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
-	span.AddAttributes(trace.Int64Attribute("rowsTombstoned", n))
+	span.AddAttributes(trace.Int64Attribute("assignmentsTombstoned", n))
+
+	n, err = tombstoneUnusedTransitionAssignments(ctx, tx, aws.StringValue(trunkENI.NetworkInterfaceId), req.RunningTaskIDs)
+	if err != nil {
+		err = fmt.Errorf("could not tombstone unused transition assignments: %w", err)
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	span.AddAttributes(trace.Int64Attribute("transitionAssignmentsTombstoned", n))
 
 	resp.AssignmentsToRemove, err = getAssignmentsToRemove(ctx, tx, aws.StringValue(trunkENI.NetworkInterfaceId), req.RunningTaskIDs)
 	if err != nil {
@@ -231,7 +283,6 @@ func (vpcService *vpcService) doGCV3(ctx context.Context, req *vpcapi.GCRequestV
 	}
 
 	span.AddAttributes(trace.StringAttribute("assignmentsToRemove", fmt.Sprint(resp.AssignmentsToRemove)))
-	logger.G(ctx).WithField("assignmentsToRemove", resp.AssignmentsToRemove).Debug("Fetched assignments to remove")
 
 	return &resp, err
 }
