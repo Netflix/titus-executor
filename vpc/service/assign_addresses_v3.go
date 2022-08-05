@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"math/big"
 	"math/rand"
 	"net"
 	"regexp"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc"
