@@ -17,6 +17,8 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	logruslogger "github.com/virtual-kubelet/virtual-kubelet/log/logrus"
 	"gopkg.in/urfave/cli.v1"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 func main() {
@@ -157,7 +159,7 @@ type runtimeMock struct {
 	shutdownAfter time.Timer
 }
 
-func (r *runtimeMock) Prepare(containerCtx context.Context) error {
+func (r *runtimeMock) Prepare(containerCtx context.Context, pod *corev1.Pod) error {
 	logrus.Info("runtimeMock.Prepare", r.taskId)
 	if r.prepareCallback != nil {
 		return r.prepareCallback(containerCtx)
@@ -165,7 +167,7 @@ func (r *runtimeMock) Prepare(containerCtx context.Context) error {
 	return nil
 }
 
-func (r *runtimeMock) Start(containerCtx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+func (r *runtimeMock) Start(containerCtx context.Context, pod *corev1.Pod) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	logrus.Info("runtimeMock.Start", r.taskId)
 	r.mu.Lock()
 	defer r.mu.Unlock()
