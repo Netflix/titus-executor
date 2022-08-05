@@ -872,7 +872,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 	if totalExtraContainerCount > 0 {
 		group.Go(func(ctx context.Context) error {
 			logger.G(ctx).Infof("Pulling %d other user/platform containers", totalExtraContainerCount)
-			return r.pullAllExtraContainers(ctx, pod)
+			return r.pullAllExtraContainers(ctx)
 		})
 	}
 
@@ -1713,7 +1713,7 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID str
 	}
 }
 
-func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod) error {
+func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	// In this design, the first container has already been pulled, so we only look
 	// at the other containers here.
