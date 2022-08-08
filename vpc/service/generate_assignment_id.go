@@ -141,6 +141,7 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 		region:    req.region,
 	})
 	if err != nil {
+		logger.G(ctx).WithError(err).Error("Reconciling SGs before assignment failed")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}

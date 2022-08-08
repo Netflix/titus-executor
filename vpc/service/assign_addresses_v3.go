@@ -480,6 +480,7 @@ func (vpcService *vpcService) doAssignIPV3(ctx context.Context, req *vpcapi.Assi
 		return nil, err
 	}
 	resp.TrunkNetworkInterface = instanceNetworkInterface(*instance, *trunkENI)
+	logger.G(ctx).WithField("taskId", req.TaskId).WithField("response", resp).Info("AssignIPV3 completed")
 	return resp, nil
 }
 
