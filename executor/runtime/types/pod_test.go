@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestPodImageNameWithTagAndDigest(t *testing.T) {
 	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = "docker.io/titusoss/alpine@" + testDigest
 	pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+MainContainerName] = "myCoolTag"
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.QualifiedImageName(), uc.Image)
 	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
@@ -66,7 +67,7 @@ func TestPodImageNameWithOtherTagAndNoDigest(t *testing.T) {
 
 	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = imageFullWithLatest
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.QualifiedImageName(), imageFullWithLatest)
 	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/alpine"))
@@ -85,7 +86,7 @@ func TestPodImageNameComplex(t *testing.T) {
 	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = fullImg
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.QualifiedImageName(), fullImg)
 	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr("titusoss/titus-test"))
@@ -101,7 +102,7 @@ func TestPodImageTagOmitLatest(t *testing.T) {
 	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = expected
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.QualifiedImageName(), expected)
 }
@@ -114,7 +115,7 @@ func TestPodImageByDigest(t *testing.T) {
 
 	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = expected
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.QualifiedImageName(), expected)
 	assert.DeepEqual(t, c.ImageName(), ptr.StringPtr(imageName))
@@ -293,7 +294,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	}
 	uc.TTY = true
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	c.SetVPCAllocation(expVPCalloc)
 	c.SetID(taskID)
@@ -484,7 +485,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 	assert.NilError(t, err)
 	taskID := goodPod.ObjectMeta.Name
 
-	_, err = NewPodContainer(nil, *conf)
+	_, err = NewPodContainer(nil, &sync.Mutex{}, *conf)
 	assert.Error(t, err, "missing pod")
 
 	pod := &corev1.Pod{
@@ -492,7 +493,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 			Name: taskID,
 		},
 	}
-	_, err = NewPodContainer(pod, *conf)
+	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.Error(t, err, "no containers found in pod")
 
 	pod = &corev1.Pod{
@@ -509,11 +510,11 @@ func TestNewPodContainerErrors(t *testing.T) {
 		},
 	}
 
-	_, err = NewPodContainer(pod, *conf)
+	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.ErrorContains(t, err, "pod did not contain network resource limit")
 
 	pod.Spec.Containers[0].Resources = goodPod.Spec.Containers[0].Resources
-	_, err = NewPodContainer(pod, *conf)
+	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.ErrorContains(t, err, "system environment variable names annotation is required")
 
 	pod.Annotations = map[string]string{
@@ -521,7 +522,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 	}
 
 	pod.Spec.Containers[0].Image = ""
-	_, err = NewPodContainer(pod, *conf)
+	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.ErrorContains(t, err, "error parsing docker image \"\"")
 
 	pod.Spec.Containers[0].Image = testImageWithTag
@@ -529,7 +530,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 		Name:      "dev-shm",
 		MountPath: ShmMountPath,
 	})
-	_, err = NewPodContainer(pod, *conf)
+	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.Error(t, err, "error parsing EmptyDir mounts: container volume mount found with unmatched pod volume: dev-shm")
 
 	// Can't specify more than one EBS volume per task
@@ -565,7 +566,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 			},
 		},
 	}
-	_, err = NewPodContainer(pod, *conf)
+	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.Error(t, err, "error parsing mounts: only one EBS volume per task can be specified")
 }
 
@@ -577,7 +578,7 @@ func TestNewPodContainerHostnameStyle(t *testing.T) {
 		podCommon.AnnotationKeyPodHostnameStyle: "ec2",
 	})
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, c.HostnameStyle(), ptr.StringPtr("ec2"))
 }
@@ -588,7 +589,7 @@ func TestNewPodContainerMetatronDisabled(t *testing.T) {
 
 	conf.MetatronEnabled = false
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.Env()["TITUS_METATRON_ENABLED"], "false")
 }
@@ -597,7 +598,7 @@ func TestNewPodContainerMetatronDisabledWhenNoCreds(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	cInfo, err := c.SyntheticContainerInfo()
 	assert.NilError(t, err)
@@ -653,7 +654,7 @@ func TestPodContainerClusterName(t *testing.T) {
 			pod.Annotations[podCommon.AnnotationKeyWorkloadStack] = f.jobGroupStack
 		}
 
-		c, err := NewPodContainer(pod, *conf)
+		c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 		assert.NilError(t, err)
 
 		got := c.CombinedAppStackDetails()
@@ -734,7 +735,7 @@ func TestPodContainerEnvBasedOnTaskInfo(t *testing.T) {
 			if _, ok := pod.Annotations[podCommon.AnnotationKeyIAMRole]; !ok {
 				pod.Annotations[podCommon.AnnotationKeyIAMRole] = testIamRole
 			}
-			container, err := NewPodContainer(pod, *conf)
+			container, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 			assert.NilError(t, err)
 			containerEnv := container.Env()
 			// Checks if everything in want is in containerEnv
@@ -1059,7 +1060,7 @@ func TestPodContainerServiceMeshEnabled(t *testing.T) {
 		podCommon.AnnotationKeyServicePrefix + "/servicemesh.v1.image":   imgName,
 	})
 
-	c, err := NewPodContainer(pod, config)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), true)
 	scConfs, err := c.SystemServices()
@@ -1085,7 +1086,7 @@ func TestPodContainerServiceMeshEnabledWithConfig(t *testing.T) {
 	pod, _, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	c, err := NewPodContainer(pod, config)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), false)
 	scConfs, err := c.SystemServices()
@@ -1111,7 +1112,7 @@ func TestPodContainerServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 	pod, _, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	c, err := NewPodContainer(pod, config)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, config)
 	assert.NilError(t, err)
 	assert.Equal(t, c.ServiceMeshEnabled(), false)
 	scConfs, err := c.SystemServices()
@@ -1134,7 +1135,7 @@ func TestPodContainerSubnetIDHasSpaces(t *testing.T) {
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyNetworkSubnetIDs: "subnet-foo, subnet-bar ",
 	})
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 
 	expSubnets := []string{"subnet-foo", "subnet-bar"}
@@ -1169,7 +1170,7 @@ func testPodCustomCmdWithEntrypoint(entrypoint []string) func(*testing.T) {
 		// k8s `Args` is the same as docker's Command
 		pod.Spec.Containers[0].Args = []string{"sleep", "1"}
 
-		c, err := NewPodContainer(pod, *conf)
+		c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 		assert.NilError(t, err)
 
 		entry, cmd := c.Process()
@@ -1184,7 +1185,7 @@ func TestPodContainerDefaultProcessIsEmpty(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 
 	entrypoint, cmd := c.Process()
@@ -1196,7 +1197,7 @@ func TestPodContainerDefaultHostnameStyle(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 
 	hostname, err := ComputeHostname(c)
@@ -1209,7 +1210,7 @@ func TestPodContainerEC2HostnameStyle(t *testing.T) {
 	assert.NilError(t, err)
 
 	pod.Annotations[podCommon.AnnotationKeyPodHostnameStyle] = "ec2"
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 
 	c.SetVPCAllocation(&vpcapi.Assignment{
@@ -1235,7 +1236,7 @@ func TestPodContainerInvalidHostnameStyle(t *testing.T) {
 	assert.NilError(t, err)
 
 	pod.Annotations[podCommon.AnnotationKeyPodHostnameStyle] = "foo"
-	_, err = NewPodContainer(pod, *conf)
+	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.ErrorContains(t, err, "annotation is not a valid hostname style")
 }
 
@@ -1243,7 +1244,7 @@ func TestPodContainerDefaultIPv6AddressAssignment(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.AssignIPv6Address(), false)
 }
@@ -1254,7 +1255,7 @@ func TestPodContainerIPv6AddressAssignment(t *testing.T) {
 
 	pod.Annotations[podCommon.AnnotationKeyNetworkAssignIPv6Address] = True
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.AssignIPv6Address(), true)
 }
@@ -1265,12 +1266,12 @@ func TestPodContainerTtyEnabled(t *testing.T) {
 
 	pod.Spec.Containers[0].TTY = true
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.TTYEnabled(), true)
 
 	pod.Spec.Containers[0].TTY = false
-	c, err = NewPodContainer(pod, *conf)
+	c, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.TTYEnabled(), false)
 }
@@ -1279,13 +1280,13 @@ func TestPodContainerOomScoreAdj(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
 
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	var oomScoreNil *int32
 	assert.DeepEqual(t, oomScoreNil, c.OomScoreAdj())
 
 	pod.Annotations[podCommon.AnnotationKeyPodOomScoreAdj] = "99"
-	c, err = NewPodContainer(pod, *conf)
+	c, err = NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	oomScore := int32(99)
 
@@ -1351,7 +1352,7 @@ func TestNewPodContainerEntrypointShellParsing(t *testing.T) {
 			})
 		}
 
-		c, err := NewPodContainer(pod, *conf)
+		c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 		assert.NilError(t, err)
 
 		entrypoint, cmd := c.Process()
@@ -1387,7 +1388,7 @@ func TestContainerInfoGenerationBasic(t *testing.T) {
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "FROM_TITUS_1, FROM_TITUS_2",
 	})
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 
 	cInfo, err := c.SyntheticContainerInfo()
@@ -1475,7 +1476,7 @@ func TestContainerInfoGenerationAllFields(t *testing.T) {
 
 	uc.Args = expArgs
 	uc.Command = expCmd
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 
 	cInfo, err := c.SyntheticContainerInfo()
@@ -1536,7 +1537,7 @@ func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
 	addPodAnnotations(pod, map[string]string{
 		podCommon.AnnotationKeyPodTitusSystemEnvVarNames: "FROM_TITUS_1, FROM_TITUS_2",
 	})
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 
 	cInfo, err := c.SyntheticContainerInfo()
@@ -1551,7 +1552,7 @@ func TestContainerInfoGenerationNoUserEnvVars(t *testing.T) {
 func TestDefaultNetworkMode(t *testing.T) {
 	pod, conf, err := PodContainerTestArgs()
 	assert.NilError(t, err)
-	c, err := NewPodContainer(pod, *conf)
+	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, titus.NetworkConfiguration_Ipv4Only.String(), c.EffectiveNetworkMode())
 }

@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -148,7 +149,7 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 	assert.NoError(t, err)
 	pod.Spec.Containers[0].Image = imgName + "@" + imgDigest
 
-	c, err := runtimeTypes.NewPodContainer(pod, *conf)
+	c, err := runtimeTypes.NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NoError(t, err)
 
 	res, err := drt.DockerPull(ctx, c)

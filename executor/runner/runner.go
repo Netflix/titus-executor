@@ -29,6 +29,7 @@ import (
 type Task struct {
 	TaskID  string
 	Pod     *corev1.Pod
+	PodLock *sync.Mutex
 }
 
 // Runner maintains in memory state for the Task runner
@@ -54,7 +55,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 	ctx = logger.WithField(ctx, "taskID", task.TaskID)
 	metricsTagger, _ := m.(tagger) // metrics.Reporter may or may not implement tagger interface.  OK to be nil
 	startTime := time.Now()
-	container, err := runtimeTypes.NewPodContainer(task.Pod, cfg)
+	container, err := runtimeTypes.NewPodContainer(task.Pod, task.PodLock, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +181,9 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
-	containerNames := getContainerNames(r.container.Pod())
+	pod, podLock := r.container.Pod()
+	containerNames := getContainerNames(pod)
+	podLock.Unlock()
 	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
 	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 

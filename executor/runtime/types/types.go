@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/config"
@@ -196,7 +197,7 @@ type Container interface {
 	NFSMounts() []NFSMount
 	OomScoreAdj() *int32
 	OwnerEmail() *string
-	Pod() *v1.Pod
+	Pod() (*v1.Pod, *sync.Mutex)
 	Process() ([]string, []string)
 	QualifiedImageName() string
 	Resources() *Resources

@@ -110,6 +110,7 @@ func state2containerState(prevState *v1.ContainerState, currState titusdriver.Ti
 type Backend struct {
 	network, disk, memory, gpu, cpu resource.Quantity
 	pod                             *v1.Pod
+	podLock                         *sync.Mutex
 	readyErr                        error
 	readyLock                       sync.RWMutex
 	m                               metrics.Reporter
@@ -152,6 +153,7 @@ func NewBackend(ctx context.Context, rp runtimeTypes.ContainerRuntimeProvider, p
 		gpu:     gpu,
 		cpu:     cpu,
 		pod:     pod,
+		podLock: &sync.Mutex{},
 		m:       m,
 		rp:      rp,
 		cfg:     cfg,
@@ -171,6 +173,7 @@ func (b *Backend) run(ctx context.Context) (*runner.Runner, error) {
 	r, err := runner.StartTaskWithRuntime(ctx, runner.Task{
 		TaskID:  b.pod.GetName(),
 		Pod:     b.pod,
+		PodLock: b.podLock,
 	}, b.m, b.rp, *b.cfg)
 	b.readyErr = err
 
@@ -321,6 +324,8 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	if update.Details != nil && update.Details.NetworkConfiguration != nil {
 		// These annotations allow us to get data "back out" from the executor up to the control-plane, without having
 		// to depend on the limitations of the PodStatus structure.
+		b.podLock.Lock()
+		defer b.podLock.Unlock()
 		for k, v := range update.Details.NetworkConfiguration.ToAnnotationMap() {
 			b.pod.Annotations[k] = v
 		}

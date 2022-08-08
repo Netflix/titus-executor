@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"sync"
 	"testing"
 
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -16,7 +17,7 @@ const (
 func TestDefaultProfile(t *testing.T) {
 	pod, conf, err := runtimeTypes.PodContainerTestArgs()
 	assert.NoError(t, err)
-	c, err := runtimeTypes.NewPodContainer(pod, *conf)
+	c, err := runtimeTypes.NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NoError(t, err)
 	hostConfig := container.HostConfig{}
 
@@ -32,7 +33,7 @@ func TestFuseProfile(t *testing.T) {
 	pod, conf, err := runtimeTypes.PodContainerTestArgs()
 	assert.NoError(t, err)
 	pod.Annotations[podCommon.AnnotationKeyPodFuseEnabled] = True
-	c, err := runtimeTypes.NewPodContainer(pod, *conf)
+	c, err := runtimeTypes.NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NoError(t, err)
 	hostConfig := container.HostConfig{}
 
@@ -53,7 +54,7 @@ func TestOverrideFuseProfile(t *testing.T) {
 	// Using the full pod spec, the apparmor profile is specified in an annotation
 	pod.Annotations[podCommon.AnnotationKeyPrefixAppArmor+"/"+runtimeTypes.MainContainerName] = "docker_foo"
 	pod.Annotations[podCommon.AnnotationKeyPodFuseEnabled] = True
-	c, err := runtimeTypes.NewPodContainer(pod, *conf)
+	c, err := runtimeTypes.NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NoError(t, err)
 	hostConfig := container.HostConfig{}
 

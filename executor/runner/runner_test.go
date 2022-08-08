@@ -145,6 +145,7 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 	task := Task{
 		TaskID:  taskID,
 		Pod:     pod,
+		PodLock: &sync.Mutex{},
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -215,6 +216,7 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	task := Task{
 		TaskID:  taskID,
 		Pod:     pod,
+		PodLock: &sync.Mutex{},
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -297,6 +299,7 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	task := Task{
 		TaskID:  taskID,
 		Pod:     pod,
+		PodLock: &sync.Mutex{},
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
