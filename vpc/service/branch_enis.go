@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/metrics"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
@@ -162,9 +163,9 @@ func (vpcService *vpcService) finishAssociationAWS(ctx context.Context, slowTx *
 		return nil, err
 	}
 
-	err = vpcService.ensureBranchENIPermissionV3(ctx, slowTx, args.trunkENIAccountID, branchENISession, &branchENI{
-		accountID: args.branchENIAccountID,
-		id:        args.branch,
+	err = vpcService.ensureBranchENIPermissionV3(ctx, slowTx, args.trunkENIAccountID, branchENISession, &data.BranchENI{
+		AccountID: args.branchENIAccountID,
+		BranchENI: args.branch,
 	})
 	if err != nil {
 		err = errors.Wrap(err, "Cannot ensure permission to attach branch ENI")
@@ -569,21 +570,21 @@ VALUES ($1, $2, $3, $4, $5, now(), 'attaching') RETURNING id
 	return id, nil
 }
 
-func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, tx *sql.Tx, trunkENIAccountID string, branchENISession *ec2wrapper.EC2Session, eni *branchENI) error {
+func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, tx *sql.Tx, trunkENIAccountID string, branchENISession *ec2wrapper.EC2Session, eni *data.BranchENI) error {
 	ctx, span := trace.StartSpan(ctx, "ensureBranchENIPermissionV3")
 	defer span.End()
 
 	span.AddAttributes(
-		trace.StringAttribute("branch", eni.id),
-		trace.StringAttribute("branchAccount", eni.accountID),
+		trace.StringAttribute("branch", eni.BranchENI),
+		trace.StringAttribute("branchAccount", eni.AccountID),
 		trace.StringAttribute("trunkAccount", trunkENIAccountID),
 	)
-	if eni.accountID == trunkENIAccountID {
+	if eni.AccountID == trunkENIAccountID {
 		return nil
 	}
 
 	// This could be collapsed into a join on the above query, but for now, we wont do that
-	row := tx.QueryRowContext(ctx, "SELECT COALESCE(count(*), 0) FROM eni_permissions WHERE branch_eni = $1 AND account_id = $2", eni.id, trunkENIAccountID)
+	row := tx.QueryRowContext(ctx, "SELECT COALESCE(count(*), 0) FROM eni_permissions WHERE branch_eni = $1 AND account_id = $2", eni.BranchENI, trunkENIAccountID)
 	var permissions int
 	err := row.Scan(&permissions)
 	if err != nil {
@@ -595,10 +596,10 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 		return nil
 	}
 
-	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", trunkENIAccountID, eni.accountID)
+	logger.G(ctx).Debugf("Creating network interface permission to allow account %s to attach branch ENI in account %s", trunkENIAccountID, eni.AccountID)
 	_, err = branchENISession.CreateNetworkInterfacePermission(ctx, ec2.CreateNetworkInterfacePermissionInput{
 		AwsAccountId:       aws.String(trunkENIAccountID),
-		NetworkInterfaceId: aws.String(eni.id),
+		NetworkInterfaceId: aws.String(eni.BranchENI),
 		Permission:         aws.String("INSTANCE-ATTACH"),
 	})
 
@@ -607,7 +608,7 @@ func (vpcService *vpcService) ensureBranchENIPermissionV3(ctx context.Context, t
 		return ec2wrapper.HandleEC2Error(err, span)
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO eni_permissions(branch_eni, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING ", eni.id, trunkENIAccountID)
+	_, err = tx.ExecContext(ctx, "INSERT INTO eni_permissions(branch_eni, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING ", eni.BranchENI, trunkENIAccountID)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot insert network interface permission into database")
 		tracehelpers.SetStatus(err, span)

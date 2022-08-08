@@ -482,3 +482,72 @@ func GetAllBranchENIsByAccountRegion(ctx context.Context, tx *sql.Tx, accountID,
 	}
 	return enis, nil
 }
+
+// Get one branch ENI that is not assigned to any container
+// random: If true, select a random unassigned branch ENI. Otherwise, select the oldest one.
+func GetUnassignedBranchENI(ctx context.Context, tx *sql.Tx, subnet, trunkENI string, random bool) (*data.BranchENI, error) {
+	branchENI := &data.BranchENI{}
+	var row *sql.Row
+	if random {
+		row = tx.QueryRowContext(ctx, `
+SELECT valid_branch_enis.id,
+       valid_branch_enis.branch_eni,
+       valid_branch_enis.association_id,
+       valid_branch_enis.az,
+       valid_branch_enis.account_id,
+       valid_branch_enis.idx
+FROM
+  (SELECT branch_enis.id,
+          branch_enis.branch_eni,
+          branch_enis.az,
+          branch_enis.account_id,
+          branch_eni_attachments.idx,
+          branch_eni_attachments.association_id,
+     (SELECT count(*)
+      FROM assignments
+      WHERE assignments.branch_eni_association = branch_eni_attachments.association_id) AS c
+   FROM branch_enis
+   JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
+   WHERE subnet_id = $1
+     AND trunk_eni = $2
+     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
+     AND state = 'attached') valid_branch_enis
+WHERE c = 0
+ORDER BY RANDOM()
+LIMIT 1`, subnet, trunkENI)
+	} else {
+		row = tx.QueryRowContext(ctx, `
+SELECT valid_branch_enis.id,
+       valid_branch_enis.branch_eni,
+       valid_branch_enis.association_id,
+       valid_branch_enis.az,
+       valid_branch_enis.account_id,
+       valid_branch_enis.idx
+FROM
+  (SELECT branch_enis.id,
+          branch_enis.branch_eni,
+          branch_enis.az,
+          branch_enis.account_id,
+          branch_eni_attachments.idx,
+          branch_eni_attachments.association_id,
+          branch_eni_attachments.created_at AS branch_eni_attached_at,
+     (SELECT count(*)
+      FROM assignments
+      WHERE assignments.branch_eni_association = branch_eni_attachments.association_id) AS c
+   FROM branch_enis
+   JOIN branch_eni_attachments ON branch_enis.branch_eni = branch_eni_attachments.branch_eni
+   WHERE subnet_id = $1
+     AND trunk_eni = $2
+     AND (SELECT count(*) FROM subnet_usable_prefix WHERE subnet_usable_prefix.branch_eni_id = branch_enis.id) > 0
+     AND state = 'attached') valid_branch_enis
+WHERE c = 0
+ORDER BY c DESC, branch_eni_attached_at ASC
+LIMIT 1`, subnet, trunkENI)
+	}
+	err := row.Scan(&branchENI.ID, &branchENI.BranchENI, &branchENI.AssociationID, &branchENI.AZ, &branchENI.AccountID, &branchENI.Idx)
+
+	if err != nil {
+		return nil, err
+	}
+	return branchENI, nil
+}

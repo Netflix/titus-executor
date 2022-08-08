@@ -8,6 +8,7 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 
+	"github.com/Netflix/titus-executor/vpc/service/data"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -121,10 +122,10 @@ func (vpcService *vpcService) doAssociateTrunkNetworkInterface(ctx context.Conte
 		return nil, err
 	}
 
-	err = vpcService.ensureBranchENIPermissionV3(ctx, tx, trunkENIAccountID, branchENISession, &branchENI{
-		id:        branch,
-		az:        branchENIAZ,
-		accountID: branchENIAccountID,
+	err = vpcService.ensureBranchENIPermissionV3(ctx, tx, trunkENIAccountID, branchENISession, &data.BranchENI{
+		BranchENI: branch,
+		AZ:        branchENIAZ,
+		AccountID: branchENIAccountID,
 	})
 	if err != nil {
 		tracehelpers.SetStatus(err, span)

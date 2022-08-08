@@ -53,25 +53,29 @@ func TestDynamicConfig(t *testing.T) {
 	wg.Add(1)
 
 	s := mockDynamicConfigServer{
-		configsByName: map[string]string{"TEST_CONFIG": "24"},
+		configsByName: map[string]string{
+			"TEST_INT_CONFIG":  "24",
+			"TEST_BOOL_CONFIG": "true",
+		},
 	}
 	s.start(wg, t)
 
 	dynamicConfig := NewDynamicConfig()
 
 	// Before starting fetching configs, the value should be default value
-	assert.Equal(t, 123, dynamicConfig.GetInt(ctx, "TEST_CONFIG", 123))
+	assert.Equal(t, 123, dynamicConfig.GetInt(ctx, "TEST_INT_CONFIG", 123))
+	assert.Equal(t, false, dynamicConfig.GetBool(ctx, "TEST_BOOL_CONFIG", false))
 
 	interval := time.Second
 	dynamicConfig.Start(ctx, interval, s.url)
 
 	done := make(chan bool)
-	var actualValue int
+	var actualIntValue int
 	// Keep checking the config value until it changes.
 	go func() {
 		for {
-			actualValue = dynamicConfig.GetInt(ctx, "TEST_CONFIG", 123)
-			if actualValue != 123 {
+			actualIntValue = dynamicConfig.GetInt(ctx, "TEST_INT_CONFIG", 123)
+			if actualIntValue != 123 {
 				done <- true
 				return
 			}
@@ -80,7 +84,8 @@ func TestDynamicConfig(t *testing.T) {
 	}()
 	select {
 	case <-done:
-		assert.Equal(t, 24, actualValue)
+		assert.Equal(t, 24, actualIntValue)
+		assert.Equal(t, true, dynamicConfig.GetBool(ctx, "TEST_BOOL_CONFIG", false))
 	case <-time.After(2 * interval):
 		assert.Fail(t, "Failed to fetch latest value after 2 intervals")
 	}
