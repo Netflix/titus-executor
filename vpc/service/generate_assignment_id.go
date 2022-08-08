@@ -379,7 +379,12 @@ FOR NO KEY UPDATE OF branch_enis`, ass.branch.id)
 
 	err = tx.Commit()
 	if err != nil {
-		err = errors.Wrapf(err, "Unable to commit transaction")
+		pqErr := vpcerrors.PqError(err)
+		if pqErr != nil {
+			err = errors.Wrapf(err, "Unable to commit transaction: %s", pqErr.Detail)
+		} else {
+			err = errors.Wrap(err, "Unable to commit transaction")
+		}
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
@@ -455,7 +460,12 @@ retry:
 		}
 		if vpcerrors.IsSerializationFailure(err2) || vpcerrors.IsRetryable(err2) || errors.Is(err2, &vpcerrors.ConcurrencyError{}) {
 			_ = fastTx.Rollback()
-			logger.G(ctx).WithError(err2).Warning("Experienced retryable error doing get eni and attach")
+			pqErr := vpcerrors.PqError(err2)
+			if pqErr != nil {
+				logger.G(ctx).WithError(err2).Warningf("Experienced retryable error doing get eni and attach: %s", pqErr.Detail)
+			} else {
+				logger.G(ctx).WithError(err2).Warning("Experienced retryable error doing get eni and attach")
+			}
 			err3 := backOff(ctx, err2)
 			if err3 != nil {
 				err = multierror.Append(err, err2, err3).ErrorOrNil()
@@ -704,7 +714,12 @@ func (vpcService *vpcService) getENIAndAttach(ctx context.Context, req getENIReq
 	// 2
 	workItem, err = vpcService.attachENI(ctx, req, eni, fastTx, slowTx)
 	if err != nil {
-		logger.G(ctx).WithError(err).Error("Unable to attach ENI")
+		pqErr := vpcerrors.PqError(err)
+		if pqErr != nil {
+			logger.G(ctx).WithError(err).Errorf("Unable to attach ENI: %s", pqErr.Detail)
+		} else {
+			logger.G(ctx).WithError(err).Error("Unable to attach ENI")
+		}
 		tracehelpers.SetStatus(err, span)
 		return err
 	}
