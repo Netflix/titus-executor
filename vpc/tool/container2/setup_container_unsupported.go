@@ -21,3 +21,7 @@ func DoTeardownContainer(ctx context.Context, allocation *vpcapi.AssignIPRespons
 func TeardownNetwork(ctx context.Context, allocation *vpcapi.AssignIPResponseV3) error {
 	return types.ErrUnsupported
 }
+
+func TeardownTransitionNetwork(ctx context.Context, transitionNamespaceDir string, transitionNamespaceID string) error {
+	return types.ErrUnsupported
+}

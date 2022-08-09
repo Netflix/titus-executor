@@ -1179,6 +1179,7 @@ func (vpcService *vpcService) UnassignIPV3(ctx context.Context, req *vpcapi.Unas
 		tracehelpers.SetStatus(err, span)
 		return nil, err
 	}
+	logger.G(ctx).WithError(err).Info("Successfully unassigned IP")
 	return resp, nil
 }
 
@@ -1220,7 +1221,15 @@ func (vpcService *vpcService) doUnassignIPV3(ctx context.Context, req *vpcapi.Un
 		_ = tx.Rollback()
 	}()
 
-	row := tx.QueryRowContext(ctx, "DELETE FROM assignments WHERE assignment_id = $1 RETURNING assignments.ipv4addr, assignments.ipv6addr, assignments.branch_eni_association", req.TaskId)
+	// For regular assignment, just delete it because it's not possible to be reused.
+	// For transition assignment, delete only if the tombstone is set. Because a concurrent AssignIPV3 request could
+	// have reused the transition assignment and unset the tombstone.
+	row := tx.QueryRowContext(ctx, `
+		DELETE FROM assignments WHERE assignment_id = $1 AND 
+									((NOT is_transition_assignment) OR 
+									(is_transition_assignment AND gc_tombstone IS NOT NULL))
+		RETURNING assignments.ipv4addr, assignments.ipv6addr, assignments.branch_eni_association
+	`, req.TaskId)
 	var ipv4, ipv6 sql.NullString
 	var association string
 	err = row.Scan(&ipv4, &ipv6, &association)
