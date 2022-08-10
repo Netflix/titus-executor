@@ -66,6 +66,10 @@ test-local: | $(clean)
 	CGO_ENABLED=0 go test -short $(TEST_FLAGS) -covermode=count -coverprofile=coverage-local.out -coverpkg=github.com/Netflix/... ./... \
 	| tee /dev/stderr > test-local.log
 
+.PHONY: test-local-race
+test-local-race: | $(clean)
+	CGO_ENABLED=0 go test -short $(TEST_FLAGS) ./... | tee /dev/stderr >& test-local-race.log
+
 # run standalone tests against the docker container runtime
 .PHONY: test-standalone
 test-standalone: titus-agent | $(clean) $(builder)

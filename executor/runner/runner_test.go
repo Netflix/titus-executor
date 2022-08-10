@@ -14,7 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -46,7 +45,7 @@ type runtimeMock struct {
 	killCallback    func(c runtimeTypes.Container) error
 }
 
-func (r *runtimeMock) Prepare(ctx context.Context, pod *v1.Pod) error {
+func (r *runtimeMock) Prepare(ctx context.Context) error {
 	if r.c == nil {
 		panic("Container is nil")
 	}
@@ -57,7 +56,7 @@ func (r *runtimeMock) Prepare(ctx context.Context, pod *v1.Pod) error {
 	return nil
 }
 
-func (r *runtimeMock) Start(ctx context.Context, pod *v1.Pod) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+func (r *runtimeMock) Start(ctx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	r.t.Log("runtimeMock.Start", r.c.TaskID())
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -145,12 +144,8 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
 		TaskID:  taskID,
-		Mem:     1,
-		CPU:     1,
-		Gpu:     0,
-		Disk:    1,
-		Network: 1,
 		Pod:     pod,
+		PodLock: &sync.Mutex{},
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -220,12 +215,8 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
 		TaskID:  taskID,
-		Mem:     1,
-		CPU:     1,
-		Gpu:     0,
-		Disk:    1,
-		Network: 1,
 		Pod:     pod,
+		PodLock: &sync.Mutex{},
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c
@@ -307,12 +298,8 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 	pod, _ := runtimeTypes.ContainerTestArgs()
 	task := Task{
 		TaskID:  taskID,
-		Mem:     1,
-		CPU:     1,
-		Gpu:     0,
-		Disk:    1,
-		Network: 1,
 		Pod:     pod,
+		PodLock: &sync.Mutex{},
 	}
 	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
 		r.c = c

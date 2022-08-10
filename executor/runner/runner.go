@@ -29,11 +29,7 @@ import (
 type Task struct {
 	TaskID  string
 	Pod     *corev1.Pod
-	Mem     int64
-	CPU     int64
-	Gpu     int64
-	Disk    int64
-	Network int64
+	PodLock *sync.Mutex
 }
 
 // Runner maintains in memory state for the Task runner
@@ -43,7 +39,6 @@ type Runner struct {
 	metricsTagger tagger // the presence of tagger indicates extra Atlas tag is enabled
 	runtime       runtimeTypes.Runtime
 	config        config.Config
-	pod           *corev1.Pod
 
 	container runtimeTypes.Container
 	watcher   *filesystems.Watcher
@@ -60,7 +55,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 	ctx = logger.WithField(ctx, "taskID", task.TaskID)
 	metricsTagger, _ := m.(tagger) // metrics.Reporter may or may not implement tagger interface.  OK to be nil
 	startTime := time.Now()
-	container, err := runtimeTypes.NewPodContainer(task.Pod, cfg)
+	container, err := runtimeTypes.NewPodContainer(task.Pod, task.PodLock, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +67,6 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
 		container:     container,
-		pod:           task.Pod,
 	}
 
 	rt, err := rp(ctx, runner.container, startTime)
@@ -149,7 +143,7 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 	}()
 	// When Create() returns the host may have been modified to create storage and pull the image.
 	// These steps may or may not have completed depending on if/where a failure occurred.
-	if err := r.runtime.Prepare(prepareCtx, r.pod); err != nil {
+	if err := r.runtime.Prepare(prepareCtx); err != nil {
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		logger.G(ctx).WithError(err).Error("Task failed to create main container")
 		// Treat registry pull errors as LOST and non-existent images as FAILED.
@@ -187,7 +181,9 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
-	containerNames := getContainerNames(r.pod)
+	pod, podLock := r.container.Pod()
+	containerNames := getContainerNames(pod)
+	podLock.Unlock()
 	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
 	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 
@@ -199,7 +195,7 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	}
 
 	logger.G(ctx).Info(startingMsg)
-	logDir, details, statusMessageChan, err := r.runtime.Start(ctx, r.pod)
+	logDir, details, statusMessageChan, err := r.runtime.Start(ctx)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		logger.G(ctx).WithError(err).Error("error starting container")

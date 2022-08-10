@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/config"
@@ -196,7 +197,7 @@ type Container interface {
 	NFSMounts() []NFSMount
 	OomScoreAdj() *int32
 	OwnerEmail() *string
-	Pod() *v1.Pod
+	Pod() (*v1.Pod, *sync.Mutex)
 	Process() ([]string, []string)
 	QualifiedImageName() string
 	Resources() *Resources
@@ -507,9 +508,9 @@ type Runtime interface {
 	// TODO(fabio): better (non-Docker specific) abstraction for binds
 	// The context passed to the Prepare, and Start function is valid over the lifetime of the container,
 	// NOT per-operation
-	Prepare(containerCtx context.Context, pod *corev1.Pod) error
+	Prepare(containerCtx context.Context) error
 	// Start a container -- Returns an optional Log Directory if an external Logger is desired
-	Start(containerCtx context.Context, pod *corev1.Pod) (string, *Details, <-chan StatusMessage, error)
+	Start(containerCtx context.Context) (string, *Details, <-chan StatusMessage, error)
 	// Kill a container. MUST be idempotent.
 	Kill(ctx context.Context, wasKilled bool) error
 	// Cleanup can be called to tear down resources after a container has been Killed or has naturally

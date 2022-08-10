@@ -76,6 +76,7 @@ type PodContainer struct {
 	logUploaderConfig  *uploader.Config
 	nfsMounts          []NFSMount
 	pod                *corev1.Pod
+	podLock            *sync.Mutex
 	podConfig          *podCommon.Config
 	resources          *Resources
 	serviceMeshEnabled bool
@@ -87,10 +88,13 @@ type PodContainer struct {
 	vpcAllocation *vpcapi.Assignment
 }
 
-func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) {
+func NewPodContainer(pod *corev1.Pod, podLock *sync.Mutex, cfg config.Config) (*PodContainer, error) {
 	if pod == nil {
 		return nil, errors.New("missing pod")
 	}
+
+	podLock.Lock()
+	defer podLock.Unlock()
 
 	pConf, err := podCommon.PodToConfig(pod)
 	if err != nil {
@@ -125,6 +129,7 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		image:             userContainer.Image,
 		logUploaderConfig: createLogUploadConfig(pConf),
 		pod:               pod,
+		podLock:           podLock,
 		podConfig:         pConf,
 		resources:         resources,
 		ttyEnabled:        userContainer.TTY,
@@ -138,11 +143,11 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 
 	c.extraUserContainers, c.extraPlatformContainers = NewExtraContainersFromPod(*pod)
 
-	err = c.parsePodVolumes()
+	err = c.parsePodVolumes(pod)
 	if err != nil {
 		return c, fmt.Errorf("error parsing mounts: %w", err)
 	}
-	err = c.parsePodEmptyDirVolumes()
+	err = c.parsePodEmptyDirVolumes(pod)
 	if err != nil {
 		return c, fmt.Errorf("error parsing EmptyDir mounts: %w", err)
 	}
@@ -156,7 +161,7 @@ func NewPodContainer(pod *corev1.Pod, cfg config.Config) (*PodContainer, error) 
 		c.capabilities = userContainer.SecurityContext.Capabilities
 	}
 
-	err = c.parsePodCommandAndArgs()
+	err = c.parsePodCommandAndArgs(pod)
 	if err != nil {
 		return c, fmt.Errorf("error parsing command and args for container \"%s\": %w", userContainer.Name, err)
 	}
@@ -393,6 +398,8 @@ func (c *PodContainer) ImageVersion() *string {
 	// the control-plane does tag->digest resolution.
 	// However, the control-plan saves the original tag in a special annotation for us
 	// so that we can look up the *original* tag the digest came from.
+	c.podLock.Lock()
+	defer c.podLock.Unlock()
 	tagFromPodAnnotation, ok := c.pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+MainContainerName]
 	if ok {
 		return &tagFromPodAnnotation
@@ -575,8 +582,9 @@ func (c *PodContainer) OwnerEmail() *string {
 	return c.podConfig.WorkloadOwnerEmail
 }
 
-func (c *PodContainer) Pod() *v1.Pod {
-	return c.pod
+func (c *PodContainer) Pod() (*v1.Pod, *sync.Mutex) {
+	c.podLock.Lock()
+	return c.pod, c.podLock
 }
 
 func (c *PodContainer) Process() ([]string, []string) {
@@ -811,7 +819,7 @@ func createLogUploadConfig(pConf *podCommon.Config) *uploader.Config {
 	return &conf
 }
 
-func (c *PodContainer) parsePodVolumes() error {
+func (c *PodContainer) parsePodVolumes(pod *corev1.Pod) error {
 	c.nfsMounts = []NFSMount{}
 	nameToMount := map[string]corev1.Volume{}
 	c.ebsInfo = EBSInfo{}
@@ -857,7 +865,7 @@ func (c *PodContainer) parsePodVolumes() error {
 	return nil
 }
 
-func (c *PodContainer) parsePodEmptyDirVolumes() error {
+func (c *PodContainer) parsePodEmptyDirVolumes(pod *corev1.Pod) error {
 	var shmVM *corev1.VolumeMount
 	uc := podCommon.GetMainUserContainer(c.pod)
 
@@ -944,8 +952,8 @@ func (c *PodContainer) extractServiceMesh() error {
 // because lots of jobs still depend on this behaviour. Unfortunately, this parsing can't be done in
 // the TJC and passed down to the executor, because Titus clients sign jobs with the original unparsed Command
 // and Args. If the executor reports something different than what was in the signature, this breaks Metatron.
-func (c *PodContainer) parsePodCommandAndArgs() error {
-	uc := podCommon.GetMainUserContainer(c.pod)
+func (c *PodContainer) parsePodCommandAndArgs(pod *corev1.Pod) error {
+	uc := podCommon.GetMainUserContainer(pod)
 	c.entrypoint = uc.Command
 	c.command = uc.Args
 

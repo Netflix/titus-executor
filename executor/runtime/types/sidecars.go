@@ -245,7 +245,9 @@ func shouldStartLogViewer(cfg *config.Config, c Container) bool {
 func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
 	// Currently titus-storage sets up NFS, EBS, and /mnt-shared storage
 	// which is currently only available on multi-container workloads
-	return len(c.NFSMounts()) > 0 || c.EBSInfo().VolumeID != "" || len(c.Pod().Spec.Containers) > 1
+	pod, podLock := c.Pod()
+	defer podLock.Unlock()
+	return len(c.NFSMounts()) > 0 || c.EBSInfo().VolumeID != "" || len(pod.Spec.Containers) > 1
 }
 
 func shouldStartContainerTools(cfg *config.Config, c Container) bool {

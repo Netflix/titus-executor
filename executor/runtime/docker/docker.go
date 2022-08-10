@@ -797,7 +797,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 }
 
 // Prepare host state (pull images, create fs, create container, etc...)
-func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { // nolint: gocyclo
+func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: gocyclo
 	var volumeContainers []string
 
 	ctx, cancel := context.WithTimeout(ctx, r.dockerCfg.prepareTimeout)
@@ -872,7 +872,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 	if totalExtraContainerCount > 0 {
 		group.Go(func(ctx context.Context) error {
 			logger.G(ctx).Infof("Pulling %d other user/platform containers", totalExtraContainerCount)
-			return r.pullAllExtraContainers(ctx, pod)
+			return r.pullAllExtraContainers(ctx)
 		})
 	}
 
@@ -1019,7 +1019,11 @@ func (r *DockerRuntime) Prepare(ctx context.Context, pod *v1.Pod) (err error) { 
 	ctx = logger.WithField(ctx, "containerID", r.c.ID())
 	logger.G(ctx).Info("Main Container successfully created")
 
-	if len(pod.Spec.Containers) > 1 {
+	pod, podLock := r.c.Pod()
+	hasExtraContainers := len(pod.Spec.Containers) > 1
+	podLock.Unlock()
+	if hasExtraContainers {
+
 		mainContainerRoot, err = r.inspectAndGetMainContainerRoot(ctx)
 		if err != nil {
 			return err
@@ -1336,7 +1340,7 @@ func (r *DockerRuntime) setupLogsAndMisc(ctx context.Context, typedConn *net.Uni
 
 // Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
 // valid if err == nil, otherwise it will block indefinitely.
-func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
+func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "Start")
@@ -1354,7 +1358,9 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 	}
 
 	// This sets up the tini listeners and pauses the workload
-	listeners, err := r.setupTiniListeners(ctx, r.c.Pod())
+	pod, podLock := r.c.Pod()
+	listeners, err := r.setupTiniListeners(ctx, pod)
+	podLock.Unlock()
 	if err != nil {
 		tracehelpers.SetStatus(err, span)
 		return "", nil, statusMessageChan, err
@@ -1537,18 +1543,21 @@ func connectToSpectatord(spectatordSocket string, attemptsLeft int) (net.Conn, e
 func (r *DockerRuntime) generateContainerStatusSpectatordMetrics() []string {
 	l := log.WithField("taskID", r.c.TaskID())
 	var metricLines []string
+	thePod, podLock := r.c.Pod()
+	defer podLock.Unlock()
+
 	// 1. Loop through all containers.
-	for _, c := range r.c.Pod().Status.ContainerStatuses {
+	for _, c := range thePod.Status.ContainerStatuses {
 		// 2. Get container metadata and state.
 		metricTags := make(map[string]string)
 		metricTags["nf.container"] = c.Name
-		metricTags["nf.process"] = processNameForContainer(c.Name, r.c.Pod())
+		metricTags["nf.process"] = processNameForContainer(c.Name, thePod)
 		imageName, imageVersion, err := imageNameAndDigest(c.Image, c.Name)
 		if err != nil {
 			l.WithError(err).Warn("Error getting image metric tags, skipping sending container status metric")
 			continue
 		}
-		if imageTag := pod.GetImageTagForContainer(c.Name, r.c.Pod()); imageTag != "" && imageName != "" {
+		if imageTag := pod.GetImageTagForContainer(c.Name, thePod); imageTag != "" && imageName != "" {
 			imageName = fmt.Sprintf("%s:%s", imageName, imageTag)
 		}
 		metricTags["titus.image.name"] = imageName
@@ -1599,7 +1608,10 @@ func imageNameAndDigest(image, containerName string) (name, digest string, err e
 func (r *DockerRuntime) generatePlatformSidecarSpectatordMetrics() []string {
 	l := log.WithField("taskID", r.c.TaskID())
 	var metricLines []string
-	for k, v := range r.c.Pod().Annotations {
+
+	thePod, podLock := r.c.Pod()
+	defer podLock.Unlock()
+	for k, v := range thePod.Annotations {
 		releaseSuffix := fmt.Sprintf(".%s/%s", pod.AnnotationKeySuffixSidecars, pod.AnnotationKeySuffixSidecarsRelease)
 		if !strings.HasSuffix(k, releaseSuffix) {
 			continue
@@ -1713,7 +1725,7 @@ func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, containerID str
 	}
 }
 
-func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context, pod *v1.Pod) error {
+func (r *DockerRuntime) pullAllExtraContainers(ctx context.Context) error {
 	l := log.WithField("taskID", r.c.TaskID())
 	// In this design, the first container has already been pulled, so we only look
 	// at the other containers here.
@@ -2654,7 +2666,9 @@ func (r *DockerRuntime) runAllPreStopHooks(ctx context.Context) *multierror.Erro
 		errs = multierror.Append(errs, err)
 
 	}
-	err := r.runPreStopHookIfDefined(ctx, &r.c.Pod().Spec.Containers[0], r.c.ID())
+	pod, podLock := r.c.Pod()
+	defer podLock.Unlock()
+	err := r.runPreStopHookIfDefined(ctx, &pod.Spec.Containers[0], r.c.ID())
 	errs = multierror.Append(errs, err)
 	return errs
 }

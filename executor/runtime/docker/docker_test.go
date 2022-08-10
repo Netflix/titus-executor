@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -306,7 +307,7 @@ func TestGenerateContainerStatusSpectatordMetrics(t *testing.T) {
 			},
 		},
 	}
-	container, err := runtimeTypes.NewPodContainer(pod, config.Config{})
+	container, err := runtimeTypes.NewPodContainer(pod, &sync.Mutex{}, config.Config{})
 	assert.NoError(t, err)
 	runtime := &DockerRuntime{
 		c: container,
@@ -345,7 +346,7 @@ func TestGeneratePlatformSidecarSpectatordMetrics(t *testing.T) {
 			},
 		},
 	}
-	container, err := runtimeTypes.NewPodContainer(pod, config.Config{})
+	container, err := runtimeTypes.NewPodContainer(pod, &sync.Mutex{}, config.Config{})
 	assert.NoError(t, err)
 	runtime := &DockerRuntime{
 		c: container,
