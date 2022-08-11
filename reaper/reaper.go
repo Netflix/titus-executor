@@ -139,6 +139,8 @@ func processContainerJSON(ctx context.Context, container types.ContainerJSON, do
 		return fmt.Errorf("Could not determine whether or not process with exe %q / and stat %v was a titus executor", link, stat)
 	}
 
+	checkIfFuseWedgedPidNs(container.State.Pid, taskID)
+
 	l.WithFields(map[string]interface{}{
 		"link": link,
 		"exe":  exe,
