@@ -335,7 +335,7 @@ RETURNING id
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO htb_classid(trunk_eni, class_id) SELECT $1, generate_series(10010, 11000)", id)
+	_, err = tx.ExecContext(ctx, "INSERT INTO htb_classid(trunk_eni, class_id) SELECT $1, generate_series(10010, 11000) ON CONFLICT DO NOTHING", id)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot get generate HTB class ID slots")
 		return err

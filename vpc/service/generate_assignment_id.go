@@ -148,6 +148,7 @@ func (vpcService *vpcService) generateAssignmentID(ctx context.Context, req getE
 
 	ass := &assignment{
 		trunk:            req.trunkENI,
+		branch:           &data.BranchENI{}, // Will be populated in populateAssignment
 		assignmentName:   req.assignmentID,
 		securityGroups:   req.securityGroups,
 		subnet:           req.subnet,
@@ -556,6 +557,9 @@ WHERE c < $4
 ORDER BY c DESC, branch_eni_attached_at ASC
 LIMIT 1`, ass.subnet.SubnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxIPAddresses)
 
+	if ass.branch == nil {
+		ass.branch = &data.BranchENI{}
+	}
 	err := row.Scan(&ass.branch.ID, &ass.branch.BranchENI, &ass.branch.AssociationID, &ass.branch.AZ, &ass.branch.AccountID, &ass.branch.Idx, &ass.assignmentChangedSecurityGroups)
 	if err == nil {
 		logger.WithLogger(ctx, logger.G(ctx).WithFields(map[string]interface{}{
