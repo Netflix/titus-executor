@@ -2460,16 +2460,6 @@ func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Con
 		})
 	}
 
-	if r.dockerCfg.bumpTiniSchedPriority {
-		group.Go(func() error {
-			err := setupScheduler(cred)
-			if err != nil {
-				log.WithError(err).Warning("Non-fatal error when bumping the priority of tini: %w", err)
-			}
-			return nil
-		})
-	}
-
 	group.Go(func() error {
 		return setupOOMAdj(c, cred)
 	})

@@ -16,7 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
@@ -35,10 +34,6 @@ const (
 	SCHED_IDLE          = 5          // nolint: golint
 	SCHED_RESET_ON_FORK = 0x40000000 // nolint: golint
 )
-
-type schedParam struct {
-	schedPriority int32
-}
 
 const (
 	titusInits                = "/var/lib/titus-inits"
@@ -67,22 +62,6 @@ func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
 	}
 
 	return retCred, nil
-}
-
-/* ucred should point to tini */
-func setupScheduler(cred ucred) error {
-	/*
-	 * Processes with numerically higher priority values are scheduled before processes with
-	 * numerically lower priority values.
-	 */
-	sp := schedParam{99}
-	tmpRet, _, err := syscall.Syscall(syscall.SYS_SCHED_SETSCHEDULER, uintptr(cred.pid), uintptr(SCHED_RR|SCHED_RESET_ON_FORK), uintptr(unsafe.Pointer(&sp))) // nolint: gosec
-	ret := int(tmpRet)
-	if ret == -1 {
-		return err
-	}
-
-	return nil
 }
 
 // This mounts /proc/${PID1}/ to /var/lib/titus-inits for the container
