@@ -64,4 +64,21 @@
       'clone3',
     ],
   },
+  AllowImageBuildingSyscalls: {
+    action: 'SCMP_ACT_ALLOW',
+    names: [
+      'clone',
+      'fsconfig',
+      'fsmount',
+      'fsopen',
+      'fspick',
+      'keyctl',
+      'mount',
+      'move_mount',
+      'pivot_root',
+      'umount',
+      'umount2',
+      'unshare',
+    ],
+  },
 }

@@ -21,9 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-
-	// The purpose of this is to tell gometalinter to keep vendoring this package
-	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
 )
 
 const (
@@ -156,6 +153,7 @@ type Container interface {
 	IngressBandwidthLimitBps() *int64
 	BatchPriority() *string
 	Capabilities() *corev1.Capabilities
+	ContainerCapabilities(containerName string) ([]titus.ContainerCapability, error)
 	CombinedAppStackDetails() string
 	SyntheticContainerInfo() (*titus.ContainerInfo, error)
 	EBSInfo() EBSInfo
@@ -165,7 +163,6 @@ type Container interface {
 	ElasticIPs() *string
 	ExtraUserContainers() []*ExtraContainer
 	ExtraPlatformContainers() []*ExtraContainer
-	FuseEnabled() bool
 	GPUInfo() GPUContainer
 	HostnameStyle() *string
 	IamRole() *string

@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package com.netflix.titus;
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "TitusContainers";
+option go_package = "./netflix/titus";
+
+import "google/protobuf/struct.proto";
+import "netflix/titus/titus_volumes.proto";
+
+// BasicContainer stores the minimal data required to declare extra containers
+// to a job. This is in contrast to the Container message, which has other data
+// that are not strictly tied to the main container. For example,
+// *resources* (ram/cpu/etc) for the whole *task* are declared in the main
+// Container message, not in a basic container.
+message BasicContainer {
+  // (Required) the Name of this container
+  string name = 1;
+
+  // (Required) Image reference.
+  BasicImage image = 2;
+
+  // (Optional) Override the entrypoint of the image.
+  // If set, the command baked into the image (if any) is always ignored.
+  // Interactions between the entrypoint and command are the same as specified
+  // by Docker:
+  // https://docs.docker.com/engine/reference/builder/#understand-how-cmd-and-entrypoint-interact
+  // Note that, unlike the main container, no string splitting occurs.
+  repeated string entryPoint = 3;
+
+  // (Optional) Additional parameters for the entrypoint defined either here
+  // or provided in the container image.
+  // Note that, unlike the main container, no string splitting occurs.
+  repeated string command = 4;
+
+  // (Optional) A collection of system environment variables passed to the
+  // container.
+  map<string, string> env = 5;
+
+  // (Optional) An array of VolumeMounts. These VolumeMounts will be mounted in
+  // the container, and must reference one of the volumes declared for the Job.
+  // See the k8s docs
+  // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.19/#volumemount-v1-core
+  // for more technical details.
+  repeated VolumeMount volumeMounts = 6;
+
+  // (Optional) additional capabilities for the container to have to enable
+  // certain advanced features. Note that arbitrary combinations of `ContainerCapability`s
+  // are not supported.
+  repeated ContainerCapability containerCapabilities = 12;
+}
+
+// To reference an image, a user has to provide an image name and a version. A
+// user may specify a version either with
+// a tag value (for example 'latest') or a digest. When submitting a job, a user
+// should provide either a tag or a digest value only (not both of them).
+//
+// For example, docker images can be referenced by {name=titus-examples,
+// tag=latest}. A user could also choose to provide only the digest without a
+// tag. In this case, the tag value would be empty.
+message BasicImage {
+  // (Required) Image name.
+  string name = 1;
+
+  // (Required if digest not set) Image tag.
+  string tag = 2;
+
+  // (Required if tag not set) Image digest.
+  string digest = 3;
+}
+
+// Definition of a request to add a platform sidecar alongside a task
+// Note that this is *not* a user-defined sidecar, that is why it just has a
+// name. These platform-sidecars are attached to a task start time, and the
+// definition of what the sidecar is is not baked into the job itself, just the
+// intent.
+message PlatformSidecar {
+  // (Required) Name of the platform sidecar requested
+  string name = 1;
+
+  // (Optional) Channel representing a pointer to releases of the sidecar
+  string channel = 2;
+
+  // (Optional) Arguments, KV pairs for configuring the sidecar
+  google.protobuf.Struct arguments = 3;
+}
+
+enum ContainerCapability {
+  // ContainerCapabilitiesUnknown is the is a placeholder capability
+  // for protobuf compatibility and is ignored by the backend
+  ContainerCapabilityUnknown = 0;
+
+  // ContainerCapabilitiesDefault is the default capability set
+  ContainerCapabilityDefault = 1;
+
+  // ContainerCapabilityFUSE gives a container the capability to mount
+  // FUSE mounts (usually into /mnt-shared/)
+  ContainerCapabilityFUSE = 2;
+
+  // ContainerCapabilityImageBuilding sets up a container for the ability to build
+  // container images *inside* the container itself
+  ContainerCapabilityImageBuilding = 3;
+}

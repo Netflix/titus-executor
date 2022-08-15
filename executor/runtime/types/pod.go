@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	titusAPI "github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	"github.com/Netflix/titus-executor/uploader"
@@ -224,6 +225,42 @@ func (c *PodContainer) Capabilities() *corev1.Capabilities {
 	return c.capabilities
 }
 
+func (c *PodContainer) ContainerCapabilities(containerName string) ([]titusAPI.ContainerCapability, error) {
+	capabilities := []titusAPI.ContainerCapability{}
+
+	ann := podCommon.ContainerAnnotation(containerName, podCommon.AnnotationKeySuffixContainersCapabilities)
+	caps := []string{}
+	c.podLock.Lock()
+	val, ok := c.pod.Annotations[ann]
+	c.podLock.Unlock()
+	if ok && val != "" {
+		caps = strings.Split(val, ",")
+	}
+
+	hasFuse := false
+	for _, cStr := range caps {
+		c, ok := titusAPI.ContainerCapability_value["ContainerCapability"+cStr]
+		if !ok {
+			logrus.Errorf("unknown container capability %s", cStr)
+			return nil, fmt.Errorf("unknown container capability %s", cStr)
+		}
+
+		titusCap := titusAPI.ContainerCapability(c)
+		capabilities = append(capabilities, titusCap)
+
+		if titusCap == titusAPI.ContainerCapability_ContainerCapabilityFUSE {
+			hasFuse = true
+		}
+	}
+
+	// all containers in pods with the fuse-enabled annotation have the fuse capability
+	if c.podConfig.FuseEnabled != nil && *c.podConfig.FuseEnabled && !hasFuse {
+		capabilities = append(capabilities, titusAPI.ContainerCapability_ContainerCapabilityFUSE)
+	}
+
+	return capabilities, nil
+}
+
 func (c *PodContainer) CombinedAppStackDetails() string {
 	return combinedAppStackDetails(c)
 }
@@ -347,13 +384,6 @@ func (c *PodContainer) ExtraUserContainers() []*ExtraContainer {
 
 func (c *PodContainer) ExtraPlatformContainers() []*ExtraContainer {
 	return c.extraPlatformContainers
-}
-
-func (c *PodContainer) FuseEnabled() bool {
-	if c.podConfig.FuseEnabled != nil {
-		return *c.podConfig.FuseEnabled
-	}
-	return false
 }
 
 func (c *PodContainer) GPUInfo() GPUContainer {

@@ -8,6 +8,6 @@ import (
 	"github.com/docker/docker/api/types/container"
 )
 
-func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.HostConfig) error {
+func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.HostConfig, containerName string) error {
 	return nil
 }

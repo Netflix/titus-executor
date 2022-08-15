@@ -1,10 +1,12 @@
 # Rerun this whenever you change your security profiles
+profiles = $(shell find . -name \*.jsonnet)
+profiles_out  = $(patsubst %.jsonnet,%.json,$(profiles))
 
 all: seccomp.go test fmt
 
 .PHONY: clean
 clean:
-	rm *.json
+	rm *.json seccomp.go
 
 .PHONY: fmt
 fmt:
@@ -18,16 +20,10 @@ stock.docker.json:
 
 # seccomp.go is machine-generated, and is a golang representation of the data
 # included in these json files
-seccomp.go: default.json fuse-container.json allow-perf-syscalls.json
+seccomp.go: $(profiles_out)
 	gobin -run github.com/kevinburke/go-bindata/go-bindata@v3.21.0 -pkg seccomp -o $@ $?
 
 # These JSON files are machine generated from jsonnet files.
 # They are not meant to be human-edited
-default.json: default.jsonnet stock.docker.json titus.libsonnet
-	jsonnet $< > $@
-
-fuse-container.json: fuse-container.jsonnet stock.docker.json titus.libsonnet
-	jsonnet $< > $@
-
-allow-perf-syscalls.json: allow-perf-syscalls.jsonnet stock.docker.json titus.libsonnet
+%.json: %.jsonnet stock.docker.json titus.libsonnet
 	jsonnet $< > $@

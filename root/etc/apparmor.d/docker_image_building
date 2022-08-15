@@ -1,0 +1,100 @@
+#include <tunables/global>
+
+profile docker_image_building flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network,
+  capability,
+  file,
+  umount,
+  mount,
+  pivot_root,
+
+  signal (send,receive) peer=@{profile_name},
+
+  deny mount fstype=ramfs,
+  deny mount fstype=sysfs,
+  deny mount fstype=debugfs,
+  deny mount fstype=devtmpfs,
+  deny mount fstype=cgroup,
+  deny mount fstype=cgroup2,
+
+  allow mount ** -> /mnt/**,
+  deny mount ** -> /titus/**,
+  deny mount ** -> /titus/,
+  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
+  # deny write to files not in /proc/<number>/** or /proc/sys/**
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9]*}/** w,
+  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  ptrace (trace,read) peer=@{profile_name},
+
+  deny /titus/** wl,
+
+  /titus/sshd/usr/sbin/sshd Cx -> &docker_image_building//exec-sshd,
+  /titus/sshd/run-titus-sshd Cx -> &docker_image_building//sshd,
+
+  # Special sub-profile just for the init script for sshd
+  profile sshd /titus/sshd/run-titus-sshd {
+
+    # The only two files the startup script needs to read
+    /titus/sshd/bin/busybox ixr,
+    /titus/sshd/run-titus-sshd r,
+
+    # This script should only exec one thing, which should go back to the parent
+    # profile, which as its own transitions defined
+    /titus/sshd/usr/sbin/sshd Px -> docker_image_building,
+
+    # Signals are required so that systemd can shut it down if needed
+    signal (receive) peer="unconfined",
+    signal (send,receive) peer=@{profile_name},
+
+    # The ssh startup script does edit these files if they need modification for sshd to start
+    /etc/{passwd,profile} rwmlk,
+    /var/ rw,
+    /var/log/ rw,
+    /var/log/lastlog rw,
+  }
+
+  # Once we are running, this is the profile that the sshd binary itself gets
+  profile exec-sshd /titus/sshd/usr/sbin/sshd {
+    # Signals are required so that systemd can shut it down if needed
+    signal (receive) peer="unconfined",
+    signal (send,receive) peer=@{profile_name},
+
+    network,
+    capability,
+
+    # We trust everything under /titus
+    # No writes though...
+    /titus/** rmlk,
+
+    # I don't think that memory mapping, or locking can lead to any attacks
+    /** mk,
+    # If we exec anything under /** then go back to the OG role.
+    /** Px -> docker_image_building,
+
+    # You're allowed to do anything with yourself
+    @{PROC}/@{pid}/** rwmlk,
+    @{PROC}/self/** rwmlk,
+
+    # Apparently SSH wants to read /proc/sys/kernel/ngroups_max
+    @{PROC}/sys/** rmkl,
+
+    /dev/{null,ptmx,tty,urandom,log} rwmlk,
+    /dev/pts/* rwmlk,
+
+    /etc/{gai.conf,group,nsswitch.conf,passwd,shadow,motd} rmkl,
+  }
+}

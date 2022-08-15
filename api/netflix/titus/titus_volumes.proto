@@ -1,0 +1,96 @@
+
+syntax = "proto3";
+
+package com.netflix.titus;
+
+option java_multiple_files = true;
+option java_package = "com.netflix.titus.grpc.protogen";
+option java_outer_classname = "TitusVolumes";
+
+option go_package = "./netflix/titus";
+
+message SharedContainerVolumeSource {
+  // The sourceContainer is the name of the container with the
+  // path to be shared with other containers. For example:
+  //
+  //     sourceContainer="main"
+  //     sourcePath="/mnt/data"
+  //
+  // combined with an associated VolumeMount on another container, would
+  // be one way to allow the main container to share some of its files
+  // (which may be just baked into the image, or provided by another storage
+  // system) with some other extraContainer for the task.
+  string sourceContainer = 1;
+  // The path in the container to be shared.
+  // This path may contain existing data to share, or it can simply
+  // not exist, and it will be created.
+  string sourcePath = 2;
+}
+
+// SaaSVolumeSource is a type of volume provided by the SaaS team,
+// currently backed by CephFS. It is designed to be very simple for
+// users to request, leaving many of the implementation details of
+// how it is mounted on the backend.
+message SaaSVolumeSource {
+  // (Required) SaaSVolumeID is the unique identifier to the SaaS
+  // volume mount, and uniquely identifies the volume.
+  string SaaSVolumeID = 1;
+}
+
+// Volumes define some sort of storage for a Task (pod) that is later referenced
+// by individual containers via VolumeMount declarations.
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.19/#volume-v1-core
+// Note that Titus only supports a subset of storage drivers.
+message Volume {
+  // (Required) the name of the volume. This is what is referenced by
+  // VolumeMount requests for individual containers.
+  string name = 1;
+
+  oneof VolumeSource {
+    // (Optional) A SharedContainerVolumeSource is a volume that exists on the
+    // one container that is exported. Such a volume can be used later via a
+    // VolumeMount and shared with other containers in the task (pod)
+    SharedContainerVolumeSource sharedContainerVolumeSource = 2;
+    SaaSVolumeSource SaaSVolumeSource = 3;
+  }
+}
+
+// VolumeMounts are used to define how to mount a Volume in a container
+// Modeled after k8s volumeMounts:
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.19/#volumemount-v1-core
+message VolumeMount {
+  // (Required) mountPath is the location inside the container where the volume
+  // will be mounted
+  string mountPath = 1;
+
+  enum MountPropagation {
+    // MountPropagationNone is the default and means that additional mounts
+    // inside a volumeMount will *not* be propagated.
+    MountPropagationNone = 0;
+
+    // MountPropagationHostToContainer specifies that mounts get propagated
+    // from the source mount to the destination ("rslave" in Linux).
+    MountPropagationHostToContainer = 1;
+
+    // MountPropagationBidirectional specifies that mounts get propagated from
+    // the and from the source container to the destination
+    // ("rshared" in Linux).
+    MountPropagationBidirectional = 2;
+  }
+
+  // mountPropagation determines how mounts are propagated from the host to
+  // container and the other way around. When not set, MountPropagationNone is
+  // used.
+  MountPropagation mountPropagation = 2;
+
+  // This must match the Name of a Volume.
+  string volumeName = 3;
+
+  // Mounted read-only if true, read-write otherwise (false or unspecified).
+  // Defaults to false.
+  bool readOnly = 4;
+
+  // Path within the volume from which the container's volume should be mounted.
+  // Defaults to "" (volume's root).
+  string subPath = 5;
+}

@@ -375,7 +375,10 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 
 	assert.DeepEqual(t, c.ElasticIPPool(), ptr.StringPtr("pool1"))
 	assert.DeepEqual(t, c.ElasticIPs(), ptr.StringPtr("eipalloc-001,eipalloc-002"))
-	assert.Equal(t, c.FuseEnabled(), true)
+	containerCapabilities, err := c.ContainerCapabilities("myFavoriteContainerName")
+	assert.NilError(t, err)
+	assert.Assert(t, len(containerCapabilities) == 1)
+	assert.Equal(t, containerCapabilities[0], titus.ContainerCapability_ContainerCapabilityFUSE)
 	assert.Equal(t, c.GPUInfo(), gpuNil)
 	assert.DeepEqual(t, c.IamRole(), ptr.StringPtr(testIamRole))
 	assert.Equal(t, c.ID(), taskID)
