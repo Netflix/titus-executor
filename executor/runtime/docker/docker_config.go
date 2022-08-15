@@ -17,7 +17,6 @@ type Config struct { // nolint: maligned
 	pidLimit                        int
 	prepareTimeout                  time.Duration
 	startTimeout                    time.Duration
-	bumpTiniSchedPriority           bool
 	tiniPath                        string
 	waitForSecurityGroupLockTimeout time.Duration
 
@@ -94,16 +93,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "titus.executor.enableTitusIsolateBlock",
 			EnvVar:      "ENABLE_TITUS_ISOLATE_BLOCK",
 			Destination: &cfg.enableTitusIsolateBlock,
-		},
-		// Allow the usage of a realtime scheduling policy to be optional on systems that don't have it properly configured
-		// by default, i.e.: docker-for-mac.
-		cli.BoolTFlag{
-			Name:        "titus.executor.tiniSchedPriority",
-			EnvVar:      "BUMP_TINI_SCHED_PRIORITY",
-			Destination: &cfg.bumpTiniSchedPriority,
-			Usage: "enable a realtime scheduling priority for tini (PID=1), so it can always reap processes on contended " +
-				"systems. Kernels with CONFIG_RT_GROUP_SCHED=y require all cgroups in the hierarchy to have some " +
-				"cpu.rt_runtime_us allocated to each one of them",
 		},
 		cli.StringFlag{
 			Name:        "titus.executor.tiniPath",

@@ -92,7 +92,6 @@ docker run $TTYFLAG --privileged --security-opt seccomp=unconfined \
   -w ${PWD} \
   -e DOCKER_USERNAME \
   -e DOCKER_PASSWORD \
-  -e BUMP_TINI_SCHED_PRIORITY=false \
   -e DEBUG=${debug} \
   -e SHORT_CIRCUIT_QUITELITE=true \
   -e GOPATH=${GOPATH} \

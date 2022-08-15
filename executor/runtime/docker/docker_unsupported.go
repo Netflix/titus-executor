@@ -15,10 +15,6 @@ func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
 	return ucred{0, 0, 0}, nil
 }
 
-func setupScheduler(cred ucred) error {
-	return nil
-}
-
 func hasProjectQuotasEnabled(rootDir string) bool {
 	return false
 }
