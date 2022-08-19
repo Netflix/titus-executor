@@ -13,10 +13,6 @@ const (
 
 // Config contains the executor configuration
 type Config struct {
-	// nolint: maligned
-
-	// PrivilegedContainersEnabled returns whether to give tasks CAP_SYS_ADMIN
-	PrivilegedContainersEnabled bool
 	// UseNewNetworkDriver returns which network driver to use
 	UseNewNetworkDriver bool
 	// DisableMetrics makes it so we don't send metrics to Atlas
@@ -89,6 +85,7 @@ type Config struct {
 
 	//Used to disable the TSA
 	EnableTransitionNetworkMode bool
+	InStandaloneMode            bool
 }
 
 // NewConfig generates a configuration and a set of flags to passed to urfave/cli
@@ -128,11 +125,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "metatron-enabled",
 			EnvVar:      "METATRON_ENABLED",
 			Destination: &cfg.MetatronEnabled,
-		},
-		cli.BoolFlag{
-			Name:        "privileged-containers-enabled",
-			EnvVar:      "PRIVILEGED_CONTAINERS_ENABLED",
-			Destination: &cfg.PrivilegedContainersEnabled,
 		},
 		cli.BoolFlag{
 			Name:        "use-new-network-driver",

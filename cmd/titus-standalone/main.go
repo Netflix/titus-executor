@@ -60,6 +60,7 @@ func main() {
 
 	app.Action = func(c *cli.Context) error {
 		cfg.RuntimeDir = options.runtimeDir
+		cfg.InStandaloneMode = true
 		return cli.NewExitError(mainWithError(c, dockerCfg, cfg, &options), 1)
 	}
 
