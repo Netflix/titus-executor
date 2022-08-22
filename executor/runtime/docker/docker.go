@@ -364,7 +364,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
-func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
+func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string, isPrivileged bool) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint and command from the pod. If either is empty,
 	// pass them along and let Docker extract them from the image instead.
 	entrypoint, cmd := c.Process()
@@ -483,20 +483,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 	r.setupLogs(c, hostCfg)
 	r.setupTiniForContainer(hostCfg, containerCfg, "main")
 
-	if r.cfg.PrivilegedContainersEnabled {
-		// Note: ATM, this is used to enable MCE to use FUSE within a container and
-		// is expected to only be used in their account. So these are the only capabilities
-		// we allow.
-		log.Infof("Enabling privileged access for task %s", c.TaskID())
-		hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
-		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
-			PathOnHost:        fuseDev,
-			PathInContainer:   fuseDev,
-			CgroupPermissions: "rmw",
-		})
-		// Note: This is only needed in Docker 1.10 and 1.11. In 1.12 the default
-		// seccomp profile will automatically adjust based on the capabilities.
-		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
+	if isPrivileged {
+		hostCfg.Privileged = true
 	} else {
 		err = setupAdditionalCapabilities(c, hostCfg, runtimeTypes.MainContainerName)
 		if err != nil {
@@ -997,8 +985,10 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 	if r.c.SeccompAgentEnabledForPerfSyscalls() {
 		bindMounts = append(bindMounts, getKernelBindMounts()...)
 	}
+	pod, podLock := r.c.Pod()
+	podLock.Unlock()
 
-	dockerCfg, hostCfg, err := r.mainContainerDockerConfig(r.c, bindMounts, imageSize, volumeContainers)
+	dockerCfg, hostCfg, err := r.mainContainerDockerConfig(r.c, bindMounts, imageSize, volumeContainers, r.isContainerPrivileged(pod.Spec.Containers[0]))
 	if err != nil {
 		return err
 	}
@@ -1019,11 +1009,8 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 	ctx = logger.WithField(ctx, "containerID", r.c.ID())
 	logger.G(ctx).Info("Main Container successfully created")
 
-	pod, podLock := r.c.Pod()
 	hasExtraContainers := len(pod.Spec.Containers) > 1
-	podLock.Unlock()
 	if hasExtraContainers {
-
 		mainContainerRoot, err = r.inspectAndGetMainContainerRoot(ctx)
 		if err != nil {
 			return err
@@ -1982,7 +1969,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		// Currently only supporting a shared pid namespace with the container, which
 		// ensures the other user containers die automatically whe the main one dies.
 		PidMode:     container.PidMode("container:" + mainContainerID),
-		Privileged:  false,
+		Privileged:  r.isContainerPrivileged(c.V1Container),
 		VolumesFrom: r.volumeContainers,
 		Mounts:      mounts,
 		Init:        &b,
@@ -2814,4 +2801,14 @@ func shouldClose(c io.Closer) {
 	if err := c.Close(); err != nil {
 		log.Error("Could not close: ", err)
 	}
+}
+
+func (r *DockerRuntime) isContainerPrivileged(c v1.Container) bool {
+	if c.SecurityContext == nil {
+		return false
+	}
+	if c.SecurityContext.Privileged == nil {
+		return false
+	}
+	return *c.SecurityContext.Privileged && r.cfg.InStandaloneMode
 }
