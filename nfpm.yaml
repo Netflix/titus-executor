@@ -1,0 +1,43 @@
+# nfpm example config file
+#
+# check https://nfpm.goreleaser.com/configuration for detailed usage
+#
+name: "titus-executor"
+arch: "amd64"
+platform: "linux"
+version: "${version}"
+section: "default"
+depends:
+- libc6
+- 'apparmor (>= 2.12)'
+#deb:
+#  fields:
+#    "Build-Host": "${BUILD_HOST:-}"
+#    "Build-Job": "${BUILD_JOB:-}"
+#    "Build-Number": "${BUILD_NUMBER:-}"
+#    "Build-Id": "${BUILD_ID:-}"
+#    "Implementation-Vendor": "Netflix, Inc."
+#    "Built-Using": "nfpm"
+#    "Built-OS": "Linux"
+#    "Build-Date": "${BUILD_DATE}"
+#    "Module-Owner": "titus-developers@netflix.com"
+#    "Module-Email": "titus-developers@netflix.com"
+#    "Module-Origin": "ssh://git@github.com:Netflix/titus-executor.git"
+#    "Change": "${git_sha_short}"
+#    "Branch": "${git_sha}"
+scripts:
+  postinstall: ./scripts/postinstall.sh
+recommends:
+- 'docker-ce (>= 5:18.09.1~3-0~ubuntu-xenial)'
+- lxcfs
+- atlas-titus-agent
+- nvidia-container-runtime-hook
+maintainer: "titus-developers@netflix.com"
+description: |
+  titus-executor is spawned by titus-virtual-kubelet
+vendor: "Netflix"
+homepage: "https://github.com/Netflix/titus-executor"
+license: "Apache 2"
+contents:
+- src: ./root/**/*
+  dst: /
