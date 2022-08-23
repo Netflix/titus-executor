@@ -477,7 +477,12 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		Soft: ((c.Resources().Disk * MiB) + 1*GiB),
 		Hard: ((c.Resources().Disk * MiB) + 1*GiB),
 	}
-	hostCfg.Ulimits = []*units.Ulimit{coreLimit}
+	fdLimit := &units.Ulimit{
+		Name: "nofile",
+		Soft: 100000,
+		Hard: 100000,
+	}
+	hostCfg.Ulimits = []*units.Ulimit{coreLimit, fdLimit}
 
 	// This is just factored out mutation of these objects to make the code cleaner.
 	r.setupLogs(c, hostCfg)
