@@ -260,8 +260,8 @@ func TestGenerateContainerStatusSpectatordMetrics(t *testing.T) {
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				"pod.titus.netflix.com/image-tag-main":       "latest",
-				"pod.titus.netflix.com/system-env-var-names": "",
+				"main.containers.titus.netflix.com/image-tag": "latest",
+				"pod.titus.netflix.com/system-env-var-names":  "",
 			},
 		},
 		Spec: v1.PodSpec{
