@@ -38,14 +38,8 @@ install -t root/apps/titus-executor/bin build/bin/linux-amd64/*
 outdir="$(mktemp -d)"
 export git_sha=$(git rev-parse --verify HEAD)
 export git_sha_short=${git_sha:0:8}
-export version=${version:-$(git describe --tags --long)}
-
-# when on CI/Jenkins
-if [[ -n "${BUILD_NUMBER:-}" ]]; then
-    iteration="${ITERATION:-$(date +%s)}"
-    last_tag=$(git describe --abbrev=0 --tags | sed 's/^[a-zA-Z]//')
-    export version="${last_tag}-h${BUILD_NUMBER}.${git_sha_short}-$iteration"
-fi
+iteration="${ITERATION:-$(date +%s)}"
+export version=${version:-$(git describe --tags --long)-$iteration}
 
 ## Build the deb package
 export BUILD_DATE=$(date -u +"%Y-%m-%d_%H:%M:%S")
