@@ -785,7 +785,6 @@ func TeardownTransitionNetwork(ctx context.Context, transitionNamespaceDir strin
 			logger.G(ctx).WithError(err).Warningf("Transition namespace %s doesn't exist", transitionNamespaceID)
 		} else {
 			logger.G(ctx).WithError(err).Errorf("Failed to unmount transition namespace %s", transitionNamespaceID)
-			return err
 		}
 	}
 
@@ -795,7 +794,7 @@ func TeardownTransitionNetwork(ctx context.Context, transitionNamespaceDir strin
 			// Same as above.
 			logger.G(ctx).WithError(err).Warningf("Transition namespace %s doesn't exist", transitionNamespaceID)
 		} else {
-			logger.G(ctx).WithError(err).Errorf("Failed to unmount transition namespace %s", transitionNamespaceID)
+			logger.G(ctx).WithError(err).Errorf("Failed to remove transition namespace %s", transitionNamespaceID)
 			return err
 		}
 	}
@@ -849,7 +848,6 @@ func deleteFromIPv4BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	if err == unix.ENOENT {
 		err := errors.Wrap(err, "Unable to delete element for ipv4 map (notfound) ")
 		logger.G(ctx).WithError(err).WithField("ip", assignment.Ipv4Address.Address.Address).WithField("classid", assignment.ClassId).WithField("vlanid", assignment.VlanId).Error("Element not found")
-		return err
 	} else if err != 0 {
 		logger.G(ctx).WithError(err).Errorf("Unable to delete element for ipv4 map with file descriptor %d", fd)
 		err2 := errors.Wrap(err, "Unable to delete element for ipv4 map")
@@ -901,7 +899,6 @@ func deleteFromIPv6BPFMap(ctx context.Context, assignment *vpcapi.AssignIPRespon
 	if errno == unix.ENOENT {
 		err := errors.Wrap(errno, "Unable to delete element for ipv6 map (notfound)")
 		logger.G(ctx).WithError(err).WithField("ip", assignment.Ipv6Address.Address.Address).WithField("classid", assignment.ClassId).WithField("vlanid", assignment.VlanId).Error("Element not found")
-		return err
 	} else if errno != 0 {
 		logger.G(ctx).WithError(errors.Wrapf(errno, "Unable to delete element for map with file descriptor %d", fd)).Error()
 		err := errors.Wrap(errno, "Unable to delete element for ipv6 map")
