@@ -53,6 +53,8 @@ func doDockerPull(ctx context.Context, cfg config.Config, metrics metrics.Report
 		metrics.Counter("titus.executor.dockerPullImageError", 1, nil)
 		return fmt.Errorf("Error creating docker registry credentials: %w", err)
 	}
+
+	pullStarted := time.Now()
 	resp, err := client.ImagePull(ctx, ref, types.ImagePullOptions{RegistryAuth: auth})
 	defer func() {
 		if resp != nil {
@@ -88,6 +90,7 @@ func doDockerPull(ctx context.Context, cfg config.Config, metrics metrics.Report
 			for _, pullMessage := range pullMessages {
 				log.Warning("Pull Message: ", pullMessage)
 			}
+			log.Infof("Image %s pull took: %s", ref, time.Since(pullStarted).String())
 			return err
 		}
 		pullMessages = append(pullMessages, msg)
