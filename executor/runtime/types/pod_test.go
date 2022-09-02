@@ -1145,18 +1145,6 @@ func TestPodContainerSubnetIDHasSpaces(t *testing.T) {
 	assert.DeepEqual(t, c.SubnetIDs(), &expSubnets)
 }
 
-func TestIsEFSID(t *testing.T) {
-	var actual bool
-	actual, _ = isEFSID("fs-123450")
-	assert.Equal(t, actual, true)
-
-	actual, _ = isEFSID("fs-123450.efs.us-west-1.amazonaws.com")
-	assert.Equal(t, actual, false)
-
-	actual, _ = isEFSID("nfs.example.com")
-	assert.Equal(t, actual, false)
-}
-
 func TestPodContainerCustomCmd(t *testing.T) {
 	t.Run("WithNilEntrypoint", testPodCustomCmdWithEntrypoint(nil))
 	t.Run("WithEmptyEntrypoint", testPodCustomCmdWithEntrypoint([]string{}))
