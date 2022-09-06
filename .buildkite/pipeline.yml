@@ -9,6 +9,7 @@ steps:
       - master
       - prefix-delegation
       - transition-ns-5
+      - ccas
     build:
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"
