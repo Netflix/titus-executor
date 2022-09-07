@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -292,15 +291,6 @@ func combinedAppStackDetails(c Container) string {
 		return fmt.Sprintf("%s-%s", c.AppName(), c.JobGroupStack())
 	}
 	return c.AppName()
-}
-
-func isEFSID(FsID string) (bool, error) {
-	matched, err := regexp.MatchString(`^fs-[0-9a-f]+$`, FsID)
-	if err != nil {
-		// The only type of errors that might hit this are regex compile errors
-		return false, fmt.Errorf("Something went really wrong determining if '%s' is an EFS ID: %s", FsID, err)
-	}
-	return matched, nil
 }
 
 // GetHumanFriendlyNetworkMode uses the incoming network mode string
