@@ -13,11 +13,21 @@ const (
 
 func getLXCFsBindMounts() []string {
 	extraBinds := []string{}
-	for _, file := range []string{"cpuinfo", "meminfo", "uptime"} {
-		path := filepath.Join(lxcfs, "proc", file)
+	lxcfsEndpoints := []string{
+		"/proc/cpuinfo",
+		"/proc/diskstats",
+		"/proc/meminfo",
+		"/proc/stat",
+		"/proc/swaps",
+		"/proc/uptime",
+		"/proc/slabinfo",
+		"/sys/devices/system/cpu",
+		"/sys/devices/system/cpu/online",
+	}
+	for _, file := range lxcfsEndpoints {
+		path := filepath.Join(lxcfs, file)
 		if err := unix.Access(path, 0); err == nil {
-			destPath := filepath.Join("/proc", file)
-			extraBinds = append(extraBinds, fmt.Sprintf("%s:%s", path, destPath))
+			extraBinds = append(extraBinds, fmt.Sprintf("%s:%s", path, file))
 		}
 	}
 
