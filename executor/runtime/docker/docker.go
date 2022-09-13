@@ -991,7 +991,12 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 		bindMounts = append(bindMounts, getKernelBindMounts()...)
 	}
 	pod, podLock := r.c.Pod()
+	mainContainerBindMounts, err := r.getBindMountsForContainer(pod.Spec.Containers[0], *pod)
 	podLock.Unlock()
+	if err != nil {
+		return err
+	}
+	bindMounts = append(bindMounts, mainContainerBindMounts...)
 
 	dockerCfg, hostCfg, err := r.mainContainerDockerConfig(r.c, bindMounts, imageSize, volumeContainers, r.isContainerPrivileged(pod.Spec.Containers[0]))
 	if err != nil {
@@ -2806,6 +2811,43 @@ func shouldClose(c io.Closer) {
 	if err := c.Close(); err != nil {
 		log.Error("Could not close: ", err)
 	}
+}
+
+func (r *DockerRuntime) getBindMountsForContainer(c v1.Container, pod v1.Pod) ([]string, error) {
+	bindMounts := []string{}
+	if !r.cfg.InStandaloneMode {
+		// For security reasons, bind mounts are not configured when not in standalone
+		return bindMounts, nil
+	}
+	volumes := pod.Spec.Volumes
+	for _, volumeMount := range c.VolumeMounts {
+		v, ok := getVolumeByName(volumes, volumeMount.Name)
+		if !ok {
+			return nil, fmt.Errorf("couldn't find the corresponding volume for volumeMount %+v", volumeMount)
+		}
+		if v.HostPath != nil {
+			bindMount := v.HostPath.Path + ":" + volumeMount.MountPath + ":" + toDockerRORW(volumeMount.ReadOnly)
+			bindMounts = append(bindMounts, bindMount)
+		}
+
+	}
+	return bindMounts, nil
+}
+
+func getVolumeByName(volumes []v1.Volume, name string) (v1.Volume, bool) {
+	for _, v := range volumes {
+		if v.Name == name {
+			return v, true
+		}
+	}
+	return v1.Volume{}, false
+}
+
+func toDockerRORW(ro bool) string {
+	if ro {
+		return "ro"
+	}
+	return "rw"
 }
 
 func (r *DockerRuntime) isContainerPrivileged(c v1.Container) bool {
