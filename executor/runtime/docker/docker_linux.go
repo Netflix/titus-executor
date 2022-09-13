@@ -240,7 +240,18 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 }
 
 func getOwnCgroup(subsystem string) (string, error) {
-	return cgroups.GetOwnCgroup(subsystem)
+	cgs, err := cgroups.ParseCgroupFile("/proc/self/cgroup")
+	if err != nil {
+		return "", err
+	}
+
+	// "" i.e. "the unified hierarchy", which we now set up.
+	path, ok := cgs[""]
+	if !ok {
+		return "", fmt.Errorf("couldn't find unified hierarchy")
+	}
+
+	return path, nil
 }
 
 func cleanupCgroups(cgroupPath string) error {
