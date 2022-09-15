@@ -260,13 +260,15 @@ func (vpcService *vpcService) doGCV3(ctx context.Context, req *vpcapi.GCRequestV
 	}
 	span.AddAttributes(trace.Int64Attribute("assignmentsTombstoned", n))
 
-	n, err = tombstoneUnusedTransitionAssignments(ctx, tx, aws.StringValue(trunkENI.NetworkInterfaceId), req.RunningTaskIDs)
-	if err != nil {
-		err = fmt.Errorf("could not tombstone unused transition assignments: %w", err)
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+	if vpcService.dynamicConfig.GetBool(ctx, "ENABLE_GC_TRANSITION_ASSIGNMENT", false) {
+		n, err = tombstoneUnusedTransitionAssignments(ctx, tx, aws.StringValue(trunkENI.NetworkInterfaceId), req.RunningTaskIDs)
+		if err != nil {
+			err = fmt.Errorf("could not tombstone unused transition assignments: %w", err)
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
+		span.AddAttributes(trace.Int64Attribute("transitionAssignmentsTombstoned", n))
 	}
-	span.AddAttributes(trace.Int64Attribute("transitionAssignmentsTombstoned", n))
 
 	resp.AssignmentsToRemove, err = getAssignmentsToRemove(ctx, tx, aws.StringValue(trunkENI.NetworkInterfaceId), req.RunningTaskIDs)
 	if err != nil {
