@@ -618,28 +618,42 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 	var tid sql.NullInt64
 	if req.transitionAssignmentRequested {
 		var ipv4addr sql.NullString
-		transitionAssignmentName := fmt.Sprintf("t-%s", uuid.New().String())
-		_, err := fastTx.ExecContext(ctx, `
-			INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used) 
-						VALUES ($1, $2, true, now()) 
-			ON CONFLICT (branch_eni_association) 
-			WHERE is_transition_assignment 
-			DO UPDATE SET transition_last_used = now(), gc_tombstone = NULL`,
-			ass.branch.AssociationID, transitionAssignmentName)
+
+		row := fastTx.QueryRowContext(ctx, `
+			SELECT ass.id
+			FROM branch_eni_attachments bea
+			JOIN assignments ass on ass.branch_eni_association = bea.association_id
+			JOIN branch_enis be on bea.branch_eni = be.branch_eni
+			WHERE is_transition_assignment = true
+			  AND bea.trunk_eni = $1
+			  AND be.security_groups = $2`, ass.trunk, ass.securityGroups)
+		err := row.Scan(&ass.transitionAssignmentID)
+
 		if err != nil {
-			err = errors.Wrap(err, "Cannot insert transition assignment")
-			tracehelpers.SetStatus(err, span)
-			return err
+			transitionAssignmentName := fmt.Sprintf("t-%s", uuid.New().String())
+			_, err := fastTx.ExecContext(ctx, `
+				INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used)
+							VALUES ($1, $2, true, now())
+				ON CONFLICT (branch_eni_association)
+				WHERE is_transition_assignment
+				DO UPDATE SET transition_last_used = now(), gc_tombstone = NULL`,
+				ass.branch.AssociationID, transitionAssignmentName)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot insert transition assignment")
+				tracehelpers.SetStatus(err, span)
+				return err
+			}
+
+			// This should never error because we just did an insert above that should be a noop.
+			row := fastTx.QueryRowContext(ctx, "SELECT id, ipv4addr FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.AssociationID)
+			err = row.Scan(&ass.transitionAssignmentID, &ipv4addr)
+			if err != nil {
+				err = errors.Wrap(err, "Cannot select ID from transition assignments")
+				tracehelpers.SetStatus(err, span)
+				return err
+			}
 		}
 
-		// This should never error because we just did an insert above that should be a noop.
-		row := fastTx.QueryRowContext(ctx, "SELECT id, ipv4addr FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.AssociationID)
-		err = row.Scan(&ass.transitionAssignmentID, &ipv4addr)
-		if err != nil {
-			err = errors.Wrap(err, "Cannot select ID from transition assignments")
-			tracehelpers.SetStatus(err, span)
-			return err
-		}
 		tid.Valid = true
 		tid.Int64 = int64(ass.transitionAssignmentID)
 	}
@@ -647,7 +661,7 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 	// We do this "trick", where we return the values in order to allow a trigger to change the values on write time
 	// for A/B tests.
 	row := fastTx.QueryRowContext(ctx,
-		"INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil, transition_assignment) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, jumbo, bandwidth, ceil",
+		"INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil, transition_assignment) VALUES ($2, $2, $3, $4, $5, $6) RETURNING id, jumbo, bandwidth, ceil",
 		ass.branch.AssociationID, req.assignmentID, req.jumbo, req.bandwidth, req.ceil, tid)
 	err := row.Scan(&ass.assignmentID, &req.jumbo, &req.bandwidth, &req.ceil)
 	if err != nil {
