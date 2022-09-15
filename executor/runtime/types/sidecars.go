@@ -25,124 +25,125 @@ const (
 )
 
 var systemServices = []ServiceOpts{
-	/*
-	 * Titus sidecar seccomp agent must be in the beginning of the list because
-	 * other sidecars may depend on it for IPv6 connectivity
-	 */
+
+	// 	/*
+	// 	 * Titus sidecar seccomp agent must be in the beginning of the list because
+	// 	 * other sidecars may depend on it for IPv6 connectivity
+	// 	 */
 	{
 		ServiceName:  SidecarSeccompAgent,
 		UnitName:     "titus-sidecar-seccomp-agent",
 		Required:     true,
 		EnabledCheck: shouldStartTitusSeccompAgent,
 	},
-	{
-		ServiceName:  SidecarServiceSystemDNS,
-		UnitName:     "titus-sidecar-systemdns",
-		Required:     true,
-		EnabledCheck: ShouldStartSystemDNS,
-		Volumes: map[string]struct{}{
-			"/titus/systemdns": {},
-		},
-	},
-	{
-		ServiceName: SidecarTitusContainer,
-		UnitName:    "titus-container",
-		Required:    true,
-		Target:      true,
-	},
-	{
-		ServiceName:  SidecarServiceSpectatord,
-		UnitName:     "titus-sidecar-spectatord",
-		EnabledCheck: shouldStartSpectatord,
-		Required:     true,
-		Volumes: map[string]struct{}{
-			"/titus/spectatord": {},
-		},
-	},
-	{
-		ServiceName:  SidecarServiceTracingCollector,
-		UnitName:     "titus-sidecar-tracing-collector",
-		EnabledCheck: shouldStartTracingCollector,
-		Required:     false,
-		Volumes: map[string]struct{}{
-			"/titus/tracing-collector": {},
-		},
-	},
-	{
-		ServiceName:  SidecarServiceAtlasTitusAgent,
-		UnitName:     "titus-sidecar-atlas-titus-agent",
-		EnabledCheck: shouldStartAtlasTitusAgent,
-		Required:     true,
-		Volumes: map[string]struct{}{
-			"/titus/atlas-titus-agent": {},
-		},
-	},
-	{
-		ServiceName:  SidecarServiceSshd,
-		UnitName:     "titus-sidecar-sshd",
-		EnabledCheck: shouldStartSSHD,
-		Required:     false,
-		Volumes: map[string]struct{}{
-			"/titus/sshd": {},
-		},
-	},
-	{
-		ServiceName: SidecarServiceMetadataProxy,
-		UnitName:    "titus-sidecar-metadata-proxy",
-		Required:    true,
-	},
-	{
-		ServiceName:  SidecarServiceMetatron,
-		UnitName:     "titus-sidecar-metatron-sync",
-		Required:     true,
-		InitCommand:  "/titus/metatron/bin/titus-metatrond --init",
-		EnabledCheck: shouldStartMetatronSync,
-		Volumes: map[string]struct{}{
-			"/titus/metatron": {},
-		},
-	},
-	{
-		ServiceName:  SidecarServiceLogViewer,
-		UnitName:     "titus-sidecar-logviewer",
-		Required:     true,
-		EnabledCheck: shouldStartLogViewer,
-		Volumes: map[string]struct{}{
-			"/titus/adminlogs": {},
-		},
-	},
-	{
-		ServiceName:  SidecarServiceServiceMesh,
-		UnitName:     "titus-sidecar-servicemesh",
-		Required:     true,
-		EnabledCheck: shouldStartServiceMesh,
-		Volumes: map[string]struct{}{
-			"/titus/proxyd": {},
-		},
-	},
-	{
-		ServiceName:  SidecarServiceAbMetrix,
-		UnitName:     "titus-sidecar-abmetrix",
-		Required:     false,
-		EnabledCheck: shouldStartAbmetrix,
-		Volumes: map[string]struct{}{
-			"/titus/abmetrix": {},
-		},
-	},
-	{
-		ServiceName:  SidecarTitusStorage,
-		UnitName:     "titus-sidecar-storage",
-		Required:     true,
-		EnabledCheck: shouldStartTitusStorage,
-	},
-	{
-		ServiceName:  SidecarContainerTools,
-		UnitName:     "",
-		Required:     false,
-		EnabledCheck: shouldStartContainerTools,
-		Volumes: map[string]struct{}{
-			"/titus/container-tools": {},
-		},
-	},
+	// 	{
+	// 		ServiceName:  SidecarServiceSystemDNS,
+	// 		UnitName:     "titus-sidecar-systemdns",
+	// 		Required:     true,
+	// 		EnabledCheck: ShouldStartSystemDNS,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/systemdns": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName: SidecarTitusContainer,
+	// 		UnitName:    "titus-container",
+	// 		Required:    true,
+	// 		Target:      true,
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceSpectatord,
+	// 		UnitName:     "titus-sidecar-spectatord",
+	// 		EnabledCheck: shouldStartSpectatord,
+	// 		Required:     true,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/spectatord": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceTracingCollector,
+	// 		UnitName:     "titus-sidecar-tracing-collector",
+	// 		EnabledCheck: shouldStartTracingCollector,
+	// 		Required:     false,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/tracing-collector": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceAtlasTitusAgent,
+	// 		UnitName:     "titus-sidecar-atlas-titus-agent",
+	// 		EnabledCheck: shouldStartAtlasTitusAgent,
+	// 		Required:     true,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/atlas-titus-agent": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceSshd,
+	// 		UnitName:     "titus-sidecar-sshd",
+	// 		EnabledCheck: shouldStartSSHD,
+	// 		Required:     false,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/sshd": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName: SidecarServiceMetadataProxy,
+	// 		UnitName:    "titus-sidecar-metadata-proxy",
+	// 		Required:    true,
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceMetatron,
+	// 		UnitName:     "titus-sidecar-metatron-sync",
+	// 		Required:     true,
+	// 		InitCommand:  "/titus/metatron/bin/titus-metatrond --init",
+	// 		EnabledCheck: shouldStartMetatronSync,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/metatron": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceLogViewer,
+	// 		UnitName:     "titus-sidecar-logviewer",
+	// 		Required:     true,
+	// 		EnabledCheck: shouldStartLogViewer,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/adminlogs": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceServiceMesh,
+	// 		UnitName:     "titus-sidecar-servicemesh",
+	// 		Required:     true,
+	// 		EnabledCheck: shouldStartServiceMesh,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/proxyd": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarServiceAbMetrix,
+	// 		UnitName:     "titus-sidecar-abmetrix",
+	// 		Required:     false,
+	// 		EnabledCheck: shouldStartAbmetrix,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/abmetrix": {},
+	// 		},
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarTitusStorage,
+	// 		UnitName:     "titus-sidecar-storage",
+	// 		Required:     true,
+	// 		EnabledCheck: shouldStartTitusStorage,
+	// 	},
+	// 	{
+	// 		ServiceName:  SidecarContainerTools,
+	// 		UnitName:     "",
+	// 		Required:     false,
+	// 		EnabledCheck: shouldStartContainerTools,
+	// 		Volumes: map[string]struct{}{
+	// 			"/titus/container-tools": {},
+	// 		},
+	// 	},
 	{
 		ServiceName:  SidecarTrafficSteering,
 		UnitName:     "titus-sidecar-traffic-steering",

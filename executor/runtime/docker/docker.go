@@ -177,11 +177,11 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 	defaultBindMounts := []string{}
 	defaultBindMounts = append(defaultBindMounts, filepath.Join(cfg.RuntimeDir, "pod.json")+":/titus/run/pod.json:ro")
 
-	pidCgroupPath, err := getOwnCgroup("pids")
-	if err != nil {
-		tracehelpers.SetStatus(err, span)
-		return nil, err
-	}
+	// pidCgroupPath, err := getOwnCgroup("pids")
+	// if err != nil {
+	// 	tracehelpers.SetStatus(err, span)
+	// 	return nil, err
+	// }
 
 	storageOptEnabled := shouldEnableStorageOpts(info)
 
@@ -190,7 +190,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 		defer span.End()
 
 		dockerRuntime := &DockerRuntime{
-			pidCgroupPath:     pidCgroupPath,
+			//pidCgroupPath:     pidCgroupPath,
 			metrics:           m,
 			registryAuthCfg:   nil, // we don't need registry authentication yet
 			client:            client,
@@ -1066,6 +1066,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 // Creates the file $titusEnvironments/ContainerID.json as a serialized version of the ContainerInfo protobuf struct
 // so other systems can load it
 func (r *DockerRuntime) createTitusContainerInfoFile(ctx context.Context, c runtimeTypes.Container, startTime time.Time) error {
+	_ = os.MkdirAll(runtimeTypes.TitusEnvironmentsDir, 700)
 	containerConfigFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", c.TaskID()))
 
 	cfg, err := runtimeTypes.GenerateSyntheticContainerInfoPass2(c, startTime)
