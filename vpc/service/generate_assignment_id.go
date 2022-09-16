@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"crypto/sha1"
+	"encoding/hex"
 
 	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/service/data"
@@ -18,6 +20,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/google/uuid"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
@@ -566,7 +569,7 @@ LIMIT 1`, ass.subnet.SubnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxI
 			"eni": ass.branch.BranchENI,
 		}))
 		logger.G(ctx).Info("Found shared ENI for assignment")
-		return finishPopulateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
+		return vpcService.finishPopulateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
 	}
 
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -600,10 +603,10 @@ LIMIT 1`, ass.subnet.SubnetID, ass.trunk, pq.Array(ass.securityGroups), req.maxI
 		return err
 	}
 
-	return finishPopulateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
+	return vpcService.finishPopulateAssignmentUsingAlreadyAttachedENI(ctx, req, ass, fastTx)
 }
 
-func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRequest, ass *assignment, fastTx *sql.Tx) error {
+func (vpcService *vpcService) finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req getENIRequest, ass *assignment, fastTx *sql.Tx) error {
 	ctx, span := trace.StartSpan(ctx, "finishPopulateAssignmentUsingAlreadyAttachedENI")
 	defer span.End()
 	span.AddAttributes()
@@ -617,19 +620,49 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 
 	var tid sql.NullInt64
 	if req.transitionAssignmentRequested {
-		var ipv4addr sql.NullString
+		// TODO: REMOVE THIS DYNAMICCONFIG GATE ONCE THIS CODE BLOCK IS VALIDATED STABLE
+		if vpcService.dynamicConfig.GetBool(ctx, "ENABLE_TRANSITION_ASSIGNMENT_EXISTS_CHECK", false) {
+			row := fastTx.QueryRowContext(ctx, `
+				SELECT ass.id
+				FROM branch_eni_attachments bea
+				JOIN assignments ass on ass.branch_eni_association = bea.association_id
+				JOIN branch_enis be on bea.branch_eni = be.branch_eni
+				WHERE is_transition_assignment = true
+				AND bea.trunk_eni = $1
+				AND be.security_groups = $2`, ass.trunk, ass.securityGroups)
+			err := row.Scan(&ass.transitionAssignmentID)
 
-		row := fastTx.QueryRowContext(ctx, `
-			SELECT ass.id
-			FROM branch_eni_attachments bea
-			JOIN assignments ass on ass.branch_eni_association = bea.association_id
-			JOIN branch_enis be on bea.branch_eni = be.branch_eni
-			WHERE is_transition_assignment = true
-			  AND bea.trunk_eni = $1
-			  AND be.security_groups = $2`, ass.trunk, ass.securityGroups)
-		err := row.Scan(&ass.transitionAssignmentID)
+			if err == sql.ErrNoRows {
+				transitionAssignmentName := generateTransitionAssignmentName(ass)
+				_, err := fastTx.ExecContext(ctx, `
+					INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used)
+								VALUES ($1, $2, true, now())
+					ON CONFLICT (branch_eni_association)
+					WHERE is_transition_assignment
+					DO UPDATE SET transition_last_used = now(), gc_tombstone = NULL`,
+					ass.branch.AssociationID, transitionAssignmentName)
+				if err != nil {
+					err = errors.Wrap(err, "Cannot insert transition assignment")
+					tracehelpers.SetStatus(err, span)
+					return err
+				}
 
-		if err != nil {
+				// This should never error because we just did an insert above that should be a noop.
+				row := fastTx.QueryRowContext(ctx, "SELECT id FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.AssociationID)
+				err = row.Scan(&ass.transitionAssignmentID)
+				if err != nil {
+					err = errors.Wrap(err, "Cannot select ID from transition assignments")
+					tracehelpers.SetStatus(err, span)
+					return err
+				}
+			} else {
+				err = errors.Wrap(err, fmt.Sprintf("Cannot select ID from transition assignments for trunk: %s, security groups: %s\n", ass.trunk, ass.securityGroups))
+				tracehelpers.SetStatus(err, span)
+				return err
+			}
+			span.AddAttributes(trace.StringAttribute("transitionAssignmentsExistenceChecked", ass.trunk+"/"+strings.Join(ass.securityGroups, "")))
+		} else {
+			// TODO: REMOVE THIS CODE BLOCK ONCE FAST-PROPERTY GATED CODE BLOCK ABOVE IS VALIDATED STABLE
 			transitionAssignmentName := fmt.Sprintf("t-%s", uuid.New().String())
 			_, err := fastTx.ExecContext(ctx, `
 				INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used)
@@ -645,8 +678,8 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 			}
 
 			// This should never error because we just did an insert above that should be a noop.
-			row := fastTx.QueryRowContext(ctx, "SELECT id, ipv4addr FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.AssociationID)
-			err = row.Scan(&ass.transitionAssignmentID, &ipv4addr)
+			row := fastTx.QueryRowContext(ctx, "SELECT id FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.AssociationID)
+			err = row.Scan(&ass.transitionAssignmentID)
 			if err != nil {
 				err = errors.Wrap(err, "Cannot select ID from transition assignments")
 				tracehelpers.SetStatus(err, span)
@@ -661,7 +694,7 @@ func finishPopulateAssignmentUsingAlreadyAttachedENI(ctx context.Context, req ge
 	// We do this "trick", where we return the values in order to allow a trigger to change the values on write time
 	// for A/B tests.
 	row := fastTx.QueryRowContext(ctx,
-		"INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil, transition_assignment) VALUES ($2, $2, $3, $4, $5, $6) RETURNING id, jumbo, bandwidth, ceil",
+		"INSERT INTO assignments(branch_eni_association, assignment_id, jumbo, bandwidth, ceil, transition_assignment) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, jumbo, bandwidth, ceil",
 		ass.branch.AssociationID, req.assignmentID, req.jumbo, req.bandwidth, req.ceil, tid)
 	err := row.Scan(&ass.assignmentID, &req.jumbo, &req.bandwidth, &req.ceil)
 	if err != nil {
@@ -883,4 +916,11 @@ LIMIT 1`, req.subnet.SubnetID, req.trunkENIAccount, pq.Array(req.securityGroups)
 	err = vpcerrors.NewRetryable(errors.New("Had to rollback fast TX, and create ENI 'manually'"))
 	tracehelpers.SetStatus(err, span)
 	return nil, err
+}
+
+func generateTransitionAssignmentName(ass *assignment) string {
+	bv := []byte(ass.trunk + strings.Join(ass.securityGroups, ""))
+	hasher := sha1.New()
+	hasher.Write(bv)
+	return "t-" + hex.EncodeToString(hasher.Sum(nil))
 }
