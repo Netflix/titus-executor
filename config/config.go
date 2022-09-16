@@ -80,7 +80,7 @@ type Config struct {
 	S3Uploaders   cli.StringSlice
 	NoopUploaders cli.StringSlice
 
-	// The RuntimeDir is a tmpdir containing the pod state.json and other sensitive info
+	// The RuntimeDir is a tmpdir containing the pod.json and other sensitive info
 	RuntimeDir string
 
 	//Used to disable the TSA

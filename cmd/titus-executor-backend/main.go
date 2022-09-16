@@ -30,7 +30,6 @@ import (
 
 type commandConfig struct {
 	// runtime dir will have pod.json
-	// and be populated with state.json
 	// All other file names are meant to be ignored.
 	runtimeDir string
 	journald   bool
