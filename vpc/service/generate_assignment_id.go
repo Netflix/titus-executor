@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -633,14 +633,21 @@ func (vpcService *vpcService) finishPopulateAssignmentUsingAlreadyAttachedENI(ct
 			err := row.Scan(&ass.transitionAssignmentID)
 
 			if err == sql.ErrNoRows {
-				transitionAssignmentName := generateTransitionAssignmentName(ass)
+				var transitionAssignmentName *string
+				transitionAssignmentName, err = generateTransitionAssignmentName(ctx, ass)
+				if err != nil {
+					err = errors.Wrap(err, "Failed to generate transitionAssignmentName")
+					tracehelpers.SetStatus(err, span)
+					return err
+				}
+
 				_, err := fastTx.ExecContext(ctx, `
 					INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used)
 								VALUES ($1, $2, true, now())
 					ON CONFLICT (branch_eni_association)
 					WHERE is_transition_assignment
 					DO UPDATE SET transition_last_used = now(), gc_tombstone = NULL`,
-					ass.branch.AssociationID, transitionAssignmentName)
+					ass.branch.AssociationID, *transitionAssignmentName)
 				if err != nil {
 					err = errors.Wrap(err, "Cannot insert transition assignment")
 					tracehelpers.SetStatus(err, span)
@@ -918,9 +925,18 @@ LIMIT 1`, req.subnet.SubnetID, req.trunkENIAccount, pq.Array(req.securityGroups)
 	return nil, err
 }
 
-func generateTransitionAssignmentName(ass *assignment) string {
+func generateTransitionAssignmentName(ctx context.Context, ass *assignment) (*string, error) {
+	_, span := trace.StartSpan(ctx, "generateTransitionAssignmentName")
+	defer span.End()
+
 	bv := []byte(ass.trunk + strings.Join(ass.securityGroups, ""))
-	hasher := sha1.New()
-	hasher.Write(bv)
-	return "t-" + hex.EncodeToString(hasher.Sum(nil))
+	hasher := sha256.New()
+	_, err := hasher.Write(bv)
+	if err != nil {
+		err = errors.Wrap(err, "Failed to hash transitionAssignmentName")
+		tracehelpers.SetStatus(err, span)
+		return nil, err
+	}
+	transitionAssignmentName := fmt.Sprintf("t-%s", hex.EncodeToString(hasher.Sum(nil)))
+	return &transitionAssignmentName, err
 }
