@@ -57,7 +57,7 @@ const (
 	requestTimeout         = 30 * time.Second
 	defaultSessionLifetime = time.Hour
 	maxSessionNameLen      = 64
-	renewalWindow          = 5 * time.Minute
+	renewalWindow          = 15 * time.Minute
 	awsTimeFormat          = "2006-01-02T15:04:05Z"
 	iamSelectionHeader     = "X-Titus-Role"
 )
