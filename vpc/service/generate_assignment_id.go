@@ -667,7 +667,9 @@ func (vpcService *vpcService) finishPopulateAssignmentUsingAlreadyAttachedENI(ct
 				tracehelpers.SetStatus(err, span)
 				return err
 			}
-			span.AddAttributes(trace.StringAttribute("transitionAssignmentsExistenceChecked", ass.trunk+"/"+strings.Join(ass.securityGroups, "")))
+			msg := ass.trunk + "/" + strings.Join(ass.securityGroups, ",")
+			logger.G(ctx).Infof("transitionAssignmentsExistenceChecked: %s", msg)
+			span.AddAttributes(trace.StringAttribute("transitionAssignmentsExistenceChecked", msg))
 		} else {
 			// TODO: REMOVE THIS CODE BLOCK ONCE FAST-PROPERTY GATED CODE BLOCK ABOVE IS VALIDATED STABLE
 			transitionAssignmentName := fmt.Sprintf("t-%s", uuid.New().String())
@@ -929,10 +931,12 @@ func generateTransitionAssignmentName(ctx context.Context, ass *assignment) (*st
 	_, span := trace.StartSpan(ctx, "generateTransitionAssignmentName")
 	defer span.End()
 
-	bv := []byte(ass.trunk + strings.Join(ass.securityGroups, ""))
+	sort.Strings(ass.securityGroups)
+	bv := []byte(ass.trunk + "/" + strings.Join(ass.securityGroups, ","))
 	hasher := sha256.New()
 	_, err := hasher.Write(bv)
 	if err != nil {
+		logger.G(ctx).WithError(err).Errorf("Failed to hash transitionAssignmentName: %s", string(bv))
 		err = errors.Wrap(err, "Failed to hash transitionAssignmentName")
 		tracehelpers.SetStatus(err, span)
 		return nil, err
