@@ -629,7 +629,7 @@ func (vpcService *vpcService) finishPopulateAssignmentUsingAlreadyAttachedENI(ct
 				JOIN branch_enis be on bea.branch_eni = be.branch_eni
 				WHERE is_transition_assignment = true
 				AND bea.trunk_eni = $1
-				AND be.security_groups = $2`, ass.trunk, ass.securityGroups)
+				AND be.security_groups = $2::text[]`, ass.trunk, pq.Array(req.securityGroups))
 			err := row.Scan(&ass.transitionAssignmentID)
 
 			if err == sql.ErrNoRows {
