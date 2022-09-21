@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -300,6 +301,7 @@ func createTransitionNS(ctx context.Context, branchLink netlink.Link, assignment
 	if err != nil {
 		return 0, fmt.Errorf("Could not setup transition namespace IPv4: %w", err)
 	}
+	logger.G(ctx).Infof("Added IPv4 address %w to link: %s ", transitionInterfaceName)
 
 	/*
 		fd, err := unix.Open(transitionNamespaceDir, unix.O_CLOEXEC|unix.O_TMPFILE|unix.O_RDWR, 0755)
@@ -763,13 +765,64 @@ func TeardownNetwork(ctx context.Context, assignment *vpcapi.AssignIPResponseV3)
 	return result.ErrorOrNil()
 }
 
+func deleteLinksInTransitionNetwork(ctx context.Context, transitionNamespaceDirFile *os.File, transitionNamespaceID string) error {
+	// It's possible that the transition namespace has already been removed and this is a retry.
+	// Assuming only the GC process removes transition namespace, then it means the links have been deleted and can be skpped now.
+	netnsfd, err := unix.Openat(int(transitionNamespaceDirFile.Fd()), transitionNamespaceID, unix.O_CLOEXEC, 0)
+	if err != nil {
+		logger.G(ctx).Warningf("Failed to open transition network namespace %s. Will skip deleting links", transitionNamespaceID)
+		return nil
+	}
+	defer unix.Close(netnsfd)
+
+	// It's possible that the transition namespace has already been unmounted and this is a retry.
+	// Assuming only the GC process unmounts transition namespace, then it means the links have been deleted and can be skpped now.
+	nsHandle, err := netlink.NewHandleAt(netns.NsHandle(netnsfd))
+	if err != nil {
+		logger.G(ctx).Warningf("Failed to open handle to transition network namespace %s. Will skip deleting links", transitionNamespaceID)
+		return nil
+	}
+	defer nsHandle.Delete()
+	links, err := nsHandle.LinkList()
+	// As long as the transition network namespace exists, list links must work. Otherwise something is wrong.
+	if err != nil {
+		return fmt.Errorf("Failed to list links in transition namespace %s: %w", transitionNamespaceID, err)
+	}
+	var linkDelErrs *multierror.Error
+	for _, link := range links {
+		linkName := link.Attrs().Name
+		// There should only be one link with this name
+		if strings.HasPrefix(linkName, "transition-") {
+			logger.G(ctx).Infof("Deleting link %s in transition network %s", linkName, transitionNamespaceID)
+			linkDelErr := nsHandle.LinkDel(link)
+			if linkDelErr != nil {
+				_, ok := linkDelErr.(*netlink.LinkNotFoundError)
+				if !ok {
+					linkDelErrs = multierror.Append(linkDelErrs, fmt.Errorf("Failed to delete link %s: %w", linkName, linkDelErr))
+				} else {
+					logger.G(ctx).WithError(err).Warningf("link %s is listed but not found when deleting", linkName)
+				}
+			} else {
+				logger.G(ctx).Infof("Deleted link %s in transition network %s", linkName, transitionNamespaceID)
+			}
+		}
+	}
+	return linkDelErrs.ErrorOrNil()
+}
+
 func TeardownTransitionNetwork(ctx context.Context, transitionNamespaceDir string, transitionNamespaceID string) error {
 	logger.G(ctx).Infof("Tearing down transition network %s", transitionNamespaceID)
-	_, cleanup, err := transition.LockTransitionNamespaces(ctx, transitionNamespaceDir)
+	transitionNamespaceDirFile, cleanup, err := transition.LockTransitionNamespaces(ctx, transitionNamespaceDir)
 	if err != nil {
 		return fmt.Errorf("Could not lock transition namespace dir: %w", err)
 	}
 	defer cleanup()
+
+	// Do not proceeed to removing the transition network namespace if failing to destroy links
+	err = deleteLinksInTransitionNetwork(ctx, transitionNamespaceDirFile, transitionNamespaceID)
+	if err != nil {
+		return fmt.Errorf("Failed to delete links in transition namespace %s: %w", transitionNamespaceID, err)
+	}
 
 	filePath := filepath.Join(transitionNamespaceDir, transitionNamespaceID)
 	err = unix.Unmount(filePath, 0)
