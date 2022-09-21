@@ -629,43 +629,45 @@ func (vpcService *vpcService) finishPopulateAssignmentUsingAlreadyAttachedENI(ct
 				JOIN branch_enis be on bea.branch_eni = be.branch_eni
 				WHERE is_transition_assignment = true
 				AND bea.trunk_eni = $1
-				AND be.security_groups = $2::text[]`, ass.trunk, pq.Array(req.securityGroups))
+				AND be.security_groups = $2::text[]`, ass.trunk, pq.Array(ass.securityGroups))
 			err := row.Scan(&ass.transitionAssignmentID)
 
-			if err == sql.ErrNoRows {
-				var transitionAssignmentName *string
-				transitionAssignmentName, err = generateTransitionAssignmentName(ctx, ass)
-				if err != nil {
-					err = errors.Wrap(err, "Failed to generate transitionAssignmentName")
-					tracehelpers.SetStatus(err, span)
-					return err
-				}
+			if err != nil {
+				if err == sql.ErrNoRows {
+					var transitionAssignmentName *string
+					transitionAssignmentName, err = generateTransitionAssignmentName(ctx, ass)
+					if err != nil {
+						err = errors.Wrap(err, "Failed to generate transitionAssignmentName")
+						tracehelpers.SetStatus(err, span)
+						return err
+					}
 
-				_, err := fastTx.ExecContext(ctx, `
-					INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used)
-								VALUES ($1, $2, true, now())
-					ON CONFLICT (branch_eni_association)
-					WHERE is_transition_assignment
-					DO UPDATE SET transition_last_used = now(), gc_tombstone = NULL`,
-					ass.branch.AssociationID, *transitionAssignmentName)
-				if err != nil {
-					err = errors.Wrap(err, "Cannot insert transition assignment")
-					tracehelpers.SetStatus(err, span)
-					return err
-				}
+					_, err := fastTx.ExecContext(ctx, `
+						INSERT INTO assignments(branch_eni_association, assignment_id, is_transition_assignment, transition_last_used)
+									VALUES ($1, $2, true, now())
+						ON CONFLICT (branch_eni_association)
+						WHERE is_transition_assignment
+						DO UPDATE SET transition_last_used = now(), gc_tombstone = NULL`,
+						ass.branch.AssociationID, *transitionAssignmentName)
+					if err != nil {
+						err = errors.Wrap(err, "Cannot insert transition assignment")
+						tracehelpers.SetStatus(err, span)
+						return err
+					}
 
-				// This should never error because we just did an insert above that should be a noop.
-				row := fastTx.QueryRowContext(ctx, "SELECT id FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.AssociationID)
-				err = row.Scan(&ass.transitionAssignmentID)
-				if err != nil {
-					err = errors.Wrap(err, "Cannot select ID from transition assignments")
+					// This should never error because we just did an insert above that should be a noop.
+					row := fastTx.QueryRowContext(ctx, "SELECT id FROM assignments WHERE is_transition_assignment = true AND branch_eni_association = $1", ass.branch.AssociationID)
+					err = row.Scan(&ass.transitionAssignmentID)
+					if err != nil {
+						err = errors.Wrap(err, "Cannot select ID from transition assignments")
+						tracehelpers.SetStatus(err, span)
+						return err
+					}
+				} else {
+					err = errors.Wrapf(err, "Cannot select ID from transition assignments for trunk: %s, security groups: %s", ass.trunk, ass.securityGroups)
 					tracehelpers.SetStatus(err, span)
 					return err
 				}
-			} else {
-				err = errors.Wrap(err, fmt.Sprintf("Cannot select ID from transition assignments for trunk: %s, security groups: %s\n", ass.trunk, ass.securityGroups))
-				tracehelpers.SetStatus(err, span)
-				return err
 			}
 			msg := ass.trunk + "/" + strings.Join(ass.securityGroups, ",")
 			logger.G(ctx).Infof("transitionAssignmentsExistenceChecked: %s", msg)
