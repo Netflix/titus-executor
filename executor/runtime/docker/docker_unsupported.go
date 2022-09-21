@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/coreos/go-systemd/v22/dbus"
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 )
@@ -19,7 +20,7 @@ func hasProjectQuotasEnabled(rootDir string) bool {
 	return false
 }
 
-func setupSystemServices(parentCtx context.Context, systemServices []*runtimeTypes.ServiceOpts, c runtimeTypes.Container, cfg config.Config) error {
+func setupSystemServices(parentCtx context.Context, conn *dbus.Conn, systemServices []*runtimeTypes.ServiceOpts, c runtimeTypes.Container, cfg config.Config) error {
 	return nil
 }
 
@@ -42,7 +43,7 @@ func setupOOMAdj(c runtimeTypes.Container, cred ucred) error {
 	return nil
 }
 
-func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
+func stopSystemServices(ctx context.Context, conn *dbus.Conn, c runtimeTypes.Container) error {
 	return nil
 }
 

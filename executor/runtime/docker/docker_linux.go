@@ -85,18 +85,12 @@ func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Con
 	return nil
 }
 
-func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
+func stopSystemServices(ctx context.Context, conn *dbus.Conn, c runtimeTypes.Container) error {
 	ctx, cancel := context.WithTimeout(ctx, systemServiceStartTimeout)
 	defer cancel()
 
-	conn, err := dbus.NewWithContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
 	target := fmt.Sprintf("titus-container@%s.target", c.TaskID())
-	_, err = conn.StopUnitContext(ctx, target, "fail", nil)
+	_, err := conn.StopUnitContext(ctx, target, "fail", nil)
 	if err != nil {
 		return fmt.Errorf("Could not stop target %q: %w", target, err)
 	}
@@ -104,15 +98,9 @@ func stopSystemServices(ctx context.Context, c runtimeTypes.Container) error {
 	return nil
 }
 
-func setupSystemServices(parentCtx context.Context, systemServices []*runtimeTypes.ServiceOpts, c runtimeTypes.Container, cfg config.Config) error { // nolint: gocyclo
+func setupSystemServices(parentCtx context.Context, conn *dbus.Conn, systemServices []*runtimeTypes.ServiceOpts, c runtimeTypes.Container, cfg config.Config) error { // nolint: gocyclo
 	ctx, cancel := context.WithTimeout(parentCtx, systemServiceStartTimeout)
 	defer cancel()
-
-	conn, connErr := dbus.NewWithContext(ctx)
-	if connErr != nil {
-		return connErr
-	}
-	defer conn.Close()
 
 	// TODO: Can we somehow make sure titus-container always starts first?
 	for _, svc := range systemServices {

@@ -33,6 +33,7 @@ import (
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/Netflix/titus-kube-common/pod"
+	"github.com/coreos/go-systemd/v22/dbus"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -132,6 +133,7 @@ type DockerRuntime struct { // nolint: golint
 	cfg               config.Config
 	dockerCfg         Config
 	defaultBindMounts []string
+	dbusConn          *dbus.Conn
 
 	// cleanup callbacks that runtime implementations can register to do cleanup
 	cleanupFuncLock sync.Mutex
@@ -1454,7 +1456,14 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 		return "", nil, statusMessageChan, err
 	}
 
-	err = setupSystemServices(ctx, r.systemServices, r.c, r.cfg)
+	r.dbusConn, err = dbus.NewWithContext(ctx)
+	if err != nil {
+		eventCancel()
+		err = fmt.Errorf("container prestart error: %w", err)
+		return "", nil, statusMessageChan, err
+	}
+
+	err = setupSystemServices(ctx, r.dbusConn, r.systemServices, r.c, r.cfg)
 	if err != nil {
 		log.WithError(err).Error("Unable to launch system services")
 		eventCancel()
@@ -2486,7 +2495,9 @@ func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Con
 	r.registerRuntimeCleanup(func() error {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if err := stopSystemServices(ctx, c); err != nil {
+		err := stopSystemServices(ctx, r.dbusConn, c)
+		r.dbusConn.Close()
+		if err != nil {
 			log.WithError(err).Error("Unable to stop system services")
 			return fmt.Errorf("Unable to stop system services: %w", err)
 		}
