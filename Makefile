@@ -17,7 +17,7 @@ GOBIN                 ?= $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))
 PATH                  := $(PATH):$(GOBIN)
 GOBIN_TOOL            = $(shell which gobin || echo $(GOBIN)/gobin)
 GOIMPORT_TOOL		  = $(GOBIN_TOOL) -m -run golang.org/x/tools/cmd/goimports@v0.1.0 -w
-GOLANGCI_LINT_TIMEOUT := 2m
+GOLANGCI_LINT_TIMEOUT := 6m
 ifdef FAST
 	GOLANGCI_LINT_ARGS = --fast
 endif
