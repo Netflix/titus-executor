@@ -30,8 +30,6 @@
 #define CHILD_SIG SIGUSR1
 #endif
 
-#define WAIT_KILLABLE_SECCOMP_KERNEL_VERSION KERNEL_VERSION(5, 15, 35)
-
 #ifndef SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
 #define SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV (1UL << 5)
 #endif
@@ -51,6 +49,8 @@
 		fprintf(stderr, __VA_ARGS__);                                  \
 		fprintf(stderr, "\n");                                         \
 	}
+
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 typedef struct tsa_fds {
 	int fd_to_tsa;
@@ -72,29 +72,6 @@ bool have_cap_sysadmin()
 	cap_get_flag(current_capabilties, CAP_SYS_ADMIN, CAP_EFFECTIVE,
 		     &cap_value);
 	return cap_value == CAP_SET;
-}
-
-static int get_kernel_version(unsigned int *ver) {
-	struct utsname utsname;
-	int version, patchlevel, sublevel, err;
-
-	if (uname(&utsname)) {
-		PRINT_WARNING("Unable to call uname: %s",
-			strerror(errno));
-		return -1;
-	}
-
-	err = sscanf(utsname.release, "%d.%d.%d",
-		     &version, &patchlevel, &sublevel);
-
-	if (err != 3) {
-		PRINT_WARNING("Unable to get kernel version from uname '%s'",
-			 utsname.release);
-		return -1;
-	}
-
-	*ver = KERNEL_VERSION(version, patchlevel, sublevel);
-	return 0;
 }
 
 static int send_fd(int sock, int fd)
@@ -140,8 +117,10 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
 */
 #define SOCK_TYPE_MASK ~(SOCK_NONBLOCK | SOCK_CLOEXEC)
 static int install_notify_filter(void) {
-	unsigned int seccomp_flags = SECCOMP_FILTER_FLAG_NEW_LISTENER;
-	unsigned int system_kernel_version = -1;
+	unsigned int seccomp_flags = 0;
+	unsigned int flags[] = { SECCOMP_FILTER_FLAG_NEW_LISTENER,
+				// because https://github.com/Netflix-Skunkworks/linux/blob/nflx-v5.15/kernel/seccomp.c#L1867
+				SECCOMP_FILTER_FLAG_NEW_LISTENER|SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV };
 	struct sock_fprog prog = {0};
 	int notify_fd = -1;
 
@@ -277,12 +256,16 @@ static int install_notify_filter(void) {
 	/* Only one listening file descriptor can be established. An attempt to
 	   establish a second listener yields an EBUSY error. */
 
-	if (get_kernel_version(&system_kernel_version) == -1) {
-		return -1;
-	}
-
-	if (system_kernel_version >= WAIT_KILLABLE_SECCOMP_KERNEL_VERSION) {
-		seccomp_flags = seccomp_flags|SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV;
+	for (unsigned int i = 0; i < ARRAY_SIZE(flags); i++) {
+		if (seccomp(SECCOMP_SET_MODE_FILTER, flags[i], NULL) == -1) {
+			if (errno == EINVAL) {
+				PRINT_INFO("Seccomp filter flag 0x%X is not supported", flags[i]);
+				continue;
+			}
+			seccomp_flags |= flags[i];
+		} else {
+			PRINT_WARNING("seccomp call with NULL arg returned unexpected value");
+		}
 	}
 
 	notify_fd = seccomp(SECCOMP_SET_MODE_FILTER,
