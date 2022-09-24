@@ -27,14 +27,12 @@ import (
 
 const (
 	defaultNetworkBandwidthBps = 128 * MB
-	assignVpctoolTimeout       = 120 * time.Second
-	unassignVpctoolTimeout     = 60 * time.Second
 )
 
 // This will setup c.Allocation
 func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, assignVpctoolTimeout)
+	ctx, cancel := context.WithTimeout(ctx, vpcTypes.AssignVpctoolTimeout)
 	defer cancel()
 
 	ctx, span := trace.StartSpan(ctx, "prepareNetworkDriver")
@@ -143,7 +141,7 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 		} else {
 			errs = multierror.Append(errs, fmt.Errorf("stderr output: %s", string(data)))
 		}
-		errs = multierror.Append(errs, fmt.Errorf("Error waiting on allocation command after %s (timeout %s): %w", time.Since(start), assignVpctoolTimeout, allocationCommand.Wait()))
+		errs = multierror.Append(errs, fmt.Errorf("Error waiting on allocation command after %s (timeout %s): %w", time.Since(start), vpcTypes.AssignVpctoolTimeout, allocationCommand.Wait()))
 		tracehelpers.SetStatus(errs, span)
 		return nil, errs
 	}
@@ -177,7 +175,7 @@ func prepareNetworkDriver(ctx context.Context, cfg Config, c runtimeTypes.Contai
 	}
 
 	return func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), unassignVpctoolTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), vpcTypes.UnassignVpctoolTimeout)
 		defer cancel()
 		unassignCommand := exec.CommandContext(ctx, vpcToolPath(), "unassign", "--task-id", c.TaskID()) // nolint: gosec
 		err := unassignCommand.Run()
