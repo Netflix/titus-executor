@@ -2,11 +2,11 @@ package assign3
 
 import (
 	"context"
-	"time"
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
@@ -15,7 +15,7 @@ import (
 func Unassign(ctx context.Context, conn *grpc.ClientConn, taskID string) error {
 	ctx, span := trace.StartSpan(ctx, "Unassign")
 	defer span.End()
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, vpcTypes.UnassignVpctoolTimeout)
 	defer cancel()
 	ctx = logger.WithFields(ctx, map[string]interface{}{
 		"taskID": taskID,

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/Netflix/titus-executor/logger"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	"github.com/Netflix/titus-executor/vpc/tool/identity"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
+	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -110,7 +110,7 @@ func Assign(ctx context.Context, instanceIdentityProvider identity.InstanceIdent
 
 func doAllocateNetwork(ctx context.Context, instanceIdentityProvider identity.InstanceIdentityProvider, client vpcapi.TitusAgentVPCServiceClient, args Arguments) (*vpcapi.Assignment, error) { // nolint:dupl
 	// TODO: Make timeout adjustable
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, vpcTypes.AssignVpctoolTimeout)
 	defer cancel()
 	ctx, span := trace.StartSpan(ctx, "doAllocateNetwork")
 	defer span.End()
