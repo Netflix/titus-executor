@@ -272,6 +272,10 @@ func cleanupCgroups(cgroupPath string) error {
 }
 
 func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
+	if !c.IsSystemD() {
+		return nil
+	}
+
 	cgroupPath := filepath.Join("/proc/", strconv.Itoa(int(cred.pid)), "cgroup")
 	cgroups, err := ioutil.ReadFile(cgroupPath) // nolint: gosec
 	if err != nil {
@@ -289,18 +293,19 @@ func setCgroupOwnership(parentCtx context.Context, c runtimeTypes.Container, cre
 		}
 		// This is to handle the name=systemd cgroup, we should probably parse /proc/mounts, but this is a little bit easier
 		controllerType = strings.TrimPrefix(controllerType, "name=")
+		if controllerType != "systemd" {
+			continue
+		}
 
-		// systemd needs to be the owner of its systemd cgroup in order
-		// to start up, and needs to be the owner of e.g. its memory
-		// controller path to do memory accounting.
+		// systemd needs to be the owner of its systemd cgroup in order to start up
 		controllerPath := cgroupInfo[2]
 		fsPath := filepath.Join(sysFsCgroup, controllerType, controllerPath)
-		logrus.Debugf("chowning cgroup path: %s to %d %d", fsPath, cred.uid, cred.gid)
+		logrus.Infof("chowning systemd cgroup path: %s", fsPath)
 		err = os.Chown(fsPath, int(cred.uid), int(cred.gid))
 		if err != nil {
 			logrus.WithError(err).Error("Could not chown systemd cgroup path")
-			return err
 		}
+		return err
 	}
 
 	return nil
