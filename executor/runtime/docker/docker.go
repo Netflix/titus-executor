@@ -449,6 +449,12 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		"/run/netns": "rw,size=" + defaultRunTmpFsSize,
 	}
 
+	// For performance reasons, we put the hsperfdata for JVM-based workloads on a tmpfs
+	// See https://www.evanjones.ca/jvm-mmap-pause.html for an explanation. JVM-67
+	hostCfg.Tmpfs["/tmp/hsperfdata_www-data"] = "rw,size=" + defaultRunTmpFsSize
+	hostCfg.Tmpfs["/tmp/hsperfdata_nfsuper"] = "rw,size=" + defaultRunTmpFsSize
+	hostCfg.Tmpfs["/tmp/hsperfdata_root"] = "rw,size=" + defaultRunTmpFsSize
+
 	if c.IsSystemD() {
 		// systemd requires `/run/lock` to be a separate mount from `/run`
 		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
