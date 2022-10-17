@@ -357,6 +357,10 @@ func (c *PodContainer) Env() map[string]string {
 	return populateContainerEnv(c, c.config, c.userEnv)
 }
 
+func (c *PodContainer) ExtraContainerEnv(e *ExtraContainer) map[string]string {
+	return populateContainerEnv(c, c.config, v1EnvVarsToMap(e.V1Container.Env))
+}
+
 func (c *PodContainer) EnvOverrides() map[string]string {
 	c.envLock.Lock()
 	envOverrides := maps.CopySS(c.envOverrides)
@@ -738,6 +742,10 @@ func (c *PodContainer) SortedEnvArray() []string {
 	return sortedEnv(c.Env())
 }
 
+func (c *PodContainer) SortedEnvArrayExtraContainer(e *ExtraContainer) []string {
+	return sortedEnv(c.ExtraContainerEnv(e))
+}
+
 func (c *PodContainer) SubnetIDs() *[]string {
 	return c.podConfig.SubnetIDs
 }
@@ -1034,4 +1042,15 @@ func stringSliceContains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// v1EnvVarsToMap constructs a map of environment name to value from a slice
+// of env vars.
+func v1EnvVarsToMap(envs []v1.EnvVar) map[string]string {
+	result := map[string]string{}
+	for _, env := range envs {
+		result[env.Name] = env.Value
+	}
+
+	return result
 }
