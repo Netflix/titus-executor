@@ -17,7 +17,6 @@
       'fsopen',
       'fspick',
       'lookup_dcookie',
-      'mount',
       'move_mount',
       'name_to_handle_at',
       'open_tree',
@@ -56,10 +55,11 @@
       'unshare',
     ],
   },
-  AllowClone3: {
+  ForceAllowSyscalls: {
     action: 'SCMP_ACT_ALLOW',
     names: [
       'clone3',
+      'mount',
     ],
   },
   AllowImageBuildingSyscalls: {

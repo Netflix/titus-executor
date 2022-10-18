@@ -71,7 +71,6 @@
             "fsopen",
             "fspick",
             "lookup_dcookie",
-            "mount",
             "move_mount",
             "name_to_handle_at",
             "open_tree",
@@ -89,7 +88,8 @@
       {
          "action": "SCMP_ACT_ALLOW",
          "names": [
-            "clone3"
+            "clone3",
+            "mount"
          ]
       },
       {
@@ -286,6 +286,9 @@
             "pidfd_send_signal",
             "pipe",
             "pipe2",
+            "pkey_alloc",
+            "pkey_free",
+            "pkey_mprotect",
             "poll",
             "ppoll",
             "ppoll_time64",
@@ -823,6 +826,28 @@
          },
          "names": [
             "syslog"
+         ]
+      },
+      {
+         "action": "SCMP_ACT_ALLOW",
+         "includes": {
+            "caps": [
+               "CAP_BPF"
+            ]
+         },
+         "names": [
+            "bpf"
+         ]
+      },
+      {
+         "action": "SCMP_ACT_ALLOW",
+         "includes": {
+            "caps": [
+               "CAP_PERFMON"
+            ]
+         },
+         "names": [
+            "perf_event_open"
          ]
       }
    ]

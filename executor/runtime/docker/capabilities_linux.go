@@ -57,6 +57,10 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 	seccompProfile := defaultSeccompProfile
 	apparmorProfile := defaultApparmorProfile
 
+	if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
+		hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
+	}
+
 	containerCapabilities, err := c.ContainerCapabilities(containerName)
 	if err != nil {
 		return err
@@ -71,10 +75,6 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 	}
 
 	if hasCapability(containerCapabilities, titusAPI.ContainerCapability_ContainerCapabilityFUSE) {
-		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
-			hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
-		}
-
 		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
 			PathOnHost:        fuseDev,
 			PathInContainer:   fuseDev,
