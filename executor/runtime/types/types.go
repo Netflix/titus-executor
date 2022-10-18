@@ -163,6 +163,7 @@ type Container interface {
 	ElasticIPs() *string
 	ExtraUserContainers() []*ExtraContainer
 	ExtraPlatformContainers() []*ExtraContainer
+	ExtraContainerEnv(c *ExtraContainer) map[string]string
 	GPUInfo() GPUContainer
 	HostnameStyle() *string
 	IamRole() *string
@@ -213,6 +214,7 @@ type Container interface {
 	SystemServices() ([]*ServiceOpts, error)
 	SignedAddressAllocationUUID() *string
 	SortedEnvArray() []string
+	SortedEnvArrayExtraContainer(c *ExtraContainer) []string
 	SubnetIDs() *[]string
 	TaskID() string
 	TTYEnabled() bool

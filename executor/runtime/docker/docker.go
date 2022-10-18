@@ -1058,6 +1058,12 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 	if err != nil {
 		return err
 	}
+	for _, c := range append(r.c.ExtraPlatformContainers(), r.c.ExtraUserContainers()...) {
+		err = r.pushEnvironmentForExtraContainer(ctx, c)
+		if err != nil {
+			return err
+		}
+	}
 	logger.G(ctx).Info("Titus environment pushed")
 
 	return nil
@@ -1307,6 +1313,45 @@ func (r *DockerRuntime) pushEnvironment(ctx context.Context, c runtimeTypes.Cont
 	}
 
 	return r.client.CopyToContainer(ctx, c.ID(), "/", bytes.NewReader(tarBuf.Bytes()), cco)
+}
+
+func (r *DockerRuntime) pushEnvironmentForExtraContainer(ctx context.Context, e *runtimeTypes.ExtraContainer) error {
+	var envTemplateBuf, tarBuf bytes.Buffer
+
+	if err := executeEnvFileTemplate(r.c.ExtraContainerEnv(e), e.ImageInspect, &envTemplateBuf); err != nil {
+		return err
+	}
+
+	tw := tar.NewWriter(&tarBuf)
+
+	path := "etc/profile.d/netflix_environment.sh"
+	if version, ok := e.ImageInspect.Config.Labels["nflxenv"]; ok && strings.HasPrefix(version, "1.") {
+		path = "etc/nflx/base-environment.d/200titus"
+	}
+
+	hdr := &tar.Header{
+		Name: path,
+		Mode: 0644,
+		Size: int64(envTemplateBuf.Len()),
+	}
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		log.WithError(err).Fatal()
+	}
+	if _, err := tw.Write(envTemplateBuf.Bytes()); err != nil {
+		log.WithError(err).Fatal()
+	}
+	// Make sure to check the error on Close.
+
+	if err := tw.Close(); err != nil {
+		return err
+	}
+
+	cco := types.CopyToContainerOptions{
+		AllowOverwriteDirWithFile: true,
+	}
+
+	return r.client.CopyToContainer(ctx, e.Status.ContainerID, "/", bytes.NewReader(tarBuf.Bytes()), cco)
 }
 
 func maybeConvertIntoBadEntryPointError(err error) error {
@@ -1940,7 +1985,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		}
 	}
 
-	baseEnv := r.c.SortedEnvArray()
+	baseEnv := r.c.SortedEnvArrayExtraContainer(c)
 	baseEnv = append(baseEnv, "TITUS_CONTAINER_NAME="+v1Container.Name)
 
 	// Only redirect stdout/err if we have shared logs
