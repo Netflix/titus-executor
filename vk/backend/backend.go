@@ -205,7 +205,9 @@ func (b *Backend) writePod(ctx context.Context, statedir string) error {
 
 	encoder := json.NewEncoder(f)
 	encoder.SetIndent("", "\t")
+	b.podLock.Lock()
 	err = encoder.Encode(b.pod)
+	b.podLock.Unlock()
 	if err != nil {
 		_ = f.Cleanup()
 		return fmt.Errorf("Unable to marshal pod object: %w", err)
