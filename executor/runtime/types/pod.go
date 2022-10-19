@@ -434,9 +434,9 @@ func (c *PodContainer) ImageVersion() *string {
 	// so that we can look up the *original* tag the digest came from.
 	c.podLock.Lock()
 	defer c.podLock.Unlock()
-	tagFromPodAnnotation, ok := c.pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+MainContainerName]
+	imageTag, ok := podCommon.GetImageTagForContainer(MainContainerName, c.pod)
 	if ok {
-		return &tagFromPodAnnotation
+		return &imageTag
 	}
 
 	// If we don't have that original tag, we can fall-back to what we have in `Image`,

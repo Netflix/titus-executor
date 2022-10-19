@@ -52,7 +52,7 @@ func TestPodImageNameWithTagAndDigest(t *testing.T) {
 
 	uc := podCommon.GetMainUserContainer(pod)
 	uc.Image = "docker.io/titusoss/alpine@" + testDigest
-	pod.Annotations[podCommon.AnnotationKeyImageTagPrefix+MainContainerName] = "myCoolTag"
+	pod.Annotations[podCommon.ContainerAnnotation(MainContainerName, podCommon.AnnotationKeySuffixContainerImageTag)] = "myCoolTag"
 	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, c.QualifiedImageName(), uc.Image)
