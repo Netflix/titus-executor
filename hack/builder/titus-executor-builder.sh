@@ -8,6 +8,7 @@ mkdir -p build/bin/linux-amd64
 # Go
 export CGO_ENABLED=0
 gox -gcflags="${GC_FLAGS:--N -l}" -osarch="linux/amd64 darwin/amd64" \
+  -ldflags "-X github.com/Netflix/titus-executor/executor.TitusExecutorVersion=$version" \
   -output="build/bin/{{.OS}}-{{.Arch}}/{{.Dir}}" -verbose ./cmd/...
 
 # titus-mount helpers
@@ -38,8 +39,6 @@ install -t root/apps/titus-executor/bin build/bin/linux-amd64/*
 outdir="$(mktemp -d)"
 export git_sha=$(git rev-parse --verify HEAD)
 export git_sha_short=${git_sha:0:8}
-iteration="${ITERATION:-$(date +%s)}"
-export version=${version:-$(git describe --tags --long)-$iteration}
 
 ## Build the deb package
 export BUILD_DATE=$(date -u +"%Y-%m-%d_%H:%M:%S")

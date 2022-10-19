@@ -18,6 +18,8 @@ PATH                  := $(PATH):$(GOBIN)
 GOBIN_TOOL            = $(shell which gobin || echo $(GOBIN)/gobin)
 GOIMPORT_TOOL		  = $(GOBIN_TOOL) -m -run golang.org/x/tools/cmd/goimports@v0.1.0 -w
 GOLANGCI_LINT_TIMEOUT := 2m
+ITERATION             := $(shell date +%s)
+version               := $(shell git describe --tags --long)-$(ITERATION)
 ifdef FAST
 	GOLANGCI_LINT_ARGS = --fast
 endif
@@ -36,7 +38,7 @@ clean:
 build: vpc/service/db/migrations/bindata.go | $(clean) $(builder)
 	mkdir -p $(PWD)/build/distributions
 	$(DOCKER_RUN) -v $(PWD):$(PWD) -u $(UID):$(GID) -w $(PWD) \
-	-e "BUILD_HOST=$(JENKINS_URL)" -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e BUILDKITE_BRANCH \
+	-e "BUILD_HOST=$(JENKINS_URL)" -e version=$(version) -e "BUILD_JOB=$(JOB_NAME)" -e BUILD_NUMBER -e BUILD_ID -e ITERATION -e BUILDKITE_BRANCH \
 	-e ENABLE_DEV -e GOCACHE=$(PWD)/.cache -e GOPATH=/tmp/gopath \
 	titusoss/titus-executor-builder
 
@@ -59,7 +61,7 @@ build-tests-darwin: $(TEST_DIRS)
 
 .PHONY: cross-linux
 cross-linux:
-	gox -osarch="linux/amd64" -output="build/bin/{{.OS}}-{{.Arch}}/{{.Dir}}" -verbose ./cmd/...
+	gox -osarch="linux/amd64" -ldflags "-X github.com/Netflix/titus-executor/executor.TitusExecutorVersion=$(version)" -output="build/bin/{{.OS}}-{{.Arch}}/{{.Dir}}" -verbose ./cmd/...
 
 .PHONY: test-local
 test-local: | $(clean)

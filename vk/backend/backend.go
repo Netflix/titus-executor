@@ -16,6 +16,7 @@ import (
 	"github.com/Netflix/titus-executor/executor/runner"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/logger"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	resourceCommon "github.com/Netflix/titus-kube-common/resource"
 	units "github.com/docker/go-units" // nolint: staticcheck
 	"github.com/google/renameio"
@@ -328,9 +329,12 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 		// to depend on the limitations of the PodStatus structure.
 		b.podLock.Lock()
 		defer b.podLock.Unlock()
+
 		for k, v := range update.Details.NetworkConfiguration.ToAnnotationMap() {
 			b.pod.Annotations[k] = v
 		}
+
+		b.pod.Annotations[podCommon.AnnotationKeyRuntimeVersions] = update.Details.RenderVersionDetails()
 	}
 }
 

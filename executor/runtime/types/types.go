@@ -3,12 +3,14 @@ package types
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/config"
+	"github.com/Netflix/titus-executor/executor"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
@@ -498,6 +500,20 @@ func (n *NetworkConfigurationDetails) PickPrimaryIP() string {
 // not returned by normal container start calls.
 type Details struct {
 	NetworkConfiguration *NetworkConfigurationDetails
+}
+
+func getKernelVersion() string {
+	kernelVersionRaw, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	if err != nil {
+		return fmt.Sprintf("problem reading kernel version: %v", err)
+	}
+
+	return strings.TrimSpace(string(kernelVersionRaw))
+
+}
+
+func (d Details) RenderVersionDetails() string {
+	return fmt.Sprintf("kernel-version=%s,titus-executor=%s", getKernelVersion(), executor.TitusExecutorVersion)
 }
 
 type ContainerRuntimeProvider func(ctx context.Context, c Container, startTime time.Time) (Runtime, error)
