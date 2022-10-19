@@ -25,13 +25,15 @@ EnvironmentFile=-/etc/nflx/static-environment
 EnvironmentFile=-/var/lib/titus-environments/%i.env
 EnvironmentFile=-/var/lib/titus-environments/%i-titus-storage.env
 
+Environment="TINI_HANDOFF=true"
+
 # We copy the env file for ourselves to ensure
 # it exists when it comes to stop.
 # Otherwise there is a race, where that env file
 # may not exist, and it stores the data we need to
 # stop cleanly
 ExecStart=/bin/cp /var/lib/titus-environments/%i.env /var/lib/titus-environments/%i-titus-storage.env
-ExecStart=/apps/titus-executor/bin/titus-storage start
+ExecStart=TITUS_UNIX_CB_PATH="" TITUS_REDIRECT_STDOUT="" TITUS_REDIRECT_STDERR="" /apps/titus-executor/bin/titus-storage start
 
 # The normal stop here is to do things like detatach
 ExecStop=/apps/titus-executor/bin/titus-storage stop
