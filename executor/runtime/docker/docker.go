@@ -1599,7 +1599,7 @@ func (r *DockerRuntime) generateContainerStatusSpectatordMetrics() []string {
 			l.WithError(err).Warn("Error getting image metric tags, skipping sending container status metric")
 			continue
 		}
-		if imageTag := pod.GetImageTagForContainer(c.Name, thePod); imageTag != "" && imageName != "" {
+		if imageTag, ok := pod.GetImageTagForContainer(c.Name, thePod); ok && imageName != "" {
 			imageName = fmt.Sprintf("%s:%s", imageName, imageTag)
 		}
 		metricTags["titus.image.name"] = imageName
