@@ -71,7 +71,7 @@ require (
 )
 
 require (
-	github.com/Netflix/titus-kube-common v0.36.6
+	github.com/Netflix/titus-kube-common v0.36.7
 	k8s.io/api v0.24.3
 	k8s.io/apimachinery v0.24.3
 	k8s.io/client-go v0.24.3
