@@ -21,7 +21,6 @@ func getLXCFsBindMounts() []string {
 		"/proc/swaps",
 		"/proc/uptime",
 		"/proc/slabinfo",
-		"/sys/devices/system/cpu",
 		"/sys/devices/system/cpu/online",
 	}
 	for _, file := range lxcfsEndpoints {
