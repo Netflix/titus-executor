@@ -1873,14 +1873,143 @@ func (r *DockerRuntime) startNonMainContainers(ctx context.Context) error {
 	return group.Wait()
 }
 
-// launchAllContainers starts all existing (pre-created) containers, even the 'main' one (via tini)
-func (r *DockerRuntime) launchAllContainers(ctx context.Context, tiniConns map[string]*net.UnixConn) error {
-	l := log.WithField("taskID", r.c.TaskID())
+func inOrderingAnnotation(thePod *v1.Pod, cName string, suffix string, target string) bool {
+	ann, ok := thePod.Annotations[pod.ContainerAnnotation(cName, suffix)]
+	if ok {
+		for _, c := range strings.Split(ann, ",") {
+			if c == target {
+				return true
+			}
+		}
+	}
 
+	return false
+}
+
+func (r *DockerRuntime) orderSortedContainerNames() []string {
 	// First is platform sidecars, then is user-sidecars, then main
 	cNames := r.getPlaformContainerNames()
 	cNames = append(cNames, r.getUserContainerNames()...)
 	cNames = append(cNames, runtimeTypes.MainContainerName)
+
+	origOrder := map[string]int{}
+	for i, cName := range cNames {
+		origOrder[cName] = i
+	}
+
+	thePod, podLock := r.c.Pod()
+	defer podLock.Unlock()
+
+	sort.SliceStable(cNames, func(i, j int) bool {
+		// does i come before j?
+		if inOrderingAnnotation(thePod, cNames[i], pod.AnnotationKeySuffixContainersStartBefore, cNames[j]) {
+			return true
+		}
+
+		// does i come after j?
+		if inOrderingAnnotation(thePod, cNames[i], pod.AnnotationKeySuffixContainersStartAfter, cNames[j]) {
+			return false
+		}
+
+		// does j come before i?
+		if inOrderingAnnotation(thePod, cNames[j], pod.AnnotationKeySuffixContainersStartBefore, cNames[i]) {
+			return false
+		}
+
+		// does j come after i?
+		if inOrderingAnnotation(thePod, cNames[j], pod.AnnotationKeySuffixContainersStartAfter, cNames[i]) {
+			return true
+		}
+
+		// otherwise their order doesn't matter, so let's be stable
+		// w.r.t. the original ordering.
+		return origOrder[cNames[i]] < origOrder[cNames[j]]
+	})
+
+	return cNames
+}
+
+func (r *DockerRuntime) containerNameToContainerID(cName string) string {
+	if cName == runtimeTypes.MainContainerName {
+		return r.c.ID()
+	}
+
+	for _, c := range r.c.ExtraPlatformContainers() {
+		if c.Name == cName {
+			return c.Status.ContainerID
+		}
+	}
+	for _, c := range r.c.ExtraUserContainers() {
+		if c.Name == cName {
+			return c.Status.ContainerID
+		}
+	}
+
+	return cName
+}
+
+func isHealthy(cName string, inspectOutput types.ContainerJSON) (bool, error) {
+	// sometimes docker gives a NoHealthcheck response, sometimes
+	// it doesn't populate this field at all if there wasn't a
+	// healthcheck.
+	if inspectOutput.State.Health == nil {
+		return true, nil
+	}
+
+	switch inspectOutput.State.Health.Status {
+	case types.NoHealthcheck:
+		return true, nil
+	case types.Starting:
+		return false, nil
+	case types.Healthy:
+		return true, nil
+	case types.Unhealthy:
+		msg := "unknown error"
+		exitCode := 255
+		count := len(inspectOutput.State.Health.Log)
+		if count > 0 {
+			// oldest first, so let's pick the last one, i.e. the newest one
+			last := inspectOutput.State.Health.Log[count-1]
+			msg = last.Output
+			exitCode = last.ExitCode
+		}
+		return false, fmt.Errorf("container %s is unhealthy (last failure %d: %v)", cName, exitCode, msg)
+	default:
+		return false, fmt.Errorf("unknown container health status for %s: %s", cName, inspectOutput.State.Health.Status)
+	}
+}
+
+func (r *DockerRuntime) waitForHealthy(ctx context.Context, cName string) error {
+	// XXX: should max tries here? seems like relying on context is enough...
+	for {
+		dockerName := r.containerNameToContainerID(cName)
+		inspectOutput, err := r.client.ContainerInspect(ctx, dockerName)
+		if err != nil {
+			return err
+		}
+
+		healthy, err := isHealthy(cName, inspectOutput)
+		if err != nil {
+			return err
+		}
+
+		if healthy {
+			return nil
+		}
+
+		select {
+		case <-time.After(time.Second):
+			continue
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for health checks")
+		}
+	}
+}
+
+// launchAllContainers starts all existing (pre-created) containers, even the 'main' one (via tini)
+func (r *DockerRuntime) launchAllContainers(ctx context.Context, tiniConns map[string]*net.UnixConn) error {
+	l := log.WithField("taskID", r.c.TaskID())
+	cNames := r.orderSortedContainerNames()
 
 	for _, cName := range cNames {
 		tiniConn, ok := tiniConns[cName]
@@ -1892,6 +2021,12 @@ func (r *DockerRuntime) launchAllContainers(ctx context.Context, tiniConns map[s
 		if err != nil {
 			shouldClose(tiniConn)
 			return fmt.Errorf("error launching tini: %w", err)
+		}
+
+		err = r.waitForHealthy(ctx, cName)
+		if err != nil {
+			shouldClose(tiniConn)
+			return err
 		}
 	}
 	return nil

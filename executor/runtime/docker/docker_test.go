@@ -16,6 +16,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/Netflix/titus-executor/properties"
+	podCommon "github.com/Netflix/titus-kube-common/pod"
 	commonResource "github.com/Netflix/titus-kube-common/resource"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -357,4 +358,101 @@ func TestGeneratePlatformSidecarSpectatordMetrics(t *testing.T) {
 		"g,120:platform.sidecars.instance,platform.sidecar.channel.def=32,platform.sidecar.channel=stable,platform.sidecar=sidecar2:1",
 	}
 	assert.ElementsMatch(t, expected, actual) // Ignore order of the metric strings.
+}
+
+func prepareOrderingTestPod(t *testing.T, annotations map[string]string, containerNames []string) *DockerRuntime {
+	annotations["pod.titus.netflix.com/system-env-var-names"] = ""
+	containers := []v1.Container{}
+
+	for _, c := range containerNames {
+		containers = append(containers, v1.Container{
+			Name:  c,
+			Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/echoservice@sha256:60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e",
+			Resources: v1.ResourceRequirements{
+				Limits: v1.ResourceList{
+					commonResource.ResourceNameNetwork: resource.MustParse("128M"),
+				},
+			},
+		})
+	}
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: annotations,
+		},
+		Spec: v1.PodSpec{
+			Containers: containers,
+		},
+	}
+	container, err := runtimeTypes.NewPodContainer(pod, &sync.Mutex{}, config.Config{})
+	assert.NoError(t, err)
+	return &DockerRuntime{
+		c: container,
+	}
+}
+
+func TestContainerOrderingAfter(t *testing.T) {
+	assert := assert.New(t)
+
+	annotations := map[string]string{
+		podCommon.ContainerAnnotation(runtimeTypes.MainContainerName, podCommon.AnnotationKeySuffixContainersStartAfter): "foo",
+	}
+	containerNames := []string{runtimeTypes.MainContainerName, "foo"}
+
+	runtime := prepareOrderingTestPod(t, annotations, containerNames)
+	order := runtime.orderSortedContainerNames()
+	assert.Len(order, 2)
+	assert.Equal(order[0], "foo")
+	assert.Equal(order[1], runtimeTypes.MainContainerName)
+}
+
+func TestContainerOrderingBefore(t *testing.T) {
+	assert := assert.New(t)
+
+	annotations := map[string]string{
+		podCommon.ContainerAnnotation("foo", podCommon.AnnotationKeySuffixContainersStartBefore): runtimeTypes.MainContainerName,
+	}
+	containerNames := []string{runtimeTypes.MainContainerName, "foo"}
+
+	runtime := prepareOrderingTestPod(t, annotations, containerNames)
+	order := runtime.orderSortedContainerNames()
+	assert.Len(order, 2)
+	assert.Equal(order[0], "foo")
+	assert.Equal(order[1], runtimeTypes.MainContainerName)
+}
+
+func TestContainerOrderingStable(t *testing.T) {
+	assert := assert.New(t)
+
+	annotations := map[string]string{}
+	containerNames := []string{runtimeTypes.MainContainerName, "foo", "bar", "baz", "buzz"}
+
+	runtime := prepareOrderingTestPod(t, annotations, containerNames)
+	order := runtime.orderSortedContainerNames()
+	assert.Len(order, 5)
+	assert.Equal(order[0], "foo")
+	assert.Equal(order[1], "bar")
+	assert.Equal(order[2], "baz")
+	assert.Equal(order[3], "buzz")
+	assert.Equal(order[4], runtimeTypes.MainContainerName)
+}
+
+func TestContainerOrderingCycle(t *testing.T) {
+	assert := assert.New(t)
+
+	annotations := map[string]string{
+		podCommon.ContainerAnnotation("foo", podCommon.AnnotationKeySuffixContainersStartBefore):                          runtimeTypes.MainContainerName,
+		podCommon.ContainerAnnotation("bar", podCommon.AnnotationKeySuffixContainersStartBefore):                          "foo",
+		podCommon.ContainerAnnotation(runtimeTypes.MainContainerName, podCommon.AnnotationKeySuffixContainersStartBefore): "bar",
+	}
+	containerNames := []string{runtimeTypes.MainContainerName, "foo", "bar"}
+
+	// not clear what to do when the user has specified something invalid
+	// here. mostly this test is to make sure that we don't hang or panic.
+	runtime := prepareOrderingTestPod(t, annotations, containerNames)
+	order := runtime.orderSortedContainerNames()
+	assert.Len(order, 3)
+	assert.Equal(order[0], "bar")
+	assert.Equal(order[1], "foo")
+	assert.Equal(order[2], runtimeTypes.MainContainerName)
 }
