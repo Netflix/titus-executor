@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/Netflix/titus-executor/cmd/common"
 	"github.com/Netflix/titus-executor/logger"
@@ -27,7 +28,8 @@ func main() {
 		Args: cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := v.BindPFlags(cmd.Flags()); err != nil {
-				panic(err)
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
 			}
 
 			switch level := v.GetString("log-level"); level {
@@ -50,14 +52,17 @@ func main() {
 	rootCmd.PersistentFlags().String("log-level", "info", "Log Level")
 
 	if err := v.BindPFlags(rootCmd.PersistentFlags()); err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
 	}
 	if err := v.BindEnv("titus-pid-1-dir", "TITUS_PID_1_DIR"); err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
 	}
 
 	err := rootCmd.Execute()
 	if err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }

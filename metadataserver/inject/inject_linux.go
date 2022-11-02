@@ -393,6 +393,7 @@ func getLinkLocalIPv6Addr(ctx context.Context, handle *netlink.Handle, link netl
 }
 
 func waitForInterfacesUp(ctx context.Context, containerNSHandle, intermediateNSHandle *netlink.Handle) error {
+	start := time.Now()
 	t := time.NewTimer(1)
 	defer t.Stop()
 	var err error
@@ -400,7 +401,7 @@ func waitForInterfacesUp(ctx context.Context, containerNSHandle, intermediateNSH
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("Context complete before expected: %w, last states; toIMDSLink: %v, toContainerLink:%v", ctx.Err(), toIMDSLink, toContainerLink)
+			return fmt.Errorf("Context finished prematurely after %v while waiting interfaces to be up: %w, last states; toIMDSLink: %v, toContainerLink:%v", time.Since(start), ctx.Err(), toIMDSLink, toContainerLink)
 		case <-t.C:
 			toIMDSLink, err = containerNSHandle.LinkByName(toimdsInterfaceName)
 			if err != nil {
