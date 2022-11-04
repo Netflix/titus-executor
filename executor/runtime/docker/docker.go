@@ -2131,7 +2131,10 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		}...)
 	}
 	b := true
-	healthcheck := v1ContainerHealthcheckToDockerHealthcheck(v1Container.LivenessProbe)
+	healthcheck, err := v1ContainerHealthcheckToDockerHealthcheck(v1Container.LivenessProbe)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("Parsing the liveness probe for the %s container: %w", v1Container.Name, err)
+	}
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
@@ -2169,7 +2172,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 	}
 
 	// Security options are inherited from the main container's configuration
-	err := setupAdditionalCapabilities(r.c, dockerHostConfig, c.Name)
+	err = setupAdditionalCapabilities(r.c, dockerHostConfig, c.Name)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -2217,13 +2220,25 @@ func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
 	return envList
 }
 
-func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) *container.HealthConfig {
+func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) (*container.HealthConfig, error) {
 	if probe == nil {
-		return nil
+		return nil, nil
 	}
-	// TODO: Validate that this healthcheck probe is the only probe the user has requested,
-	// and hasn't requested other types of probes we don't support, but earlier, like at the webhook
-	// or API
+	if probe.GRPC != nil {
+		return nil, fmt.Errorf("GRPC probes are not supported")
+	}
+	if probe.HTTPGet != nil {
+		return nil, fmt.Errorf("HTTPGet probes are not supported")
+	}
+	if probe.Exec == nil {
+		return nil, fmt.Errorf("Exec are currently the only kind supported")
+	}
+	if len(probe.Exec.Command) == 0 {
+		return nil, fmt.Errorf("Exec probes must have a command defined")
+	}
+	if !strings.HasPrefix(probe.Exec.Command[0], "/") {
+		return nil, fmt.Errorf("Exec command %v must start with a '/'", probe.Exec.Command)
+	}
 	hc := container.HealthConfig{
 		// We use CMD here for the same reasoning behind this:
 		// https://github.com/moby/moby/pull/28679
@@ -2235,7 +2250,7 @@ func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) *container.Healt
 		StartPeriod: time.Duration(probe.InitialDelaySeconds) * time.Second,
 		Retries:     int(probe.FailureThreshold),
 	}
-	return &hc
+	return &hc, nil
 }
 
 func (r *DockerRuntime) getUserContainerNames() []string {
