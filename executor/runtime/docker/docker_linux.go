@@ -68,7 +68,7 @@ func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
 func (r *DockerRuntime) mountContainerProcPid1InTitusInits(parentCtx context.Context, c runtimeTypes.Container, cred ucred) error {
 	pidpath := filepath.Join("/proc", strconv.FormatInt(int64(cred.pid), 10))
 	path := filepath.Join(titusInits, c.TaskID())
-	if err := os.Mkdir(path, 0755); err != nil { // nolint: gosec
+	if err := os.MkdirAll(path, 0755); err != nil { // nolint: gosec
 		return err
 	}
 	r.registerRuntimeCleanup(func() error {
