@@ -399,7 +399,12 @@ func (c *PodContainer) HostnameStyle() *string {
 }
 
 func (c *PodContainer) IamRole() *string {
-	return c.podConfig.IAMRole
+	role := c.podConfig.IAMRole
+	if role == nil {
+		s := ""
+		return &s
+	}
+	return role
 }
 
 func (c *PodContainer) ID() string {
@@ -853,7 +858,9 @@ func createLogUploadConfig(pConf *podCommon.Config) *uploader.Config {
 	if pConf.LogS3PathPrefix != nil {
 		conf.S3PathPrefix = *pConf.LogS3PathPrefix
 	}
-
+	if conf.S3BucketName == "" {
+		conf.DisableUpload = true
+	}
 	return &conf
 }
 
