@@ -25,6 +25,7 @@ const (
 )
 
 var systemServices = []ServiceOpts{
+
 	/*
 	 * Titus sidecar seccomp agent must be in the beginning of the list because
 	 * other sidecars may depend on it for IPv6 connectivity
@@ -87,9 +88,10 @@ var systemServices = []ServiceOpts{
 		},
 	},
 	{
-		ServiceName: SidecarServiceMetadataProxy,
-		UnitName:    "titus-sidecar-metadata-proxy",
-		Required:    true,
+		ServiceName:  SidecarServiceMetadataProxy,
+		UnitName:     "titus-sidecar-metadata-proxy",
+		Required:     true,
+		EnabledCheck: shouldStartMetadataProxy,
 	},
 	{
 		ServiceName:  SidecarServiceMetatron,
@@ -152,6 +154,9 @@ var systemServices = []ServiceOpts{
 }
 
 func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	if cfg.MetatronEnabled && c.MetatronCreds() != nil {
 		return true
 	}
@@ -160,32 +165,41 @@ func shouldStartMetatronSync(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartTitusSeccompAgent(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	return c.SeccompAgentEnabledForPerfSyscalls() || c.EffectiveNetworkMode() == titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String() || c.TrafficSteeringEnabled()
 }
 
 func ShouldStartSystemDNS(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	// don't start SystemDNS unless we're in IPv6-only mode
 	if c.EffectiveNetworkMode() != titus.NetworkConfiguration_Ipv6Only.String() {
 		return false
 	}
-
 	enabled := cfg.ContainerSystemDNS
 	if !enabled {
 		return false
 	}
-
 	if cfg.SystemDNSServiceImage == "" {
 		return false
 	}
-
 	return true
 }
 
 func shouldStartServiceMesh(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	return c.ServiceMeshEnabled()
 }
 
 func shouldStartAbmetrix(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	enabled := cfg.ContainerAbmetrixEnabled
 	if !enabled {
 		return false
@@ -199,6 +213,9 @@ func shouldStartAbmetrix(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartSpectatord(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	enabled := cfg.ContainerSpectatord
 	if !enabled {
 		return false
@@ -211,6 +228,9 @@ func shouldStartSpectatord(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartTracingCollector(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	enabled := cfg.ContainerTracingCollector
 	if !enabled {
 		return false
@@ -223,6 +243,9 @@ func shouldStartTracingCollector(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartAtlasTitusAgent(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	enabled := cfg.ContainerAtlasTitusAgent
 	if !enabled {
 		return false
@@ -235,14 +258,23 @@ func shouldStartAtlasTitusAgent(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartSSHD(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	return cfg.ContainerSSHD
 }
 
 func shouldStartLogViewer(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	return cfg.ContainerLogViewer
 }
 
 func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	// Currently titus-storage sets up NFS, EBS, and /mnt-shared storage
 	// which is currently only available on multi-container workloads
 	pod, podLock := c.Pod()
@@ -251,11 +283,21 @@ func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
 }
 
 func shouldStartContainerTools(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	return cfg.ContainerToolsImage != ""
 }
 
 func shouldStartTitusTrafficSteering(cfg *config.Config, c Container) bool {
+	if cfg.InStandaloneMode {
+		return false
+	}
 	return c.TrafficSteeringEnabled()
+}
+
+func shouldStartMetadataProxy(cfg *config.Config, c Container) bool {
+	return !cfg.InStandaloneMode
 }
 
 // GetSidecarConfig is a helper to get a particular sidecar config out by name
