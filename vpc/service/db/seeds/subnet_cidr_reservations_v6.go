@@ -15,6 +15,7 @@ type dbSubnetCidrReservationV6 struct {
 	prefixes []scrPrefix
 }
 
+//nolint:dupl
 func (s Seed) SubnetCidrReservationV6Seed() {
 	scrs := []dbSubnetCidrReservationV6{
 		{
