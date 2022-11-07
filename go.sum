@@ -66,8 +66,8 @@ github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07 h1:F5H05
 github.com/Netflix/metrics-client-go v0.0.0-20171019173821-bb173f41fc07/go.mod h1:dKY6lNcNBfC6gYy4CpGw9iQ9Qgvcn+g46Diu21Co81k=
 github.com/Netflix/spectator-go v0.1.6 h1:QaXDFGnHQgCaut/4DLfjHMt8GuXG+bDV0VH2/EmSSRU=
 github.com/Netflix/spectator-go v0.1.6/go.mod h1:JSBvGTTcH807HM1R0dELfGDmDPFv5Mz8EGaZoBIz3DU=
-github.com/Netflix/titus-kube-common v0.36.7 h1:e96vMhAEDslN0EemSILAdP4igwHsWBHs+USG0n/BJ40=
-github.com/Netflix/titus-kube-common v0.36.7/go.mod h1:Q37Rr8++tA8f2btvo4otdXgDmWOMx/RiS0RoI408jkQ=
+github.com/Netflix/titus-kube-common v0.37.0 h1:MiOE6EOJKaueOXd1SsHUw41HpqtUew+JF9dx//fWzGw=
+github.com/Netflix/titus-kube-common v0.37.0/go.mod h1:Q37Rr8++tA8f2btvo4otdXgDmWOMx/RiS0RoI408jkQ=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
