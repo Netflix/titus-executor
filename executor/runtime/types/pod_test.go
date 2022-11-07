@@ -420,9 +420,10 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.DeepEqual(t, c.LogStdioCheckInterval(), &expStdioCheckInterval)
 	assert.DeepEqual(t, c.LogUploadCheckInterval(), &expUploadCheckInterval)
 	assert.DeepEqual(t, c.LogUploaderConfig(), &uploader.Config{
-		S3WriterRole: "",
-		S3BucketName: "",
-		S3PathPrefix: "",
+		S3WriterRole:  "",
+		S3BucketName:  "",
+		S3PathPrefix:  "",
+		DisableUpload: true,
 	})
 
 	logUploadRegExp := c.LogUploadRegexp()
