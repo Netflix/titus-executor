@@ -1072,6 +1072,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 // Creates the file $titusEnvironments/ContainerID.json as a serialized version of the ContainerInfo protobuf struct
 // so other systems can load it
 func (r *DockerRuntime) createTitusContainerInfoFile(ctx context.Context, c runtimeTypes.Container, startTime time.Time) error {
+	_ = os.MkdirAll(runtimeTypes.TitusEnvironmentsDir, 700)
 	containerConfigFile := filepath.Join(runtimeTypes.TitusEnvironmentsDir, fmt.Sprintf("%s.json", c.TaskID()))
 
 	cfg, err := runtimeTypes.GenerateSyntheticContainerInfoPass2(c, startTime)
