@@ -177,10 +177,13 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 	defaultBindMounts := []string{}
 	defaultBindMounts = append(defaultBindMounts, filepath.Join(cfg.RuntimeDir, "pod.json")+":/titus/run/pod.json:ro")
 
-	pidCgroupPath, err := getOwnCgroup("pids")
-	if err != nil {
-		tracehelpers.SetStatus(err, span)
-		return nil, err
+	pidCgroupPath := ""
+	if !cfg.InStandaloneMode {
+		pidCgroupPath, err = getOwnCgroup("pids")
+		if err != nil {
+			tracehelpers.SetStatus(err, span)
+			return nil, err
+		}
 	}
 
 	storageOptEnabled := shouldEnableStorageOpts(info)
