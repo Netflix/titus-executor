@@ -367,7 +367,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
-func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string, isPrivileged bool) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
+func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string, v1Container v1.Container) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// Extract the entrypoint and command from the pod. If either is empty,
 	// pass them along and let Docker extract them from the image instead.
 	entrypoint, cmd := c.Process()
@@ -406,8 +406,9 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 			"net.ipv6.conf.default.accept_ra_pinfo": "0",
 		},
-		Init:    &useInit,
-		Runtime: c.Runtime(),
+		Init:           &useInit,
+		Runtime:        c.Runtime(),
+		ReadonlyRootfs: isContainerReadOnly(v1Container),
 	}
 
 	maybeAddOptimisticDad(hostCfg.Sysctls)
@@ -491,7 +492,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 	r.setupLogs(c, hostCfg)
 	r.setupTiniForContainer(hostCfg, containerCfg, "main")
 
-	if isPrivileged {
+	if r.isContainerPrivileged(v1Container) {
 		hostCfg.Privileged = true
 	} else {
 		err = setupAdditionalCapabilities(c, hostCfg, runtimeTypes.MainContainerName)
@@ -1001,7 +1002,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 	}
 	bindMounts = append(bindMounts, mainContainerBindMounts...)
 
-	dockerCfg, hostCfg, err := r.mainContainerDockerConfig(r.c, bindMounts, imageSize, volumeContainers, r.isContainerPrivileged(pod.Spec.Containers[0]))
+	dockerCfg, hostCfg, err := r.mainContainerDockerConfig(r.c, bindMounts, imageSize, volumeContainers, pod.Spec.Containers[0])
 	if err != nil {
 		return err
 	}
@@ -2173,6 +2174,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		Tmpfs: map[string]string{
 			"/run": "rw,exec,size=" + defaultRunTmpFsSize,
 		},
+		ReadonlyRootfs: isContainerReadOnly(v1Container),
 	}
 
 	// Security options are inherited from the main container's configuration
@@ -3057,4 +3059,14 @@ func (r *DockerRuntime) isContainerPrivileged(c v1.Container) bool {
 		return false
 	}
 	return *c.SecurityContext.Privileged && r.cfg.InStandaloneMode
+}
+
+func isContainerReadOnly(c v1.Container) bool {
+	if c.SecurityContext == nil {
+		return false
+	}
+	if c.SecurityContext.ReadOnlyRootFilesystem == nil {
+		return false
+	}
+	return *c.SecurityContext.ReadOnlyRootFilesystem
 }
