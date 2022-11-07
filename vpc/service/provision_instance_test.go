@@ -100,7 +100,7 @@ func TestProvisionInstanceV3(t *testing.T) {
 				},
 			}
 			mockEC2.EXPECT().
-				CreateNetworkInterfaceWithContext(gomock.Any(), gomock.Eq(expectedInput)).
+				CreateNetworkInterfaceWithContext(gomock.Any(), gomock.Eq(expectedInput), gomock.Any()).
 				Times(1).
 				Return(output, nil)
 		}
