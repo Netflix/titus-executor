@@ -17,6 +17,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
+	request "github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -1200,7 +1201,7 @@ WHERE subnets.subnet_id = $1
 		},
 	}
 
-	output, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)
+	output, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput, request.Option(nil))
 	logger.G(ctx).WithField("createNetworkInterfaceInput", createNetworkInterfaceInput).Debug("Creating Branch ENI")
 	if err != nil {
 		err = errors.Wrap(err, "Cannot create branch network interface")
