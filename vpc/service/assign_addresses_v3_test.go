@@ -39,7 +39,10 @@ func TestAssignIPV3(t *testing.T) {
 	mockSTS := mock.NewMockSTSAPI(ctl)
 	mockEC2 := mock.NewMockEC2API(ctl)
 	go func() {
-		runVpcService(ctx, t, addr, mockSTS, mockEC2, testDB, dbContainer)
+		err := runVpcService(ctx, t, addr, mockSTS, mockEC2, testDB, dbContainer)
+		if err != nil {
+			panic(err)
+		}
 		done <- true
 	}()
 	waitForServer(t, addr)
@@ -48,7 +51,7 @@ func TestAssignIPV3(t *testing.T) {
 	require.NoError(t, err)
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	taskId := "1faff9f0-d92b-4f5b-8bfb-dd035e2b2da5"
+	taskID := "1faff9f0-d92b-4f5b-8bfb-dd035e2b2da5"
 
 	sgA := "sg-mock-a"
 	sgB := "sg-mock-b"
@@ -216,7 +219,7 @@ func TestAssignIPV3(t *testing.T) {
 				},
 			}
 
-			mCni := mockEC2.EXPECT().CreateNetworkInterfaceWithContext(gomock.Any(), mock.MatchCni(input), gomock.Any()).Times(1)
+			mCni := mockEC2.EXPECT().CreateNetworkInterfaceWithContext(gomock.Any(), input, gomock.Any()).Times(1)
 			mCni.DoAndReturn(func(ctx context.Context, input *ec2.CreateNetworkInterfaceInput, opts request.Option) (*ec2.CreateNetworkInterfaceOutput, error) {
 				// IPv6Prefixes dynamically selected by service code
 				output.NetworkInterface.Ipv6Prefixes = []*ec2.Ipv6PrefixSpecification{{Ipv6Prefix: input.Ipv6Prefixes[0].Ipv6Prefix}}
@@ -242,7 +245,7 @@ func TestAssignIPV3(t *testing.T) {
 				},
 			}
 
-			mAti := mockEC2.EXPECT().AssociateTrunkInterfaceWithContext(gomock.Any(), mock.MatchAti(input), gomock.Any()).Times(1)
+			mAti := mockEC2.EXPECT().AssociateTrunkInterfaceWithContext(gomock.Any(), input, gomock.Any()).Times(1)
 			mAti.DoAndReturn(func(ctx context.Context, input *ec2.AssociateTrunkInterfaceInput, opts request.Option) (*ec2.AssociateTrunkInterfaceOutput, error) {
 				output.ClientToken = input.ClientToken
 				output.InterfaceAssociation.VlanId = input.VlanId
@@ -291,7 +294,7 @@ func TestAssignIPV3(t *testing.T) {
 	}
 
 	request := &vpcapi.AssignIPRequestV3{
-		TaskId:           taskId,
+		TaskId:           taskID,
 		SecurityGroupIds: securityGroupIds,
 		Ipv6:             ipv6,
 		Ipv4:             ipv4,

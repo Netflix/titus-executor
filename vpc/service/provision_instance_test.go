@@ -38,7 +38,10 @@ func TestProvisionInstanceV3(t *testing.T) {
 	mockSTS := mock.NewMockSTSAPI(ctl)
 	mockEC2 := mock.NewMockEC2API(ctl)
 	go func() {
-		runVpcService(ctx, t, addr, mockSTS, mockEC2, testDB, dbContainer)
+		err := runVpcService(ctx, t, addr, mockSTS, mockEC2, testDB, dbContainer)
+		if err != nil {
+			panic(err)
+		}
 		done <- true
 	}()
 	waitForServer(t, addr)

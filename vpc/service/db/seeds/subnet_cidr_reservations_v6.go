@@ -11,14 +11,14 @@ type scrPrefix struct {
 }
 
 type dbSubnetCidrReservationV6 struct {
-	subnet_id string
-	prefixes  []scrPrefix
+	subnetID string
+	prefixes []scrPrefix
 }
 
 func (s Seed) SubnetCidrReservationV6Seed() {
 	scrs := []dbSubnetCidrReservationV6{
 		{
-			subnet_id: "1",
+			subnetID: "1",
 			prefixes: []scrPrefix{
 				{prefix: "fd00::e000:0:0:0/67", _type: "prefix", description: "None"},
 				{prefix: "fd00::d000:0:0:0/68", _type: "prefix", description: "None"},
@@ -54,7 +54,7 @@ func (s Seed) SubnetCidrReservationV6Seed() {
 			},
 		},
 		{
-			subnet_id: "2",
+			subnetID: "2",
 			prefixes: []scrPrefix{
 				{prefix: "fd00:0:0:1:e000::/67", _type: "prefix", description: "None"},
 				{prefix: "fd00:0:0:1:d000::/68", _type: "prefix", description: "None"},
@@ -90,7 +90,7 @@ func (s Seed) SubnetCidrReservationV6Seed() {
 			},
 		},
 		{
-			subnet_id: "3",
+			subnetID: "3",
 			prefixes: []scrPrefix{
 				{prefix: "fd00:0:0:2:e000::/67", _type: "prefix", description: "None"},
 				{prefix: "fd00:0:0:2:d000::/68", _type: "prefix", description: "None"},
@@ -126,7 +126,7 @@ func (s Seed) SubnetCidrReservationV6Seed() {
 			},
 		},
 		{
-			subnet_id: "4",
+			subnetID: "4",
 			prefixes: []scrPrefix{
 				{prefix: "fd00:0:0:3:8000::/65", _type: "explicit", description: "titus-reserved"},
 				{prefix: "fd00:0:0:3:4000::/66", _type: "explicit", description: "titus-reserved"},
@@ -147,7 +147,7 @@ func (s Seed) SubnetCidrReservationV6Seed() {
 			},
 		},
 		{
-			subnet_id: "5",
+			subnetID: "5",
 			prefixes: []scrPrefix{
 				{prefix: "fd00:0:0:4:8000::/65", _type: "explicit", description: "titus-reserved"},
 				{prefix: "fd00:0:0:4:4000::/66", _type: "explicit", description: "titus-reserved"},
@@ -168,7 +168,7 @@ func (s Seed) SubnetCidrReservationV6Seed() {
 			},
 		},
 		{
-			subnet_id: "6",
+			subnetID: "6",
 			prefixes: []scrPrefix{
 				{prefix: "fd00:0:0:5:8000::/65", _type: "explicit", description: "titus-reserved"},
 				{prefix: "fd00:0:0:5:4000::/66", _type: "explicit", description: "titus-reserved"},
@@ -194,9 +194,9 @@ func (s Seed) SubnetCidrReservationV6Seed() {
 		count := 0
 		for _, prefix := range reservation.prefixes {
 			count++
-			scr_id := fmt.Sprintf("scr-%s00000000000000%0d", reservation.subnet_id, count)
+			scrID := fmt.Sprintf("scr-%s00000000000000%0d", reservation.subnetID, count)
 			_, err := s.db.Exec("INSERT INTO subnet_cidr_reservations_v6(reservation_id, subnet_id, prefix, type, description) VALUES ($1, $2, $3, $4, $5)",
-				scr_id, reservation.subnet_id, prefix.prefix, prefix._type, prefix.description)
+				scrID, reservation.subnetID, prefix.prefix, prefix._type, prefix.description)
 			if err != nil {
 				panic(err)
 			}
