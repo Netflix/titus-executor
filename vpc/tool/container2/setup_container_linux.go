@@ -52,30 +52,37 @@ func getBranchLink(ctx context.Context, assignment *vpcapi.AssignIPResponseV3) (
 	}
 
 	vlanLinkName := fmt.Sprintf("vlan%d", assignment.VlanId)
+	logger.G(ctx).Infof("Getting vlan link by vlan link name %s", vlanLinkName)
 	vlanLink, err := netlink.LinkByName(vlanLinkName)
 	if err != nil {
 		_, ok := err.(netlink.LinkNotFoundError)
 		if ok {
 			// Just need to add this link
-			err = netlink.LinkAdd(&netlink.Vlan{
+			vlanLink = &netlink.Vlan{
 				LinkAttrs: netlink.LinkAttrs{
 					ParentIndex: trunkLink.Attrs().Index,
 					Name:        vlanLinkName,
 				},
 				VlanId:       int(assignment.VlanId),
 				VlanProtocol: netlink.VLAN_PROTOCOL_8021Q,
-			})
+			}
+			logger.G(ctx).Infof("Adding vlan link %+v", vlanLink)
+			err = netlink.LinkAdd(vlanLink)
 			if err != nil && err != unix.EEXIST {
 				return nil, errors.Wrap(err, "Cannot add vlan link")
 			}
 			vlanLink, err = netlink.LinkByName(vlanLinkName)
+			logger.G(ctx).Infof("Added vlan link %+v", vlanLink)
 		}
 		if err != nil {
 			return nil, errors.Wrap(err, "Cannot get vlan link by name")
 		}
 	}
+	logger.G(ctx).Infof("Got vlan link %+v", vlanLink)
 
 	if vlanLink.Attrs().HardwareAddr.String() != assignment.BranchNetworkInterface.MacAddress {
+		logger.G(ctx).Infof("Vlan link mac addr %s doesn't match branch ENI mac addr %s",
+			vlanLink.Attrs().HardwareAddr.String(), assignment.BranchNetworkInterface.MacAddress)
 		mac, err := net.ParseMAC(assignment.BranchNetworkInterface.MacAddress)
 		if err != nil {
 			return nil, errors.Wrapf(err, "Cannot parse mac %q", assignment.BranchNetworkInterface.MacAddress)
@@ -134,8 +141,8 @@ func DoSetupContainer(ctx context.Context, pid1dirfd int, transitionNamespaceDir
 	}
 	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
 	// what it's index is, so there's no point returning it.
-	logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
 	newLink, err := nsHandle.LinkByName(containerInterfaceName)
+	logger.G(ctx).Infof("Added link: %+v ", newLink)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not find after adding link")
 		return errors.Wrapf(err, "Cannot find link with name %s", containerInterfaceName)
@@ -277,7 +284,7 @@ func createTransitionNS(ctx context.Context, branchLink netlink.Link, assignment
 		Mode: netlink.IPVLAN_MODE_L2,
 	}
 
-	logger.G(ctx).Debugf("Adding IPVlan interface: %+v", ipvlan)
+	logger.G(ctx).Infof("Adding IPVlan interface: %+v", ipvlan)
 	err = netlink.LinkAdd(&ipvlan)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not add link")
@@ -285,12 +292,12 @@ func createTransitionNS(ctx context.Context, branchLink netlink.Link, assignment
 	}
 	// If things fail here, it's fairly bad, because we've added the link to the namespace, but we don't know
 	// what it's index is, so there's no point returning it.
-	logger.G(ctx).Debugf("Added link: %+v ", ipvlan)
 	newLink, err := handle.LinkByName(ipvlan.Name)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not find after adding link")
 		return 0, errors.Wrapf(err, "Cannot find link with name %s", ipvlan.Name)
 	}
+	logger.G(ctx).Infof("Added link: %+v", newLink)
 
 	err = handle.LinkSetUp(newLink)
 	if err != nil {
