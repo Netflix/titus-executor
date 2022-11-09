@@ -2144,10 +2144,10 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
 		Hostname:    "",
-		Cmd:         v1Container.Args,
 		Image:       v1Container.Image,
 		WorkingDir:  v1Container.WorkingDir,
 		Entrypoint:  computeExtraContainersDockerEntrypoint(c),
+		Cmd:         computeExtraContainersDockerCommand(c),
 		Labels:      labels,
 		Env:         append(baseEnv, v1ConatinerEnvToList(v1Container.Env)...),
 		Healthcheck: healthcheck,
@@ -2216,6 +2216,29 @@ func getExtraContainerEntrypoint(c *runtimeTypes.ExtraContainer) []string {
 	}
 	// Otherwise we provide whatever the original image had, even if it is an empty array
 	return c.ImageInspect.ContainerConfig.Entrypoint
+}
+
+func computeExtraContainersDockerCommand(c *runtimeTypes.ExtraContainer) []string {
+	if len(c.V1Container.Args) > 0 {
+		// If explicitly set k8s Args (docker CMD) on the pod, we need to return that, no question.
+		// This will be used as the CMD for the ENTRYPOINT already configured (which come from either the pod or the image)
+		return c.V1Container.Args
+	}
+
+	if len(c.V1Container.Command) > 0 {
+		// If there was a k8s Command (docker ENTRYPOINT) specified on the pod, then it would be inappropriate
+		// to use the k8s args (docker CMD) that came with the container, because they would have been originally
+		// written for a different docker ENTRYPOINT!
+		// This mimics the k8s and docker behavior documented here: https://docs.docker.com/engine/reference/run/#entrypoint-default-command-to-execute-at-runtime
+		return []string{}
+	}
+
+	// And finally, we need to explicitly set the CMD to what the image had.
+	// Normally with docker we wouldn't have to explicitly do this.
+	// But with titus-executor extra containers, we *always* override the docker ENTRYPOINT to inject tini,
+	// which would normally make docker ignore the docker CMD in the image.
+	// Therefore, we need to explicitly set the CMD from whatever was in the original image, to explicitly configure docker to use it.
+	return c.ImageInspect.ContainerConfig.Cmd
 }
 
 func v1ConatinerEnvToList(v1Env []v1.EnvVar) []string {
