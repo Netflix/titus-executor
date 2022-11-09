@@ -1873,62 +1873,6 @@ func (r *DockerRuntime) startNonMainContainers(ctx context.Context) error {
 	return group.Wait()
 }
 
-func inOrderingAnnotation(thePod *v1.Pod, cName string, suffix string, target string) bool {
-	ann, ok := thePod.Annotations[pod.ContainerAnnotation(cName, suffix)]
-	if ok {
-		for _, c := range strings.Split(ann, ",") {
-			if c == target {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-func (r *DockerRuntime) orderSortedContainerNames() []string {
-	// First is platform sidecars, then is user-sidecars, then main
-	cNames := r.getPlaformContainerNames()
-	cNames = append(cNames, r.getUserContainerNames()...)
-	cNames = append(cNames, runtimeTypes.MainContainerName)
-
-	origOrder := map[string]int{}
-	for i, cName := range cNames {
-		origOrder[cName] = i
-	}
-
-	thePod, podLock := r.c.Pod()
-	defer podLock.Unlock()
-
-	sort.SliceStable(cNames, func(i, j int) bool {
-		// does i come before j?
-		if inOrderingAnnotation(thePod, cNames[i], pod.AnnotationKeySuffixContainersStartBefore, cNames[j]) {
-			return true
-		}
-
-		// does i come after j?
-		if inOrderingAnnotation(thePod, cNames[i], pod.AnnotationKeySuffixContainersStartAfter, cNames[j]) {
-			return false
-		}
-
-		// does j come before i?
-		if inOrderingAnnotation(thePod, cNames[j], pod.AnnotationKeySuffixContainersStartBefore, cNames[i]) {
-			return false
-		}
-
-		// does j come after i?
-		if inOrderingAnnotation(thePod, cNames[j], pod.AnnotationKeySuffixContainersStartAfter, cNames[i]) {
-			return true
-		}
-
-		// otherwise their order doesn't matter, so let's be stable
-		// w.r.t. the original ordering.
-		return origOrder[cNames[i]] < origOrder[cNames[j]]
-	})
-
-	return cNames
-}
-
 func (r *DockerRuntime) containerNameToContainerID(cName string) string {
 	if cName == runtimeTypes.MainContainerName {
 		return r.c.ID()
@@ -2009,7 +1953,7 @@ func (r *DockerRuntime) waitForHealthy(ctx context.Context, cName string) error 
 // launchAllContainers starts all existing (pre-created) containers, even the 'main' one (via tini)
 func (r *DockerRuntime) launchAllContainers(ctx context.Context, tiniConns map[string]*net.UnixConn) error {
 	l := log.WithField("taskID", r.c.TaskID())
-	cNames := r.orderSortedContainerNames()
+	cNames := r.c.OrderSortedContainerNames()
 
 	for _, cName := range cNames {
 		tiniConn, ok := tiniConns[cName]
@@ -2251,22 +2195,6 @@ func v1ContainerHealthcheckToDockerHealthcheck(probe *v1.Probe) (*container.Heal
 		Retries:     int(probe.FailureThreshold),
 	}
 	return &hc, nil
-}
-
-func (r *DockerRuntime) getUserContainerNames() []string {
-	userContainerNames := []string{}
-	for _, c := range r.c.ExtraUserContainers() {
-		userContainerNames = append(userContainerNames, c.Name)
-	}
-	return userContainerNames
-}
-
-func (r *DockerRuntime) getPlaformContainerNames() []string {
-	platformContainerNames := []string{}
-	for _, c := range r.c.ExtraPlatformContainers() {
-		platformContainerNames = append(platformContainerNames, c.Name)
-	}
-	return platformContainerNames
 }
 
 // handleDockerEvent takes in docker event messages and may put Task Status updates

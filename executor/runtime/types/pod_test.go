@@ -15,11 +15,14 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod" // nolint: staticcheck
+	commonResource "github.com/Netflix/titus-kube-common/resource"
 	units "github.com/docker/go-units"
 	"github.com/google/go-cmp/cmp"
+	testify "github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ptr "k8s.io/utils/pointer"
@@ -1546,4 +1549,99 @@ func TestDefaultNetworkMode(t *testing.T) {
 	c, err := NewPodContainer(pod, &sync.Mutex{}, *conf)
 	assert.NilError(t, err)
 	assert.Equal(t, titus.NetworkConfiguration_Ipv4Only.String(), c.EffectiveNetworkMode())
+}
+
+func prepareOrderingTestPod(t *testing.T, annotations map[string]string, containerNames []string) *PodContainer {
+	annotations["pod.titus.netflix.com/system-env-var-names"] = ""
+	containers := []v1.Container{}
+
+	for _, c := range containerNames {
+		containers = append(containers, v1.Container{
+			Name:  c,
+			Image: "registry.us-east-1.streamingtest.titus.netflix.net:7002/titusops/echoservice@sha256:60d5cdeea0de265fe7b5fe40fe23a90e1001181312d226d0e688b0f75045109e",
+			Resources: v1.ResourceRequirements{
+				Limits: v1.ResourceList{
+					commonResource.ResourceNameNetwork: resource.MustParse("128M"),
+				},
+			},
+		})
+	}
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: annotations,
+		},
+		Spec: v1.PodSpec{
+			Containers: containers,
+		},
+	}
+	container, err := NewPodContainer(pod, &sync.Mutex{}, config.Config{})
+	testify.NoError(t, err)
+	return container
+}
+
+func TestContainerOrderingAfter(t *testing.T) {
+	testify := testify.New(t)
+
+	annotations := map[string]string{
+		podCommon.ContainerAnnotation(MainContainerName, podCommon.AnnotationKeySuffixContainersStartAfter): "foo",
+	}
+	containerNames := []string{MainContainerName, "foo"}
+
+	p := prepareOrderingTestPod(t, annotations, containerNames)
+	order := p.OrderSortedContainerNames()
+	testify.Len(order, 2)
+	testify.Equal(order[0], "foo")
+	testify.Equal(order[1], MainContainerName)
+}
+
+func TestContainerOrderingBefore(t *testing.T) {
+	testify := testify.New(t)
+
+	annotations := map[string]string{
+		podCommon.ContainerAnnotation("foo", podCommon.AnnotationKeySuffixContainersStartBefore): MainContainerName,
+	}
+	containerNames := []string{MainContainerName, "foo"}
+
+	p := prepareOrderingTestPod(t, annotations, containerNames)
+	order := p.OrderSortedContainerNames()
+	testify.Len(order, 2)
+	testify.Equal(order[0], "foo")
+	testify.Equal(order[1], MainContainerName)
+}
+
+func TestContainerOrderingStable(t *testing.T) {
+	testify := testify.New(t)
+
+	annotations := map[string]string{}
+	containerNames := []string{MainContainerName, "foo", "bar", "baz", "buzz"}
+
+	p := prepareOrderingTestPod(t, annotations, containerNames)
+	order := p.OrderSortedContainerNames()
+	testify.Len(order, 5)
+	testify.Equal(order[0], "foo")
+	testify.Equal(order[1], "bar")
+	testify.Equal(order[2], "baz")
+	testify.Equal(order[3], "buzz")
+	testify.Equal(order[4], MainContainerName)
+}
+
+func TestContainerOrderingCycle(t *testing.T) {
+	testify := testify.New(t)
+
+	annotations := map[string]string{
+		podCommon.ContainerAnnotation("foo", podCommon.AnnotationKeySuffixContainersStartBefore):             MainContainerName,
+		podCommon.ContainerAnnotation("bar", podCommon.AnnotationKeySuffixContainersStartBefore):             "foo",
+		podCommon.ContainerAnnotation(MainContainerName, podCommon.AnnotationKeySuffixContainersStartBefore): "bar",
+	}
+	containerNames := []string{MainContainerName, "foo", "bar"}
+
+	// not clear what to do when the user has specified something invalid
+	// here. mostly this test is to make sure that we don't hang or panic.
+	runtime := prepareOrderingTestPod(t, annotations, containerNames)
+	order := runtime.OrderSortedContainerNames()
+	testify.Len(order, 3)
+	testify.Equal(order[0], "bar")
+	testify.Equal(order[1], "foo")
+	testify.Equal(order[2], MainContainerName)
 }
