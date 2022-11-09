@@ -160,14 +160,6 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 	return update{status: titusdriver.Starting, msg: startingMsg}
 }
 
-func getContainerNames(pod *v1.Pod) []string {
-	names := []string{}
-	for _, c := range pod.Spec.Containers {
-		names = append(names, c.Name)
-	}
-	return names
-}
-
 // This is just splitting the "run" part of the of the runner
 func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime time.Time, updateChan chan update) {
 	defer close(updateChan)
@@ -181,10 +173,8 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
-	pod, podLock := r.container.Pod()
-	containerNames := getContainerNames(pod)
-	podLock.Unlock()
-	startingMsg := fmt.Sprintf("starting %d container(s): %s", len(containerNames), containerNames)
+	containerNames := r.container.OrderSortedContainerNames()
+	startingMsg := fmt.Sprintf("starting %d container(s) in order: %s", len(containerNames), containerNames)
 	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 
 	prepareUpdate := r.prepareContainer(ctx)

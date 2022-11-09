@@ -166,6 +166,8 @@ type Container interface {
 	ExtraUserContainers() []*ExtraContainer
 	ExtraPlatformContainers() []*ExtraContainer
 	ExtraContainerEnv(c *ExtraContainer) map[string]string
+	GetPlaformContainerNames() []string
+	GetUserContainerNames() []string
 	GPUInfo() GPUContainer
 	HostnameStyle() *string
 	IamRole() *string
@@ -196,6 +198,7 @@ type Container interface {
 	NormalizedENIIndex() *int
 	NFSMounts() []NFSMount
 	OomScoreAdj() *int32
+	OrderSortedContainerNames() []string
 	OwnerEmail() *string
 	Pod() (*v1.Pod, *sync.Mutex)
 	Process() ([]string, []string)

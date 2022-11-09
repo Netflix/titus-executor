@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -390,6 +391,22 @@ func (c *PodContainer) ExtraPlatformContainers() []*ExtraContainer {
 	return c.extraPlatformContainers
 }
 
+func (c *PodContainer) GetPlaformContainerNames() []string {
+	platformContainerNames := []string{}
+	for _, c := range c.ExtraPlatformContainers() {
+		platformContainerNames = append(platformContainerNames, c.Name)
+	}
+	return platformContainerNames
+}
+
+func (c *PodContainer) GetUserContainerNames() []string {
+	userContainerNames := []string{}
+	for _, c := range c.ExtraUserContainers() {
+		userContainerNames = append(userContainerNames, c.Name)
+	}
+	return userContainerNames
+}
+
 func (c *PodContainer) GPUInfo() GPUContainer {
 	return c.gpuInfo
 }
@@ -615,6 +632,62 @@ func (c *PodContainer) NormalizedENIIndex() *int {
 
 func (c *PodContainer) OomScoreAdj() *int32 {
 	return c.podConfig.OomScoreAdj
+}
+
+func inOrderingAnnotation(thePod *v1.Pod, cName string, suffix string, target string) bool {
+	ann, ok := thePod.Annotations[podCommon.ContainerAnnotation(cName, suffix)]
+	if ok {
+		for _, c := range strings.Split(ann, ",") {
+			if c == target {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (c *PodContainer) OrderSortedContainerNames() []string {
+	// First is platform sidecars, then is user-sidecars, then main
+	cNames := c.GetPlaformContainerNames()
+	cNames = append(cNames, c.GetUserContainerNames()...)
+	cNames = append(cNames, MainContainerName)
+
+	origOrder := map[string]int{}
+	for i, cName := range cNames {
+		origOrder[cName] = i
+	}
+
+	c.podLock.Lock()
+	defer c.podLock.Unlock()
+
+	sort.SliceStable(cNames, func(i, j int) bool {
+		// does i come before j?
+		if inOrderingAnnotation(c.pod, cNames[i], podCommon.AnnotationKeySuffixContainersStartBefore, cNames[j]) {
+			return true
+		}
+
+		// does i come after j?
+		if inOrderingAnnotation(c.pod, cNames[i], podCommon.AnnotationKeySuffixContainersStartAfter, cNames[j]) {
+			return false
+		}
+
+		// does j come before i?
+		if inOrderingAnnotation(c.pod, cNames[j], podCommon.AnnotationKeySuffixContainersStartBefore, cNames[i]) {
+			return false
+		}
+
+		// does j come after i?
+		if inOrderingAnnotation(c.pod, cNames[j], podCommon.AnnotationKeySuffixContainersStartAfter, cNames[i]) {
+			return true
+		}
+
+		// otherwise their order doesn't matter, so let's be stable
+		// w.r.t. the original ordering.
+		return origOrder[cNames[i]] < origOrder[cNames[j]]
+	})
+
+	return cNames
 }
 
 func (c *PodContainer) OwnerEmail() *string {
