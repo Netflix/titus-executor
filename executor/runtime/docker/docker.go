@@ -2084,14 +2084,20 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("Parsing the liveness probe for the %s container: %w", v1Container.Name, err)
 	}
+	entrypoint := computeExtraContainersDockerEntrypoint(c)
+	command := computeExtraContainersDockerCommand(c)
+	if len(entrypoint) == 0 && len(command) == 0 {
+		err := fmt.Errorf("An Entrypoint or Command must be specified for the container")
+		return nil, nil, nil, err
+	}
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
 		Hostname:    "",
 		Image:       v1Container.Image,
 		WorkingDir:  v1Container.WorkingDir,
-		Entrypoint:  computeExtraContainersDockerEntrypoint(c),
-		Cmd:         computeExtraContainersDockerCommand(c),
+		Entrypoint:  entrypoint,
+		Cmd:         command,
 		Labels:      labels,
 		Env:         append(baseEnv, v1ConatinerEnvToList(v1Container.Env)...),
 		Healthcheck: healthcheck,
