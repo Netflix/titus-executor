@@ -422,6 +422,9 @@ func addIPv4AddressAndRoutes(ctx context.Context, nsHandle *netlink.Handle, link
 			Dst:       routeNet,
 			MTU:       int(route.Mtu),
 		}
+		if newRoute.MTU == 0 {
+			newRoute.MTU = link.Attrs().MTU
+		}
 		err = nsHandle.RouteAdd(&newRoute)
 		if err != nil {
 			logger.G(ctx).WithField("route", route).WithError(err).Error("Unable to add route to link")
@@ -541,6 +544,9 @@ func addIPv6AddressAndRoutes(ctx context.Context, assignment *vpcapi.AssignIPRes
 			MTU:       int(route.Mtu),
 			// We use the metric 128. The PD / RA based routes have a metric of 128.
 			Priority: 128,
+		}
+		if newRoute.MTU == 0 {
+			newRoute.MTU = link.Attrs().MTU
 		}
 		// RA may have already installed a route, therefore we need to use route replace.
 		err = nsHandle.RouteReplace(&newRoute)
