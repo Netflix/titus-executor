@@ -251,7 +251,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 			MountPath: "/efs1-rw",
 		},
 		{
-			Name:      "dev-shm",
+			Name:      ShmVolumeName,
 			MountPath: "/dev/shm",
 		},
 		{
@@ -272,7 +272,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 			},
 		},
 		{
-			Name: "dev-shm",
+			Name: ShmVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{
 					Medium:    corev1.StorageMediumMemory,
@@ -534,7 +534,7 @@ func TestNewPodContainerErrors(t *testing.T) {
 
 	pod.Spec.Containers[0].Image = testImageWithTag
 	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-		Name:      "dev-shm",
+		Name:      ShmVolumeName,
 		MountPath: ShmMountPath,
 	})
 	_, err = NewPodContainer(pod, &sync.Mutex{}, *conf)

@@ -34,6 +34,7 @@ const (
 	serviceMeshServiceName    = "servicemesh"
 	serviceMeshServiceVersion = 1
 	ShmMountPath              = "/dev/shm"
+	ShmVolumeName             = "dev-shm"
 )
 
 // VK adds env vars to each container's env in order to maintain compatibility with Kubelet. We need this list

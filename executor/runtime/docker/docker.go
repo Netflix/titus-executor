@@ -52,6 +52,7 @@ import (
 	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/encoding/protojson"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -451,6 +452,12 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 	hostCfg.Tmpfs = map[string]string{
 		"/run":       "rw,exec,size=" + defaultRunTmpFsSize,
 		"/run/netns": "rw,size=" + defaultRunTmpFsSize,
+	}
+	pod, podLock := r.c.Pod()
+	tmpfses := computeEmptyDirTmpfs(runtimeTypes.MainContainerName, pod)
+	podLock.Unlock()
+	for dir, tmpfs := range tmpfses {
+		hostCfg.Tmpfs[dir] = tmpfs
 	}
 
 	if c.IsSystemD() {
@@ -2127,6 +2134,11 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		ReadonlyRootfs: isContainerReadOnly(v1Container),
 	}
 
+	tmpfses := computeEmptyDirTmpfs(c.Name, pod)
+	for dir, tmpfs := range tmpfses {
+		dockerHostConfig.Tmpfs[dir] = tmpfs
+	}
+
 	// Security options are inherited from the main container's configuration
 	err = setupAdditionalCapabilities(r.c, dockerHostConfig, c.Name)
 	if err != nil {
@@ -3026,4 +3038,52 @@ func isContainerReadOnly(c v1.Container) bool {
 		return false
 	}
 	return *c.SecurityContext.ReadOnlyRootFilesystem
+}
+
+// computeEmptyDirTmpfs goes from a container to a map, connecting a dir to a tmpfs line.
+// This tmpfs line is suitable for use in a dockerConfig.
+func computeEmptyDirTmpfs(cName string, pod *v1.Pod) map[string]string {
+	tmpfs := map[string]string{}
+	emptyDirVolumes := getEmptyDirVolumes(pod)
+
+	c := getContainerFromPod(cName, pod)
+	for i := range c.VolumeMounts {
+		vm := c.VolumeMounts[i]
+		vol, ok := emptyDirVolumes[vm.Name]
+		if ok {
+			sizeMB := resourceBytesToMB(vol.EmptyDir.SizeLimit)
+			tmpfs[vm.MountPath] = "rw,size=" + sizeMB.AsDec().String()
+		}
+	}
+	return tmpfs
+}
+
+func getContainerFromPod(cName string, pod *v1.Pod) v1.Container {
+	for _, c := range pod.Spec.Containers {
+		if c.Name == cName {
+			return c
+		}
+	}
+	return v1.Container{}
+}
+
+func getEmptyDirVolumes(pod *v1.Pod) map[string]v1.Volume {
+	emptyDirVolumes := map[string]v1.Volume{}
+	for _, vol := range pod.Spec.Volumes {
+		if vol.VolumeSource.EmptyDir == nil {
+			continue
+		}
+		// Skip the shm volume as that is dealth with in a different function
+		if vol.Name == runtimeTypes.ShmVolumeName {
+			continue
+		}
+		emptyDirVolumes[vol.Name] = vol
+	}
+	return emptyDirVolumes
+}
+
+func resourceBytesToMB(r *resource.Quantity) resource.Quantity {
+	rInt, _ := r.AsInt64()
+	res := resource.NewQuantity(rInt/units.MB, resource.DecimalSI)
+	return *res
 }

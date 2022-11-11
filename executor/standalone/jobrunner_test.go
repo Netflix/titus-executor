@@ -423,12 +423,12 @@ func createPodTask(jobInput *JobInput, jobID string, task *runner.Task, env map[
 	if jobInput.ShmSize != nil {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			MountPath: runtimeTypes.ShmMountPath,
-			Name:      "dev-shm",
+			Name:      runtimeTypes.ShmVolumeName,
 		})
 
 		shmSize := resource.MustParse(fmt.Sprintf("%dMi", *jobInput.ShmSize))
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "dev-shm",
+			Name: runtimeTypes.ShmVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{
 					SizeLimit: &shmSize,
