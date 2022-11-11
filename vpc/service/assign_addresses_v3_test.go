@@ -14,14 +14,83 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/golang/mock/gomock"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
+type testData struct {
+	accountID        string
+	associationID    string
+	availabilityZone string
+	bandwidth        int64
+	branchEniID      string
+	burst            bool
+	burstBandwidth   int64
+	defaultIpv4Route *vpcapi.AssignIPResponseV3_Route
+	defaultIpv6Route *vpcapi.AssignIPResponseV3_Route
+	elasticAddress   *vpcapi.AssignIPRequestV3_ElasticAdddresses
+	idempotent       bool
+	instanceID       string
+	jumbo            bool
+	region           string
+	primaryEniID     string
+	primaryIPAddress *vpcapi.UsableAddress
+	taskID           string
+	trunkEniID       string
+	securityGroups   []*ec2.GroupIdentifier
+	securityGroupIDs []string
+	subnetID         string
+	subnetIDs        []string
+	vpcID            string
+}
+
+type networkMode struct {
+	ipv4 interface{}
+	ipv6 *vpcapi.AssignIPRequestV3_Ipv6AddressRequested
+}
+
 func TestAssignIPV3(t *testing.T) {
+	testCases := []struct {
+		Name   string
+		Values networkMode
+	}{
+		{
+			Name: "Ipv4Only",
+			Values: networkMode{
+				ipv4: &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true},
+			},
+		},
+		{
+			Name: "Ipv6Only",
+			Values: networkMode{
+				ipv6: &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{Ipv6AddressRequested: true},
+			},
+		},
+		{
+			Name: "Ipv6AndIpv4",
+			Values: networkMode{
+				ipv4: &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{Ipv4AddressRequested: true},
+				ipv6: &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{Ipv6AddressRequested: true},
+			},
+		},
+		{
+			Name: "Ipv6AndIpv4Fallback",
+			Values: networkMode{
+				ipv4: &vpcapi.AssignIPRequestV3_TransitionRequested{},
+				ipv6: &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{Ipv6AddressRequested: true},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Logf("TestAssignIPV3 testing %s: %T", tc.Name, tc.Values)
+		runTestAssignIPV3(t, tc.Values)
+	}
+}
+
+func runTestAssignIPV3(t *testing.T, requestType networkMode) {
 	testDB, dbContainer = dbutil.SetupDB(t)
 	defer dbutil.ShutdownDB(t, testDB, dbContainer)
 
@@ -51,48 +120,110 @@ func TestAssignIPV3(t *testing.T) {
 	require.NoError(t, err)
 	client := vpcapi.NewTitusAgentVPCServiceClient(conn)
 
-	taskID := "1faff9f0-d92b-4f5b-8bfb-dd035e2b2da5"
-
-	sgA := "sg-mock-a"
-	sgB := "sg-mock-b"
-	sgC := "sg-mock-c"
-	securityGroupIds := []string{
-		sgA, sgB, sgC,
-	}
-	securityGroups := []*ec2.GroupIdentifier{
-		{GroupId: &sgA, GroupName: &sgA},
-		{GroupId: &sgB, GroupName: &sgB},
-		{GroupId: &sgC, GroupName: &sgC},
-	}
-
-	ipv4 := &vpcapi.AssignIPRequestV3_Ipv4AddressRequested{
-		Ipv4AddressRequested: true,
-	}
-	ipv6 := &vpcapi.AssignIPRequestV3_Ipv6AddressRequested{
-		Ipv6AddressRequested: true,
-	}
-
-	subnets := []string{
-		"subnet-mock-a",
-		"subnet-mock-b",
-		"subnet-mock-c",
-		"subnet-mock-d",
-		"subnet-mock-e",
-		"subnet-mock-f",
+	var sgA, sgB, sgC string = "sg-mock-a", "sg-mock-b", "sg-mock-c"
+	var privateIPAddress string = "172.16.0.64"
+	td := testData{
+		accountID:        "123456789012",
+		associationID:    "trunk-assoc-12345678",
+		availabilityZone: "us-mock-1a",
+		bandwidth:        750000000,
+		branchEniID:      "eni-mock-branch",
+		burst:            true,
+		burstBandwidth:   25000000000,
+		defaultIpv4Route: &vpcapi.AssignIPResponseV3_Route{Destination: "0.0.0.0/0", Mtu: *aws.Uint32(9000), Family: vpcapi.AssignIPResponseV3_Route_IPv4},
+		defaultIpv6Route: &vpcapi.AssignIPResponseV3_Route{Destination: "::/0", Mtu: *aws.Uint32(9000), Family: vpcapi.AssignIPResponseV3_Route_IPv6},
+		elasticAddress:   nil,
+		idempotent:       false,
+		instanceID:       "instance-mock",
+		jumbo:            false,
+		primaryEniID:     "eni-mock-primary",
+		primaryIPAddress: &vpcapi.UsableAddress{Address: &vpcapi.Address{Address: privateIPAddress}, PrefixLength: *aws.Uint32(18)},
+		region:           "us-mock-1",
+		taskID:           "1faff9f0-d92b-4f5b-8bfb-dd035e2b2da5",
+		trunkEniID:       "eni-mock-trunk",
+		securityGroups:   []*ec2.GroupIdentifier{{GroupId: &sgA, GroupName: &sgA}, {GroupId: &sgB, GroupName: &sgB}, {GroupId: &sgC, GroupName: &sgC}},
+		securityGroupIDs: []string{sgA, sgB, sgC},
+		subnetID:         "subnet-mock-a",
+		subnetIDs:        []string{"subnet-mock-a", "subnet-mock-b", "subnet-mock-c", "subnet-mock-d", "subnet-mock-e", "subnet-mock-f"},
+		vpcID:            "vpc-mock-a",
 	}
 
-	accountID := "123456789012"
-	region := "us-mock-1"
-	elasticAddress := &vpcapi.AssignIPRequestV3_Empty{
-		Empty: &empty.Empty{},
+	primaryEni := ec2.InstanceNetworkInterface{
+		Attachment: &ec2.InstanceNetworkInterfaceAttachment{
+			AttachmentId:     aws.String("eni-attach-00000000000000001"),
+			DeviceIndex:      aws.Int64(0),
+			NetworkCardIndex: aws.Int64(0),
+			Status:           aws.String("attached"),
+		},
+		InterfaceType:      aws.String("interface"),
+		MacAddress:         aws.String("01:23:45:67:89:aa"),
+		NetworkInterfaceId: &td.primaryEniID,
+		OwnerId:            &td.accountID,
+		Status:             aws.String("in-use"),
+		SubnetId:           &td.subnetID,
+		VpcId:              &td.vpcID,
 	}
-	idempotent := false
-	burst := true
-	jumbo := false
-	bandwidth := 750000000
-	instanceID := "instance-mock"
-	vpcID := "vpc-mock-a"
-	subnetID := "subnet-mock-a"
+	trunkEni := ec2.InstanceNetworkInterface{
+		Attachment: &ec2.InstanceNetworkInterfaceAttachment{
+			AttachmentId:     aws.String("eni-attach-00000000000000002"),
+			DeviceIndex:      aws.Int64(1),
+			NetworkCardIndex: aws.Int64(0),
+			Status:           aws.String("attached"),
+		},
+		InterfaceType:      aws.String("trunk"),
+		MacAddress:         aws.String("01:23:45:67:89:ab"),
+		NetworkInterfaceId: &td.trunkEniID,
+		OwnerId:            &td.accountID,
+		Status:             aws.String("in-use"),
+		SubnetId:           &td.subnetID,
+		VpcId:              &td.vpcID,
+	}
+	branchEni := ec2.NetworkInterface{
+		AvailabilityZone:   &td.availabilityZone,
+		Groups:             td.securityGroups,
+		InterfaceType:      aws.String("branch"),
+		Ipv6Prefixes:       []*ec2.Ipv6PrefixSpecification{},
+		NetworkInterfaceId: &td.branchEniID,
+		MacAddress:         aws.String("16:f2:9a:a6:84:69"),
+		OwnerId:            &td.accountID,
+		SubnetId:           &td.subnetID,
+		VpcId:              &td.vpcID,
+	}
+	instance := ec2.Instance{
+		InstanceId:        &td.instanceID,
+		InstanceType:      aws.String("r5.metal"),
+		NetworkInterfaces: []*ec2.InstanceNetworkInterface{&primaryEni, &trunkEni},
+		Placement: &ec2.Placement{
+			AvailabilityZone: &td.availabilityZone,
+			GroupName:        aws.String(""),
+			Tenancy:          aws.String("default"),
+		},
+		SubnetId: &td.subnetID,
+		VpcId:    &td.vpcID,
+	}
+	expectedResponse := &vpcapi.AssignIPResponseV3{
+		Bandwidth: &vpcapi.AssignIPResponseV3_Bandwidth{
+			Bandwidth: uint64(td.bandwidth),
+			Burst:     uint64(td.burstBandwidth),
+		},
+		TrunkNetworkInterface: &vpcapi.NetworkInterface{
+			AvailabilityZone:           td.availabilityZone,
+			MacAddress:                 *trunkEni.MacAddress,
+			NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{DeviceIndex: uint32(*trunkEni.Attachment.DeviceIndex)},
+			NetworkInterfaceId:         td.trunkEniID,
+			OwnerAccountId:             *trunkEni.OwnerId,
+			SubnetId:                   *trunkEni.SubnetId,
+		},
+		BranchNetworkInterface: &vpcapi.NetworkInterface{
+			AvailabilityZone:   *branchEni.AvailabilityZone,
+			MacAddress:         *branchEni.MacAddress,
+			NetworkInterfaceId: td.branchEniID,
+			OwnerAccountId:     *branchEni.OwnerId,
+			SubnetId:           *branchEni.SubnetId,
+			VpcId:              *branchEni.VpcId,
+		},
+		Routes: []*vpcapi.AssignIPResponseV3_Route{td.defaultIpv4Route, td.defaultIpv6Route},
+	}
 
 	{
 		// Mock GetCallerIdentityWithContext
@@ -105,53 +236,8 @@ func TestAssignIPV3(t *testing.T) {
 
 		// Mock DescribeInstancesWithContext
 		{
-			networkInterfaces := []*ec2.InstanceNetworkInterface{
-				{
-					Attachment: &ec2.InstanceNetworkInterfaceAttachment{
-						AttachmentId:     aws.String("eni-attach-00000000000000001"),
-						DeviceIndex:      aws.Int64(0),
-						NetworkCardIndex: aws.Int64(0),
-						Status:           aws.String("attached"),
-					},
-					InterfaceType:      aws.String("interface"),
-					MacAddress:         aws.String("01:23:45:67:89:aa"),
-					NetworkInterfaceId: aws.String("eni-mock-primary"),
-					OwnerId:            &accountID,
-					Status:             aws.String("in-use"),
-					SubnetId:           &subnetID,
-					VpcId:              &vpcID,
-				},
-				{
-					Attachment: &ec2.InstanceNetworkInterfaceAttachment{
-						AttachmentId:     aws.String("eni-attach-00000000000000002"),
-						DeviceIndex:      aws.Int64(1),
-						NetworkCardIndex: aws.Int64(0),
-						Status:           aws.String("attached"),
-					},
-					InterfaceType:      aws.String("trunk"),
-					MacAddress:         aws.String("01:23:45:67:89:ab"),
-					NetworkInterfaceId: aws.String("eni-mock-trunk"),
-					OwnerId:            &accountID,
-					Status:             aws.String("in-use"),
-					SubnetId:           &subnetID,
-					VpcId:              &vpcID,
-				},
-			}
-			instance := ec2.Instance{
-				InstanceId:        &instanceID,
-				InstanceType:      aws.String("r5.metal"),
-				NetworkInterfaces: networkInterfaces,
-				Placement: &ec2.Placement{
-					AvailabilityZone: aws.String("us-mock-1a"),
-					GroupName:        aws.String(""),
-					Tenancy:          aws.String("default"),
-				},
-				SubnetId: &subnetID,
-				VpcId:    &vpcID,
-			}
-
-			input := &ec2.DescribeInstancesInput{InstanceIds: []*string{&instanceID}}
-			reservation := &ec2.Reservation{OwnerId: &accountID, Instances: []*ec2.Instance{&instance}}
+			input := &ec2.DescribeInstancesInput{InstanceIds: []*string{&td.instanceID}}
+			reservation := &ec2.Reservation{OwnerId: &td.accountID, Instances: []*ec2.Instance{&instance}}
 			output := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{reservation}}
 
 			mockEC2.EXPECT().
@@ -162,25 +248,19 @@ func TestAssignIPV3(t *testing.T) {
 
 		// Mock DescribeSecurityGroupsWithContext
 		{
-			securityGroupsIn1 := []*string{aws.String("sg-mock-a")}
-			input1 := &ec2.DescribeSecurityGroupsInput{GroupIds: securityGroupsIn1}
-			securityGroupsIn2 := []*string{aws.String("sg-mock-b")}
-			input2 := &ec2.DescribeSecurityGroupsInput{GroupIds: securityGroupsIn2}
-			securityGroupsIn3 := []*string{aws.String("sg-mock-c")}
-			input3 := &ec2.DescribeSecurityGroupsInput{GroupIds: securityGroupsIn3}
+			input1 := &ec2.DescribeSecurityGroupsInput{GroupIds: []*string{&td.securityGroupIDs[0]}}
+			input2 := &ec2.DescribeSecurityGroupsInput{GroupIds: []*string{&td.securityGroupIDs[1]}}
+			input3 := &ec2.DescribeSecurityGroupsInput{GroupIds: []*string{&td.securityGroupIDs[2]}}
 
-			securityGroupsOut1 := []*ec2.SecurityGroup{
-				{Description: aws.String("sg-mock-a"), GroupId: aws.String("sg-mock-a"), OwnerId: &accountID, VpcId: &vpcID},
+			output1 := &ec2.DescribeSecurityGroupsOutput{SecurityGroups: []*ec2.SecurityGroup{
+				{Description: &td.securityGroupIDs[0], GroupId: &td.securityGroupIDs[0], OwnerId: &td.accountID, VpcId: &td.vpcID}},
 			}
-			output1 := &ec2.DescribeSecurityGroupsOutput{SecurityGroups: securityGroupsOut1}
-			securityGroupsOut2 := []*ec2.SecurityGroup{
-				{Description: aws.String("sg-mock-b"), GroupId: aws.String("sg-mock-b"), OwnerId: &accountID, VpcId: &vpcID},
+			output2 := &ec2.DescribeSecurityGroupsOutput{SecurityGroups: []*ec2.SecurityGroup{
+				{Description: &td.securityGroupIDs[1], GroupId: &td.securityGroupIDs[1], OwnerId: &td.accountID, VpcId: &td.vpcID}},
 			}
-			output2 := &ec2.DescribeSecurityGroupsOutput{SecurityGroups: securityGroupsOut2}
-			securityGroupsOut3 := []*ec2.SecurityGroup{
-				{Description: aws.String("sg-mock-c"), GroupId: aws.String("sg-mock-c"), OwnerId: &accountID, VpcId: &vpcID},
+			output3 := &ec2.DescribeSecurityGroupsOutput{SecurityGroups: []*ec2.SecurityGroup{
+				{Description: &td.securityGroupIDs[2], GroupId: &td.securityGroupIDs[2], OwnerId: &td.accountID, VpcId: &td.vpcID}},
 			}
-			output3 := &ec2.DescribeSecurityGroupsOutput{SecurityGroups: securityGroupsOut3}
 
 			gomock.InOrder(
 				mockEC2.EXPECT().DescribeSecurityGroupsWithContext(gomock.Any(), gomock.Eq(input1)).Times(1).Return(output1, nil),
@@ -195,29 +275,13 @@ func TestAssignIPV3(t *testing.T) {
 		// Mock CreateNetworkInterfaceWithContext
 		{
 			securityGroupPtrs := []*string{}
-			for i := range securityGroupIds {
-				securityGroupPtrs = append(securityGroupPtrs, &securityGroupIds[i])
+			for i := range td.securityGroupIDs {
+				securityGroupPtrs = append(securityGroupPtrs, &td.securityGroupIDs[i])
 			}
 			input := mock.MatchCni{
-				Eni: &ec2.CreateNetworkInterfaceInput{
-					Description: aws.String(vpc.DefaultBranchNetworkInterfaceDescription),
-					Groups:      securityGroupPtrs,
-					SubnetId:    &subnetID,
-				},
+				Eni: &ec2.CreateNetworkInterfaceInput{Description: aws.String(vpc.DefaultBranchNetworkInterfaceDescription), Groups: securityGroupPtrs, SubnetId: &td.subnetID},
 			}
-			output := &ec2.CreateNetworkInterfaceOutput{
-				NetworkInterface: &ec2.NetworkInterface{
-					AvailabilityZone:   aws.String("us-mock-1a"),
-					Groups:             securityGroups,
-					InterfaceType:      aws.String("branch"),
-					Ipv6Prefixes:       []*ec2.Ipv6PrefixSpecification{},
-					NetworkInterfaceId: aws.String("eni-mock-branch"),
-					MacAddress:         aws.String("16:f2:9a:a6:84:69"),
-					OwnerId:            &accountID,
-					SubnetId:           &subnetID,
-					VpcId:              &vpcID,
-				},
-			}
+			output := &ec2.CreateNetworkInterfaceOutput{NetworkInterface: &branchEni}
 
 			mCni := mockEC2.EXPECT().CreateNetworkInterfaceWithContext(gomock.Any(), input, gomock.Any()).Times(1)
 			mCni.DoAndReturn(func(ctx context.Context, input *ec2.CreateNetworkInterfaceInput, opts request.Option) (*ec2.CreateNetworkInterfaceOutput, error) {
@@ -231,17 +295,14 @@ func TestAssignIPV3(t *testing.T) {
 		// Mock AssociateTrunkInterface
 		{
 			input := mock.MatchAti{
-				Ati: &ec2.AssociateTrunkInterfaceInput{
-					TrunkInterfaceId:  aws.String("eni-mock-trunk"),
-					BranchInterfaceId: aws.String("eni-mock-branch"),
-				},
+				Ati: &ec2.AssociateTrunkInterfaceInput{TrunkInterfaceId: &td.trunkEniID, BranchInterfaceId: &td.branchEniID},
 			}
 
 			output := &ec2.AssociateTrunkInterfaceOutput{
 				InterfaceAssociation: &ec2.TrunkInterfaceAssociation{
-					AssociationId:     aws.String("trunk-assoc-12345678"),
-					BranchInterfaceId: aws.String("eni-mock-branch"),
-					TrunkInterfaceId:  aws.String("eni-mock-trunk"),
+					AssociationId:     &td.associationID,
+					BranchInterfaceId: &td.branchEniID,
+					TrunkInterfaceId:  &td.trunkEniID,
 				},
 			}
 
@@ -255,110 +316,67 @@ func TestAssignIPV3(t *testing.T) {
 
 		// Mock DescribeNetworkInterfacesWithContext
 		{
-			input := &ec2.DescribeNetworkInterfacesInput{
-				NetworkInterfaceIds: []*string{
-					aws.String("eni-mock-branch"),
-				},
-			}
+			input := &ec2.DescribeNetworkInterfacesInput{NetworkInterfaceIds: []*string{aws.String("eni-mock-branch")}}
 
-			output := &ec2.DescribeNetworkInterfacesOutput{
-				NetworkInterfaces: []*ec2.NetworkInterface{
-					{
-						AvailabilityZone:   aws.String("us-mock-1a"),
-						Groups:             securityGroups,
-						InterfaceType:      aws.String("branch"),
-						Ipv6Prefixes:       eniIpv6Prefixes,
-						NetworkInterfaceId: aws.String("eni-mock-branch"),
-						MacAddress:         aws.String("16:f2:9a:a6:84:69"),
-						OwnerId:            &accountID,
-						PrivateIpAddresses: []*ec2.NetworkInterfacePrivateIpAddress{
-							{
-								Primary:          aws.Bool(true),
-								PrivateIpAddress: aws.String("172.16.0.64"),
-							},
-						},
-						SubnetId: &subnetID,
-						VpcId:    &vpcID,
-					},
-				},
-			}
+			branchEni.Ipv6Prefixes = eniIpv6Prefixes
+			branchEni.PrivateIpAddresses = []*ec2.NetworkInterfacePrivateIpAddress{{Primary: aws.Bool(true), PrivateIpAddress: &privateIPAddress}}
+			output := &ec2.DescribeNetworkInterfacesOutput{NetworkInterfaces: []*ec2.NetworkInterface{&branchEni}}
 
 			mockEC2.EXPECT().DescribeNetworkInterfacesWithContext(gomock.Any(), input).Times(1).Return(output, nil)
 		}
 	}
 
 	instanceIdentity := &vpcapi.InstanceIdentity{
-		InstanceID: instanceID,
-		AccountID:  accountID,
-		Region:     region,
+		InstanceID: td.instanceID,
+		AccountID:  td.accountID,
+		Region:     td.region,
 	}
 
 	request := &vpcapi.AssignIPRequestV3{
-		TaskId:           taskID,
-		SecurityGroupIds: securityGroupIds,
-		Ipv6:             ipv6,
-		Ipv4:             ipv4,
-		Subnets:          subnets,
+		AccountID:        td.accountID,
+		Bandwidth:        uint64(td.bandwidth),
+		Burst:            td.burst,
+		ElasticAddress:   td.elasticAddress,
 		InstanceIdentity: instanceIdentity,
-		AccountID:        accountID,
-		ElasticAddress:   elasticAddress,
-		Idempotent:       idempotent,
-		Jumbo:            jumbo,
-		Burst:            burst,
-		Bandwidth:        uint64(bandwidth),
+		Idempotent:       td.idempotent,
+		Ipv6:             requestType.ipv6,
+		Jumbo:            td.jumbo,
+		SecurityGroupIds: td.securityGroupIDs,
+		Subnets:          td.subnetIDs,
+		TaskId:           td.taskID,
 	}
+
+	switch v := requestType.ipv4.(type) {
+	case *vpcapi.AssignIPRequestV3_Ipv4AddressRequested:
+		request.Ipv4 = requestType.ipv4.(*vpcapi.AssignIPRequestV3_Ipv4AddressRequested)
+	case *vpcapi.AssignIPRequestV3_TransitionRequested:
+		request.Ipv4 = requestType.ipv4.(*vpcapi.AssignIPRequestV3_TransitionRequested)
+	case nil:
+	default:
+		t.Fatalf("Unknown Ipv4AddressRequest type: %T", v)
+	}
+
 	response, err := client.AssignIPV3(ctx, request)
 	require.NoError(t, err)
 
-	expectedResponse := &vpcapi.AssignIPResponseV3{
-		Bandwidth: &vpcapi.AssignIPResponseV3_Bandwidth{
-			Bandwidth: *aws.Uint64(750000000),
-			Burst:     *aws.Uint64(25000000000),
-		},
-		TrunkNetworkInterface: &vpcapi.NetworkInterface{
-			AvailabilityZone: "us-mock-1a",
-			MacAddress:       "01:23:45:67:89:ab",
-			NetworkInterfaceAttachment: &vpcapi.NetworkInterfaceAttachment{
-				DeviceIndex: *aws.Uint32(1),
-			},
-			NetworkInterfaceId: "eni-mock-trunk",
-			OwnerAccountId:     "123456789012",
-			SubnetId:           "subnet-mock-a",
-		},
-		BranchNetworkInterface: &vpcapi.NetworkInterface{
-			AvailabilityZone:   "us-mock-1a",
-			MacAddress:         "16:f2:9a:a6:84:69",
-			NetworkInterfaceId: "eni-mock-branch",
-			OwnerAccountId:     "123456789012",
-			SubnetId:           "subnet-mock-a",
-			VpcId:              "vpc-mock-a",
-		},
-
-		// ClassId selected dynamically by service code
-		ClassId: response.ClassId,
-		Ipv4Address: &vpcapi.UsableAddress{
-			Address: &vpcapi.Address{
-				Address: "172.16.0.64",
-			},
-			PrefixLength: *aws.Uint32(18),
-		},
-		// Ipv6Address selected dynamically by service code (Ipv6Prefix randomly chosen)
-		Ipv6Address: response.Ipv6Address,
-		Routes: []*vpcapi.AssignIPResponseV3_Route{
-			{
-				Destination: "0.0.0.0/0",
-				Mtu:         *aws.Uint32(9000),
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv4,
-			},
-			{
-				Destination: "::/0",
-				Mtu:         *aws.Uint32(9000),
-				Family:      vpcapi.AssignIPResponseV3_Route_IPv6,
-			},
-		},
-		// VlanId selected dynamically by service code
-		VlanId: response.VlanId,
+	switch (requestType.ipv4).(type) {
+	case *vpcapi.AssignIPRequestV3_Ipv4AddressRequested:
+		expectedResponse.Ipv4Address = td.primaryIPAddress
+	case *vpcapi.AssignIPRequestV3_TransitionRequested:
+		expectedResponse.Ipv4Address = nil
+		expectedResponse.TransitionAssignment = &vpcapi.AssignIPResponseV3_TransitionAssignment{
+			// AssignmentId is selected dynamically by service code (UUID)
+			AssignmentId: response.TransitionAssignment.AssignmentId,
+			Routes:       []*vpcapi.AssignIPResponseV3_Route{td.defaultIpv4Route, td.defaultIpv6Route},
+			Ipv4Address:  td.primaryIPAddress,
+		}
 	}
+
+	// ClassId, Ipv6Address (Ipv6Prefix randomly chosen), and VlanId fields are selected dynamically by service code
+	expectedResponse.ClassId = response.ClassId
+	expectedResponse.Ipv6Address = response.Ipv6Address
+	expectedResponse.VlanId = response.VlanId
+
 	assert.Truef(t, proto.Equal(response, expectedResponse), "expected: %s, actual %s", expectedResponse, response)
 
 	cancel()
