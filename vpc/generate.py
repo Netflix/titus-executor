@@ -5,8 +5,9 @@ import json
 def branch_eni_limits(i):
     """Returns how many branch enis an instance can support, from
     https://docs.aws.amazon.com/AmazonECS/latest/developerguide/container-instance-eni.html#eni-trunking-supported-instance-types
-    This dictionary is copy/pasted from the chart on that page and then manipulated
-    in a text editor to be in the python format.
+    You can parse this with the following command and paste it in here:
+
+    curl https://docs.aws.amazon.com/AmazonECS/latest/developerguide/container-instance-eni.html#eni-trunking-supported-instance-types | html2text | grep -e large -e medium -e metal | awk '{ print "        \""$1"\": " $3 "," }'
     """
     documented = {
         "a1.medium": 10,
@@ -367,25 +368,35 @@ def branch_eni_limits(i):
     }
 
     # The page says these instance types are not supported for branch ENIs,
-    # yet we use them in practice?
+    # yet we use them in practice after confirming it is safe for us.
     undocumented = {
-        "r5.metal": 198,
-        "m5.metal": 198,
-        "r5d.metal": 198,
+        "r5.metal": 220,
+        "r5d.metal": 220,
+        "m5.metal": 122,
+        "m5d.metal": 122,
+        "c5.metal": 122,
+        "c5d.metal": 122,
     }
 
     # Merging of both dictionaries of data
     branch_limits = {**documented, **undocumented}
+    # A default of 0 here means not supported and vpctool will refuse to start.
+    # This is "good", because it means we need to update the list above before using it safely.
     return branch_limits.get(i, 0)
 
 
 def parse_network_info(i):
+    """parse_network_info reads the string-form of AWS's network description and returns a Mbps number (int).
+    It isn't perfect conversion, but works well for the instance types we actually use in practice.
+    The smaller burstable instance descriptions (low/moderate/high) use this guess at their approximate Mbs numbers:
+    https://stackoverflow.com/a/25620890/2056003
+    """
     m = {
-        "Low": 500,
-        "Very Low": 1_000,
-        "Low to Moderate": 2_500,
-        "Moderate": 5_000,
-        "High": 10_000,
+        "Low": 100,
+        "Very Low": 50,
+        "Low to Moderate": 200,
+        "Moderate": 300,
+        "High": 1_000,
         "Up to 5 Gigabit": 5_000,
         "Up to 10 Gigabit": 10_000,
         "Up to 12 Gigabit": 12_000,
@@ -409,7 +420,8 @@ def parse_network_info(i):
         "50 Gigabit": 50_000,
         "75 Gigabit": 75_000,
         "100 Gigabit": 100_000,
-        # TODO: Titus can't use these really
+        # Titus can't use these really, we don't use multiple 100g enis.
+        # These are only on pretty exotic N class instance types we don't use in practice.
         "4x 100 Gigabit": 100_000,
         "8x 100 Gigabit": 100_000,
     }
