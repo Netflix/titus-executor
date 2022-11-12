@@ -42,25 +42,25 @@ var interfaceLimits = map[string]limits{
 	"c1.medium": {
 		interfaces:              2,
 		ipAddressesPerInterface: 6,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"c1.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"c3.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"c3.4xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"c3.8xlarge": {
@@ -72,25 +72,25 @@ var interfaceLimits = map[string]limits{
 	"c3.large": {
 		interfaces:              3,
 		ipAddressesPerInterface: 10,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"c3.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"c4.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"c4.4xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"c4.8xlarge": {
@@ -102,13 +102,13 @@ var interfaceLimits = map[string]limits{
 	"c4.large": {
 		interfaces:              3,
 		ipAddressesPerInterface: 10,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"c4.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"c5.12xlarge": {
@@ -157,7 +157,7 @@ var interfaceLimits = map[string]limits{
 		interfaces:              15,
 		ipAddressesPerInterface: 50,
 		networkThroughput:       25000,
-		branchENIs:              0,
+		branchENIs:              122,
 	},
 	"c5.xlarge": {
 		interfaces:              4,
@@ -307,7 +307,7 @@ var interfaceLimits = map[string]limits{
 		interfaces:              15,
 		ipAddressesPerInterface: 50,
 		networkThroughput:       25000,
-		branchENIs:              0,
+		branchENIs:              122,
 	},
 	"c5d.xlarge": {
 		interfaces:              4,
@@ -756,13 +756,13 @@ var interfaceLimits = map[string]limits{
 	"d2.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"d2.4xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"d2.8xlarge": {
@@ -774,7 +774,7 @@ var interfaceLimits = map[string]limits{
 	"d2.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"d3.2xlarge": {
@@ -864,13 +864,13 @@ var interfaceLimits = map[string]limits{
 	"g2.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"g2.8xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"g3.16xlarge": {
@@ -1080,13 +1080,13 @@ var interfaceLimits = map[string]limits{
 	"i2.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"i2.4xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"i2.8xlarge": {
@@ -1098,7 +1098,7 @@ var interfaceLimits = map[string]limits{
 	"i2.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"i3.16xlarge": {
@@ -1338,67 +1338,67 @@ var interfaceLimits = map[string]limits{
 	"m1.large": {
 		interfaces:              3,
 		ipAddressesPerInterface: 10,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"m1.medium": {
 		interfaces:              2,
 		ipAddressesPerInterface: 6,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"m1.small": {
 		interfaces:              2,
 		ipAddressesPerInterface: 4,
-		networkThroughput:       500,
+		networkThroughput:       100,
 		branchENIs:              0,
 	},
 	"m1.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"m2.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"m2.4xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"m2.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"m3.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"m3.large": {
 		interfaces:              3,
 		ipAddressesPerInterface: 10,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"m3.medium": {
 		interfaces:              2,
 		ipAddressesPerInterface: 6,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"m3.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"m4.10xlarge": {
@@ -1416,25 +1416,25 @@ var interfaceLimits = map[string]limits{
 	"m4.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"m4.4xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"m4.large": {
 		interfaces:              2,
 		ipAddressesPerInterface: 10,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"m4.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"m5.12xlarge": {
@@ -1483,7 +1483,7 @@ var interfaceLimits = map[string]limits{
 		interfaces:              15,
 		ipAddressesPerInterface: 50,
 		networkThroughput:       25000,
-		branchENIs:              198,
+		branchENIs:              122,
 	},
 	"m5.xlarge": {
 		interfaces:              4,
@@ -1633,7 +1633,7 @@ var interfaceLimits = map[string]limits{
 		interfaces:              15,
 		ipAddressesPerInterface: 50,
 		networkThroughput:       25000,
-		branchENIs:              120,
+		branchENIs:              122,
 	},
 	"m5d.xlarge": {
 		interfaces:              4,
@@ -2112,7 +2112,7 @@ var interfaceLimits = map[string]limits{
 	"p2.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"p3.16xlarge": {
@@ -2148,13 +2148,13 @@ var interfaceLimits = map[string]limits{
 	"r3.2xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"r3.4xlarge": {
 		interfaces:              8,
 		ipAddressesPerInterface: 30,
-		networkThroughput:       10000,
+		networkThroughput:       1000,
 		branchENIs:              0,
 	},
 	"r3.8xlarge": {
@@ -2166,13 +2166,13 @@ var interfaceLimits = map[string]limits{
 	"r3.large": {
 		interfaces:              3,
 		ipAddressesPerInterface: 10,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"r3.xlarge": {
 		interfaces:              4,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"r4.16xlarge": {
@@ -2257,7 +2257,7 @@ var interfaceLimits = map[string]limits{
 		interfaces:              15,
 		ipAddressesPerInterface: 50,
 		networkThroughput:       25000,
-		branchENIs:              198,
+		branchENIs:              220,
 	},
 	"r5.xlarge": {
 		interfaces:              4,
@@ -2461,7 +2461,7 @@ var interfaceLimits = map[string]limits{
 		interfaces:              15,
 		ipAddressesPerInterface: 50,
 		networkThroughput:       25000,
-		branchENIs:              198,
+		branchENIs:              220,
 	},
 	"r5d.xlarge": {
 		interfaces:              4,
@@ -2874,49 +2874,49 @@ var interfaceLimits = map[string]limits{
 	"t1.micro": {
 		interfaces:              2,
 		ipAddressesPerInterface: 2,
-		networkThroughput:       1000,
+		networkThroughput:       50,
 		branchENIs:              0,
 	},
 	"t2.2xlarge": {
 		interfaces:              3,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"t2.large": {
 		interfaces:              3,
 		ipAddressesPerInterface: 12,
-		networkThroughput:       2500,
+		networkThroughput:       200,
 		branchENIs:              0,
 	},
 	"t2.medium": {
 		interfaces:              3,
 		ipAddressesPerInterface: 6,
-		networkThroughput:       2500,
+		networkThroughput:       200,
 		branchENIs:              0,
 	},
 	"t2.micro": {
 		interfaces:              2,
 		ipAddressesPerInterface: 2,
-		networkThroughput:       2500,
+		networkThroughput:       200,
 		branchENIs:              0,
 	},
 	"t2.nano": {
 		interfaces:              2,
 		ipAddressesPerInterface: 2,
-		networkThroughput:       2500,
+		networkThroughput:       200,
 		branchENIs:              0,
 	},
 	"t2.small": {
 		interfaces:              3,
 		ipAddressesPerInterface: 4,
-		networkThroughput:       2500,
+		networkThroughput:       200,
 		branchENIs:              0,
 	},
 	"t2.xlarge": {
 		interfaces:              3,
 		ipAddressesPerInterface: 15,
-		networkThroughput:       5000,
+		networkThroughput:       300,
 		branchENIs:              0,
 	},
 	"t3.2xlarge": {
