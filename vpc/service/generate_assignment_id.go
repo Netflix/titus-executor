@@ -32,8 +32,8 @@ import (
 )
 
 const (
-	generateAssignmentIDTimeout = time.Second * 30
-	securityGroupBlockTimeout   = 1 * time.Minute
+	generateAssignmentIDTimeoutSecond = 30
+	securityGroupBlockTimeout         = 1 * time.Minute
 )
 
 type eniLockWrapper struct {
@@ -415,7 +415,8 @@ func (vpcService *vpcService) populateAssignment(ctx context.Context, req getENI
 	}
 	defer unlock()
 
-	ctx, cancel := context.WithTimeout(ctx, generateAssignmentIDTimeout)
+	timeoutSecond := vpcService.dynamicConfig.GetInt(ctx, "GENERATE_ASSIGNMENT_ID_TIMEOUT", generateAssignmentIDTimeoutSecond)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecond)*time.Second)
 	defer cancel()
 
 retry:
