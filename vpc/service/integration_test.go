@@ -28,6 +28,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
@@ -316,7 +317,7 @@ func branchENITests(ctx context.Context, t *testing.T, md integrationTestMetadat
 	dangling, err := session.CreateNetworkInterface(ctx, ec2.CreateNetworkInterfaceInput{
 		Description: aws.String(vpc.DefaultBranchNetworkInterfaceDescription),
 		SubnetId:    aws.String(md.subnetID),
-	})
+	}, request.Option(nil))
 	assert.NilError(t, err)
 	logger.G(ctx).WithField("eni", aws.StringValue(dangling.NetworkInterface.NetworkInterfaceId)).Debug("Created test dangling branch ENI")
 

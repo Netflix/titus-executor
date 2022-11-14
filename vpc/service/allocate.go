@@ -10,6 +10,7 @@ import (
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/google/uuid"
@@ -43,7 +44,7 @@ func getDummyStaticInterface(ctx context.Context, session *ec2wrapper.EC2Session
 		Ipv6AddressCount: aws.Int64(1),
 	}
 
-	createNetworkInterfaceOutput, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)
+	createNetworkInterfaceOutput, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput, request.Option(nil))
 	if err != nil {
 		err = fmt.Errorf("Cannot create dummy static network interface: %w", err)
 		tracehelpers.SetStatus(err, span)
