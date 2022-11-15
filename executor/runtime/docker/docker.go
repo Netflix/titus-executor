@@ -175,7 +175,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 	}
 
 	defaultBindMounts := []string{}
-	defaultBindMounts = append(defaultBindMounts, filepath.Join(cfg.RuntimeDir, "pod.json")+":/titus/run/pod.json:ro")
+	defaultBindMounts = append(defaultBindMounts, cfg.RuntimeDir+":/titus/run:ro")
 
 	pidCgroupPath := ""
 	if !cfg.InStandaloneMode {
@@ -2011,9 +2011,9 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 	mounts := []mount.Mount{
 		{
 			Type:     "bind",
-			Source:   path.Join(r.cfg.RuntimeDir, "pod.json"),
+			Source:   r.cfg.RuntimeDir,
 			ReadOnly: true,
-			Target:   "/titus/run/pod.json",
+			Target:   "/titus/run",
 		},
 	}
 	if mainContainerRoot != "" {

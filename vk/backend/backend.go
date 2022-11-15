@@ -201,7 +201,12 @@ func (b *Backend) waitForTerminationSignal(ctx context.Context, r *runner.Runner
 func (b *Backend) writePod(ctx context.Context, statedir string) error {
 	f, err := renameio.TempFile(statedir, filepath.Join(statedir, "pod.json"))
 	if err != nil {
-		return fmt.Errorf("Cannot create temporary pod file")
+		return fmt.Errorf("Cannot create temporary pod file: %v", err)
+	}
+
+	err = f.Chmod(0644)
+	if err != nil {
+		return fmt.Errorf("Couldn't chown temporary pod file: %v", err)
 	}
 
 	encoder := json.NewEncoder(f)
