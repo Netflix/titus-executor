@@ -1,4 +1,4 @@
-package dbutil
+package db_test
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"log"
 	"math/big"
 	"net"
-	"testing"
 	"time"
 
 	"github.com/Netflix/titus-executor/logger"
@@ -267,40 +266,4 @@ func InsertAssignments(db *sql.DB, n int) error {
 		}
 	}
 	return nil
-}
-
-func skipIfNoDocker(t *testing.T) {
-	c, err := net.Dial("unix", "/var/run/docker.sock")
-	if err != nil {
-		t.Skip("Skip because no docker daemon is running")
-	}
-	defer c.Close()
-}
-
-func SetupDB(t *testing.T) (*sql.DB, *PostgresContainer) {
-	skipIfNoDocker(t)
-	ctx := context.Background()
-	var err error
-	dbContainer, err := StartPostgresContainer(ctx, "e2e_test_db")
-	if err != nil {
-		t.Fatalf("failed to start postgress container: %s", err)
-	}
-	testDB, err := dbContainer.Connect(ctx)
-	if err != nil {
-		t.Skipf("failed to connect to test DB: %s", err)
-	}
-	// Set up tables
-	err = db.MigrateTo(ctx, testDB, 40, false)
-	if err != nil {
-		t.Fatalf("failed to set up tables: %s", err)
-	}
-	return testDB, dbContainer
-}
-
-func ShutdownDB(t *testing.T, testDB *sql.DB, dbContainer *PostgresContainer) {
-	err := dbContainer.Shutdown(context.Background())
-	if err != nil {
-		t.Fatalf("failed to clean up container: %s", err)
-	}
-	testDB.Close()
 }

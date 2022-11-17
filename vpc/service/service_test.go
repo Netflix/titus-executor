@@ -11,7 +11,7 @@ import (
 
 	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	dbutil "github.com/Netflix/titus-executor/vpc/service/db/test"
+	db_test "github.com/Netflix/titus-executor/vpc/service/db/test"
 	"golang.org/x/crypto/ed25519"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -44,7 +44,7 @@ func TestService(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	port, err := dbutil.RandomPort()
+	port, err := db_test.RandomPort()
 	assert.NilError(t, err)
 	addr := ":" + port
 	_, privatekey, err := ed25519.GenerateKey(nil)

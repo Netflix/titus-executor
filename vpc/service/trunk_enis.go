@@ -11,7 +11,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/hashicorp/go-multierror"
 	"github.com/lib/pq"
@@ -265,7 +264,7 @@ func (vpcService *vpcService) createNewTrunkENI(ctx context.Context, session *ec
 	}
 
 	// TODO: Record creation of the interface
-	createNetworkInterfaceResult, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput, request.Option(nil))
+	createNetworkInterfaceResult, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot create network interface")
 		return nil, ec2wrapper.HandleEC2Error(err, span)
