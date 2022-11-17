@@ -76,7 +76,6 @@ type PodContainer struct {
 	gpuInfo            GPUContainer
 	labels             map[string]string
 	logUploaderConfig  *uploader.Config
-	nfsMounts          []NFSMount
 	pod                *corev1.Pod
 	podLock            *sync.Mutex
 	podConfig          *podCommon.Config
@@ -620,10 +619,6 @@ func (c *PodContainer) EffectiveNetworkMode() string {
 	return computeEffectiveNetworkMode(mode, c.AssignIPv6Address(), c.config.EnableTransitionNetworkMode)
 }
 
-func (c *PodContainer) NFSMounts() []NFSMount {
-	return c.nfsMounts
-}
-
 func (c *PodContainer) NormalizedENIIndex() *int {
 	// This is unused in the v3 vpc service
 	unused := int(0)
@@ -938,7 +933,6 @@ func createLogUploadConfig(pConf *podCommon.Config) *uploader.Config {
 }
 
 func (c *PodContainer) parsePodVolumes(pod *corev1.Pod) error {
-	c.nfsMounts = []NFSMount{}
 	nameToMount := map[string]corev1.Volume{}
 	c.ebsInfo = EBSInfo{}
 
@@ -955,16 +949,6 @@ func (c *PodContainer) parsePodVolumes(pod *corev1.Pod) error {
 		if !ok {
 			continue
 		}
-
-		if vol.VolumeSource.NFS != nil {
-			c.nfsMounts = append(c.nfsMounts, NFSMount{
-				MountPoint: filepath.Clean(vm.MountPath),
-				Server:     vol.NFS.Server,
-				ServerPath: filepath.Clean(vol.NFS.Path),
-				ReadOnly:   vm.ReadOnly,
-			})
-		}
-
 		if vol.VolumeSource.AWSElasticBlockStore != nil {
 			if c.ebsInfo.VolumeID != "" {
 				return errors.New("only one EBS volume per task can be specified")

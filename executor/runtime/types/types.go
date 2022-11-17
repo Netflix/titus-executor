@@ -196,7 +196,6 @@ type Container interface {
 	MetatronCreds() *titus.ContainerInfo_MetatronCreds
 	EffectiveNetworkMode() string
 	NormalizedENIIndex() *int
-	NFSMounts() []NFSMount
 	OomScoreAdj() *int32
 	OrderSortedContainerNames() []string
 	OwnerEmail() *string

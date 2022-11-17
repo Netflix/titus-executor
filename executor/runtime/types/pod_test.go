@@ -143,20 +143,7 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 		Drop: []corev1.Capability{"SYS_TIME"},
 	}
 	expKillWaitSec := uint32(11)
-	expNFSMounts := []NFSMount{
-		{
-			MountPoint: "/efs1",
-			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
-			ServerPath: "/remote-dir",
-			ReadOnly:   true,
-		},
-		{
-			MountPoint: "/efs1-rw",
-			Server:     "fs-abcdef.efs.us-east-1.amazonaws.com",
-			ServerPath: "/remote-dir",
-			ReadOnly:   false,
-		},
-	}
+
 	expEBSMount := EBSInfo{
 		VolumeID:  "vol-abcdef",
 		MountPath: "/ebs_mnt",
@@ -322,7 +309,6 @@ func TestNewPodContainerWithEverything(t *testing.T) {
 	assert.DeepEqual(t, c.BatchPriority(), ptr.StringPtr("idle"))
 	assert.DeepEqual(t, c.Capabilities(), expCapabilities)
 	assert.Equal(t, c.CombinedAppStackDetails(), "appName-appStack-appDetail")
-	assert.DeepEqual(t, c.NFSMounts(), expNFSMounts)
 	assert.DeepEqual(t, c.EBSInfo(), expEBSMount)
 
 	expEnv := map[string]string{
