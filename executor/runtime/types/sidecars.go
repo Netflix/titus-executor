@@ -275,11 +275,18 @@ func shouldStartTitusStorage(cfg *config.Config, c Container) bool {
 	if cfg.InStandaloneMode {
 		return false
 	}
-	// Currently titus-storage sets up NFS, EBS, and /mnt-shared storage
-	// which is currently only available on multi-container workloads
+
 	pod, podLock := c.Pod()
 	defer podLock.Unlock()
-	return len(c.NFSMounts()) > 0 || c.EBSInfo().VolumeID != "" || len(pod.Spec.Containers) > 1
+	if len(pod.Spec.Volumes) > 1 {
+		// There is always the 1 volume, /dev/shm which is handled by docker and not titus-storage.
+		// Any more than that requires titus-storage
+		return true
+	} else if len(pod.Spec.Containers) > 1 {
+		// Multi-container workloads always need titus-storage help to do multi-container metatron/logs/etc.
+		return true
+	}
+	return false
 }
 
 func shouldStartContainerTools(cfg *config.Config, c Container) bool {
