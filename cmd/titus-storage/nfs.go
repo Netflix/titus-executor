@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	mountCmd     = "/apps/titus-executor/bin/titus-mount-nfs"
+	nfsMountCmd  = "/apps/titus-executor/bin/titus-mount-nfs"
 	mountTimeout = 10 * time.Second
 	// MS_RDONLY indicates that mount is read-only
 	MS_RDONLY = 1 // nolint: golint
@@ -27,7 +27,7 @@ func setupNFSMount(parentCtx context.Context, taskID, cname string, vol *corev1.
 	defer cancel()
 
 	pidDir := executorDocker.GetTitusInitsPath(taskID, cname)
-	cmd := exec.CommandContext(ctx, mountCmd)
+	cmd := exec.CommandContext(ctx, nfsMountCmd)
 	flags := 0
 
 	if vm.ReadOnly {
