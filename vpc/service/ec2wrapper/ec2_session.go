@@ -12,7 +12,6 @@ import (
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
@@ -232,7 +231,7 @@ func (s *EC2Session) DeleteNetworkInterface(ctx context.Context, input ec2.Delet
 	return output, nil
 }
 
-func (s *EC2Session) CreateNetworkInterface(ctx context.Context, input ec2.CreateNetworkInterfaceInput, opts request.Option) (*ec2.CreateNetworkInterfaceOutput, error) {
+func (s *EC2Session) CreateNetworkInterface(ctx context.Context, input ec2.CreateNetworkInterfaceInput) (*ec2.CreateNetworkInterfaceOutput, error) {
 	ctx, span := trace.StartSpan(ctx, "CreateNetworkInterface")
 	defer span.End()
 
@@ -242,7 +241,7 @@ func (s *EC2Session) CreateNetworkInterface(ctx context.Context, input ec2.Creat
 	}
 
 	ec2client := s.newEC2(s.Session)
-	output, err := ec2client.CreateNetworkInterfaceWithContext(ctx, &input, opts)
+	output, err := ec2client.CreateNetworkInterfaceWithContext(ctx, &input)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot create network interface")
 		_ = HandleEC2Error(err, span)
@@ -332,7 +331,7 @@ func (s *EC2Session) AssociateTrunkInterface(ctx context.Context, input ec2.Asso
 	}
 
 	ec2client := s.newEC2(s.Session)
-	output, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &input, request.Option(nil))
+	output, err := ec2client.AssociateTrunkInterfaceWithContext(ctx, &input)
 	if err != nil {
 		err = errors.Wrap(err, "Cannot associate trunk network interface")
 		_ = HandleEC2Error(err, span)

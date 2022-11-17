@@ -3,32 +3,161 @@ package service
 import (
 	"context"
 	"database/sql"
+	"net"
 	"testing"
+	"time"
 
-	"github.com/Netflix/titus-executor/vpc"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
-	dbutil "github.com/Netflix/titus-executor/vpc/service/db/test"
+	"github.com/Netflix/titus-executor/vpc/service/db"
+	db_test "github.com/Netflix/titus-executor/vpc/service/db/test"
 	"github.com/Netflix/titus-executor/vpc/service/mock"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go/service/sts/stsiface"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ed25519"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var testDB *sql.DB
-var dbContainer *dbutil.PostgresContainer
+var dbContainer *db_test.PostgresContainer
+
+const (
+	trunkENIDescription  = "test-trunk-eni-description"
+	branchENIDescription = "test-branch-eni-description"
+)
+
+func skipIfNoDocker(t *testing.T) {
+	c, err := net.Dial("unix", "/var/run/docker.sock")
+	if err != nil {
+		t.Skip("Skip because no docker daemon is running")
+	}
+	defer c.Close()
+}
+
+func setupDB(t *testing.T) {
+	skipIfNoDocker(t)
+	ctx := context.Background()
+	var err error
+	dbContainer, err = db_test.StartPostgresContainer(ctx, "e2e_test_db")
+	if err != nil {
+		t.Fatalf("failed to start postgress container: %s", err)
+	}
+	testDB, err = dbContainer.Connect(ctx)
+	if err != nil {
+		t.Skipf("failed to connect to test DB: %s", err)
+	}
+	// Set up tables
+	err = db.MigrateTo(ctx, testDB, 40, false)
+	if err != nil {
+		t.Fatalf("failed to set up tables: %s", err)
+	}
+}
+
+func shutdownDB(t *testing.T) {
+	err := dbContainer.Shutdown(context.Background())
+	if err != nil {
+		t.Fatalf("failed to clean up container: %s", err)
+	}
+	testDB.Close()
+}
+
+func waitForServer(t *testing.T, addr string) {
+	done := make(chan bool)
+	go func() {
+		for {
+			ctx := context.Background()
+			conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure())
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			defer conn.Close()
+			healthClient := grpc_health_v1.NewHealthClient(conn)
+			healthcheckResponse, err := healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{
+				Service: "com.netflix.titus.executor.vpc.TitusAgentVPCService",
+			})
+
+			if err == nil && healthcheckResponse.Status == grpc_health_v1.HealthCheckResponse_SERVING {
+				done <- true
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+
+	select {
+	case <-done:
+		t.Logf("GPRC server is running and healthy")
+	case <-time.After(2 * time.Second):
+		t.Fatalf("GRPC server is still not healthy after 2s")
+	}
+}
+
+func runVpcService(ctx context.Context, t *testing.T, addr string,
+	mockSTS stsiface.STSAPI, mockEC2 ec2iface.EC2API) {
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
+	key := vpcapi.PrivateKey{
+		Hostname:  "",
+		Generated: timestamppb.Now(),
+		Key: &vpcapi.PrivateKey_Ed25519Key_{
+			Ed25519Key: &vpcapi.PrivateKey_Ed25519Key{
+				Rfc8032Key: privateKey.Seed(),
+			},
+		},
+	}
+
+	// Insert public key
+	_, err = testDB.ExecContext(ctx,
+		"INSERT INTO trusted_public_keys(hostname, created_at, key, keytype) VALUES('test-host', now(), $1, 'ed25519')",
+		publicKey)
+	require.NoError(t, err)
+
+	vpcServiceConfig := &Config{
+		DBURL:                 dbContainer.DBURL(),
+		Key:                   key, // nolint:govet
+		ReconcileInterval:     5 * time.Minute,
+		TLSConfig:             nil,
+		EnabledTaskLoops:      []string{},
+		EnabledLongLivedTasks: []string{},
+		WorkerRole:            "testWorkerRole",
+
+		TrunkNetworkInterfaceDescription:  trunkENIDescription,
+		BranchNetworkInterfaceDescription: branchENIDescription,
+
+		disableRouteCache: true,
+	}
+	vpcService, err := newVpcService(ctx, vpcServiceConfig)
+	require.NoError(t, err)
+
+	vpcService.ec2.NewSts = func(p client.ConfigProvider, cfgs ...*aws.Config) stsiface.STSAPI {
+		return mockSTS
+	}
+	vpcService.ec2.NewEC2 = func(p client.ConfigProvider, cfgs ...*aws.Config) ec2iface.EC2API {
+		return mockEC2
+	}
+
+	err = vpcService.run(ctx, addr)
+	require.NoError(t, err)
+}
 
 func TestProvisionInstanceV3(t *testing.T) {
-	testDB, dbContainer = dbutil.SetupDB(t)
-	defer dbutil.ShutdownDB(t, testDB, dbContainer)
+	setupDB(t)
+	defer shutdownDB(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	port, err := dbutil.RandomPort()
+	port, err := db_test.RandomPort()
 	require.NoError(t, err)
 	addr := ":" + port
 	done := make(chan bool)
@@ -38,10 +167,7 @@ func TestProvisionInstanceV3(t *testing.T) {
 	mockSTS := mock.NewMockSTSAPI(ctl)
 	mockEC2 := mock.NewMockEC2API(ctl)
 	go func() {
-		err := runVpcService(ctx, t, addr, mockSTS, mockEC2, testDB, dbContainer)
-		if err != nil {
-			panic(err)
-		}
+		runVpcService(ctx, t, addr, mockSTS, mockEC2)
 		done <- true
 	}()
 	waitForServer(t, addr)
@@ -83,7 +209,7 @@ func TestProvisionInstanceV3(t *testing.T) {
 		// Mock CreateNetworkInterfaceWithContext
 		{
 			expectedInput := &ec2.CreateNetworkInterfaceInput{
-				Description:      aws.String(vpc.DefaultTrunkNetworkInterfaceDescription),
+				Description:      aws.String(trunkENIDescription),
 				InterfaceType:    aws.String("trunk"),
 				Ipv6AddressCount: aws.Int64(0),
 				SubnetId:         &subnetID,
@@ -100,7 +226,7 @@ func TestProvisionInstanceV3(t *testing.T) {
 				},
 			}
 			mockEC2.EXPECT().
-				CreateNetworkInterfaceWithContext(gomock.Any(), gomock.Eq(expectedInput), gomock.Any()).
+				CreateNetworkInterfaceWithContext(gomock.Any(), gomock.Eq(expectedInput)).
 				Times(1).
 				Return(output, nil)
 		}

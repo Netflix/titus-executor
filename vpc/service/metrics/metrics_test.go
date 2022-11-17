@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	dbutil "github.com/Netflix/titus-executor/vpc/service/db/test"
+	db_test "github.com/Netflix/titus-executor/vpc/service/db/test"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"go.opencensus.io/stats/view"
@@ -69,7 +69,7 @@ func skipIfNoDocker(t *testing.T) {
 func TestCollectTableMetrics(t *testing.T) {
 	skipIfNoDocker(t)
 	ctx := context.Background()
-	c, err := dbutil.StartPostgresContainer(ctx, "metrics_test_db")
+	c, err := db_test.StartPostgresContainer(ctx, "metrics_test_db")
 	if err != nil {
 		t.Fatalf("failed to start postgress container: %s", err)
 	}
@@ -97,23 +97,23 @@ func TestCollectTableMetrics(t *testing.T) {
 
 	// Insert some dummy data
 	{
-		err = dbutil.InsertSubnets(testDb, numSubnets)
+		err = db_test.InsertSubnets(testDb, numSubnets)
 		if err != nil {
 			t.Fatalf("failed to insert dummy subnets: %s", err)
 		}
-		err = dbutil.InsertBranchEnis(testDb, numBranchEnis)
+		err = db_test.InsertBranchEnis(testDb, numBranchEnis)
 		if err != nil {
 			t.Fatalf("failed to insert dummy branch enis: %s", err)
 		}
-		err = dbutil.InsertBranchEniAttachments(testDb, 0, numAttachedBranchEnis, "attached")
+		err = db_test.InsertBranchEniAttachments(testDb, 0, numAttachedBranchEnis, "attached")
 		if err != nil {
 			t.Fatalf("failed to insert dummy branch eni attachments: %s", err)
 		}
-		err = dbutil.InsertBranchEniAttachments(testDb, numAttachedBranchEnis, numBranchEniAttachments, "unattached")
+		err = db_test.InsertBranchEniAttachments(testDb, numAttachedBranchEnis, numBranchEniAttachments, "unattached")
 		if err != nil {
 			t.Fatalf("failed to insert dummy branch eni attachments: %s", err)
 		}
-		err = dbutil.InsertAssignments(testDb, numAssignments)
+		err = db_test.InsertAssignments(testDb, numAssignments)
 		if err != nil {
 			t.Fatalf("failed to insert dummy assignments: %s", err)
 		}
