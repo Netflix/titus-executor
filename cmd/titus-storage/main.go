@@ -88,6 +88,11 @@ func main() {
 				l.WithError(err).Error("Error setting up shared volumes between containers")
 				return err
 			}
+			err = lustreRunner(ctx, command, mountConfig)
+			if err != nil {
+				l.WithError(err).Error("Error setting up lustre volumes")
+				return err
+			}
 			if mountConfig.ebsVolumeID != "" {
 				exclusiveLock, err := getExclusiveLock(ctx)
 				if err != nil {
