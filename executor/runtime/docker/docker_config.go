@@ -68,7 +68,7 @@ func NewConfig() (*Config, []cli.Flag) {
 		},
 		cli.DurationFlag{
 			Name:        "titus.executor.timeouts.prepare",
-			Value:       time.Minute * 10,
+			Value:       time.Minute * 15,
 			Destination: &cfg.prepareTimeout,
 		},
 		cli.DurationFlag{
