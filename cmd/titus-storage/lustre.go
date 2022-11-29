@@ -64,9 +64,9 @@ func setupLustreMount(parentCtx context.Context, taskID, cname string, vol *core
 	fsxFileSystemID := vol.FlexVolume.Options["fsxFileSystemId"]
 	lustreHost := fmt.Sprintf("%s.fsx.%s.amazonaws.com", fsxFileSystemID, region)
 	mountOptions := "recovery_time_soft=300,recovery_time_hard=900"
-	flags := 0
+	flags := MOUNT_ATTR_NOATIME
 	if vm.ReadOnly {
-		flags = flags | MS_RDONLY
+		flags = flags | MOUNT_ATTR_RDONLY
 	}
 
 	cmd := exec.CommandContext(ctx, lustreMountCmd)
