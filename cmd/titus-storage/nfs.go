@@ -48,7 +48,7 @@ func setupNFSMount(parentCtx context.Context, taskID, cname string, vol *corev1.
 
 	stdoutStderr, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("Mount failure: %+v: %s", cmd, string(stdoutStderr))
+		return fmt.Errorf("Mount failure: %+v: %s (%w)", cmd, string(stdoutStderr), err)
 	}
 
 	return nil
