@@ -90,6 +90,7 @@ checkstyle-result.xml
 /root/apps/titus-executor/bin/titus-mount-bind
 /root/apps/titus-executor/bin/titus-mount-container-to-container
 /root/apps/titus-executor/bin/titus-mount-nfs
+/root/apps/titus-executor/bin/titus-mount-lustre
 /root/apps/titus-executor/bin/tini-static
 /root/apps/titus-executor/bin/titus-inject-metadataproxy
 /root/apps/titus-executor/bin/titus-standalone
@@ -101,6 +102,7 @@ checkstyle-result.xml
 /mount/titus-mount-nfs
 /mount/titus-mount-bind
 /mount/titus-mount-container-to-container
+/mount/titus-mount-lustre
 
 # unignore directories named titus-executor
 !*/titus-executor/

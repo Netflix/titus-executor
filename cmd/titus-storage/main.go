@@ -26,6 +26,11 @@ const (
 	titusPid1DirFlagName  = "titus-pid1-dir"
 	start                 = "start"
 	stop                  = "stop"
+	// These mount attributes should be used with the newer mount syscalls:
+	// https://sourcegraph.com/github.com/torvalds/linux@01f856ae6d0ca5ad0505b79bf2d22d7ca439b2a1/-/blob/include/uapi/linux/mount.h?L131
+	// And should not be confused with the MS_* flags used by the classic mount syscall.
+	MOUNT_ATTR_RDONLY  = 1          // nolint: golint
+	MOUNT_ATTR_NOATIME = 0x00000010 // nolint: golint
 )
 
 type MountConfig struct {

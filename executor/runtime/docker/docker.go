@@ -974,7 +974,7 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 			continue
 		} else if sidecarConfig.ContainerName == sidecarConfig.ServiceName {
 			// If the ContainerName is still just ServiceName, that indicates it has not be initialized yet,
-			// probably because if failed to be pulled, potentically indicating that the image doesn't exist,
+			// probably because if failed to be pulled, potentially indicating that the image doesn't exist,
 			// or a bad deploy, or heck just a typo in the name or something
 			if sidecarConfig.Required {
 				return fmt.Errorf("Unable to get volume container of required sidecar %s", sidecarConfig.ServiceName)

@@ -15,8 +15,6 @@ import (
 const (
 	nfsMountCmd  = "/apps/titus-executor/bin/titus-mount-nfs"
 	mountTimeout = 10 * time.Second
-	// MS_RDONLY indicates that mount is read-only
-	MS_RDONLY = 1 // nolint: golint
 )
 
 // setupNFSMount calls out to the titus-mount-nfs command to set up a single
@@ -31,7 +29,7 @@ func setupNFSMount(parentCtx context.Context, taskID, cname string, vol *corev1.
 	flags := 0
 
 	if vm.ReadOnly {
-		flags = flags | MS_RDONLY
+		flags = flags | MOUNT_ATTR_RDONLY
 	}
 	mountOptions := append(
 		baseMountOptions,
@@ -48,7 +46,7 @@ func setupNFSMount(parentCtx context.Context, taskID, cname string, vol *corev1.
 
 	stdoutStderr, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("Mount failure: %+v: %s", cmd, string(stdoutStderr))
+		return fmt.Errorf("Mount failure: %+v: %s (%w)", cmd, string(stdoutStderr), err)
 	}
 
 	return nil
