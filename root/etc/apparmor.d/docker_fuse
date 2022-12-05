@@ -40,6 +40,7 @@ profile docker_fuse flags=(attach_disconnected,mediate_deleted) {
   deny /sys/kernel/security/** rwklx,
 
   ptrace (trace,read) peer=@{profile_name},
+  ptrace (read) peer=docker_titus,
 
   deny /titus/** wl,
 
