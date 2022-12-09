@@ -270,6 +270,13 @@ static void switch_namespaces(int nsfd)
 		perror("setns net");
 		exit(1);
 	}
+	int uts_fd = openat(nsfd, "uts", O_RDONLY);
+	assert(uts_fd != -1);
+	ret = setns(uts_fd, CLONE_NEWUTS);
+	if (ret == -1) {
+		perror("setns uts");
+		exit(1);
+	}
 }
 
 static void mount_and_move(int fsfd, const char *target,
