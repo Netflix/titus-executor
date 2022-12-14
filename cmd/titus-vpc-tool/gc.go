@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netflix/titus-executor/logger"
 	"github.com/Netflix/titus-executor/vpc/tool/gc3"
 	"github.com/spf13/cobra"
 	pkgviper "github.com/spf13/viper"
@@ -25,9 +24,6 @@ func gcCommand(ctx context.Context, v *pkgviper.Viper, iipGetter instanceIdentit
 			}
 			defer conn.Close()
 			switch generation := strings.ToLower(v.GetString(generationFlagName)); generation {
-			case "v1":
-				logger.G(ctx).Warnf("Generation %s does not support GC")
-				return nil
 			case "v3":
 				return gc3.GC(ctx,
 					v.GetDuration("timeout"),
