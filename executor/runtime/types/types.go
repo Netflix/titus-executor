@@ -514,8 +514,17 @@ func getKernelVersion() string {
 
 }
 
+func getTSAVersion() string {
+	tsaVersionRaw, err := os.ReadFile("/apps/tsa/version")
+	if err != nil {
+		return fmt.Sprintf("problem reading tsa version: %v", err)
+	}
+
+	return strings.TrimSpace(string(tsaVersionRaw))
+}
+
 func (d Details) RenderVersionDetails() string {
-	return fmt.Sprintf("kernel-version=%s,titus-executor=%s", getKernelVersion(), executor.TitusExecutorVersion)
+	return fmt.Sprintf("kernel-version=%s,titus-executor=%s,tsa=%s", getKernelVersion(), executor.TitusExecutorVersion, getTSAVersion())
 }
 
 type ContainerRuntimeProvider func(ctx context.Context, c Container, startTime time.Time) (Runtime, error)
