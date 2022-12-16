@@ -58,6 +58,7 @@ import (
 var (
 	_                   runtimeTypes.Runtime = (*DockerRuntime)(nil)
 	errMissingResources                      = errors.New("Missing container resources")
+	fullCommandForDebug                      = map[string][]string{}
 )
 
 // units
@@ -378,6 +379,7 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 		return nil, nil, err
 	}
 
+	r.SetFullCommandForDebug(runtimeTypes.MainContainerName, append(entrypoint, cmd...))
 	containerCfg := &container.Config{
 		Image:      c.QualifiedImageName(),
 		Entrypoint: entrypoint,
@@ -2090,6 +2092,7 @@ func (r *DockerRuntime) k8sContainerToDockerConfigs(c *runtimeTypes.ExtraContain
 		err := fmt.Errorf("An Entrypoint or Command must be specified for the container")
 		return nil, nil, nil, err
 	}
+	r.SetFullCommandForDebug(v1Container.Name, append(entrypoint, command...))
 	dockerContainerConfig := &container.Config{
 		// Hostname must be empty here because setting the hostname is incompatible with
 		// a container:foo network mode
@@ -2279,7 +2282,19 @@ func (r *DockerRuntime) handleDockerEvent(message events.Message, statusMessageC
 		if exitCode == "0" {
 			statusMessageChan <- runtimeTypes.StatusMessage{
 				Status: runtimeTypes.StatusFinished,
-				Msg:    cName + " container successfully exited with 0",
+				Msg:    cName + " container successfully finished with exit code 0",
+			}
+			return isTerminalDockerEvent
+		} else if exitCode == "127" {
+			// An exit code of 127 means command not found.
+			// This isn't a very useful exit code for users, because it doesn't say exactly "What" the
+			// command was that was actually at play!
+			// We can help the user out a little bit by simply letting them know the command was.
+			firstCommand, fullCommand := r.GetFullCommandForDebug(cName)
+			msg := fmt.Sprintf("%s container couldn't find the command '%s' to run in the path (exit code %s) or a shell script returned the same thing. Full command: %s", cName, firstCommand, exitCode, fullCommand)
+			statusMessageChan <- runtimeTypes.StatusMessage{
+				Status: runtimeTypes.StatusFailed,
+				Msg:    msg,
 			}
 			return isTerminalDockerEvent
 		} else if exitCode == "137" && cName != runtimeTypes.MainContainerName {
@@ -2990,6 +3005,33 @@ func (r *DockerRuntime) getBindMountsForContainer(c v1.Container, pod v1.Pod) ([
 
 	}
 	return bindMounts, nil
+}
+
+// SetFullCommandForDebug stores the full command that will be run by a container.
+// This is extremely helpful when debugging entrypoint/command problems, where the
+// exact thing that was run is a composition of the entryPoint/Command of the job +
+// the image + all sorts of other stuff
+func (r *DockerRuntime) SetFullCommandForDebug(cName string, fullCommand []string) {
+	fullCommandForDebug[cName] = fullCommand
+}
+
+// GetFullCommandForDebug returns a human readable string in "json" form of the array
+// used to exec for a container (the "full command").
+// This function is useful for debug purposes to know exactly what is being run for a pod.
+// It returns two strings: The first command, and the full command.
+func (r *DockerRuntime) GetFullCommandForDebug(cName string) (string, string) {
+	cmd, ok := fullCommandForDebug[cName]
+	if !ok {
+		return "?", "unknown command (bug in Titus)"
+	}
+	if len(cmd) == 0 {
+		return "(nothing)", "(No command at all?)"
+	}
+	j, err := json.Marshal(cmd)
+	if err != nil {
+		return "?", fmt.Sprintf("failed to get command (bug in Titus): %s", err)
+	}
+	return cmd[0], string(j)
 }
 
 func getVolumeByName(volumes []v1.Volume, name string) (v1.Volume, bool) {
