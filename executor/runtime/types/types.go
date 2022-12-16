@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -514,8 +516,48 @@ func getKernelVersion() string {
 
 }
 
-func (d Details) RenderVersionDetails() string {
-	return fmt.Sprintf("kernel-version=%s,titus-executor=%s", getKernelVersion(), executor.TitusExecutorVersion)
+var tsaVersion = ""
+
+func getTSAVersion(taskID string) string {
+	if tsaVersion != "" {
+		return tsaVersion
+	}
+
+	serviceName := fmt.Sprintf("titus-sidecar-seccomp-agent@%s.service", taskID)
+	out, err := exec.Command("systemctl", "show", "--property", "MainPID",
+				 "--value", serviceName).CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("couldn't find tsa version: %v", err)
+	}
+
+	outInt, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return fmt.Sprintf("bad TSA pid: %s", string(out))
+	}
+
+	// the service wasn't running. possible if the user didn't request TSA in the first place.
+	if outInt == 0 {
+		return ""
+	}
+
+	exePath := fmt.Sprintf("/proc/%d/exe", outInt)
+	out, err = exec.Command(exePath, "--version").CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("couldn't detect TSA version: %s", string(out))
+	}
+
+	tsaVersion = string(out)
+	return tsaVersion
+}
+
+func (d Details) RenderVersionDetails(taskID string) string {
+	versions := fmt.Sprintf("kernel-version=%s,titus-executor=%s", getKernelVersion(), executor.TitusExecutorVersion)
+	tsa := getTSAVersion(taskID)
+	if tsa != "" {
+		versions += ",tsa="
+		versions += tsa
+	}
+	return versions
 }
 
 type ContainerRuntimeProvider func(ctx context.Context, c Container, startTime time.Time) (Runtime, error)

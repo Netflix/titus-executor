@@ -339,7 +339,7 @@ func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 			b.pod.Annotations[k] = v
 		}
 
-		b.pod.Annotations[podCommon.AnnotationKeyRuntimeVersions] = update.Details.RenderVersionDetails()
+		b.pod.Annotations[podCommon.AnnotationKeyRuntimeVersions] = update.Details.RenderVersionDetails(b.pod.Name)
 	}
 }
 
