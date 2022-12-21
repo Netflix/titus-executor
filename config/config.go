@@ -61,6 +61,13 @@ type Config struct {
 	// Do we enable SystemDNS titus-system-service?
 	ContainerSystemDNS    bool
 	SystemDNSServiceImage string
+	// Flags to enable SystemDNS per NetworkMode
+	SystemDNSEnabledHighScale           bool
+	SystemDNSEnabledIpv6Only            bool
+	SystemDNSEnabledIpv6AndIpv4Fallback bool
+	SystemDNSEnabledIpv6andIpv4         bool
+	SystemDNSEnabledIpv4Only            bool
+	SystemDNSEnabledUnknownNetworkMode  bool
 
 	// Do we enable tracing-collector titus-system-service?
 	ContainerTracingCollector    bool
@@ -268,6 +275,36 @@ func NewConfig() (*Config, []cli.Flag) {
 			Name:        "container-systemdns-image",
 			EnvVar:      "SYSTEMDNS_SERVICE_IMAGE",
 			Destination: &cfg.SystemDNSServiceImage,
+		},
+		cli.BoolFlag{
+			Name:        "systemdns-enabled-high-scale",
+			EnvVar:      "SYSTEMDNS_ENABLED_HIGH_SCALE",
+			Destination: &cfg.SystemDNSEnabledHighScale,
+		},
+		cli.BoolFlag{
+			Name:        "systemdns-enabled-ipv6-only",
+			EnvVar:      "SYSTEMDNS_ENABLED_IPV6_ONLY",
+			Destination: &cfg.SystemDNSEnabledIpv6Only,
+		},
+		cli.BoolFlag{
+			Name:        "systemdns-enabled-ipv6-and-ipv4-fallback",
+			EnvVar:      "SYSTEMDNS_ENABLED_IPV6_AND_IPV4_FALLBACK",
+			Destination: &cfg.SystemDNSEnabledIpv6AndIpv4Fallback,
+		},
+		cli.BoolFlag{
+			Name:        "systemdns-enabled-ipv6-and-ipv4",
+			EnvVar:      "SYSTEMDNS_ENABLED_IPV6_AND_IPV4",
+			Destination: &cfg.SystemDNSEnabledIpv6andIpv4,
+		},
+		cli.BoolFlag{
+			Name:        "systemdns-enabled-ipv4-only",
+			EnvVar:      "SYSTEMDNS_ENABLED_IPV4_ONLY",
+			Destination: &cfg.SystemDNSEnabledIpv4Only,
+		},
+		cli.BoolFlag{
+			Name:        "systemdns-enabled-unknown-network-mode",
+			EnvVar:      "SYSTEMDNS_ENABLED_UNKNOWN_NETWORK_MODE",
+			Destination: &cfg.SystemDNSEnabledUnknownNetworkMode,
 		},
 		cli.BoolFlag{
 			Name:        "container-tracing-collector",

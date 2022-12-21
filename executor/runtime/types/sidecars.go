@@ -175,10 +175,7 @@ func ShouldStartSystemDNS(cfg *config.Config, c Container) bool {
 	if cfg.InStandaloneMode {
 		return false
 	}
-	// don't start SystemDNS unless we're in IPv6-only mode
-	if c.EffectiveNetworkMode() != titus.NetworkConfiguration_Ipv6Only.String() {
-		return false
-	}
+
 	enabled := cfg.ContainerSystemDNS
 	if !enabled {
 		return false
@@ -186,6 +183,23 @@ func ShouldStartSystemDNS(cfg *config.Config, c Container) bool {
 	if cfg.SystemDNSServiceImage == "" {
 		return false
 	}
+
+	// Enable SystemDNS if the flag for the current Network Mode is true
+	switch c.EffectiveNetworkMode() {
+	case titus.NetworkConfiguration_HighScale.String():
+		return cfg.SystemDNSEnabledHighScale
+	case titus.NetworkConfiguration_Ipv6Only.String():
+		return cfg.SystemDNSEnabledIpv6Only
+	case titus.NetworkConfiguration_Ipv6AndIpv4Fallback.String():
+		return cfg.SystemDNSEnabledIpv6AndIpv4Fallback
+	case titus.NetworkConfiguration_Ipv6AndIpv4.String():
+		return cfg.SystemDNSEnabledIpv6andIpv4
+	case titus.NetworkConfiguration_Ipv4Only.String():
+		return cfg.SystemDNSEnabledIpv4Only
+	case titus.NetworkConfiguration_UnknownNetworkMode.String():
+		return cfg.SystemDNSEnabledUnknownNetworkMode
+	}
+	
 	return true
 }
 

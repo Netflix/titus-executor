@@ -253,6 +253,11 @@ func setupNetworking(ctx context.Context, burst bool, c runtimeTypes.Container, 
 }
 
 func (r *DockerRuntime) computeDNSServers() []string {
+	// If we're starting SystemDNS, use it as our resolver
+	if runtimeTypes.ShouldStartSystemDNS(&r.cfg, r.c) {
+		return []string{"127.0.0.53"}
+	}
+
 	switch r.c.EffectiveNetworkMode() {
 	case titus.NetworkConfiguration_Ipv6AndIpv4.String():
 		// True dual stack means we should provide both
@@ -262,12 +267,7 @@ func (r *DockerRuntime) computeDNSServers() []string {
 		// the burden on TSA for ipv4 udp traffic
 		return []string{"fd00:ec2::253"}
 	case titus.NetworkConfiguration_Ipv6Only.String():
-		// If we're ipv6-only and running the SystemDNS local resolver
-		// which provides DNS64, we'll point to that
-		if runtimeTypes.ShouldStartSystemDNS(&r.cfg, r.c) {
-			return []string{"127.0.0.53"}
-		}
-		// otherwise return the EC2 IPv6 resolver
+		// Use the EC2 IPv6 resolver
 		return []string{"fd00:ec2::253"}
 	default:
 		// Any other situation means we can return the classic v4 resolver
