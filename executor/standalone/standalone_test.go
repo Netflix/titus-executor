@@ -218,7 +218,8 @@ func TestInvalidFlatStringAsCmd(t *testing.T) {
 	defer cancel()
 	jobResponse, err := StartTestTask(t, ctx, ji)
 	require.NoError(t, err)
-	if err := jobResponse.WaitForFailureWithStatusCode(ctx, 127); err != nil {
+	// There should be an error message that tells us exactly what we tried to run
+	if err := jobResponse.WaitForFailureWithStatusMessage(ctx, "[\"echo Hello Titus\"]"); err != nil {
 		t.Fatal(err)
 	}
 }
