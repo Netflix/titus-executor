@@ -24,15 +24,14 @@ import (
 )
 
 const (
-	stateDirFlagName        = "state-dir"
-	stateDirDefaultValue    = "/run/titus-vpc-tool"
-	serviceAddrFlagName     = "service-addr"
-	serviceAddrDefaultValue = "localhost:7001"
-	zipkinURLFlagName       = "zipkin"
-	// which generation of titus-vpc-tool version to use, it must be set to 1 or 2
+	stateDirFlagName            = "state-dir"
+	stateDirDefaultValue        = "/run/titus-vpc-tool"
+	serviceAddrFlagName         = "service-addr"
+	serviceAddrDefaultValue     = "localhost:7001"
+	zipkinURLFlagName           = "zipkin"
 	generationFlagName          = "generation"
-	generationDefaultValue      = "v0"
-	interaceSubnet              = "interface-subnet"
+	generationDefaultValue      = "v3"
+	interfaceSubnet             = "interface-subnet"
 	interfaceAccount            = "interface-account"
 	sslCAFlagName               = "ssl-ca"
 	sslKeyFlagName              = "ssl-key"

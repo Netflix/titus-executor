@@ -37,9 +37,9 @@ func setupInstanceCommand(ctx context.Context, v *pkgviper.Viper, iipGetter inst
 	}
 
 	addSharedFlags(cmd.Flags())
-	cmd.Flags().String(interaceSubnet, "", "subnet ID to place interfaces in")
+	cmd.Flags().String(interfaceSubnet, "", "subnet ID to place interfaces in")
 	cmd.Flags().String(interfaceAccount, "", "account ID to place interfaces in")
-	if err := v.BindEnv(interaceSubnet, "VPC_INTERFACE_SUBNET"); err != nil {
+	if err := v.BindEnv(interfaceSubnet, "VPC_INTERFACE_SUBNET"); err != nil {
 		panic(err)
 	}
 	if err := v.BindEnv(interfaceAccount, "VPC_INTERFACE_ACCOUNT"); err != nil {
