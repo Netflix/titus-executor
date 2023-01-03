@@ -199,7 +199,7 @@ func ShouldStartSystemDNS(cfg *config.Config, c Container) bool {
 	case titus.NetworkConfiguration_UnknownNetworkMode.String():
 		return cfg.SystemDNSEnabledUnknownNetworkMode
 	}
-	
+
 	return true
 }
 
