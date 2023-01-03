@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -163,6 +164,14 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 // This is just splitting the "run" part of the of the runner
 func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime time.Time, updateChan chan update) {
 	defer close(updateChan)
+	defer func() {
+		if r := recover(); r != nil {
+			logger.G(ctx).WithError(fmt.Errorf("%v", r)).Error("titus-executor panicked")
+			logger.G(ctx).Error(string(debug.Stack()))
+			msg := fmt.Sprintf("titus-executor panicked, please report this bug to #titus: %v", r)
+			updateChan <- update{status: titusdriver.Failed, msg: msg, details: nil}
+		}
+	}()
 	select {
 	case <-r.killChan:
 		logger.G(ctx).Error("Task was killed before Task was created")
@@ -183,7 +192,6 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 		logger.G(ctx).WithField("prepareUpdate", prepareUpdate).Debug("Prepare was terminal")
 		return
 	}
-
 	logger.G(ctx).Info(startingMsg)
 	logDir, details, statusMessageChan, err := r.runtime.Start(ctx)
 	if err != nil { // nolint: vetshadow

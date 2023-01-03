@@ -276,7 +276,7 @@ func (b *Backend) RunWithOutputDir(ctx context.Context, dir string) error {
 
 func (b *Backend) handleUpdate(ctx context.Context, update runner.Update) {
 	b.pod.Status.Message = update.Mesg
-	if update.Details != nil {
+	if update.Details != nil && update.Details.NetworkConfiguration != nil {
 		b.pod.Status.PodIP = update.Details.NetworkConfiguration.PickPrimaryIP()
 
 		podIPs := []v1.PodIP{}
