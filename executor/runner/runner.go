@@ -3,6 +3,7 @@ package runner
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -132,12 +133,13 @@ type update struct {
 
 func (r *Runner) prepareContainer(ctx context.Context) update {
 	logger.G(ctx).Debug("Running prepare on main container")
+	start := time.Now()
 	prepareCtx, prepareCancel := context.WithCancel(ctx)
 	defer prepareCancel()
 	go func() {
 		select {
 		case <-r.killChan:
-			logger.G(ctx).Debug("Got request to stop while still in the prepare phase")
+			logger.G(ctx).Debugf("Got request to stop after %v while still in the prepare phase", time.Since(start))
 			prepareCancel()
 		case <-prepareCtx.Done():
 		}
@@ -151,18 +153,26 @@ func (r *Runner) prepareContainer(ctx context.Context) update {
 		switch err.(type) {
 		case *runtimeTypes.RegistryImageNotFoundError, *runtimeTypes.InvalidSecurityGroupError, *runtimeTypes.BadEntryPointError, *runtimeTypes.InvalidConfigurationError:
 			logger.G(ctx).WithError(err).Error("Returning TASK_FAILED for Task")
-			return update{status: titusdriver.Failed, msg: err.Error()}
+			msg := fmt.Sprintf("Error encountered before even starting the container: %s", err.Error())
+			return update{status: titusdriver.Failed, msg: msg}
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.G(ctx).WithError(err).Error("Returning TASK_FAILED for Task")
+			msg := fmt.Sprintf("titus-executor timed out after %v before even starting the container (last error: %s)", time.Since(start), err.Error())
+			return update{status: titusdriver.Failed, msg: msg}
 		}
 		logger.G(ctx).WithError(err).Error("Returning TASK_LOST for Task")
-		return update{status: titusdriver.Lost, msg: err.Error()}
+		msg := fmt.Sprintf("Error (probably Titus bug) encountered before even starting the container: %s", err.Error())
+		return update{status: titusdriver.Lost, msg: msg}
 	}
 
-	startingMsg := fmt.Sprintf("main containter (%s) created", r.container.TaskID())
+	startingMsg := fmt.Sprintf("main container (%s) created", r.container.TaskID())
 	return update{status: titusdriver.Starting, msg: startingMsg}
 }
 
 // This is just splitting the "run" part of the of the runner
 func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime time.Time, updateChan chan update) {
+	start := time.Now()
 	defer close(updateChan)
 	defer func() {
 		if r := recover(); r != nil {
@@ -174,22 +184,25 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	}()
 	select {
 	case <-r.killChan:
-		logger.G(ctx).Error("Task was killed before Task was created")
+		logger.G(ctx).Errorf("Task was killed after %v before containers were started", time.Since(start))
 		return
 	case <-ctx.Done():
-		logger.G(ctx).Error("Task context was terminated before Task was created")
+		logger.G(ctx).Error("Task context was terminated after %v before containers were started", time.Since(start))
 		return
 	default:
 	}
 	r.maybeSetDefaultTags(ctx) // initialize metrics.Reporter default tags
 	containerNames := r.container.OrderSortedContainerNames()
-	startingMsg := fmt.Sprintf("starting %d container(s) in order: %s", len(containerNames), containerNames)
+	startingMsg := "Main container pulled and prepared. Starting main container.."
+	if len(containerNames) > 1 {
+		startingMsg = fmt.Sprintf("All %d containers pulled and prepared. Starting in order: %s", len(containerNames), containerNames)
+	}
 	updateChan <- update{status: titusdriver.Starting, msg: startingMsg}
 
 	prepareUpdate := r.prepareContainer(ctx)
 	if prepareUpdate.status.IsTerminalStatus() {
 		updateChan <- prepareUpdate
-		logger.G(ctx).WithField("prepareUpdate", prepareUpdate).Debug("Prepare was terminal")
+		logger.G(ctx).WithField("prepareUpdate", prepareUpdate).Debugf("Prepare was terminal after %s", time.Since(start))
 		return
 	}
 	logger.G(ctx).Info(startingMsg)
@@ -200,11 +213,20 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 
 		switch err.(type) {
 		case *runtimeTypes.BadEntryPointError:
-			logger.G(ctx).Info("Returning TaskState_TASK_FAILED for Task: ", err)
-			updateChan <- update{status: titusdriver.Failed, msg: err.Error(), details: details}
+			logger.G(ctx).Info("Returning TaskState_TASK_FAILED due to BadEntryPointError Task: ", err)
+			msg := fmt.Sprintf("Failed to start container due to bad entrypoint: %s", err.Error())
+			updateChan <- update{status: titusdriver.Failed, msg: msg, details: details}
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.G(ctx).Info("Returning TaskState_TASK_FAILED due to deadline exceeded for Task: ", err)
+			msg := fmt.Sprintf("Timed out after %s while starting the container (last error: %s)", time.Since(start), err.Error())
+			updateChan <- update{status: titusdriver.Failed, msg: msg, details: details}
+			return
 		}
 		logger.G(ctx).Info("Returning TASK_LOST for Task: ", err)
-		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
+		msg := fmt.Sprintf("Error after %s while starting the container (probably bug): %s", time.Since(start), err.Error())
+		updateChan <- update{status: titusdriver.Lost, msg: msg, details: details}
 		return
 	}
 	logger.G(ctx).Infof("started %d container(s): %s, now monitoring for container status", len(containerNames), containerNames)
@@ -213,7 +235,8 @@ func (r *Runner) runMainContainerAndStartSidecars(ctx context.Context, startTime
 	err = r.maybeSetupExternalLogger(ctx, logDir)
 	if err != nil {
 		logger.G(ctx).Error("Unable to setup logging for container: ", err)
-		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
+		msg := fmt.Sprintf("Error while setting up the logger (probably bug): %s", err.Error())
+		updateChan <- update{status: titusdriver.Lost, msg: msg, details: details}
 		return
 	}
 
