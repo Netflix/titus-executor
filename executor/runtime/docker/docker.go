@@ -1466,6 +1466,7 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 			ResourceID:   fmt.Sprintf("resource-eni-%d", allocation.DeviceIndex()-1),
 			EniID:        eni.NetworkInterfaceId,
 		},
+		ComponentVersions: r.getComponentVersions(),
 	}
 
 	if a := allocation.IPV4Address(); a != nil {
