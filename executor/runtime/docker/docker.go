@@ -836,8 +836,8 @@ func (r *DockerRuntime) Prepare(ctx context.Context) (err error) { // nolint: go
 			return err
 		}
 		bindMounts = append(bindMounts, runTmpfs)
-		r.registerRuntimeCleanup(r.cleanupAllPodMounts)
 	}
+	r.registerRuntimeCleanup(r.cleanupAllPodMounts)
 
 	r.systemServices, err = r.c.SystemServices()
 	if err != nil {
@@ -1196,7 +1196,6 @@ func (r *DockerRuntime) cleanupMetatronTmpfs() error {
 // leftover in the pod mount directly. It will agressivly try to unmount everything.
 func (r *DockerRuntime) cleanupAllPodMounts() error {
 	l := log.WithField("taskID", r.c.TaskID())
-	mountsPath := path.Join(r.cfg.RuntimeDir, "mounts")
 	f := func(path string, info os.FileInfo, err error) error {
 		if info != nil && info.IsDir() && isDirMounted(path) {
 			l.Infof("Cleanup: unmounting %s", path)
@@ -1204,7 +1203,7 @@ func (r *DockerRuntime) cleanupAllPodMounts() error {
 		}
 		return nil
 	}
-	return filepath.Walk(mountsPath, f)
+	return filepath.Walk(r.cfg.RuntimeDir, f)
 }
 
 func isDirMounted(path string) bool {
@@ -2595,7 +2594,11 @@ func GetTitusInitsPath(taskID string, cName string) string {
 }
 
 func getTitusInitsBase(taskID string) string {
-	return filepath.Join("/run", "titus-executor", "default__"+taskID, "inits")
+	return filepath.Join(GetTitusTaskRunTimeDir(taskID), "inits")
+}
+
+func GetTitusTaskRunTimeDir(taskID string) string {
+	return filepath.Join("/run", "titus-executor", "default__"+taskID)
 }
 
 func (r *DockerRuntime) setupPostStartNetworkingAndIsolate(parentCtx context.Context, c runtimeTypes.Container, cred ucred, rootFile *os.File) error { // nolint: gocyclo
