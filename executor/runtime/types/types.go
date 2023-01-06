@@ -561,4 +561,5 @@ type ServiceOpts struct {
 	Image         string              // If set, represents a docker image for the code representing this sidecar. This is populated at runtime.
 	Volumes       map[string]struct{} // Volumes to map in from the docker image into the main container, usually /titus/$servicename
 	ContainerName string              // A mutable string that is dynamically configured to be compatible with docker ps, calculated at runtime
+	Version       string              // A mutable string that represents the version of the system service, as specified by the image
 }

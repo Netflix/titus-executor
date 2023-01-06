@@ -708,7 +708,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(sOpts *runtimeTypes.ServiceOpt
 			NetworkMode: "none",
 		}
 
-		createErr := r.createVolumeContainer(ctx, &sOpts.ContainerName, cfg, hostConfig)
+		createErr := r.createVolumeContainer(ctx, &sOpts.ContainerName, &sOpts.Version, cfg, hostConfig)
 		if createErr != nil {
 			if sOpts.Required {
 				return errors.Wrapf(createErr, "Unable to setup required volume container for %s", sOpts.ServiceName)
@@ -725,12 +725,12 @@ func (r *DockerRuntime) createVolumeContainerFunc(sOpts *runtimeTypes.ServiceOpt
 }
 
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
-func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
+func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, containerVersion *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
 	image := cfg.Image
 	if image == "" {
 		return fmt.Errorf("No image set for %s, can't create a volume container for it", *containerName)
 	}
-	tmpImageInfo, err := imageExists(ctx, r.client, image)
+	imageInspect, err := imageExists(ctx, r.client, image)
 	if err != nil {
 		return err
 	}
@@ -739,25 +739,26 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 	ctx = logger.WithField(ctx, "hostName", cfg.Hostname)
 	ctx = logger.WithField(ctx, "imageName", image)
 
-	if tmpImageInfo == nil || imageSpecifiedByTag {
+	if imageInspect == nil || imageSpecifiedByTag {
 		logger.G(ctx).WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
 		err = pullWithRetries(ctx, r.cfg, r.metrics, r.client, image, doDockerPull)
 		if err != nil {
 			return err
 		}
-		resp, _, iErr := r.client.ImageInspectWithRaw(ctx, image)
+		imageInspect, _, iErr := r.client.ImageInspectWithRaw(ctx, image)
 		if iErr != nil {
 			return iErr
 		}
 
 		// If the image was specified as a tag, resolve it to a digest in case the tag was updated
-		image = resp.RepoDigests[0]
+		image = imageInspect.RepoDigests[0]
 		cfg.Image = image
 	} else {
 		logger.G(ctx).Info("createVolumeContainer: image exists: not pulling image")
 	}
 
 	*containerName = cleanContainerName(cfg.Hostname, image)
+	*containerVersion = cleanContainerVersion(imageInspect)
 	ctx = logger.WithField(ctx, "containerName", *containerName)
 
 	// Check if this container exists, if not create it.
