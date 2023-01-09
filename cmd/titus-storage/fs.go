@@ -9,7 +9,9 @@ import (
 	"github.com/Netflix/titus-executor/logger"
 )
 
-func isMkfsNeeded(ctx context.Context, device string, fstype string) (bool, error) {
+type fsType string
+
+func isMkfsNeeded(ctx context.Context, device string, fstype fsType) (bool, error) {
 	l := logger.GetLogger(ctx)
 	existingFormat, err := getDiskFormat(ctx, device)
 	if err != nil {
@@ -18,11 +20,11 @@ func isMkfsNeeded(ctx context.Context, device string, fstype string) (bool, erro
 	if existingFormat == "" {
 		return true, nil
 	}
-	l.Warnf("Existing format on disks detected, no mkfs needed: %q", existingFormat)
+	l.Infof("Existing format on disks detected, no mkfs needed: %q", existingFormat)
 	return false, nil
 }
 
-func mkfs(ctx context.Context, device string, fstype string) error {
+func mkfs(ctx context.Context, device string, fstype fsType) error {
 	if fstype == "ext4" || fstype == "ext3" || fstype == "" {
 		if fstype == "" {
 			// Mimicing default linux behavior here
@@ -33,7 +35,7 @@ func mkfs(ctx context.Context, device string, fstype string) error {
 			"-m0", // Zero blocks reserved for super-user
 			device,
 		}
-		return runMkfs(ctx, fstype, device, args)
+		return runMkfs(ctx, device, fstype, args)
 	} else if fstype == "xfs" {
 		args := []string{
 			"-f", // Force flag
@@ -45,9 +47,9 @@ func mkfs(ctx context.Context, device string, fstype string) error {
 }
 
 // runMkfs is modeled after the code in kubelet for formatAndMount
-func runMkfs(ctx context.Context, device string, fstype string, args []string) error {
+func runMkfs(ctx context.Context, device string, fstype fsType, args []string) error {
 	l := logger.GetLogger(ctx)
-	mkfsCmd := "mkfs." + fstype
+	mkfsCmd := string("mkfs." + fstype)
 	out, err := exec.Command(mkfsCmd, args...).CombinedOutput()
 	if err == nil {
 		// the disk has been formatted successfully try to mount it again.
