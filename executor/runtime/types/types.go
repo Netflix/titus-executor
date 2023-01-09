@@ -3,14 +3,12 @@ package types
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/executor"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcapi "github.com/Netflix/titus-executor/vpc/api"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
@@ -501,30 +499,16 @@ func (n *NetworkConfigurationDetails) PickPrimaryIP() string {
 // Details contains additional details about a container that are
 // not returned by normal container start calls.
 type Details struct {
+	ComponentVersions    map[string]string
 	NetworkConfiguration *NetworkConfigurationDetails
 }
 
-func getKernelVersion() string {
-	kernelVersionRaw, err := os.ReadFile("/proc/sys/kernel/osrelease")
-	if err != nil {
-		return fmt.Sprintf("problem reading kernel version: %v", err)
+func (d Details) RenderVersionDetailsCSV() string {
+	componentVersions := []string{}
+	for k, v := range d.ComponentVersions {
+		componentVersions = append(componentVersions, fmt.Sprintf("%s=%s", k, v))
 	}
-
-	return strings.TrimSpace(string(kernelVersionRaw))
-
-}
-
-func getTSAVersion() string {
-	tsaVersionRaw, err := os.ReadFile("/apps/tsa/version")
-	if err != nil {
-		return fmt.Sprintf("problem reading tsa version: %v", err)
-	}
-
-	return strings.TrimSpace(string(tsaVersionRaw))
-}
-
-func (d Details) RenderVersionDetails() string {
-	return fmt.Sprintf("kernel-version=%s,titus-executor=%s,tsa=%s", getKernelVersion(), executor.TitusExecutorVersion, getTSAVersion())
+	return strings.Join(componentVersions, ",")
 }
 
 type ContainerRuntimeProvider func(ctx context.Context, c Container, startTime time.Time) (Runtime, error)
@@ -577,4 +561,5 @@ type ServiceOpts struct {
 	Image         string              // If set, represents a docker image for the code representing this sidecar. This is populated at runtime.
 	Volumes       map[string]struct{} // Volumes to map in from the docker image into the main container, usually /titus/$servicename
 	ContainerName string              // A mutable string that is dynamically configured to be compatible with docker ps, calculated at runtime
+	Version       string              // A mutable string that represents the version of the system service, as specified by the image
 }
