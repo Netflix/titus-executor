@@ -85,7 +85,7 @@ func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2Instanc
 	if mountErr != nil {
 		// Replicating kubelet behavior, it is safer to just try to mount something,
 		// and only if it fails do we risk running mkfs and trying again.
-		mkfsIsNeeded, mkfsIsNeedederr := isMkfsNeeded(ctx, device, c.ebsFStype)
+		mkfsIsNeeded, mkfsIsNeedederr := isMkfsNeeded(ctx, device, fsType(c.ebsFStype))
 		if mkfsIsNeedederr != nil {
 			return mkfsIsNeedederr
 		}
@@ -94,7 +94,7 @@ func ebsStart(ctx context.Context, ec2Client *ec2.EC2, c MountConfig, ec2Instanc
 				return fmt.Errorf("A mkfs is needed on this device, but the mount permissions were not RW, they were %q", c.ebsMountPerm)
 			}
 			l.Infof("mkfs required on %s", device)
-			mkfsErr := mkfs(ctx, device, c.ebsFStype)
+			mkfsErr := mkfs(ctx, device, fsType(c.ebsFStype))
 			if mkfsErr == nil {
 				l.Infof("mkfs finished on %s, trying to mount again", device)
 				secondMountErr := mountBlockDeviceInContainer(ctx, mc)
