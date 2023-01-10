@@ -1,8 +1,8 @@
-# Virtual-Kubelet executor for Titus
+# Virtual-Kubelet executor for Titus (ARCHIVED)
 
-[![Build Status](https://badge.buildkite.com/378856785cd7805f1efad9b69086205f82ec69ac8ba18e9479.svg?branch=master)](https://buildkite.com/netflix/titus-executor)
-[![CircleCI](https://circleci.com/gh/Netflix/titus-executor/tree/master.svg?style=shield)](https://circleci.com/gh/Netflix/titus-executor/tree/master)
-[![Packge Cloud](https://img.shields.io/badge/deb-packagecloud.io-844fec.svg)](https://packagecloud.io/netflix/titus)
+This is a historic archive of `titus-executor`.
+
+----
 
 Runs [Titus](https://netflix.github.io/titus/) containers using Docker.
 
